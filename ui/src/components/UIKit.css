@@ -1,0 +1,246 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * UIKit.css — 通用 UI 组件样式
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.uikit-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all var(--transition-fast);
+  animation: fadeIn 0.3s ease;
+}
+
+.uikit-card:hover {
+  border-color: rgba(139, 92, 246, 0.15);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.05);
+}
+
+.uikit-card__header {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.uikit-card__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.uikit-card__subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.uikit-card__body {
+  padding: var(--spacing-md) var(--spacing-lg);
+}
+
+/* ── Toggle Switch ────────────────────────────────────────────────────────── */
+.uikit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) 0;
+  min-height: 44px;
+}
+
+.uikit-toggle--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.uikit-toggle__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.uikit-toggle__label {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.uikit-toggle__desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.uikit-toggle__switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.uikit-toggle__switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.uikit-toggle__slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--input-border);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-normal);
+}
+
+.uikit-toggle__slider::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: all var(--transition-normal);
+}
+
+.uikit-toggle__switch input:checked + .uikit-toggle__slider {
+  background: var(--primary);
+}
+
+.uikit-toggle__switch input:checked + .uikit-toggle__slider::after {
+  transform: translateX(20px);
+  background: white;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+}
+
+/* ── Setting Row ──────────────────────────────────────────────────────────── */
+.uikit-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) 0;
+  min-height: 44px;
+}
+
+.uikit-setting-row + .uikit-setting-row {
+  border-top: 1px solid var(--card-border);
+}
+
+.uikit-setting-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.uikit-setting-row__label {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.uikit-setting-row__desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.uikit-setting-row__control {
+  flex-shrink: 0;
+  margin-left: var(--spacing-lg);
+}
+
+/* ── Setting Group ────────────────────────────────────────────────────────── */
+.uikit-group {
+  margin-bottom: var(--spacing-lg);
+  animation: fadeIn 0.35s ease;
+}
+
+.uikit-group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.uikit-group__icon {
+  font-size: 1.1rem;
+}
+
+.uikit-group__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+.uikit-group__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* ── Badge ────────────────────────────────────────────────────────────────── */
+.uikit-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.uikit-badge--primary {
+  background: var(--primary-dim);
+  color: var(--primary);
+}
+
+.uikit-badge--success {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--success);
+}
+
+.uikit-badge--warning {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
+}
+
+.uikit-badge--danger {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
+}
+
+.uikit-badge--muted {
+  background: rgba(156, 163, 175, 0.15);
+  color: var(--text-muted);
+}
+
+/* ── Select ───────────────────────────────────────────────────────────────── */
+.uikit-select {
+  padding: 6px 32px 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: all var(--transition-fast);
+}
+
+.uikit-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-dim);
+}
+
+.uikit-select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}

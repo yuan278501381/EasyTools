@@ -1,0 +1,77 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AboutPage.css
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--card-border);
+  margin-bottom: var(--spacing-md);
+}
+
+.about-hero__icon {
+  font-size: 3rem;
+  filter: drop-shadow(0 0 16px var(--primary-glow));
+  animation: pulse 2.5s ease-in-out infinite;
+}
+
+.about-hero__title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--primary) 0%, #c084fc 50%, var(--primary-hover) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.about-hero__subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.about-hero__badges {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.about-desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* ── 依赖列表 ─────────────────────────────────────────────────────────────── */
+.about-deps {
+  display: flex;
+  flex-direction: column;
+}
+
+.about-dep-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.about-dep-item:last-child {
+  border-bottom: none;
+}
+
+.about-dep-name {
+  width: 140px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  font-family: 'Consolas', monospace;
+}
+
+.about-dep-purpose {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}

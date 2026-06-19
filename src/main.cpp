@@ -34,6 +34,7 @@
 #include "core/crash/CrashHandler.h"
 #include "tray/TrayIcon.h"
 #include "gesture/GestureEngine.h"
+#include "ui/SettingsWindow.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
@@ -250,7 +251,15 @@ void shutdownSubsystems() {
 // WebView2 设置窗口（按需创建）
 // ─────────────────────────────────────────────────────────────────────────────
 void showSettingsWindow() {
-    // TODO: Phase 1.4 实现 WebView2 设置窗口
-    // 将在前端 UI 项目搭建后实现
-    LOG_INFO("设置窗口尚未实现 (TODO Phase 1.4)");
+    auto& settingsWnd = easy::ui::SettingsWindow::instance();
+
+    // 开发模式: 连接 Vite dev server
+#ifdef _DEBUG
+    easy::ui::SettingsWindowConfig config;
+    config.devServerUrl = "http://localhost:5173";
+    config.devToolsEnabled = true;
+    settingsWnd.setConfig(config);
+#endif
+
+    settingsWnd.show(GetModuleHandleW(nullptr));
 }
