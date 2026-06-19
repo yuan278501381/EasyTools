@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/ScreenCapture.h"
+#include "capture/CaptureOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -27,11 +28,34 @@ ScreenCapture& ScreenCapture::instance() {
 
 bool ScreenCapture::initialize(HINSTANCE hInstance) {
     m_hInstance = hInstance;
+
+    // 初始化截图覆盖层
+    auto& overlay = CaptureOverlay::instance();
+    overlay.initialize(hInstance);
+    overlay.setCallback([this](const CaptureRegion& region, const cv::Mat& markedImage) {
+        easy::core::TraceId::Scope scope;
+        CaptureResult result;
+        result.region = region;
+        result.imageWidth = markedImage.cols;
+        result.imageHeight = markedImage.rows;
+
+        // 复制到剪贴板
+        if (!markedImage.empty()) {
+            copyToClipboard(markedImage);
+        }
+
+        result.success = true;
+        LOG_INFO("截图完成: {}x{}", result.imageWidth, result.imageHeight);
+
+        if (m_callback) m_callback(result);
+    });
+
     LOG_INFO("截图引擎已初始化");
     return true;
 }
 
 void ScreenCapture::shutdown() {
+    CaptureOverlay::instance().shutdown();
     LOG_INFO("截图引擎已关闭");
 }
 
@@ -48,15 +72,10 @@ void ScreenCapture::startCapture(const CaptureOptions& options) {
     easy::core::TraceId::Scope scope;
     m_capturing = true;
 
-    // TODO: Phase 2.2 实现区域选择覆盖层
-    // 暂时使用全屏截图
-    auto result = captureFullScreen(options);
+    // 启动区域选择覆盖层
+    CaptureOverlay::instance().startSelection(options);
 
     m_capturing = false;
-
-    if (m_callback) {
-        m_callback(result);
-    }
 }
 
 CaptureResult ScreenCapture::captureFullScreen(const CaptureOptions& options) {
