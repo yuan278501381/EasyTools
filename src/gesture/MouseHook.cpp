@@ -1,0 +1,148 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// MouseHook.cpp — 低级鼠标钩子实现
+// ─────────────────────────────────────────────────────────────────────────────
+
+#include "gesture/MouseHook.h"
+#include "core/logger/Logger.h"
+
+namespace easy::gesture {
+
+MouseHook& MouseHook::instance() {
+    static MouseHook inst;
+    return inst;
+}
+
+bool MouseHook::install() {
+    if (m_hookHandle) {
+        LOG_WARN("鼠标钩子已安装, 跳过重复安装");
+        return true;
+    }
+
+    m_hookHandle = SetWindowsHookExW(
+        WH_MOUSE_LL,
+        lowLevelMouseProc,
+        GetModuleHandleW(nullptr),
+        0  // 全局钩子
+    );
+
+    if (!m_hookHandle) {
+        LOG_ERROR("安装鼠标钩子失败, error={}", GetLastError());
+        return false;
+    }
+
+    LOG_INFO("低级鼠标钩子已安装");
+    return true;
+}
+
+void MouseHook::uninstall() {
+    if (m_hookHandle) {
+        UnhookWindowsHookEx(m_hookHandle);
+        m_hookHandle = nullptr;
+        LOG_INFO("低级鼠标钩子已卸载");
+    }
+}
+
+void MouseHook::setPaused(bool paused) {
+    m_paused.store(paused);
+    LOG_INFO("鼠标钩子暂停状态: paused={}", paused);
+}
+
+void MouseHook::setEventCallback(MouseEventCallback callback) {
+    std::lock_guard lock(m_callbackMutex);
+    m_callback = std::move(callback);
+}
+
+std::vector<MouseEvent> MouseHook::drainEvents(size_t maxCount) {
+    std::lock_guard lock(m_queueMutex);
+    std::vector<MouseEvent> events;
+    size_t count = std::min(maxCount, m_eventQueue.size());
+    events.reserve(count);
+
+    for (size_t i = 0; i < count; ++i) {
+        events.push_back(std::move(m_eventQueue.front()));
+        m_eventQueue.pop();
+    }
+
+    return events;
+}
+
+LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    auto& self = MouseHook::instance();
+
+    if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed)) {
+        auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+
+        MouseEvent event{};
+        event.position = data->pt;
+        event.timestamp = std::chrono::steady_clock::now();
+        event.foregroundWindow = GetForegroundWindow();
+
+        bool shouldCapture = false;
+
+        switch (wParam) {
+            case WM_MOUSEMOVE:
+                event.type = MouseEventType::Move;
+                shouldCapture = true;  // Move 事件总是采集（由上层过滤）
+                break;
+            case WM_RBUTTONDOWN:
+                event.type = MouseEventType::RightDown;
+                shouldCapture = true;
+                break;
+            case WM_RBUTTONUP:
+                event.type = MouseEventType::RightUp;
+                shouldCapture = true;
+                break;
+            case WM_MBUTTONDOWN:
+                event.type = MouseEventType::MiddleDown;
+                shouldCapture = true;
+                break;
+            case WM_MBUTTONUP:
+                event.type = MouseEventType::MiddleUp;
+                shouldCapture = true;
+                break;
+            case WM_LBUTTONDOWN:
+                event.type = MouseEventType::LeftDown;
+                shouldCapture = true;
+                break;
+            case WM_LBUTTONUP:
+                event.type = MouseEventType::LeftUp;
+                shouldCapture = true;
+                break;
+            case WM_MOUSEWHEEL: {
+                short delta = HIWORD(data->mouseData);
+                event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
+                shouldCapture = true;
+                break;
+            }
+            default:
+                break;
+        }
+
+        if (shouldCapture) {
+            self.enqueueEvent(event);
+        }
+    }
+
+    // 重要: 必须调用 CallNextHookEx 传递给下一个钩子
+    return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+}
+
+void MouseHook::enqueueEvent(const MouseEvent& event) {
+    // 尝试直接回调（低延迟模式）
+    {
+        std::lock_guard lock(m_callbackMutex);
+        if (m_callback) {
+            m_callback(event);
+            return;
+        }
+    }
+
+    // 入队模式（由工作线程批量消费）
+    std::lock_guard lock(m_queueMutex);
+    if (m_eventQueue.size() < MAX_QUEUE_SIZE) {
+        m_eventQueue.push(event);
+    }
+    // 队列满时静默丢弃（不应该在钩子回调中做日志等耗时操作）
+}
+
+}  // namespace easy::gesture

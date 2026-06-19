@@ -1,0 +1,165 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// GestureRecognizer.cpp — 手势识别算法实现
+// ─────────────────────────────────────────────────────────────────────────────
+
+#include "gesture/GestureRecognizer.h"
+#include "core/logger/Logger.h"
+
+#include <cmath>
+#include <numbers>
+
+namespace easy::gesture {
+
+GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
+    : m_config(config) {}
+
+void GestureRecognizer::reset() {
+    m_points.clear();
+    m_directions.clear();
+    m_currentDirection = Direction::None;
+    m_hasSegmentStart = false;
+}
+
+void GestureRecognizer::addPoint(int x, int y) {
+    // 采样过滤: 与上一个点距离太近则跳过
+    if (!m_points.empty()) {
+        double dist = calculateDistance(m_points.back().x, m_points.back().y, x, y);
+        if (dist < m_config.samplingInterval) {
+            return;
+        }
+    }
+
+    m_points.push_back({x, y});
+
+    // 初始化段起点
+    if (!m_hasSegmentStart) {
+        m_segmentStart = {x, y};
+        m_hasSegmentStart = true;
+        return;
+    }
+
+    // 实时处理方向段
+    processPoints();
+}
+
+void GestureRecognizer::processPoints() {
+    if (m_points.size() < 2 || !m_hasSegmentStart) return;
+
+    const auto& current = m_points.back();
+    double dist = calculateDistance(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
+
+    // 距离未达到阈值，继续累积
+    if (dist < m_config.minSegmentDistance) return;
+
+    // 计算方向
+    double angle = calculateAngle(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
+    Direction dir = angleToDirection(angle);
+
+    if (dir == Direction::None) return;
+
+    if (dir != m_currentDirection) {
+        // 方向发生变化，记录新的方向段
+        if (m_currentDirection != Direction::None) {
+            // 前一个方向段已确认
+            if (m_directions.size() < static_cast<size_t>(m_config.maxDirections)) {
+                m_directions.push_back(m_currentDirection);
+            }
+        }
+        m_currentDirection = dir;
+        m_segmentStart = current;  // 新段的起点
+    } else {
+        // 方向不变，更新段起点（滑动窗口，保持灵敏度）
+        m_segmentStart = current;
+    }
+}
+
+std::optional<GestureResult> GestureRecognizer::finalize() {
+    // 将最后一个正在累积的方向段加入
+    if (m_currentDirection != Direction::None) {
+        if (m_directions.empty() || m_directions.back() != m_currentDirection) {
+            m_directions.push_back(m_currentDirection);
+        }
+    }
+
+    if (m_directions.empty()) {
+        LOG_TRACE("手势识别: 轨迹太短或无有效方向段, 点数={}", m_points.size());
+        return std::nullopt;
+    }
+
+    // 构建结果
+    GestureResult result;
+    result.directions = m_directions;
+    result.rawPoints = m_points;
+
+    // 计算总距离
+    for (size_t i = 1; i < m_points.size(); ++i) {
+        result.totalDistance += calculateDistance(
+            m_points[i - 1].x, m_points[i - 1].y,
+            m_points[i].x, m_points[i].y
+        );
+    }
+
+    // 生成方向编码字符串 (如 "L-U-R")
+    for (size_t i = 0; i < m_directions.size(); ++i) {
+        if (i > 0) result.code += "-";
+        result.code += directionToCode(m_directions[i]);
+    }
+
+    LOG_DEBUG("手势识别完成: code={}, arrows={}, 点数={}, 总距离={:.1f}px",
+              result.code, result.toArrowString(), m_points.size(), result.totalDistance);
+
+    return result;
+}
+
+std::vector<Direction> GestureRecognizer::currentDirections() const {
+    auto dirs = m_directions;
+    if (m_currentDirection != Direction::None) {
+        if (dirs.empty() || dirs.back() != m_currentDirection) {
+            dirs.push_back(m_currentDirection);
+        }
+    }
+    return dirs;
+}
+
+double GestureRecognizer::calculateAngle(int x1, int y1, int x2, int y2) {
+    // atan2 返回 [-π, π]，以正右方为 0，逆时针为正
+    // 注意: 屏幕坐标 Y 轴向下，所以 y 取反
+    return std::atan2(-(y2 - y1), x2 - x1);
+}
+
+Direction GestureRecognizer::angleToDirection(double angleRad) const {
+    // 将角度归一化到 [0, 2π)
+    if (angleRad < 0) angleRad += 2 * std::numbers::pi;
+
+    // 每个方向占 45°（π/4 弧度），允许 ±22.5° 容差
+    // 方向划分 (以正右方 0° 为起点，逆时针):
+    //   Right:     [-22.5°, 22.5°)    → [337.5°, 360°) ∪ [0°, 22.5°)
+    //   UpRight:   [22.5°, 67.5°)
+    //   Up:        [67.5°, 112.5°)
+    //   UpLeft:    [112.5°, 157.5°)
+    //   Left:      [157.5°, 202.5°)
+    //   DownLeft:  [202.5°, 247.5°)
+    //   Down:      [247.5°, 292.5°)
+    //   DownRight: [292.5°, 337.5°)
+
+    double angleDeg = angleRad * 180.0 / std::numbers::pi;
+
+    if (angleDeg >= 337.5 || angleDeg < 22.5)   return Direction::Right;
+    if (angleDeg >= 22.5  && angleDeg < 67.5)    return Direction::UpRight;
+    if (angleDeg >= 67.5  && angleDeg < 112.5)   return Direction::Up;
+    if (angleDeg >= 112.5 && angleDeg < 157.5)   return Direction::UpLeft;
+    if (angleDeg >= 157.5 && angleDeg < 202.5)   return Direction::Left;
+    if (angleDeg >= 202.5 && angleDeg < 247.5)   return Direction::DownLeft;
+    if (angleDeg >= 247.5 && angleDeg < 292.5)   return Direction::Down;
+    if (angleDeg >= 292.5 && angleDeg < 337.5)   return Direction::DownRight;
+
+    return Direction::None;
+}
+
+double GestureRecognizer::calculateDistance(int x1, int y1, int x2, int y2) {
+    double dx = static_cast<double>(x2 - x1);
+    double dy = static_cast<double>(y2 - y1);
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+}  // namespace easy::gesture
