@@ -11,11 +11,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/CaptureOverlay.h"
+#include "capture/PinWindow.h"
+#include "capture/ScrollCapture.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
 #include <algorithm>
+#include <array>
 #include <format>
+#include <windowsx.h>
 
 namespace easy::capture {
 
@@ -63,11 +67,17 @@ void CaptureOverlay::shutdown() {
 // 截图流程
 // ─────────────────────────────────────────────────────────────────────────────
 
-void CaptureOverlay::startSelection(const CaptureOptions& options) {
+void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode mode) {
     easy::core::TraceId::Scope scope;
     m_options = options;
+    m_mode = mode;
     m_state = OverlayState::Selecting;
     m_dragging = false;
+    m_isMarking = false;
+    m_markupBaseReady = false;
+    m_markup.clearAll();
+    m_toolbarButtons.clear();
+    m_penPoints.clear();
     m_dragStart = {};
     m_dragEnd = {};
 
@@ -103,6 +113,10 @@ void CaptureOverlay::cancel() {
     ReleaseCapture();
     ShowWindow(m_hwnd, SW_HIDE);
     m_state = OverlayState::Idle;
+    m_isMarking = false;
+    m_markupBaseReady = false;
+    m_toolbarButtons.clear();
+    m_penPoints.clear();
     m_frozenScreen.release();
     m_screenBitmap.Reset();
     LOG_DEBUG("截图已取消");
@@ -165,6 +179,8 @@ bool CaptureOverlay::createRenderResources() {
         13.0f, L"zh-CN", m_infoTextFormat.GetAddressOf()
     );
     if (FAILED(hr)) return false;
+    m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_infoTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     RECT rc;
     GetClientRect(m_hwnd, &rc);
@@ -301,6 +317,8 @@ void CaptureOverlay::render() {
 
         D2D1_RECT_F selRect = D2D1::RectF(x1, y1, x2, y2);
         drawDimOverlay(selRect);
+        drawMarkupPreview(selRect);
+        drawActiveMarkupPreview(selRect);
         drawSelection(selRect);
         drawSizeInfo(selRect);
         drawToolbar(selRect);
@@ -400,33 +418,141 @@ void CaptureOverlay::drawSizeInfo(const D2D1_RECT_F& rect) {
                              m_infoTextBrush.Get());
 }
 
-void CaptureOverlay::drawToolbar([[maybe_unused]] const D2D1_RECT_F& selectionRect) {
-    // TODO: 绘制标注工具按钮（矩形/箭头/椭圆/画笔/高亮/马赛克/文本/序号/放大镜/撤销/保存）
-    // 工具栏位于选区底部
-    float toolbarY = selectionRect.bottom + 8;
-    float toolbarX = selectionRect.left;
-    float toolbarW = 500.0f;
-    float toolbarH = 36.0f;
+void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
+    rebuildToolbarButtons(selectionRect);
+    if (m_toolbarButtons.empty()) return;
 
-    if (toolbarY + toolbarH > m_renderTarget->GetSize().height) {
-        toolbarY = selectionRect.top - toolbarH - 8;
+    auto bgRect = D2D1::RectF(
+        m_toolbarButtons.front().rect.left - 8.0f,
+        m_toolbarButtons.front().rect.top - 6.0f,
+        m_toolbarButtons.back().rect.right + 8.0f,
+        m_toolbarButtons.back().rect.bottom + 6.0f
+    );
+    m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(bgRect, 7.0f, 7.0f), m_infoBgBrush.Get());
+
+    ComPtr<ID2D1SolidColorBrush> buttonBrush;
+    ComPtr<ID2D1SolidColorBrush> activeBrush;
+    ComPtr<ID2D1SolidColorBrush> dangerBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.10f), buttonBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.95f), activeBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.25f, 0.25f, 0.85f), dangerBrush.GetAddressOf());
+
+    for (const auto& button : m_toolbarButtons) {
+        bool isTool = button.command == ToolbarCommand::SelectTool;
+        bool isActiveTool = isTool && button.tool == m_currentTool;
+        bool isDanger = button.command == ToolbarCommand::Cancel || button.command == ToolbarCommand::Clear;
+
+        auto rounded = D2D1::RoundedRect(button.rect, 5.0f, 5.0f);
+        auto* fillBrush = isActiveTool ? activeBrush.Get() : isDanger ? dangerBrush.Get() : buttonBrush.Get();
+        m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
+
+        if (isActiveTool) {
+            m_renderTarget->DrawRoundedRectangle(rounded, m_infoTextBrush.Get(), 1.2f);
+        }
+
+        m_renderTarget->DrawText(
+            button.label.c_str(), static_cast<UINT32>(button.label.size()),
+            m_infoTextFormat.Get(),
+            button.rect,
+            m_infoTextBrush.Get()
+        );
+    }
+}
+
+void CaptureOverlay::drawMarkupPreview(const D2D1_RECT_F& selectionRect) {
+    if (!m_markupBaseReady || m_markup.elementCount() == 0 || !m_renderTarget) return;
+
+    cv::Mat composite = m_markup.getCompositeImage();
+    if (composite.empty()) return;
+
+    cv::Mat bgra;
+    if (composite.channels() == 3) {
+        cv::cvtColor(composite, bgra, cv::COLOR_BGR2BGRA);
+    } else if (composite.channels() == 4) {
+        bgra = composite;
+    } else {
+        return;
     }
 
-    D2D1_ROUNDED_RECT bg = D2D1::RoundedRect(
-        D2D1::RectF(toolbarX, toolbarY, toolbarX + toolbarW, toolbarY + toolbarH),
-        6.0f, 6.0f
+    D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
     );
 
-    m_renderTarget->FillRoundedRectangle(bg, m_infoBgBrush.Get());
-
-    // 工具图标占位文字
-    std::wstring toolNames = L"▭  ↗  ○  ✏  ▬  ▦  T  ①  🔍  ↩  💾  ✓";
-    m_renderTarget->DrawText(
-        toolNames.c_str(), static_cast<UINT32>(toolNames.size()),
-        m_infoTextFormat.Get(),
-        D2D1::RectF(toolbarX + 12, toolbarY + 2, toolbarX + toolbarW - 12, toolbarY + toolbarH),
-        m_infoTextBrush.Get()
+    ComPtr<ID2D1Bitmap> bitmap;
+    HRESULT hr = m_renderTarget->CreateBitmap(
+        D2D1::SizeU(bgra.cols, bgra.rows),
+        bgra.data,
+        bgra.cols * 4,
+        bitmapProps,
+        bitmap.GetAddressOf()
     );
+    if (SUCCEEDED(hr) && bitmap) {
+        m_renderTarget->DrawBitmap(bitmap.Get(), selectionRect);
+    }
+}
+
+void CaptureOverlay::drawActiveMarkupPreview(const D2D1_RECT_F& selectionRect) {
+    if (!m_isMarking || !m_renderTarget) return;
+
+    float x1 = static_cast<float>(m_markupStart.x);
+    float y1 = static_cast<float>(m_markupStart.y);
+    float x2 = static_cast<float>(m_markupEnd.x);
+    float y2 = static_cast<float>(m_markupEnd.y);
+    auto rect = D2D1::RectF(std::min(x1, x2), std::min(y1, y2), std::max(x1, x2), std::max(y1, y2));
+
+    switch (m_currentTool) {
+        case MarkupTool::Rectangle:
+        case MarkupTool::Mosaic:
+            m_renderTarget->DrawRectangle(rect, m_borderBrush.Get(), 2.0f);
+            break;
+
+        case MarkupTool::Highlight: {
+            ComPtr<ID2D1SolidColorBrush> highlightBrush;
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.78f, 0.18f, 0.28f), highlightBrush.GetAddressOf());
+            m_renderTarget->FillRectangle(rect, highlightBrush.Get());
+            m_renderTarget->DrawRectangle(rect, m_borderBrush.Get(), 1.0f);
+            break;
+        }
+
+        case MarkupTool::Arrow:
+            m_renderTarget->DrawLine(
+                D2D1::Point2F(x1, y1),
+                D2D1::Point2F(x2, y2),
+                m_borderBrush.Get(),
+                2.0f
+            );
+            break;
+
+        case MarkupTool::Ellipse:
+            m_renderTarget->DrawEllipse(
+                D2D1::Ellipse(
+                    D2D1::Point2F((x1 + x2) / 2.0f, (y1 + y2) / 2.0f),
+                    std::abs(x2 - x1) / 2.0f,
+                    std::abs(y2 - y1) / 2.0f
+                ),
+                m_borderBrush.Get(),
+                2.0f
+            );
+            break;
+
+        case MarkupTool::Pen:
+            if (m_penPoints.size() >= 2) {
+                for (size_t i = 1; i < m_penPoints.size(); ++i) {
+                    m_renderTarget->DrawLine(
+                        D2D1::Point2F(selectionRect.left + static_cast<float>(m_penPoints[i - 1].x),
+                                      selectionRect.top + static_cast<float>(m_penPoints[i - 1].y)),
+                        D2D1::Point2F(selectionRect.left + static_cast<float>(m_penPoints[i].x),
+                                      selectionRect.top + static_cast<float>(m_penPoints[i].y)),
+                        m_borderBrush.Get(),
+                        2.0f
+                    );
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
 }
 
 void CaptureOverlay::drawCrosshair(float x, float y) {
@@ -451,6 +577,322 @@ RECT CaptureOverlay::detectWindowUnderCursor(POINT cursorPos) {
     return rc;
 }
 
+D2D1_RECT_F CaptureOverlay::currentSelectionRect() const {
+    float x1 = static_cast<float>(std::min(m_dragStart.x, m_dragEnd.x));
+    float y1 = static_cast<float>(std::min(m_dragStart.y, m_dragEnd.y));
+    float x2 = static_cast<float>(std::max(m_dragStart.x, m_dragEnd.x));
+    float y2 = static_cast<float>(std::max(m_dragStart.y, m_dragEnd.y));
+    return D2D1::RectF(x1, y1, x2, y2);
+}
+
+void CaptureOverlay::prepareMarkupBase() {
+    if (m_markupBaseReady || m_frozenScreen.empty()) return;
+
+    auto rect = currentSelectionRect();
+    int x = static_cast<int>(rect.left);
+    int y = static_cast<int>(rect.top);
+    int w = static_cast<int>(rect.right - rect.left);
+    int h = static_cast<int>(rect.bottom - rect.top);
+    if (w <= 0 || h <= 0) return;
+
+    cv::Rect roiRect(x, y, w, h);
+    roiRect &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
+    if (roiRect.area() <= 0) return;
+
+    cv::Mat cropped;
+    m_frozenScreen(roiRect).copyTo(cropped);
+    if (cropped.channels() == 4) {
+        cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
+    }
+
+    m_markup.setBaseImage(cropped);
+    m_markupBaseReady = true;
+}
+
+void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
+    m_toolbarButtons.clear();
+    if (!m_renderTarget) return;
+
+    struct ToolSpec {
+        MarkupTool tool;
+        const wchar_t* label;
+    };
+
+    static constexpr std::array<ToolSpec, 9> tools{{
+        {MarkupTool::Rectangle, L"□"},
+        {MarkupTool::Arrow, L"↗"},
+        {MarkupTool::Ellipse, L"○"},
+        {MarkupTool::Pen, L"✎"},
+        {MarkupTool::Highlight, L"▰"},
+        {MarkupTool::Mosaic, L"▦"},
+        {MarkupTool::Text, L"T"},
+        {MarkupTool::Number, L"①"},
+        {MarkupTool::Magnifier, L"⌕"},
+    }};
+
+    auto size = m_renderTarget->GetSize();
+    constexpr float buttonSize = 30.0f;
+    constexpr float gap = 4.0f;
+    constexpr float toolbarHeight = 42.0f;
+    constexpr float padding = 8.0f;
+    bool isRecord = (m_mode == OverlayMode::RecordRegion);
+    int commandCount = isRecord ? 2 : 6;
+    const int buttonCount = isRecord ? 2 : static_cast<int>(tools.size()) + commandCount;
+    const float toolbarWidth = padding * 2.0f + buttonCount * buttonSize + (buttonCount - 1) * gap + (isRecord ? 20.0f : 0.0f);
+    float maxX = std::max(8.0f, size.width - toolbarWidth - 8.0f);
+    float toolbarX = std::clamp(selectionRect.left, 8.0f, maxX);
+    float toolbarY = selectionRect.bottom + 8.0f;
+    if (toolbarY + toolbarHeight > size.height - 8.0f) {
+        toolbarY = selectionRect.top - toolbarHeight - 8.0f;
+    }
+    toolbarY = std::max(8.0f, toolbarY);
+
+    float x = toolbarX + padding;
+    auto addButton = [&](ToolbarCommand command, MarkupTool tool, std::wstring label, float width = buttonSize) {
+        ToolbarButton button;
+        button.command = command;
+        button.tool = tool;
+        button.label = std::move(label);
+        button.rect = D2D1::RectF(x, toolbarY + 6.0f, x + width, toolbarY + 6.0f + buttonSize);
+        m_toolbarButtons.push_back(std::move(button));
+        x += width + gap;
+    };
+
+    if (isRecord) {
+        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"🔴 录制", 60.0f);
+        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖ 取消", 60.0f);
+    } else {
+        for (const auto& tool : tools) {
+            addButton(ToolbarCommand::SelectTool, tool.tool, tool.label);
+        }
+        addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩");
+        addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪");
+        addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑");
+        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, L"文");
+        addButton(ToolbarCommand::PinWindow, MarkupTool::Rectangle, L"📌");
+        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, L"长");
+        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖");
+        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"✓");
+    }
+}
+
+ToolbarButton* CaptureOverlay::hitTestToolbar(POINT point) {
+    rebuildToolbarButtons(currentSelectionRect());
+    for (auto& button : m_toolbarButtons) {
+        if (point.x >= button.rect.left && point.x <= button.rect.right &&
+            point.y >= button.rect.top && point.y <= button.rect.bottom) {
+            return &button;
+        }
+    }
+    return nullptr;
+}
+
+void CaptureOverlay::executeToolbarCommand(const ToolbarButton& button) {
+    switch (button.command) {
+        case ToolbarCommand::SelectTool:
+            m_currentTool = button.tool;
+            m_state = OverlayState::Selected;
+            m_isMarking = false;
+            break;
+
+        case ToolbarCommand::Undo:
+            m_markup.undo();
+            break;
+
+        case ToolbarCommand::Redo:
+            m_markup.redo();
+            break;
+
+        case ToolbarCommand::Clear:
+            m_markup.clearAll();
+            prepareMarkupBase();
+            break;
+
+        case ToolbarCommand::ExtractText:
+            if (m_ocrCallback) {
+                int x1 = std::min(m_dragStart.x, m_dragEnd.x);
+                int y1 = std::min(m_dragStart.y, m_dragEnd.y);
+                int w = std::abs(m_dragEnd.x - m_dragStart.x);
+                int h = std::abs(m_dragEnd.y - m_dragStart.y);
+                
+                cv::Mat cropped;
+                if (m_markup.elementCount() > 0) cropped = m_markup.getCompositeImage();
+                else {
+                    cv::Rect roi(x1, y1, w, h);
+                    roi &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
+                    if (roi.area() > 0) m_frozenScreen(roi).copyTo(cropped);
+                }
+
+                int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                CaptureRegion region{x1 + offsetX, y1 + offsetY, w, h};
+                auto ocrCb = m_ocrCallback;
+                cancel(); 
+                ocrCb(region, cropped);
+            }
+            break;
+
+        case ToolbarCommand::PinWindow: {
+            int x1 = std::min(m_dragStart.x, m_dragEnd.x);
+            int y1 = std::min(m_dragStart.y, m_dragEnd.y);
+            int w = std::abs(m_dragEnd.x - m_dragStart.x);
+            int h = std::abs(m_dragEnd.y - m_dragStart.y);
+            
+            cv::Mat cropped;
+            if (m_markup.elementCount() > 0) cropped = m_markup.getCompositeImage();
+            else {
+                cv::Rect roi(x1, y1, w, h);
+                roi &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
+                if (roi.area() > 0) m_frozenScreen(roi).copyTo(cropped);
+            }
+
+            int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            
+            // 先关闭截图覆盖层
+            cancel();
+
+            // 贴图在原位置
+            PinWindow::create(cropped, x1 + offsetX, y1 + offsetY);
+            break;
+        }
+
+        case ToolbarCommand::ScrollCapture: {
+            int x1 = std::min(m_dragStart.x, m_dragEnd.x);
+            int y1 = std::min(m_dragStart.y, m_dragEnd.y);
+            int w = std::abs(m_dragEnd.x - m_dragStart.x);
+            int h = std::abs(m_dragEnd.y - m_dragStart.y);
+
+            int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            
+            RECT capRect = {x1 + offsetX, y1 + offsetY, x1 + offsetX + w, y1 + offsetY + h};
+            
+            // 关闭覆盖层
+            cancel();
+
+            // 启动长截图 (TODO: 可以把结果通过回调传出，或者这里暂时让 ScrollCapture 把自己跑完并在内部提示)
+            ScrollCaptureOptions opts;
+            opts.captureRect = capRect;
+            opts.mode = ScrollMode::Auto;
+            ScrollCapture::instance().start(opts);
+            break;
+        }
+
+        case ToolbarCommand::Confirm:
+            confirmSelection();
+            break;
+
+        case ToolbarCommand::Cancel:
+            cancel();
+            break;
+    }
+}
+
+bool CaptureOverlay::isPointInSelection(POINT point) const {
+    auto rect = currentSelectionRect();
+    return point.x >= rect.left && point.x <= rect.right &&
+           point.y >= rect.top && point.y <= rect.bottom;
+}
+
+cv::Point CaptureOverlay::toMarkupPoint(POINT point) const {
+    auto rect = currentSelectionRect();
+    int width = std::max(1, static_cast<int>(rect.right - rect.left));
+    int height = std::max(1, static_cast<int>(rect.bottom - rect.top));
+    int x = std::clamp(static_cast<int>(point.x - rect.left), 0, width - 1);
+    int y = std::clamp(static_cast<int>(point.y - rect.top), 0, height - 1);
+    return {x, y};
+}
+
+void CaptureOverlay::beginMarkup(POINT point) {
+    if (!isPointInSelection(point)) return;
+    prepareMarkupBase();
+    if (!m_markupBaseReady) return;
+
+    cv::Point local = toMarkupPoint(point);
+    if (m_currentTool == MarkupTool::Number) {
+        m_markup.addNumberMark(local, m_currentColor);
+        return;
+    }
+    if (m_currentTool == MarkupTool::Magnifier) {
+        m_markup.addMagnifier(local);
+        return;
+    }
+    if (m_currentTool == MarkupTool::Text) {
+        m_markup.addText(local, "Text", m_currentColor, 18.0f);
+        return;
+    }
+
+    m_markupStart = point;
+    m_markupEnd = point;
+    m_penPoints.clear();
+    if (m_currentTool == MarkupTool::Pen) {
+        m_penPoints.push_back(local);
+    }
+    m_isMarking = true;
+    m_state = OverlayState::Marking;
+}
+
+void CaptureOverlay::updateMarkup(POINT point) {
+    if (!m_isMarking) return;
+
+    m_markupEnd = point;
+    if (m_currentTool == MarkupTool::Pen) {
+        cv::Point local = toMarkupPoint(point);
+        if (m_penPoints.empty() || m_penPoints.back() != local) {
+            m_penPoints.push_back(local);
+        }
+    }
+}
+
+void CaptureOverlay::finishMarkup(POINT point) {
+    if (!m_isMarking) return;
+
+    m_markupEnd = point;
+    cv::Point start = toMarkupPoint(m_markupStart);
+    cv::Point end = toMarkupPoint(m_markupEnd);
+    int dx = std::abs(end.x - start.x);
+    int dy = std::abs(end.y - start.y);
+
+    if (m_currentTool != MarkupTool::Pen && dx < 3 && dy < 3) {
+        m_isMarking = false;
+        m_state = OverlayState::Selected;
+        return;
+    }
+
+    switch (m_currentTool) {
+        case MarkupTool::Rectangle:
+            m_markup.drawRectangle(start, end, m_currentColor);
+            break;
+
+        case MarkupTool::Arrow:
+            m_markup.drawArrow(start, end, m_currentColor);
+            break;
+
+        case MarkupTool::Ellipse:
+            m_markup.drawEllipse(start, end, m_currentColor);
+            break;
+
+        case MarkupTool::Pen:
+            m_markup.drawPenStroke(m_penPoints, m_currentColor);
+            break;
+
+        case MarkupTool::Highlight:
+            m_markup.drawHighlight(start, end, MarkupColor::Yellow());
+            break;
+
+        case MarkupTool::Mosaic:
+            m_markup.applyMosaic(start, end);
+            break;
+
+        default:
+            break;
+    }
+
+    m_isMarking = false;
+    m_state = OverlayState::Selected;
+}
+
 void CaptureOverlay::confirmSelection() {
     easy::core::TraceId::Scope scope;
 
@@ -466,31 +908,44 @@ void CaptureOverlay::confirmSelection() {
         return;
     }
 
-    CaptureRegion region{x1, y1, w, h};
-
-    // 从冻结的屏幕裁剪选区
-    cv::Rect roiRect(x1, y1, w, h);
-    roiRect &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
-
     cv::Mat cropped;
-    if (roiRect.area() > 0) {
-        m_frozenScreen(roiRect).copyTo(cropped);
-        cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
+    if (m_markup.elementCount() > 0) {
+        cropped = m_markup.getCompositeImage();
+    } else {
+        // 从冻结的屏幕裁剪选区
+        cv::Rect roiRect(x1, y1, w, h);
+        roiRect &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
+
+        if (roiRect.area() > 0) {
+            m_frozenScreen(roiRect).copyTo(cropped);
+            if (cropped.channels() == 4) {
+                cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
+            }
+        }
     }
 
-    // 应用标注
-    if (m_markup.elementCount() > 0) {
-        m_markup.setBaseImage(cropped);
-        cropped = m_markup.getCompositeImage();
-    }
+    int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    CaptureRegion region{x1 + offsetX, y1 + offsetY, w, h};
+
+    // 保存回调指针，因为 cancel() 会清理部分状态
+    auto cb = m_callback;
+    auto rcb = m_recordCallback;
+    auto mode = m_mode;
 
     cancel();  // 关闭覆盖层
 
-    if (m_callback) {
-        m_callback(region, cropped);
+    if (mode == OverlayMode::RecordRegion) {
+        if (rcb) {
+            rcb(region);
+        }
+        LOG_INFO("录屏选区确认: ({},{}) {}x{}", x1, y1, w, h);
+    } else {
+        if (cb) {
+            cb(region, cropped);
+        }
+        LOG_INFO("截图选区确认: ({},{}) {}x{}", x1, y1, w, h);
     }
-
-    LOG_INFO("截图选区确认: ({},{}) {}x{}", x1, y1, w, h);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +958,18 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
     switch (msg) {
         case WM_LBUTTONDOWN: {
             if (!self) break;
-            self->m_dragStart = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+
+            if (self->m_state == OverlayState::Selected || self->m_state == OverlayState::Marking) {
+                if (auto* button = self->hitTestToolbar(point)) {
+                    self->executeToolbarCommand(*button);
+                } else {
+                    self->beginMarkup(point);
+                }
+                return 0;
+            }
+
+            self->m_dragStart = point;
             self->m_dragEnd = self->m_dragStart;
             self->m_dragging = true;
             self->m_state = OverlayState::Selecting;
@@ -513,7 +979,10 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
         case WM_MOUSEMOVE: {
             if (!self) break;
             self->m_currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            if (self->m_dragging) {
+
+            if (self->m_isMarking) {
+                self->updateMarkup(self->m_currentCursor);
+            } else if (self->m_dragging) {
                 self->m_dragEnd = self->m_currentCursor;
             } else if (self->m_state == OverlayState::Selecting && !self->m_dragging) {
                 // 未拖拽时检测光标下的窗口
@@ -528,6 +997,11 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
         }
 
         case WM_LBUTTONUP: {
+            if (self && self->m_isMarking) {
+                self->finishMarkup({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
+                return 0;
+            }
+
             if (!self || !self->m_dragging) break;
             self->m_dragEnd = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             self->m_dragging = false;
@@ -537,6 +1011,7 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
             if (w > 3 && h > 3) {
                 self->m_state = OverlayState::Selected;
+                self->prepareMarkupBase();
             } else {
                 // 拖拽太小，视为点击——吸附到检测的窗口
                 if (self->m_detectedWindow.right > self->m_detectedWindow.left &&
@@ -546,6 +1021,7 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
                     self->m_dragEnd = {static_cast<LONG>(self->m_detectedWindow.right),
                                        static_cast<LONG>(self->m_detectedWindow.bottom)};
                     self->m_state = OverlayState::Selected;
+                    self->prepareMarkupBase();
                 } else {
                     self->cancel();
                 }
@@ -570,6 +1046,12 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
                     self->m_state == OverlayState::Marking) {
                     self->confirmSelection();
                 }
+            } else if ((GetKeyState(VK_CONTROL) & 0x8000) && wParam == 'Z') {
+                self->m_markup.undo();
+            } else if ((GetKeyState(VK_CONTROL) & 0x8000) && wParam == 'Y') {
+                self->m_markup.redo();
+            } else if (wParam == VK_DELETE) {
+                self->m_markup.clearAll();
             }
             return 0;
         }

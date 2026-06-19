@@ -54,6 +54,8 @@ function initGlobalListener() {
  * 向 C++ 发送请求
  */
 export function bridgeRequest<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  initGlobalListener();
+
   return new Promise((resolve, reject) => {
     const id = nextId++;
     pendingRequests.set(id, { resolve: resolve as (v: unknown) => void, reject });
@@ -148,6 +150,14 @@ function getMockResponse(method: string): unknown {
         },
       ];
 
+    case 'gesture.getState':
+      return {
+        enabled: true,
+        paused: false,
+        triggerButton: 'right',
+        trailVisible: true,
+      };
+
     case 'gesture.getScopeRules':
       return [];
 
@@ -183,6 +193,7 @@ function getMockResponse(method: string): unknown {
     case 'gesture.updateProfile':
     case 'gesture.updateScopeRules':
     case 'gesture.setPaused':
+    case 'gesture.updateSettings':
     case 'config.set':
       return { success: true };
 

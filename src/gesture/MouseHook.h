@@ -40,8 +40,8 @@ struct MouseEvent {
     HWND foregroundWindow = nullptr;                              // 事件发生时的前台窗口
 };
 
-/// 鼠标事件回调
-using MouseEventCallback = std::function<void(const MouseEvent&)>;
+/// 鼠标事件回调，返回 true 表示拦截此事件不传递给下层
+using MouseEventCallback = std::function<bool(const MouseEvent&)>;
 
 class MouseHook {
 public:
@@ -74,8 +74,8 @@ private:
     /// 钩子回调（static，因为 SetWindowsHookEx 要求 C 风格函数指针）
     static LRESULT CALLBACK lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-    /// 将事件入队（在钩子回调中调用，必须极快）
-    void enqueueEvent(const MouseEvent& event);
+    /// 将事件入队或同步回调处理。返回 true 表示需要拦截
+    bool processEvent(const MouseEvent& event);
 
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};

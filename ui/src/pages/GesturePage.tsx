@@ -11,7 +11,7 @@
 
 import { useState, useEffect, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Badge, Select } from '../components/UIKit';
-import { bridgeRequest } from '../hooks/useBridge';
+import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import './GesturePage.css';
 
 // 手势映射数据
@@ -24,6 +24,13 @@ interface GestureMapping {
     builtinCmd?: number;
     description?: string;
   };
+}
+
+interface GestureState {
+  enabled: boolean;
+  paused: boolean;
+  triggerButton: string;
+  trailVisible: boolean;
 }
 
 // 方向编码 → 箭头显示
@@ -51,21 +58,25 @@ export const GesturePage: FC = () => {
   const [mappings, setMappings] = useState<GestureMapping[]>([]);
   const [loading, setLoading] = useState(true);
 
+  useBridgeEvent('gesture.stateChanged', (data) => {
+    const state = data as Partial<GestureState>;
+    if (typeof state.enabled === 'boolean') {
+      setEnabled(state.enabled);
+    }
+  });
+
   // 加载数据
   useEffect(() => {
     async function loadData() {
       try {
-        const [config, profiles] = await Promise.all([
-          bridgeRequest<Record<string, unknown>>('config.getAll'),
+        const [state, profiles] = await Promise.all([
+          bridgeRequest<GestureState>('gesture.getState'),
           bridgeRequest<Array<{ name: string; mappings: GestureMapping[] }>>('gesture.getProfiles'),
         ]);
 
-        const gesture = config?.gesture as Record<string, unknown> | undefined;
-        if (gesture) {
-          setEnabled(gesture.enabled as boolean ?? true);
-          setTriggerButton(gesture.triggerButton as string ?? 'right');
-          setTrailVisible(gesture.trailVisible as boolean ?? true);
-        }
+        setEnabled(state.enabled);
+        setTriggerButton(state.triggerButton ?? 'right');
+        setTrailVisible(state.trailVisible ?? true);
 
         const defaultProfile = profiles?.find(p => p.name === 'default');
         if (defaultProfile) {
@@ -82,7 +93,33 @@ export const GesturePage: FC = () => {
 
   const handleToggleEnabled = async (checked: boolean) => {
     setEnabled(checked);
-    await bridgeRequest('gesture.setPaused', { paused: !checked });
+    try {
+      await bridgeRequest('gesture.setPaused', { paused: !checked });
+    } catch (err) {
+      setEnabled(!checked);
+      console.error('Failed to update gesture enabled state:', err);
+    }
+  };
+
+  const handleToggleTrail = async (checked: boolean) => {
+    setTrailVisible(checked);
+    try {
+      await bridgeRequest('gesture.updateSettings', { trailVisible: checked });
+    } catch (err) {
+      setTrailVisible(!checked);
+      console.error('Failed to update gesture trail state:', err);
+    }
+  };
+
+  const handleTriggerChange = async (value: string) => {
+    const previous = triggerButton;
+    setTriggerButton(value);
+    try {
+      await bridgeRequest('gesture.updateSettings', { triggerButton: value });
+    } catch (err) {
+      setTriggerButton(previous);
+      console.error('Failed to update gesture trigger button:', err);
+    }
   };
 
   if (loading) {
@@ -99,6 +136,13 @@ export const GesturePage: FC = () => {
       {/* ── 全局开关 ──────────────────────────────────────────────── */}
       <SettingGroup title="基本设置" icon="🖱️">
         <Card>
+          <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
+            <span className="gesture-status__dot" />
+            <span className="gesture-status__text">
+              {enabled ? '手势正在运行' : '手势已暂停'}
+            </span>
+            <kbd className="gesture-status__hotkey">Ctrl+Alt+Shift+W</kbd>
+          </div>
           <Toggle
             id="gesture-enabled"
             label="启用鼠标手势"
@@ -111,13 +155,13 @@ export const GesturePage: FC = () => {
             label="显示手势轨迹"
             description="画手势时在屏幕上显示彩色轨迹"
             checked={trailVisible}
-            onChange={setTrailVisible}
+            onChange={handleToggleTrail}
           />
           <SettingRow label="触发按钮" description="选择用哪个鼠标按钮触发手势">
             <Select
               id="gesture-trigger"
               value={triggerButton}
-              onChange={setTriggerButton}
+              onChange={handleTriggerChange}
               options={[
                 { value: 'right', label: '右键' },
                 { value: 'middle', label: '中键' },

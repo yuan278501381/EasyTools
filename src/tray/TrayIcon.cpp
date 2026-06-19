@@ -69,6 +69,11 @@ void TrayIcon::setTooltip(const std::wstring& tooltip) {
     Shell_NotifyIconW(NIM_MODIFY, &m_nid);
 }
 
+void TrayIcon::setGesturePaused(bool paused) {
+    m_gesturePaused = paused;
+    setTooltip(paused ? L"EasyTools — 手势已暂停" : L"EasyTools — 桌面效率工具");
+}
+
 void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
     UINT msg = LOWORD(lParam);
 
@@ -117,12 +122,6 @@ void TrayIcon::showContextMenu() {
 
     if (cmd > 0) {
         auto menuId = static_cast<TrayMenuId>(cmd);
-
-        // 暂停手势的状态切换
-        if (menuId == TrayMenuId::PauseGesture) {
-            m_gesturePaused = !m_gesturePaused;
-            LOG_INFO("手势暂停状态切换: paused={}", m_gesturePaused);
-        }
 
         fireCallback(menuId);
     }

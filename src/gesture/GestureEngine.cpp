@@ -26,14 +26,15 @@ bool GestureEngine::start() {
 
     // 安装鼠标钩子
     auto& hook = MouseHook::instance();
-    hook.setEventCallback([this](const MouseEvent& event) {
-        onMouseEvent(event);
+    hook.setEventCallback([this](const MouseEvent& event) -> bool {
+        return onMouseEvent(event);
     });
 
     if (!hook.install()) {
         LOG_ERROR("手势引擎启动失败: 无法安装鼠标钩子");
         return false;
     }
+    hook.setPaused(m_paused.load());
 
     // 初始化手势轨迹覆盖层
     auto& trail = GestureTrailOverlay::instance();
@@ -54,9 +55,40 @@ void GestureEngine::stop() {
 }
 
 void GestureEngine::setPaused(bool paused) {
-    m_paused = paused;
+    bool changed = m_paused.exchange(paused) != paused;
     MouseHook::instance().setPaused(paused);
     LOG_INFO("手势引擎暂停状态: paused={}", paused);
+
+    if (changed && m_pauseChangedCallback) {
+        m_pauseChangedCallback(paused);
+    }
+}
+
+void GestureEngine::setPauseChangedCallback(PauseChangedCallback callback) {
+    m_pauseChangedCallback = std::move(callback);
+}
+
+void GestureEngine::setTriggerButton(const std::string& button) {
+    if (button == "middle") {
+        m_triggerDown = MouseEventType::MiddleDown;
+        m_triggerUp = MouseEventType::MiddleUp;
+    } else {
+        m_triggerDown = MouseEventType::RightDown;
+        m_triggerUp = MouseEventType::RightUp;
+    }
+    LOG_INFO("手势触发按钮已设置: {}", triggerButton());
+}
+
+std::string GestureEngine::triggerButton() const {
+    return m_triggerDown == MouseEventType::MiddleDown ? "middle" : "right";
+}
+
+void GestureEngine::setTrailVisible(bool visible) {
+    m_trailVisible = visible;
+    if (!visible) {
+        GestureTrailOverlay::instance().hide();
+    }
+    LOG_INFO("手势轨迹显示状态: visible={}", visible);
 }
 
 void GestureEngine::setProfile(const std::string& name, const GestureProfile& profile) {
@@ -79,28 +111,63 @@ void GestureEngine::setTrailCallback(TrailRenderCallback callback) {
 
 // ── 鼠标事件处理管道 ─────────────────────────────────────────────────────────
 
-void GestureEngine::onMouseEvent(const MouseEvent& event) {
-    if (m_paused.load(std::memory_order_relaxed)) return;
+bool GestureEngine::onMouseEvent(const MouseEvent& event) {
+    if (m_paused.load(std::memory_order_relaxed)) return false;
+
+    // 获取配置以检查窗口过滤规则
+    auto& config = easy::core::ConfigManager::instance().config();
 
     switch (m_state.load()) {
         case GestureState::Idle:
             if (event.type == m_triggerDown) {
+                // 检查当前窗口是否被禁用
+                HWND hwnd = event.foregroundWindow;
+                if (hwnd) {
+                    std::string exeName = easy::core::WinUtils::getProcessNameFromWindow(hwnd);
+                    std::string className = easy::core::WinUtils::getClassName(hwnd);
+                    // 暂时将十六进制 HWND 字符串作为 handle
+                    std::string handleStr = std::to_string(reinterpret_cast<uint64_t>(hwnd));
+                    
+                    bool disabled = false;
+                    for (const auto& rule : config.gestureExceptions) {
+                        if (rule.type == "process" && easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(rule.value)) disabled = true;
+                        if (rule.type == "class" && className == rule.value) disabled = true;
+                    }
+                    if (disabled) {
+                        LOG_DEBUG("窗口被手势黑名单过滤: exe={}, class={}", exeName, className);
+                        return false;
+                    }
+                }
+
                 beginTracking(event);
+                return true; // 拦截触发按键的按下事件
             }
             break;
 
         case GestureState::Tracking:
             if (event.type == MouseEventType::Move) {
                 updateTracking(event);
+                return true; // 拦截移动事件，或者为了让底层应用也能看到鼠标移动，可以选择 return false; 但最好拦截以避免误操作
             } else if (event.type == m_triggerUp) {
                 endTracking(event);
+                return true; // 拦截触发按键的抬起事件
+            } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::RightDown) {
+                // 如果在手势过程中按下了其他键，可能是取消手势
+                if (event.type != m_triggerDown) {
+                    cancelTracking();
+                    // 取消时，可以将当前按键透传
+                    return false;
+                }
             }
-            break;
+            // 追踪期间拦截滚轮等其他事件也可以
+            return true; 
 
         case GestureState::Executing:
-            // 动作执行中，忽略事件
+            // 动作执行中，忽略事件但不一定拦截，如果拦截可能会影响脚本的输入注入
             break;
     }
+    
+    return false;
 }
 
 void GestureEngine::beginTracking(const MouseEvent& event) {
@@ -110,9 +177,11 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_state = GestureState::Tracking;
 
     // 开始轨迹可视化
-    auto& trail = GestureTrailOverlay::instance();
-    trail.beginTrail();
-    trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
+    if (m_trailVisible.load()) {
+        auto& trail = GestureTrailOverlay::instance();
+        trail.beginTrail();
+        trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
+    }
 
     LOG_TRACE("手势追踪开始: pos=({},{})", event.position.x, event.position.y);
 }
@@ -121,10 +190,12 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
     m_recognizer.addPoint(event.position.x, event.position.y);
 
     // 实时轨迹可视化
-    GestureTrailOverlay::instance().addPoint(
-        static_cast<float>(event.position.x),
-        static_cast<float>(event.position.y)
-    );
+    if (m_trailVisible.load()) {
+        GestureTrailOverlay::instance().addPoint(
+            static_cast<float>(event.position.x),
+            static_cast<float>(event.position.y)
+        );
+    }
 
     // 回调（如有注册）
     if (m_trailCallback) {
@@ -172,16 +243,29 @@ void GestureEngine::endTracking(const MouseEvent& event) {
 
         // 显示轨迹结果
         std::string resultLabel = result->toArrowString() + " " + action->name;
-        GestureTrailOverlay::instance().endTrail(resultLabel);
+        if (m_trailVisible.load()) {
+            GestureTrailOverlay::instance().endTrail(resultLabel);
+        }
 
         action->execute();
 
         m_state = GestureState::Idle;
     } else {
         LOG_DEBUG("未找到手势映射: code={}", result->code);
-        GestureTrailOverlay::instance().hide();
-        m_state = GestureState::Idle;
+        if (m_trailVisible.load()) {
+            GestureTrailOverlay::instance().hide();
+        }
     }
+
+    m_state = GestureState::Idle;
+}
+
+void GestureEngine::cancelTracking() {
+    if (m_trailVisible.load()) {
+        GestureTrailOverlay::instance().hide();
+    }
+    m_state = GestureState::Idle;
+    LOG_INFO("手势追踪已取消");
 }
 
 GestureProfile* GestureEngine::resolveProfile(HWND hwnd) {
@@ -212,6 +296,12 @@ GestureProfile* GestureEngine::resolveProfile(HWND hwnd) {
 
 void GestureEngine::loadFromConfig() {
     auto& config = easy::core::ConfigManager::instance();
+
+    bool paused = config.get<bool>("/gesture/paused",
+                                   !config.get<bool>("/gesture/enabled", true));
+    m_paused = paused;
+    setTriggerButton(config.get<std::string>("/gesture/triggerButton", "right"));
+    setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
 
     // 加载 Profile
     auto profilesJson = config.get<nlohmann::json>("/gesture/profiles");
@@ -247,6 +337,10 @@ void GestureEngine::saveToConfig() {
 
     // 保存作用域规则
     config.set("/gesture/scopeRules", m_scopeRules.toJson());
+    config.set("/gesture/paused", m_paused.load());
+    config.set("/gesture/enabled", !m_paused.load());
+    config.set("/gesture/triggerButton", triggerButton());
+    config.set("/gesture/trailVisible", m_trailVisible.load());
 
     LOG_INFO("手势配置已保存");
 }

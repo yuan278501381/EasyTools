@@ -124,6 +124,46 @@ void MessageBridge::registerBuiltinHandlers() {
         return result;
     });
 
+    registerHandler("gesture.getState", [](const json&) -> json {
+        auto& engine = easy::gesture::GestureEngine::instance();
+        return {
+            {"paused", engine.isPaused()},
+            {"enabled", !engine.isPaused()},
+            {"triggerButton", engine.triggerButton()},
+            {"trailVisible", engine.trailVisible()},
+        };
+    });
+
+    registerHandler("gesture.updateSettings", [](const json& params) -> json {
+        auto& engine = easy::gesture::GestureEngine::instance();
+        auto& config = ConfigManager::instance();
+
+        if (params.contains("enabled")) {
+            engine.setPaused(!params["enabled"].get<bool>());
+        }
+        if (params.contains("paused")) {
+            engine.setPaused(params["paused"].get<bool>());
+        }
+        if (params.contains("triggerButton")) {
+            auto triggerButton = params["triggerButton"].get<std::string>();
+            engine.setTriggerButton(triggerButton);
+            config.set("/gesture/triggerButton", engine.triggerButton());
+        }
+        if (params.contains("trailVisible")) {
+            bool trailVisible = params["trailVisible"].get<bool>();
+            engine.setTrailVisible(trailVisible);
+            config.set("/gesture/trailVisible", trailVisible);
+        }
+
+        return {
+            {"success", true},
+            {"paused", engine.isPaused()},
+            {"enabled", !engine.isPaused()},
+            {"triggerButton", engine.triggerButton()},
+            {"trailVisible", engine.trailVisible()},
+        };
+    });
+
     registerHandler("gesture.updateProfile", [](const json& params) -> json {
         auto profile = easy::gesture::GestureProfile::fromJson(params);
         easy::gesture::GestureEngine::instance().setProfile(profile.name(), profile);
@@ -134,7 +174,11 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("gesture.setPaused", [](const json& params) -> json {
         bool paused = params.value("paused", false);
         easy::gesture::GestureEngine::instance().setPaused(paused);
-        return {{"success", true}, {"paused", paused}};
+        return {
+            {"success", true},
+            {"paused", easy::gesture::GestureEngine::instance().isPaused()},
+            {"enabled", !easy::gesture::GestureEngine::instance().isPaused()},
+        };
     });
 
     registerHandler("gesture.getScopeRules", [](const json&) -> json {

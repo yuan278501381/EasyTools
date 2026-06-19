@@ -32,13 +32,16 @@
 #include "core/hotkey/HotkeyManager.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/crash/CrashHandler.h"
+#include "core/lua/LuaEngine.h"
 #include "tray/TrayIcon.h"
+#include "ocr/OcrEngine.h"
 #include "gesture/GestureEngine.h"
 #include "capture/ScreenCapture.h"
 #include "capture/ScreenRecorder.h"
 #include "capture/RecordingIndicator.h"
 #include "capture/PinWindow.h"
 #include "capture/ScrollCapture.h"
+#include "capture/CaptureOverlay.h"
 #include "ui/SettingsWindow.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
@@ -195,6 +198,25 @@ void initializeSubsystems(HWND hwnd) {
     // IPC 桥接
     easy::core::MessageBridge::instance().registerBuiltinHandlers();
 
+    auto& gestureEngine = easy::gesture::GestureEngine::instance();
+    gestureEngine.setPauseChangedCallback([](bool paused) {
+        auto& config = easy::core::ConfigManager::instance();
+        config.set("/gesture/paused", paused);
+        config.set("/gesture/enabled", !paused);
+
+        easy::tray::TrayIcon::instance().setGesturePaused(paused);
+        easy::core::MessageBridge::instance().pushEvent("gesture.stateChanged", {
+            {"paused", paused},
+            {"enabled", !paused}
+        });
+    });
+
+    // Lua 引擎
+    easy::core::LuaEngine::instance().initialize();
+
+    // OCR 引擎
+    easy::ocr::OcrEngine::instance().initialize();
+
     // 系统托盘
     auto& tray = easy::tray::TrayIcon::instance();
     tray.create(hwnd);
@@ -220,14 +242,24 @@ void initializeSubsystems(HWND hwnd) {
         auto& recorder = easy::capture::ScreenRecorder::instance();
         auto& indicator = easy::capture::RecordingIndicator::instance();
         if (recorder.state() == easy::capture::RecordState::Idle) {
-            LOG_INFO("开始录屏");
-            easy::capture::RecordOptions opts;
-            recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
-                indicator.update(stats.durationSec, stats.frameCount);
-                indicator.setPaused(state == easy::capture::RecordState::Paused);
+            LOG_INFO("开始选择录屏区域");
+            easy::capture::CaptureOptions opts;
+            auto& overlay = easy::capture::CaptureOverlay::instance();
+            overlay.setRecordCallback([&recorder, &indicator](const easy::capture::CaptureRegion& region) {
+                easy::capture::RecordOptions recOpts;
+                recOpts.regionX = region.x;
+                recOpts.regionY = region.y;
+                recOpts.width = region.width;
+                recOpts.height = region.height;
+                recOpts.fullScreen = false;
+                recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
+                    indicator.update(stats.durationSec, stats.frameCount);
+                    indicator.setPaused(state == easy::capture::RecordState::Paused);
+                });
+                recorder.startRecording(recOpts);
+                indicator.show();
             });
-            recorder.startRecording(opts);
-            indicator.show();
+            overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
         } else {
             LOG_INFO("停止录屏");
             indicator.hide();
@@ -243,6 +275,33 @@ void initializeSubsystems(HWND hwnd) {
         easy::capture::CaptureOptions opts;
         opts.copyToClipboard = true;
         easy::capture::ScreenCapture::instance().startCapture(opts);
+    });
+    hotkeys.registerHotkey("录屏", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'R'}, []() {
+        LOG_INFO("录屏快捷键触发");
+        auto& recorder = easy::capture::ScreenRecorder::instance();
+        auto& indicator = easy::capture::RecordingIndicator::instance();
+        if (recorder.state() == easy::capture::RecordState::Idle) {
+            easy::capture::CaptureOptions opts;
+            auto& overlay = easy::capture::CaptureOverlay::instance();
+            overlay.setRecordCallback([&recorder, &indicator](const easy::capture::CaptureRegion& region) {
+                easy::capture::RecordOptions recOpts;
+                recOpts.regionX = region.x;
+                recOpts.regionY = region.y;
+                recOpts.width = region.width;
+                recOpts.height = region.height;
+                recOpts.fullScreen = false;
+                recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
+                    indicator.update(stats.durationSec, stats.frameCount);
+                    indicator.setPaused(state == easy::capture::RecordState::Paused);
+                });
+                recorder.startRecording(recOpts);
+                indicator.show();
+            });
+            overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
+        } else {
+            indicator.hide();
+            recorder.stopRecording();
+        }
     });
     hotkeys.registerHotkey("暂停手势", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'W'}, []() {
         auto& engine = easy::gesture::GestureEngine::instance();
@@ -271,9 +330,9 @@ void initializeSubsystems(HWND hwnd) {
     });
 
     // 手势引擎
-    auto& gestureEngine = easy::gesture::GestureEngine::instance();
     gestureEngine.loadFromConfig();
     gestureEngine.start();
+    tray.setGesturePaused(gestureEngine.isPaused());
 
     LOG_INFO("所有子系统初始化完成");
 }

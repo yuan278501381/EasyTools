@@ -119,7 +119,9 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
         }
 
         if (shouldCapture) {
-            self.enqueueEvent(event);
+            if (self.processEvent(event)) {
+                return 1; // 拦截事件，不传递给系统和其他应用
+            }
         }
     }
 
@@ -127,22 +129,21 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
     return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
 }
 
-void MouseHook::enqueueEvent(const MouseEvent& event) {
-    // 尝试直接回调（低延迟模式）
+bool MouseHook::processEvent(const MouseEvent& event) {
+    // 尝试直接回调（同步模式，支持拦截）
     {
         std::lock_guard lock(m_callbackMutex);
         if (m_callback) {
-            m_callback(event);
-            return;
+            return m_callback(event);
         }
     }
 
-    // 入队模式（由工作线程批量消费）
+    // 入队模式（异步处理不支持拦截）
     std::lock_guard lock(m_queueMutex);
     if (m_eventQueue.size() < MAX_QUEUE_SIZE) {
         m_eventQueue.push(event);
     }
-    // 队列满时静默丢弃（不应该在钩子回调中做日志等耗时操作）
+    return false;
 }
 
 }  // namespace easy::gesture

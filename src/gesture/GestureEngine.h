@@ -34,6 +34,7 @@ enum class GestureState {
 /// 手势轨迹可视化回调（由 UI 层实现）
 using TrailRenderCallback = std::function<void(const std::vector<TrackPoint>& points,
                                                 const std::vector<Direction>& directions)>;
+using PauseChangedCallback = std::function<void(bool paused)>;
 
 class GestureEngine {
 public:
@@ -48,6 +49,15 @@ public:
     /// 暂停/恢复手势
     void setPaused(bool paused);
     bool isPaused() const { return m_paused.load(); }
+    void setPauseChangedCallback(PauseChangedCallback callback);
+
+    /// 触发按钮配置
+    void setTriggerButton(const std::string& button);
+    std::string triggerButton() const;
+
+    /// 轨迹可视化开关
+    void setTrailVisible(bool visible);
+    bool trailVisible() const { return m_trailVisible.load(); }
 
     /// 当前状态
     GestureState state() const { return m_state.load(); }
@@ -86,17 +96,17 @@ private:
     GestureEngine(const GestureEngine&) = delete;
     GestureEngine& operator=(const GestureEngine&) = delete;
 
-    /// 处理鼠标事件（由 MouseHook 回调驱动）
-    void onMouseEvent(const MouseEvent& event);
+    /// 处理从鼠标钩子传来的事件，返回 true 表示拦截该事件
+    bool onMouseEvent(const MouseEvent& event);
 
     /// 开始手势追踪
     void beginTracking(const MouseEvent& event);
-
-    /// 结束手势追踪并执行
-    void endTracking(const MouseEvent& event);
-
-    /// 更新追踪中的轨迹
+    /// 更新手势轨迹
     void updateTracking(const MouseEvent& event);
+    /// 结束手势追踪
+    void endTracking(const MouseEvent& event);
+    /// 取消手势追踪
+    void cancelTracking();
 
     /// 根据当前前台窗口查找适用的 Profile
     GestureProfile* resolveProfile(HWND hwnd);
@@ -109,7 +119,9 @@ private:
     // 状态
     std::atomic<GestureState> m_state{GestureState::Idle};
     std::atomic<bool> m_paused{false};
+    std::atomic<bool> m_trailVisible{true};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时的前台窗口
+    PauseChangedCallback m_pauseChangedCallback;
 
     // 轨迹可视化
     TrailRenderCallback m_trailCallback;

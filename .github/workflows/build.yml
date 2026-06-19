@@ -1,0 +1,54 @@
+name: EasyTools CI/CD
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许在 GitHub 网页上手动触发
+
+jobs:
+  build-and-deploy:
+    name: Build EasyTools (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码 (Checkout Code)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Node.js 环境 (Setup Node.js)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'ui/package-lock.json'
+
+      - name: 配置 Vcpkg 二进制缓存 (Setup Vcpkg Cache)
+        # 世界级工程必备：利用 GitHub Actions 的原生缓存来缓存 OpenCV/FFmpeg 等耗时巨大的 C++ 库
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+            C:\vcpkg\packages
+            build\vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+
+      - name: 执行一键幂等部署流水线 (Run Deployment Script)
+        shell: pwsh
+        run: |
+          # 调用我们编写的幂等脚本
+          # GitHub runner 已经内置了 CMake 和 MSVC，脚本会顺利接力通过
+          .\deploy.ps1 -Configuration Release
+
+      - name: 上传构建产物 (Upload Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyTools-Release-x64
+          path: deploy_dist/
+          if-no-files-found: error
+          retention-days: 7

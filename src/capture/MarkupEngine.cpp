@@ -158,6 +158,15 @@ int MarkupEngine::addNumberMark(cv::Point position, MarkupColor color) {
     return m_nextNumber++;
 }
 
+void MarkupEngine::addMagnifier(cv::Point center, float scale, int radius) {
+    auto elem = std::make_unique<MarkupElement>();
+    elem->tool = MarkupTool::Magnifier;
+    elem->startPt = center;
+    elem->magnifierScale = scale;
+    elem->magnifierRadius = radius;
+    addElement(std::move(elem));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 渲染
 // ─────────────────────────────────────────────────────────────────────────────

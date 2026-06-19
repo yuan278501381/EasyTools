@@ -55,6 +55,9 @@ public:
     /// 设置提示文本
     void setTooltip(const std::wstring& tooltip);
 
+    /// 同步手势暂停状态（用于菜单勾选和提示文字）
+    void setGesturePaused(bool paused);
+
     /// 处理托盘消息（在窗口过程中调用）
     void handleMessage(WPARAM wParam, LPARAM lParam);
 

@@ -5,6 +5,7 @@
 #include "gesture/GestureAction.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/lua/LuaEngine.h"
 
 #include <windows.h>
 #include <array>
@@ -135,8 +136,8 @@ void GestureAction::execute() const {
         }
 
         case ActionType::LuaScript: {
-            LOG_DEBUG("执行手势动作: LuaScript, script={}", luaScript.substr(0, 100));
-            // TODO: 通过 LuaEngine 执行脚本
+            LOG_DEBUG("执行手势动作: LuaScript, script={}", luaScript.substr(0, std::min(luaScript.size(), (size_t)100)));
+            easy::core::LuaEngine::instance().executeScript(luaScript);
             break;
         }
 

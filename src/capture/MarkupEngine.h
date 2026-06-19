@@ -133,6 +133,9 @@ public:
     /// 添加序列号标记
     int addNumberMark(cv::Point position, MarkupColor color);
 
+    /// 添加放大镜
+    void addMagnifier(cv::Point center, float scale = 2.0f, int radius = 60);
+
     /// 获取当前序列号
     int currentNumber() const { return m_nextNumber; }
 

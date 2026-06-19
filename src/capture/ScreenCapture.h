@@ -121,6 +121,7 @@ private:
     CaptureCallback m_callback;
     bool m_capturing = false;
     HINSTANCE m_hInstance = nullptr;
+    CaptureOptions m_activeOptions;
 };
 
 }  // namespace easy::capture

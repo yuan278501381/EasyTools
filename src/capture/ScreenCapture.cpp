@@ -12,6 +12,8 @@
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
+#include "ocr/OcrEngine.h"
+#include "capture/ScrollCapture.h"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -40,14 +42,71 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
         result.imageHeight = markedImage.rows;
 
         // 复制到剪贴板
-        if (!markedImage.empty()) {
+        if (m_activeOptions.copyToClipboard && !markedImage.empty()) {
             copyToClipboard(markedImage);
+        }
+
+        if (m_activeOptions.saveToFile && !markedImage.empty()) {
+            auto encoded = encodeImage(markedImage, m_activeOptions.format, m_activeOptions.quality);
+            if (!encoded.empty()) {
+                std::string path = m_activeOptions.savePath.empty()
+                    ? generateSavePath(m_activeOptions.format)
+                    : m_activeOptions.savePath;
+                result.filePath = saveToFile(encoded, path, m_activeOptions.format);
+            }
         }
 
         result.success = true;
         LOG_INFO("截图完成: {}x{}", result.imageWidth, result.imageHeight);
 
         if (m_callback) m_callback(result);
+    });
+
+    overlay.setOcrCallback([this](const CaptureRegion& region, const cv::Mat& cropped) {
+        easy::core::TraceId::Scope scope;
+        if (cropped.empty()) return;
+        
+        // 调用 OcrEngine 提取文字
+        auto results = easy::ocr::OcrEngine::instance().extractText(cropped);
+        
+        std::string fullText;
+        for (const auto& r : results) {
+            fullText += r.text + "\r\n";
+        }
+        
+        if (!fullText.empty()) {
+            // 复制到剪贴板
+            easy::core::WinUtils::copyToClipboard(fullText);
+            LOG_INFO("OCR 提取完成，已复制到剪贴板");
+            // 通过 Toast 或者气泡提醒用户，暂时这里只是记录日志
+        } else {
+            LOG_WARN("OCR 未提取到文字");
+        }
+    });
+
+    ScrollCapture::instance().setCompletionCallback([this](const ScrollCaptureResult& result) {
+        easy::core::TraceId::Scope scope;
+        if (!result.success || result.stitchedImage.empty()) {
+            LOG_ERROR("长截图失败: {}", result.errorMessage);
+            return;
+        }
+
+        // 复制到剪贴板
+        if (m_activeOptions.copyToClipboard) {
+            copyToClipboard(result.stitchedImage);
+        }
+
+        if (m_activeOptions.saveToFile) {
+            auto encoded = encodeImage(result.stitchedImage, m_activeOptions.format, m_activeOptions.quality);
+            if (!encoded.empty()) {
+                std::string path = m_activeOptions.savePath.empty()
+                    ? generateSavePath(m_activeOptions.format)
+                    : m_activeOptions.savePath;
+                saveToFile(encoded, path, m_activeOptions.format);
+            }
+        }
+        
+        LOG_INFO("长截图已保存，共 {} 帧", result.frameCount);
     });
 
     LOG_INFO("截图引擎已初始化");
@@ -71,6 +130,7 @@ void ScreenCapture::startCapture(const CaptureOptions& options) {
 
     easy::core::TraceId::Scope scope;
     m_capturing = true;
+    m_activeOptions = options;
 
     // 启动区域选择覆盖层
     CaptureOverlay::instance().startSelection(options);
@@ -270,7 +330,9 @@ bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
     bi.biPlanes = 1;
     bi.biBitCount = 24;         // BGR
     bi.biCompression = BI_RGB;
-    bi.biSizeImage = image.cols * image.rows * 3;
+    int rowBytes = image.cols * 3;
+    int stride = (rowBytes + 3) & ~3;  // 4 字节对齐
+    bi.biSizeImage = stride * image.rows;
 
     size_t totalSize = sizeof(BITMAPINFOHEADER) + bi.biSizeImage;
     HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, totalSize);
@@ -291,9 +353,6 @@ bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
     }
 
     // 复制像素数据（注意行对齐）
-    int rowBytes = image.cols * 3;
-    int stride = (rowBytes + 3) & ~3;  // 4 字节对齐
-
     for (int y = 0; y < continuous.rows; ++y) {
         memcpy(pMem + sizeof(bi) + y * stride, continuous.ptr(y), rowBytes);
     }
