@@ -147,7 +147,117 @@ void MessageBridge::registerBuiltinHandlers() {
         return {{"success", true}};
     });
 
-    LOG_INFO("内置 IPC 处理器注册完成");
+    // ── 截图设置 ─────────────────────────────────────────────────────────
+
+    registerHandler("capture.getSettings", [](const json&) -> json {
+        auto& config = ConfigManager::instance();
+        return {
+            {"format", config.get<std::string>("/capture/format", "png")},
+            {"quality", config.get<int>("/capture/quality", 90)},
+            {"saveToFile", config.get<bool>("/capture/saveToFile", true)},
+            {"copyToClipboard", config.get<bool>("/capture/copyToClipboard", true)},
+            {"savePath", config.get<std::string>("/capture/savePath", "")},
+            {"showCrosshair", config.get<bool>("/capture/showCrosshair", true)},
+            {"autoDetectWindow", config.get<bool>("/capture/autoDetectWindow", true)},
+        };
+    });
+
+    registerHandler("capture.updateSettings", [](const json& params) -> json {
+        auto& config = ConfigManager::instance();
+        for (auto& [key, value] : params.items()) {
+            config.set("/capture/" + key, value);
+        }
+        return {{"success", true}};
+    });
+
+    // ── 录屏设置 ─────────────────────────────────────────────────────────
+
+    registerHandler("recording.getSettings", [](const json&) -> json {
+        auto& config = ConfigManager::instance();
+        return {
+            {"format", config.get<std::string>("/recording/format", "mp4_h264")},
+            {"fps", config.get<int>("/recording/fps", 30)},
+            {"bitrate", config.get<int>("/recording/bitrate", 8)},
+            {"includeAudio", config.get<bool>("/recording/includeAudio", false)},
+            {"savePath", config.get<std::string>("/recording/savePath", "")},
+        };
+    });
+
+    registerHandler("recording.updateSettings", [](const json& params) -> json {
+        auto& config = ConfigManager::instance();
+        for (auto& [key, value] : params.items()) {
+            config.set("/recording/" + key, value);
+        }
+        return {{"success", true}};
+    });
+
+    // ── 通用设置 ─────────────────────────────────────────────────────────
+
+    registerHandler("general.getSettings", [](const json&) -> json {
+        auto& config = ConfigManager::instance();
+        return {
+            {"language", config.get<std::string>("/general/language", "zh-CN")},
+            {"autoStart", config.get<bool>("/general/autoStart", false)},
+            {"theme", config.get<std::string>("/general/theme", "light")},
+            {"logLevel", config.get<std::string>("/general/logLevel", "info")},
+            {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
+            {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
+        };
+    });
+
+    registerHandler("general.updateSettings", [](const json& params) -> json {
+        auto& config = ConfigManager::instance();
+        for (auto& [key, value] : params.items()) {
+            config.set("/general/" + key, value);
+        }
+
+        // 特殊处理：开机自启动
+        if (params.contains("autoStart")) {
+            bool autoStart = params["autoStart"].get<bool>();
+            // 写入注册表
+            HKEY hKey;
+            LONG result = RegOpenKeyExW(HKEY_CURRENT_USER,
+                L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                0, KEY_SET_VALUE, &hKey);
+            if (result == ERROR_SUCCESS) {
+                if (autoStart) {
+                    wchar_t exePath[MAX_PATH];
+                    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+                    RegSetValueExW(hKey, L"EasyTools", 0, REG_SZ,
+                                   reinterpret_cast<const BYTE*>(exePath),
+                                   (wcslen(exePath) + 1) * sizeof(wchar_t));
+                } else {
+                    RegDeleteValueW(hKey, L"EasyTools");
+                }
+                RegCloseKey(hKey);
+            }
+            LOG_INFO("开机自启动设置: {}", autoStart ? "启用" : "禁用");
+        }
+
+        return {{"success", true}};
+    });
+
+    // ── OCR 设置 ──────────────────────────────────────────────────────────
+
+    registerHandler("ocr.getSettings", [](const json&) -> json {
+        auto& config = ConfigManager::instance();
+        return {
+            {"engine", config.get<std::string>("/ocr/engine", "paddleocr")},
+            {"language", config.get<std::string>("/ocr/language", "ch")},
+            {"autoOcr", config.get<bool>("/ocr/autoOcr", false)},
+            {"copyResult", config.get<bool>("/ocr/copyResult", true)},
+        };
+    });
+
+    registerHandler("ocr.updateSettings", [](const json& params) -> json {
+        auto& config = ConfigManager::instance();
+        for (auto& [key, value] : params.items()) {
+            config.set("/ocr/" + key, value);
+        }
+        return {{"success", true}};
+    });
+
+    LOG_INFO("内置 IPC 处理器注册完成 (config/gesture/capture/recording/general/ocr)");
 }
 
 }  // namespace easy::core

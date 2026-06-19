@@ -118,22 +118,13 @@ function getMockResponse(method: string): unknown {
   switch (method) {
     case 'config.getAll':
       return {
-        gesture: {
-          enabled: true,
-          triggerButton: 'right',
-          trailVisible: true,
-        },
-        capture: {
-          hotkey: 'Ctrl+Shift+A',
-          format: 'png',
-          quality: 95,
-        },
-        general: {
-          theme: 'dark',
-          language: 'zh-CN',
-          autoStart: true,
-        },
+        gesture: { enabled: true, triggerButton: 'right', trailVisible: true },
+        capture: { format: 'png', quality: 95, copyToClipboard: true, saveToFile: true },
+        recording: { format: 'mp4_h264', fps: 30, bitrate: 8 },
+        general: { theme: 'light', language: 'zh-CN', autoStart: false },
+        ocr: { engine: 'paddleocr', language: 'ch', autoOcr: false },
       };
+
     case 'gesture.getProfiles':
       return [
         {
@@ -156,8 +147,45 @@ function getMockResponse(method: string): unknown {
           ],
         },
       ];
+
     case 'gesture.getScopeRules':
       return [];
+
+    case 'capture.getSettings':
+      return {
+        format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
+        savePath: '', showCrosshair: true, autoDetectWindow: true,
+      };
+
+    case 'recording.getSettings':
+      return {
+        format: 'mp4_h264', fps: 30, bitrate: 8,
+        includeAudio: false, savePath: '',
+      };
+
+    case 'general.getSettings':
+      return {
+        language: 'zh-CN', autoStart: false, theme: 'light',
+        logLevel: 'info', minimizeToTray: true, checkUpdates: true,
+      };
+
+    case 'ocr.getSettings':
+      return {
+        engine: 'paddleocr', language: 'ch',
+        autoOcr: false, copyResult: true,
+      };
+
+    // 所有 update 方法返回成功
+    case 'capture.updateSettings':
+    case 'recording.updateSettings':
+    case 'general.updateSettings':
+    case 'ocr.updateSettings':
+    case 'gesture.updateProfile':
+    case 'gesture.updateScopeRules':
+    case 'gesture.setPaused':
+    case 'config.set':
+      return { success: true };
+
     default:
       return {};
   }
