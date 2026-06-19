@@ -36,6 +36,9 @@
 #include "gesture/GestureEngine.h"
 #include "capture/ScreenCapture.h"
 #include "capture/ScreenRecorder.h"
+#include "capture/RecordingIndicator.h"
+#include "capture/PinWindow.h"
+#include "capture/ScrollCapture.h"
 #include "ui/SettingsWindow.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
@@ -215,12 +218,19 @@ void initializeSubsystems(HWND hwnd) {
     });
     tray.onRecording([]() {
         auto& recorder = easy::capture::ScreenRecorder::instance();
+        auto& indicator = easy::capture::RecordingIndicator::instance();
         if (recorder.state() == easy::capture::RecordState::Idle) {
             LOG_INFO("开始录屏");
             easy::capture::RecordOptions opts;
+            recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
+                indicator.update(stats.durationSec, stats.frameCount);
+                indicator.setPaused(state == easy::capture::RecordState::Paused);
+            });
             recorder.startRecording(opts);
+            indicator.show();
         } else {
             LOG_INFO("停止录屏");
+            indicator.hide();
             auto path = recorder.stopRecording();
             LOG_INFO("录屏已保存: {}", path);
         }
@@ -243,6 +253,23 @@ void initializeSubsystems(HWND hwnd) {
     easy::capture::ScreenCapture::instance().initialize(GetModuleHandleW(nullptr));
     easy::capture::ScreenRecorder::instance().initialize();
 
+    // 录制指示器
+    auto& indicator = easy::capture::RecordingIndicator::instance();
+    indicator.initialize(GetModuleHandleW(nullptr));
+    indicator.onPause([]() {
+        auto& recorder = easy::capture::ScreenRecorder::instance();
+        if (recorder.state() == easy::capture::RecordState::Recording) {
+            recorder.pauseRecording();
+        } else if (recorder.state() == easy::capture::RecordState::Paused) {
+            recorder.resumeRecording();
+        }
+    });
+    indicator.onStop([]() {
+        easy::capture::RecordingIndicator::instance().hide();
+        auto path = easy::capture::ScreenRecorder::instance().stopRecording();
+        LOG_INFO("录屏已保存: {}", path);
+    });
+
     // 手势引擎
     auto& gestureEngine = easy::gesture::GestureEngine::instance();
     gestureEngine.loadFromConfig();
@@ -255,6 +282,8 @@ void initializeSubsystems(HWND hwnd) {
 // 关闭子系统
 // ─────────────────────────────────────────────────────────────────────────────
 void shutdownSubsystems() {
+    easy::capture::PinWindow::closeAll();
+    easy::capture::RecordingIndicator::instance().shutdown();
     easy::capture::ScreenRecorder::instance().shutdown();
     easy::capture::ScreenCapture::instance().shutdown();
     easy::gesture::GestureEngine::instance().saveToConfig();

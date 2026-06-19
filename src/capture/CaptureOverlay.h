@@ -137,6 +137,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_infoBgBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_infoTextBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_crosshairBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_windowHighlightBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_infoTextFormat;
 };

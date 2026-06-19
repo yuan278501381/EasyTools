@@ -187,11 +187,13 @@ bool CaptureOverlay::createRenderResources() {
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.8f), m_infoBgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.95f), m_infoTextBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.6f), m_crosshairBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.3f), m_windowHighlightBrush.GetAddressOf());
 
     return true;
 }
 
 void CaptureOverlay::releaseRenderResources() {
+    m_windowHighlightBrush.Reset();
     m_crosshairBrush.Reset();
     m_infoTextBrush.Reset();
     m_infoBgBrush.Reset();
@@ -303,11 +305,32 @@ void CaptureOverlay::render() {
         drawSizeInfo(selRect);
         drawToolbar(selRect);
     } else {
-        // 空闲/选区前 — 全屏变暗 + 十字准星
+        // 空闲/选区前 — 全屏变暗 + 十字准星 + 窗口高亮
         auto size = m_renderTarget->GetSize();
         m_renderTarget->FillRectangle(
             D2D1::RectF(0, 0, size.width, size.height), m_dimBrush.Get()
         );
+
+        // 检测光标下的窗口并高亮其边界
+        if (m_detectedWindow.right > m_detectedWindow.left && 
+            m_detectedWindow.bottom > m_detectedWindow.top) {
+            D2D1_RECT_F winRect = D2D1::RectF(
+                static_cast<float>(m_detectedWindow.left),
+                static_cast<float>(m_detectedWindow.top),
+                static_cast<float>(m_detectedWindow.right),
+                static_cast<float>(m_detectedWindow.bottom)
+            );
+            // 窗口区域显示原始截图（去掉变暗效果）
+            if (m_screenBitmap) {
+                m_renderTarget->DrawBitmap(m_screenBitmap.Get(), winRect, 1.0f,
+                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &winRect);
+            }
+            // 紫色边框高亮
+            m_renderTarget->DrawRectangle(winRect, m_borderBrush.Get(), 2.0f);
+            // 显示窗口尺寸
+            drawSizeInfo(winRect);
+        }
+
         drawCrosshair(static_cast<float>(m_currentCursor.x),
                       static_cast<float>(m_currentCursor.y));
     }
@@ -492,6 +515,14 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             self->m_currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (self->m_dragging) {
                 self->m_dragEnd = self->m_currentCursor;
+            } else if (self->m_state == OverlayState::Selecting && !self->m_dragging) {
+                // 未拖拽时检测光标下的窗口
+                POINT screenPt = self->m_currentCursor;
+                int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                screenPt.x += offX;
+                screenPt.y += offY;
+                self->m_detectedWindow = self->detectWindowUnderCursor(screenPt);
             }
             return 0;
         }
@@ -507,8 +538,17 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (w > 3 && h > 3) {
                 self->m_state = OverlayState::Selected;
             } else {
-                // 拖拽太小，视为点击取消
-                self->cancel();
+                // 拖拽太小，视为点击——吸附到检测的窗口
+                if (self->m_detectedWindow.right > self->m_detectedWindow.left &&
+                    self->m_detectedWindow.bottom > self->m_detectedWindow.top) {
+                    self->m_dragStart = {static_cast<LONG>(self->m_detectedWindow.left),
+                                         static_cast<LONG>(self->m_detectedWindow.top)};
+                    self->m_dragEnd = {static_cast<LONG>(self->m_detectedWindow.right),
+                                       static_cast<LONG>(self->m_detectedWindow.bottom)};
+                    self->m_state = OverlayState::Selected;
+                } else {
+                    self->cancel();
+                }
             }
             return 0;
         }
