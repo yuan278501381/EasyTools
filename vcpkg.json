@@ -1,0 +1,23 @@
+{
+  "name": "easytools",
+  "version-string": "0.1.0",
+  "description": "High-performance desktop productivity toolkit",
+  "supports": "windows & x64",
+  "dependencies": [
+    { "name": "spdlog", "version>=": "1.15.0" },
+    { "name": "nlohmann-json", "version>=": "3.11.3" },
+    { "name": "sol2", "version>=": "3.3.1" },
+    { "name": "lua", "version>=": "5.4.7" },
+    { "name": "fmt", "version>=": "11.0.0" },
+    {
+      "name": "opencv4",
+      "version>=": "4.10.0",
+      "features": ["core", "imgproc", "imgcodecs", "stitching"]
+    },
+    {
+      "name": "ffmpeg",
+      "version>=": "7.1.0",
+      "features": ["avcodec", "avformat", "avutil", "swscale", "swresample"]
+    }
+  ]
+}

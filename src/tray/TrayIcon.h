@@ -1,0 +1,90 @@
+#pragma once
+// ─────────────────────────────────────────────────────────────────────────────
+// TrayIcon — 系统托盘图标管理器
+//
+// 特性:
+//   1. 托盘图标 + 气泡通知
+//   2. 右键菜单（暂停手势/截图/录屏/设置/退出）
+//   3. 双击打开设置窗口
+//   4. 状态变化时切换图标（正常/暂停/录制中）
+// ─────────────────────────────────────────────────────────────────────────────
+
+#ifndef EASYTOOLS_TRAY_TRAYICON_H
+#define EASYTOOLS_TRAY_TRAYICON_H
+
+#include <windows.h>
+#include <shellapi.h>
+#include <string>
+#include <functional>
+#include <unordered_map>
+
+namespace easy::tray {
+
+/// 托盘菜单项 ID
+enum class TrayMenuId : UINT {
+    OpenSettings = 1001,
+    Screenshot   = 1002,
+    Recording    = 1003,
+    PauseGesture = 1004,
+    Separator    = 0,
+    Exit         = 1099
+};
+
+/// 托盘事件回调类型
+using TrayEventCallback = std::function<void()>;
+
+class TrayIcon {
+public:
+    static TrayIcon& instance();
+
+    /// 创建托盘图标
+    /// @param hwnd 消息窗口句柄
+    /// @param iconResId 图标资源 ID（或使用默认应用图标）
+    bool create(HWND hwnd, HICON icon = nullptr);
+
+    /// 销毁托盘图标
+    void destroy();
+
+    /// 显示气泡通知
+    void showNotification(const std::wstring& title, const std::wstring& message,
+                          DWORD iconType = NIIF_INFO, UINT timeoutMs = 3000);
+
+    /// 切换图标（用于状态变化：正常/暂停/录制中）
+    void setIcon(HICON icon);
+
+    /// 设置提示文本
+    void setTooltip(const std::wstring& tooltip);
+
+    /// 处理托盘消息（在窗口过程中调用）
+    void handleMessage(WPARAM wParam, LPARAM lParam);
+
+    // ── 事件绑定 ─────────────────────────────────────────────────────────
+
+    void onOpenSettings(TrayEventCallback callback) { m_callbacks[TrayMenuId::OpenSettings] = std::move(callback); }
+    void onScreenshot(TrayEventCallback callback)    { m_callbacks[TrayMenuId::Screenshot]   = std::move(callback); }
+    void onRecording(TrayEventCallback callback)     { m_callbacks[TrayMenuId::Recording]    = std::move(callback); }
+    void onPauseGesture(TrayEventCallback callback)  { m_callbacks[TrayMenuId::PauseGesture] = std::move(callback); }
+    void onExit(TrayEventCallback callback)          { m_callbacks[TrayMenuId::Exit]         = std::move(callback); }
+
+private:
+    TrayIcon() = default;
+    TrayIcon(const TrayIcon&) = delete;
+    TrayIcon& operator=(const TrayIcon&) = delete;
+
+    /// 显示右键菜单
+    void showContextMenu();
+
+    /// 触发菜单回调
+    void fireCallback(TrayMenuId id);
+
+    NOTIFYICONDATAW m_nid{};
+    HWND m_hwnd = nullptr;
+    bool m_gesturePaused = false;
+    std::unordered_map<TrayMenuId, TrayEventCallback> m_callbacks;
+
+    static constexpr UINT WM_TRAYICON = WM_USER + 100;
+};
+
+}  // namespace easy::tray
+
+#endif  // EASYTOOLS_TRAY_TRAYICON_H

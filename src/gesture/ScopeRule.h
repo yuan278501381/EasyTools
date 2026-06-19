@@ -1,0 +1,105 @@
+#pragma once
+// ─────────────────────────────────────────────────────────────────────────────
+// ScopeRule — 手势作用域规则引擎
+//
+// 决定在哪些窗口/进程中启用/禁用特定手势配置。
+// 优先级: 窗口句柄 > 窗口类名 > 进程名 > 全局默认
+// ─────────────────────────────────────────────────────────────────────────────
+
+#ifndef EASYTOOLS_GESTURE_SCOPERULE_H
+#define EASYTOOLS_GESTURE_SCOPERULE_H
+
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <optional>
+#include <regex>
+#include <nlohmann/json.hpp>
+
+namespace easy::gesture {
+
+/// 规则匹配模式
+enum class MatchMode {
+    Exact,      // 精确匹配
+    Wildcard,   // 通配符 (*.exe)
+    Regex       // 正则表达式
+};
+
+/// 规则作用效果
+enum class RuleEffect {
+    Enable,     // 在匹配的窗口中启用手势
+    Disable,    // 在匹配的窗口中禁用手势
+    UseProfile  // 使用指定的手势配置集
+};
+
+/// 单条作用域规则
+struct ScopeRule {
+    std::string id;              // 唯一标识
+    std::string name;            // 人类可读名称 (如 "Chrome 浏览器", "VS Code")
+    bool enabled = true;         // 规则是否启用
+
+    // 匹配条件 (至少设置一个)
+    std::string processName;     // 进程名 (如 "chrome.exe")
+    std::string windowClass;     // 窗口类名 (如 "Chrome_WidgetWin_1")
+    HWND windowHandle = nullptr; // 窗口句柄 (运行时动态捕获)
+    MatchMode matchMode = MatchMode::Exact;
+
+    // 效果
+    RuleEffect effect = RuleEffect::Enable;
+    std::string profileName;     // effect == UseProfile 时使用的配置集名称
+
+    /// 检查此规则是否匹配给定的窗口
+    bool matches(HWND hwnd, const std::wstring& processName, const std::wstring& className) const;
+
+    /// 序列化
+    nlohmann::json toJson() const;
+    static ScopeRule fromJson(const nlohmann::json& j);
+};
+
+/// 作用域规则引擎
+class ScopeRuleEngine {
+public:
+    /// 评估给定窗口应使用哪个手势配置
+    /// @return profileName (空字符串表示使用全局默认配置, nullopt 表示手势被禁用)
+    std::optional<std::string> evaluate(HWND hwnd) const;
+
+    /// 添加规则
+    void addRule(const ScopeRule& rule);
+
+    /// 删除规则
+    void removeRule(const std::string& ruleId);
+
+    /// 批量添加规则
+    void addRules(const std::vector<ScopeRule>& rules);
+
+    /// 批量删除规则
+    void removeRules(const std::vector<std::string>& ruleIds);
+
+    /// 获取所有规则
+    const std::vector<ScopeRule>& getRules() const { return m_rules; }
+
+    /// 清除所有规则
+    void clearRules() { m_rules.clear(); }
+
+    /// 从 JSON 加载
+    void loadFromJson(const nlohmann::json& j);
+
+    /// 导出为 JSON
+    nlohmann::json toJson() const;
+
+private:
+    std::vector<ScopeRule> m_rules;
+
+    /// 获取窗口信息 (缓存友好)
+    struct WindowInfo {
+        HWND hwnd;
+        std::wstring processName;
+        std::wstring className;
+    };
+
+    WindowInfo getWindowInfo(HWND hwnd) const;
+};
+
+}  // namespace easy::gesture
+
+#endif  // EASYTOOLS_GESTURE_SCOPERULE_H
