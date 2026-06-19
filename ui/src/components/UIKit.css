@@ -13,8 +13,8 @@
 }
 
 .uikit-card:hover {
-  border-color: rgba(139, 92, 246, 0.15);
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.05);
+  border-color: var(--primary-dim);
+  box-shadow: 0 0 20px var(--primary-dim);
 }
 
 .uikit-card__header {
@@ -113,7 +113,7 @@
 .uikit-toggle__switch input:checked + .uikit-toggle__slider::after {
   transform: translateX(20px);
   background: white;
-  box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 8px var(--primary-glow);
 }
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
