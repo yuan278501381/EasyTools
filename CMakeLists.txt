@@ -45,6 +45,32 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(sol2 CONFIG REQUIRED)
 find_package(Lua REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(OpenCV CONFIG REQUIRED)
+
+# FFmpeg (通过 vcpkg 管理，需要按库分别查找)
+find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h)
+find_library(AVCODEC_LIBRARY avcodec)
+find_library(AVFORMAT_LIBRARY avformat)
+find_library(AVUTIL_LIBRARY avutil)
+find_library(SWSCALE_LIBRARY swscale)
+find_library(SWRESAMPLE_LIBRARY swresample)
+
+# WebView2 (NuGet 包，通过 nuget.config 或手动下载)
+# 先检查 packages 目录下是否有 WebView2 SDK
+set(WEBVIEW2_DIR "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2")
+if(NOT EXISTS "${WEBVIEW2_DIR}")
+    message(STATUS "WebView2 SDK not found, will try to download via nuget...")
+    # 尝试通过 nuget 下载
+    find_program(NUGET_EXE nuget)
+    if(NUGET_EXE)
+        execute_process(
+            COMMAND ${NUGET_EXE} install Microsoft.Web.WebView2 -OutputDirectory "${CMAKE_SOURCE_DIR}/packages"
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        )
+        file(GLOB WEBVIEW2_DIRS "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2.*")
+        list(GET WEBVIEW2_DIRS 0 WEBVIEW2_DIR)
+    endif()
+endif()
 
 # ── 收集源文件 ────────────────────────────────────────────────────────────────
 file(GLOB_RECURSE EASYTOOLS_SOURCES
@@ -67,13 +93,45 @@ target_link_libraries(EasyTools PRIVATE
     sol2::sol2
     ${LUA_LIBRARIES}
     fmt::fmt
+    ${OpenCV_LIBS}
+
+    # FFmpeg
+    ${AVCODEC_LIBRARY}
+    ${AVFORMAT_LIBRARY}
+    ${AVUTIL_LIBRARY}
+    ${SWSCALE_LIBRARY}
+    ${SWRESAMPLE_LIBRARY}
 
     # Windows SDK
-    d2d1 dwrite d3d11 dxgi
+    d2d1 dwrite d3d11 dxgi dxguid
     dwmapi mfplat mfreadwrite mfuuid
     shlwapi shell32 user32 gdi32
     ole32 oleaut32 advapi32 comctl32 dbghelp
+    windowscodecs
 )
+
+# WebView2 头文件和加载器库
+if(EXISTS "${WEBVIEW2_DIR}")
+    target_include_directories(EasyTools PRIVATE
+        "${WEBVIEW2_DIR}/build/native/include"
+    )
+    target_link_libraries(EasyTools PRIVATE
+        "${WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib"
+    )
+    message(STATUS "WebView2 SDK found: ${WEBVIEW2_DIR}")
+else()
+    message(WARNING "WebView2 SDK not found. SettingsWindow will not compile.")
+endif()
+
+# OpenCV 头文件
+if(OpenCV_FOUND)
+    target_include_directories(EasyTools PRIVATE ${OpenCV_INCLUDE_DIRS})
+endif()
+
+# FFmpeg 头文件
+if(FFMPEG_INCLUDE_DIR)
+    target_include_directories(EasyTools PRIVATE ${FFMPEG_INCLUDE_DIR})
+endif()
 
 # ── 复制前端资源到输出目录 ─────────────────────────────────────────────────────
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")

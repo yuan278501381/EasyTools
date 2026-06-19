@@ -1,0 +1,157 @@
+#pragma once
+// ─────────────────────────────────────────────────────────────────────────────
+// MarkupEngine — 截图标注引擎
+//
+// 职责:
+//   1. 管理所有标注工具 (矩形/箭头/椭圆/画笔/高亮/马赛克/文本/放大镜/序号)
+//   2. 维护标注元素列表（支持撤销/重做）
+//   3. 使用 OpenCV 将标注渲染到截图上
+//   4. 自动序号递增管理
+// ─────────────────────────────────────────────────────────────────────────────
+
+#ifndef EASYTOOLS_CAPTURE_MARKUPENGINE_H
+#define EASYTOOLS_CAPTURE_MARKUPENGINE_H
+
+#include <opencv2/opencv.hpp>
+#include <string>
+#include <vector>
+#include <memory>
+#include <cstdint>
+#include <deque>
+
+namespace easy::capture {
+
+/// 标注工具类型
+enum class MarkupTool {
+    Rectangle,   // 矩形
+    Arrow,       // 箭头
+    Ellipse,     // 椭圆
+    Pen,         // 画笔
+    Highlight,   // 高亮
+    Mosaic,      // 马赛克
+    Text,        // 文本
+    Magnifier,   // 放大镜
+    Number,      // 序列号标记
+};
+
+/// 颜色预设
+struct MarkupColor {
+    uint8_t r, g, b, a;
+
+    cv::Scalar toCvScalar() const { return cv::Scalar(b, g, r, a); }
+
+    static MarkupColor Red()    { return {255, 68, 68, 255}; }
+    static MarkupColor Green()  { return {52, 211, 153, 255}; }
+    static MarkupColor Blue()   { return {96, 165, 250, 255}; }
+    static MarkupColor Yellow() { return {251, 191, 36, 255}; }
+    static MarkupColor Purple() { return {139, 92, 246, 255}; }
+    static MarkupColor White()  { return {255, 255, 255, 255}; }
+    static MarkupColor Black()  { return {0, 0, 0, 255}; }
+};
+
+/// 标注元素基类
+struct MarkupElement {
+    MarkupTool tool;
+    MarkupColor color = MarkupColor::Red();
+    float thickness = 2.0f;
+
+    // 起点/终点（矩形/箭头/椭圆用）
+    cv::Point startPt{0, 0};
+    cv::Point endPt{0, 0};
+
+    // 画笔轨迹点
+    std::vector<cv::Point> penPoints;
+
+    // 文本内容
+    std::string text;
+    float fontSize = 16.0f;
+
+    // 序列号值
+    int numberValue = 0;
+
+    // 马赛克块大小
+    int mosaicBlockSize = 12;
+
+    // 放大镜倍率
+    float magnifierScale = 2.0f;
+    int magnifierRadius = 60;
+
+    virtual ~MarkupElement() = default;
+};
+
+/// 标注引擎
+class MarkupEngine {
+public:
+    MarkupEngine() = default;
+
+    /// 设置底图（截图原图）
+    void setBaseImage(const cv::Mat& image);
+
+    /// 获取当前合成图（底图 + 所有标注）
+    cv::Mat getCompositeImage() const;
+
+    // ── 元素操作 ─────────────────────────────────────────────────────────
+
+    /// 添加标注元素
+    void addElement(std::unique_ptr<MarkupElement> element);
+
+    /// 撤销最后一个标注
+    bool undo();
+
+    /// 重做
+    bool redo();
+
+    /// 清除所有标注
+    void clearAll();
+
+    /// 获取当前标注数量
+    size_t elementCount() const { return m_elements.size(); }
+
+    // ── 工具快捷方法 ─────────────────────────────────────────────────────
+
+    /// 画矩形
+    void drawRectangle(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
+
+    /// 画箭头
+    void drawArrow(cv::Point from, cv::Point to, MarkupColor color, float thickness = 2.0f);
+
+    /// 画椭圆
+    void drawEllipse(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
+
+    /// 画笔自由绘制
+    void drawPenStroke(const std::vector<cv::Point>& points, MarkupColor color, float thickness = 2.0f);
+
+    /// 高亮（半透明矩形）
+    void drawHighlight(cv::Point p1, cv::Point p2, MarkupColor color);
+
+    /// 马赛克区域
+    void applyMosaic(cv::Point p1, cv::Point p2, int blockSize = 12);
+
+    /// 添加文本
+    void addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize = 16.0f);
+
+    /// 添加序列号标记
+    int addNumberMark(cv::Point position, MarkupColor color);
+
+    /// 获取当前序列号
+    int currentNumber() const { return m_nextNumber; }
+
+    /// 重置序列号
+    void resetNumber() { m_nextNumber = 1; }
+
+private:
+    /// 渲染单个元素到图像上
+    void renderElement(cv::Mat& canvas, const MarkupElement& element) const;
+
+    /// 渲染所有元素
+    void renderAll(cv::Mat& canvas) const;
+
+    cv::Mat m_baseImage;                                    // 底图
+    std::vector<std::unique_ptr<MarkupElement>> m_elements; // 标注元素
+    std::deque<std::unique_ptr<MarkupElement>> m_undoStack; // 撤销栈
+    int m_nextNumber = 1;                                   // 下一个序列号
+};
+
+}  // namespace easy::capture
+
+#endif  // EASYTOOLS_CAPTURE_MARKUPENGINE_H

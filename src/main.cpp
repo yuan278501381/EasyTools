@@ -34,6 +34,8 @@
 #include "core/crash/CrashHandler.h"
 #include "tray/TrayIcon.h"
 #include "gesture/GestureEngine.h"
+#include "capture/ScreenCapture.h"
+#include "capture/ScreenRecorder.h"
 #include "ui/SettingsWindow.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
@@ -206,24 +208,40 @@ void initializeSubsystems(HWND hwnd) {
         DestroyWindow(hwnd);
     });
     tray.onScreenshot([]() {
-        LOG_INFO("截图功能触发 (TODO)");
-        // TODO: 触发截图
+        LOG_INFO("截图功能触发");
+        easy::capture::CaptureOptions opts;
+        opts.copyToClipboard = true;
+        easy::capture::ScreenCapture::instance().startCapture(opts);
     });
     tray.onRecording([]() {
-        LOG_INFO("录屏功能触发 (TODO)");
-        // TODO: 触发录屏
+        auto& recorder = easy::capture::ScreenRecorder::instance();
+        if (recorder.state() == easy::capture::RecordState::Idle) {
+            LOG_INFO("开始录屏");
+            easy::capture::RecordOptions opts;
+            recorder.startRecording(opts);
+        } else {
+            LOG_INFO("停止录屏");
+            auto path = recorder.stopRecording();
+            LOG_INFO("录屏已保存: {}", path);
+        }
     });
 
     // 注册全局快捷键
     auto& hotkeys = easy::core::HotkeyManager::instance();
     hotkeys.registerHotkey("截图", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'A'}, []() {
         LOG_INFO("截图快捷键触发");
-        // TODO: 截图
+        easy::capture::CaptureOptions opts;
+        opts.copyToClipboard = true;
+        easy::capture::ScreenCapture::instance().startCapture(opts);
     });
     hotkeys.registerHotkey("暂停手势", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'W'}, []() {
         auto& engine = easy::gesture::GestureEngine::instance();
         engine.setPaused(!engine.isPaused());
     });
+
+    // 截图/录屏引擎
+    easy::capture::ScreenCapture::instance().initialize(GetModuleHandleW(nullptr));
+    easy::capture::ScreenRecorder::instance().initialize();
 
     // 手势引擎
     auto& gestureEngine = easy::gesture::GestureEngine::instance();
@@ -237,6 +255,8 @@ void initializeSubsystems(HWND hwnd) {
 // 关闭子系统
 // ─────────────────────────────────────────────────────────────────────────────
 void shutdownSubsystems() {
+    easy::capture::ScreenRecorder::instance().shutdown();
+    easy::capture::ScreenCapture::instance().shutdown();
     easy::gesture::GestureEngine::instance().saveToConfig();
     easy::gesture::GestureEngine::instance().stop();
     easy::core::HotkeyManager::instance().shutdown();

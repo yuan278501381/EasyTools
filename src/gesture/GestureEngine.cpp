@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "gesture/GestureEngine.h"
+#include "gesture/GestureTrailOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/config/ConfigManager.h"
@@ -34,6 +35,10 @@ bool GestureEngine::start() {
         return false;
     }
 
+    // 初始化手势轨迹覆盖层
+    auto& trail = GestureTrailOverlay::instance();
+    trail.initialize(GetModuleHandleW(nullptr));
+
     m_state = GestureState::Idle;
     LOG_INFO("手势引擎已启动, 默认Profile手势数={}, 浏览器Profile手势数={}",
              m_profiles["default"].getMappings().size(),
@@ -43,6 +48,7 @@ bool GestureEngine::start() {
 
 void GestureEngine::stop() {
     MouseHook::instance().uninstall();
+    GestureTrailOverlay::instance().shutdown();
     m_state = GestureState::Idle;
     LOG_INFO("手势引擎已停止");
 }
@@ -103,17 +109,26 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_gestureStartWindow = event.foregroundWindow;
     m_state = GestureState::Tracking;
 
+    // 开始轨迹可视化
+    auto& trail = GestureTrailOverlay::instance();
+    trail.beginTrail();
+    trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
+
     LOG_TRACE("手势追踪开始: pos=({},{})", event.position.x, event.position.y);
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
     m_recognizer.addPoint(event.position.x, event.position.y);
 
-    // 实时轨迹可视化回调
+    // 实时轨迹可视化
+    GestureTrailOverlay::instance().addPoint(
+        static_cast<float>(event.position.x),
+        static_cast<float>(event.position.y)
+    );
+
+    // 回调（如有注册）
     if (m_trailCallback) {
         auto dirs = m_recognizer.currentDirections();
-        // 注意: 这里不传递完整的 rawPoints（性能考虑），
-        // 只传递最新的方向序列用于 UI 预览
         m_trailCallback({}, dirs);
     }
 }
@@ -155,11 +170,16 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         LOG_INFO("执行手势动作: gesture={}, action={}, profile={}",
                  result->toArrowString(), action->name, profile->name());
 
+        // 显示轨迹结果
+        std::string resultLabel = result->toArrowString() + " " + action->name;
+        GestureTrailOverlay::instance().endTrail(resultLabel);
+
         action->execute();
 
         m_state = GestureState::Idle;
     } else {
         LOG_DEBUG("未找到手势映射: code={}", result->code);
+        GestureTrailOverlay::instance().hide();
         m_state = GestureState::Idle;
     }
 }
