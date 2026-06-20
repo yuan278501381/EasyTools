@@ -107,7 +107,7 @@ target_link_libraries(EasyTools PRIVATE
     dwmapi mfplat mfreadwrite mfuuid
     shlwapi shell32 user32 gdi32
     ole32 oleaut32 advapi32 comctl32 dbghelp
-    windowscodecs
+    windowscodecs winhttp runtimeobject
 )
 
 # WebView2 头文件和加载器库

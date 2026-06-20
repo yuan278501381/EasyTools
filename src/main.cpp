@@ -25,6 +25,10 @@
 #include <windows.h>
 #include <objbase.h>
 
+#include <atomic>
+#include <filesystem>
+#include <thread>
+
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -36,6 +40,7 @@
 #include "tray/TrayIcon.h"
 #include "ocr/OcrEngine.h"
 #include "gesture/GestureEngine.h"
+#include "gesture/BuiltinCommands.h"
 #include "capture/ScreenCapture.h"
 #include "capture/ScreenRecorder.h"
 #include "capture/RecordingIndicator.h"
@@ -55,9 +60,102 @@ HWND createMessageWindow(HINSTANCE hInstance);
 void initializeSubsystems(HWND hwnd);
 void shutdownSubsystems();
 void showSettingsWindow();
+static void triggerScreenshot();
+static void toggleRecording();
+static void triggerOcrCapture();
 
 // ── 全局状态 ─────────────────────────────────────────────────────────────────
 static HANDLE g_singleInstanceMutex = nullptr;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 截图 / 录屏 入口 (托盘、快捷键、手势内置命令共用，避免逻辑重复)
+// ─────────────────────────────────────────────────────────────────────────────
+static void triggerScreenshot() {
+    LOG_INFO("截图触发");
+    easy::capture::CaptureOptions opts;
+    opts.copyToClipboard = true;
+    easy::capture::ScreenCapture::instance().startCapture(opts);
+}
+
+// 标记下一次截图完成后需要进行 OCR (而非普通截图)。由持久回调消费 (一次性)。
+static std::atomic<bool> g_ocrPending{false};
+
+// 在截图完成回调中处理 OCR 结果。持久安装一次，靠 g_ocrPending 区分普通截图。
+// OCR 推理放到后台线程, 避免阻塞主消息循环 (WinRT .get() 会同步等待)。
+static void onCaptureCompletedForOcr(const easy::capture::CaptureResult& result) {
+    if (!g_ocrPending.exchange(false)) return;  // 非 OCR 截图，忽略
+    if (!result.success || result.filePath.empty()) return;
+
+    std::string path = result.filePath;  // 拷贝, 供后台线程使用
+    std::thread([path]() {
+        auto& tray = easy::tray::TrayIcon::instance();
+        std::string text = easy::ocr::OcrEngine::instance().recognizeImageFile(path);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);  // 清理临时文件
+
+        if (text.empty()) {
+            tray.showNotification(L"EasyTools OCR", L"未识别到文字。", NIIF_INFO);
+            return;
+        }
+        easy::core::WinUtils::copyToClipboard(text);
+        tray.showNotification(L"EasyTools OCR", L"文字已识别并复制到剪贴板。", NIIF_INFO);
+    }).detach();
+}
+
+// 截图区域 → OCR → 复制文本 → 托盘通知 (复用截图管线，模块间保持解耦)
+static void triggerOcrCapture() {
+    auto& ocr = easy::ocr::OcrEngine::instance();
+    if (!ocr.isAvailable()) {
+        easy::tray::TrayIcon::instance().showNotification(
+            L"EasyTools OCR", L"未检测到 OCR 语言包，请在系统“设置 → 应用 → 可选功能”中添加。",
+            NIIF_WARNING);
+        return;
+    }
+
+    LOG_INFO("OCR 截图触发");
+    auto tempPath = easy::core::WinUtils::getAppDataDirectory() / L"temp";
+    std::filesystem::create_directories(tempPath);
+    auto file = tempPath / (L"ocr_" + std::to_wstring(GetTickCount64()) + L".png");
+
+    easy::capture::CaptureOptions opts;
+    opts.copyToClipboard = false;
+    opts.saveToFile      = true;
+    opts.savePath        = easy::core::WinUtils::wstringToUtf8(file.wstring());
+
+    g_ocrPending.store(true);
+    easy::capture::ScreenCapture::instance().startCapture(opts);
+}
+
+static void toggleRecording() {
+    auto& recorder  = easy::capture::ScreenRecorder::instance();
+    auto& indicator = easy::capture::RecordingIndicator::instance();
+
+    if (recorder.state() == easy::capture::RecordState::Idle) {
+        LOG_INFO("开始选择录屏区域");
+        easy::capture::CaptureOptions opts;
+        auto& overlay = easy::capture::CaptureOverlay::instance();
+        overlay.setRecordCallback([&recorder, &indicator](const easy::capture::CaptureRegion& region) {
+            easy::capture::RecordOptions recOpts;
+            recOpts.regionX    = region.x;
+            recOpts.regionY    = region.y;
+            recOpts.width      = region.width;
+            recOpts.height     = region.height;
+            recOpts.fullScreen = false;
+            recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
+                indicator.update(stats.durationSec, stats.frameCount);
+                indicator.setPaused(state == easy::capture::RecordState::Paused);
+            });
+            recorder.startRecording(recOpts);
+            indicator.show();
+        });
+        overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
+    } else {
+        LOG_INFO("停止录屏");
+        indicator.hide();
+        auto path = recorder.stopRecording();
+        LOG_INFO("录屏已保存: {}", path);
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WinMain — 程序入口
@@ -232,84 +330,40 @@ void initializeSubsystems(HWND hwnd) {
         LOG_INFO("用户选择退出");
         DestroyWindow(hwnd);
     });
-    tray.onScreenshot([]() {
-        LOG_INFO("截图功能触发");
-        easy::capture::CaptureOptions opts;
-        opts.copyToClipboard = true;
-        easy::capture::ScreenCapture::instance().startCapture(opts);
-    });
-    tray.onRecording([]() {
-        auto& recorder = easy::capture::ScreenRecorder::instance();
-        auto& indicator = easy::capture::RecordingIndicator::instance();
-        if (recorder.state() == easy::capture::RecordState::Idle) {
-            LOG_INFO("开始选择录屏区域");
-            easy::capture::CaptureOptions opts;
-            auto& overlay = easy::capture::CaptureOverlay::instance();
-            overlay.setRecordCallback([&recorder, &indicator](const easy::capture::CaptureRegion& region) {
-                easy::capture::RecordOptions recOpts;
-                recOpts.regionX = region.x;
-                recOpts.regionY = region.y;
-                recOpts.width = region.width;
-                recOpts.height = region.height;
-                recOpts.fullScreen = false;
-                recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
-                    indicator.update(stats.durationSec, stats.frameCount);
-                    indicator.setPaused(state == easy::capture::RecordState::Paused);
-                });
-                recorder.startRecording(recOpts);
-                indicator.show();
-            });
-            overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
-        } else {
-            LOG_INFO("停止录屏");
-            indicator.hide();
-            auto path = recorder.stopRecording();
-            LOG_INFO("录屏已保存: {}", path);
-        }
-    });
+    tray.onScreenshot([]() { triggerScreenshot(); });
+    tray.onRecording([]() { toggleRecording(); });
 
     // 注册全局快捷键
     auto& hotkeys = easy::core::HotkeyManager::instance();
     hotkeys.registerHotkey("截图", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'A'}, []() {
-        LOG_INFO("截图快捷键触发");
-        easy::capture::CaptureOptions opts;
-        opts.copyToClipboard = true;
-        easy::capture::ScreenCapture::instance().startCapture(opts);
+        triggerScreenshot();
     });
     hotkeys.registerHotkey("录屏", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'R'}, []() {
-        LOG_INFO("录屏快捷键触发");
-        auto& recorder = easy::capture::ScreenRecorder::instance();
-        auto& indicator = easy::capture::RecordingIndicator::instance();
-        if (recorder.state() == easy::capture::RecordState::Idle) {
-            easy::capture::CaptureOptions opts;
-            auto& overlay = easy::capture::CaptureOverlay::instance();
-            overlay.setRecordCallback([&recorder, &indicator](const easy::capture::CaptureRegion& region) {
-                easy::capture::RecordOptions recOpts;
-                recOpts.regionX = region.x;
-                recOpts.regionY = region.y;
-                recOpts.width = region.width;
-                recOpts.height = region.height;
-                recOpts.fullScreen = false;
-                recorder.setStateCallback([&indicator](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
-                    indicator.update(stats.durationSec, stats.frameCount);
-                    indicator.setPaused(state == easy::capture::RecordState::Paused);
-                });
-                recorder.startRecording(recOpts);
-                indicator.show();
-            });
-            overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
-        } else {
-            indicator.hide();
-            recorder.stopRecording();
-        }
+        toggleRecording();
+    });
+    hotkeys.registerHotkey("OCR文字识别", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'O'}, []() {
+        triggerOcrCapture();
     });
     hotkeys.registerHotkey("暂停手势", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'W'}, []() {
         auto& engine = easy::gesture::GestureEngine::instance();
         engine.setPaused(!engine.isPaused());
     });
 
+    // 注册手势内置命令的应用级回调 (保持 gesture → capture/tray 单向依赖)
+    {
+        using easy::gesture::BuiltinCommand;
+        auto& dispatcher = easy::gesture::BuiltinCommandDispatcher::instance();
+        dispatcher.registerHandler(BuiltinCommand::TakeScreenshot, []() { triggerScreenshot(); });
+        dispatcher.registerHandler(BuiltinCommand::StartRecording, []() { toggleRecording(); });
+        dispatcher.registerHandler(BuiltinCommand::PauseGestures, []() {
+            auto& engine = easy::gesture::GestureEngine::instance();
+            engine.setPaused(!engine.isPaused());
+        });
+    }
+
     // 截图/录屏引擎
     easy::capture::ScreenCapture::instance().initialize(GetModuleHandleW(nullptr));
+    easy::capture::ScreenCapture::instance().setCallback(onCaptureCompletedForOcr);
     easy::capture::ScreenRecorder::instance().initialize();
 
     // 录制指示器
@@ -349,6 +403,8 @@ void shutdownSubsystems() {
     easy::gesture::GestureEngine::instance().stop();
     easy::core::HotkeyManager::instance().shutdown();
     easy::tray::TrayIcon::instance().destroy();
+    easy::ocr::OcrEngine::instance().shutdown();
+    easy::core::LuaEngine::instance().shutdown();
     easy::core::ConfigManager::instance().shutdown();
     easy::core::CrashHandler::uninstall();
 

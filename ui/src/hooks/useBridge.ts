@@ -97,7 +97,10 @@ export function useBridge() {
  */
 export function useBridgeEvent(eventName: string, handler: MessageHandler) {
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  // 在 effect 中同步最新 handler，避免在渲染期间写入 ref
+  useEffect(() => {
+    handlerRef.current = handler;
+  });
 
   useEffect(() => {
     initGlobalListener();
@@ -159,7 +162,16 @@ function getMockResponse(method: string): unknown {
       };
 
     case 'gesture.getScopeRules':
-      return [];
+      return [
+        {
+          id: 'mock-1', name: 'Chrome 浏览器', enabled: true,
+          processName: 'chrome.exe', windowClass: '', matchMode: 0, effect: 2, profileName: 'browser',
+        },
+        {
+          id: 'mock-2', name: '游戏全屏禁用', enabled: true,
+          processName: '*.exe', windowClass: '', matchMode: 1, effect: 1, profileName: '',
+        },
+      ];
 
     case 'capture.getSettings':
       return {
@@ -181,9 +193,15 @@ function getMockResponse(method: string): unknown {
 
     case 'ocr.getSettings':
       return {
-        engine: 'paddleocr', language: 'ch',
+        engine: 'windows', language: 'auto',
         autoOcr: false, copyResult: true,
       };
+
+    case 'ocr.getStatus':
+      return { available: true };
+
+    case 'ocr.recognizeImageFile':
+      return { success: true, text: '(mock) 识别到的示例文字', copied: true };
 
     // 所有 update 方法返回成功
     case 'capture.updateSettings':

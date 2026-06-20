@@ -149,9 +149,152 @@
 }
 
 .gesture-table__col--key {
-  width: 140px;
+  width: 130px;
   flex-shrink: 0;
   text-align: right;
+}
+
+.gesture-table__col--actions {
+  width: 76px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* ── 行内图标按钮 ─────────────────────────────────────────────────────────── */
+.gesture-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.gesture-table__row:hover .gesture-icon-btn { opacity: 1; }
+
+.gesture-icon-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.gesture-icon-btn--danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── 卡片工具条 (添加/计数) ───────────────────────────────────────────────── */
+.gesture-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.gesture-toolbar__count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ── 手势编码方向预览 ────────────────────────────────────────────────────── */
+.gesture-code-preview {
+  font-size: 1.4rem;
+  color: var(--primary);
+  min-height: 1.6rem;
+  letter-spacing: 0.1em;
+}
+
+.gesture-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ── 作用域规则 ───────────────────────────────────────────────────────────── */
+.scope-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.scope-toolbar__count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.scope-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.scope-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.scope-table { width: 100%; }
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--card-border);
+  animation: fadeIn 0.25s ease both;
+}
+
+.scope-row:last-child { border-bottom: none; }
+
+.scope-row:hover:not(.scope-row--head) {
+  background: var(--primary-dim);
+  border-radius: var(--radius-sm);
+}
+
+.scope-row--head {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scope-col { font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+.scope-col--check   { width: 28px; flex-shrink: 0; justify-content: center; }
+.scope-col--enabled { width: 64px; flex-shrink: 0; }
+.scope-col--name    { width: 130px; flex-shrink: 0; color: var(--text-primary); font-weight: 500; }
+.scope-col--target  { flex: 1; min-width: 0; }
+.scope-col--effect  { width: 130px; flex-shrink: 0; }
+.scope-col--actions { width: 70px; flex-shrink: 0; justify-content: flex-end; }
+
+/* enabled 列里的 Toggle 去掉默认的两端撑开布局 */
+.scope-col--enabled .uikit-toggle { min-height: auto; padding: 0; }
+
+.scope-target-value {
+  font-family: 'Consolas', 'Menlo', monospace;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-matchmode {
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 /* ── 箭头显示 ─────────────────────────────────────────────────────────────── */

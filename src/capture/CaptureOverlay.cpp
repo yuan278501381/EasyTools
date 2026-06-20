@@ -75,6 +75,9 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_dragging = false;
     m_isMarking = false;
     m_markupBaseReady = false;
+    m_editingText = false;
+    m_textBuffer.clear();
+    m_currentColor = MarkupColor::Red();
     m_markup.clearAll();
     m_toolbarButtons.clear();
     m_penPoints.clear();
@@ -115,6 +118,8 @@ void CaptureOverlay::cancel() {
     m_state = OverlayState::Idle;
     m_isMarking = false;
     m_markupBaseReady = false;
+    m_editingText = false;
+    m_textBuffer.clear();
     m_toolbarButtons.clear();
     m_penPoints.clear();
     m_frozenScreen.release();
@@ -181,6 +186,17 @@ bool CaptureOverlay::createRenderResources() {
     if (FAILED(hr)) return false;
     m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_infoTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // 文本工具的输入预览: 左对齐、较大字号
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI", nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        18.0f, L"zh-CN", m_textInputFormat.GetAddressOf()
+    );
+    if (SUCCEEDED(hr) && m_textInputFormat) {
+        m_textInputFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        m_textInputFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    }
 
     RECT rc;
     GetClientRect(m_hwnd, &rc);
@@ -319,6 +335,7 @@ void CaptureOverlay::render() {
         drawDimOverlay(selRect);
         drawMarkupPreview(selRect);
         drawActiveMarkupPreview(selRect);
+        drawTextEditing(selRect);
         drawSelection(selRect);
         drawSizeInfo(selRect);
         drawToolbar(selRect);
@@ -440,9 +457,28 @@ void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
     for (const auto& button : m_toolbarButtons) {
         bool isTool = button.command == ToolbarCommand::SelectTool;
         bool isActiveTool = isTool && button.tool == m_currentTool;
+        bool isColor = button.command == ToolbarCommand::SelectColor;
         bool isDanger = button.command == ToolbarCommand::Cancel || button.command == ToolbarCommand::Clear;
 
         auto rounded = D2D1::RoundedRect(button.rect, 5.0f, 5.0f);
+
+        if (isColor) {
+            // 颜色色板: 用色块填充, 当前色加白色描边
+            ComPtr<ID2D1SolidColorBrush> swatch;
+            m_renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(button.color.r / 255.0f, button.color.g / 255.0f,
+                             button.color.b / 255.0f, 1.0f),
+                swatch.GetAddressOf());
+            if (swatch) m_renderTarget->FillRoundedRectangle(rounded, swatch.Get());
+            bool isActiveColor = button.color.r == m_currentColor.r &&
+                                 button.color.g == m_currentColor.g &&
+                                 button.color.b == m_currentColor.b;
+            if (isActiveColor) {
+                m_renderTarget->DrawRoundedRectangle(rounded, m_infoTextBrush.Get(), 2.0f);
+            }
+            continue;  // 色板不画文字
+        }
+
         auto* fillBrush = isActiveTool ? activeBrush.Get() : isDanger ? dangerBrush.Get() : buttonBrush.Get();
         m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
 
@@ -630,14 +666,20 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         {MarkupTool::Magnifier, L"⌕"},
     }};
 
+    static const std::array<MarkupColor, 5> colors{{
+        MarkupColor::Red(), MarkupColor::Yellow(), MarkupColor::Green(),
+        MarkupColor::Blue(), MarkupColor::White(),
+    }};
+
     auto size = m_renderTarget->GetSize();
     constexpr float buttonSize = 30.0f;
     constexpr float gap = 4.0f;
     constexpr float toolbarHeight = 42.0f;
     constexpr float padding = 8.0f;
     bool isRecord = (m_mode == OverlayMode::RecordRegion);
-    int commandCount = isRecord ? 2 : 6;
-    const int buttonCount = isRecord ? 2 : static_cast<int>(tools.size()) + commandCount;
+    // 非录屏: 9 工具 + 5 颜色 + 8 命令(撤销/重做/清除/OCR/贴图/长截图/取消/确认)
+    const int buttonCount = isRecord ? 2
+        : static_cast<int>(tools.size()) + static_cast<int>(colors.size()) + 8;
     const float toolbarWidth = padding * 2.0f + buttonCount * buttonSize + (buttonCount - 1) * gap + (isRecord ? 20.0f : 0.0f);
     float maxX = std::max(8.0f, size.width - toolbarWidth - 8.0f);
     float toolbarX = std::clamp(selectionRect.left, 8.0f, maxX);
@@ -665,6 +707,15 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         for (const auto& tool : tools) {
             addButton(ToolbarCommand::SelectTool, tool.tool, tool.label, buttonSize);
         }
+        // 颜色色板
+        for (const auto& c : colors) {
+            ToolbarButton button;
+            button.command = ToolbarCommand::SelectColor;
+            button.color = c;
+            button.rect = D2D1::RectF(x, toolbarY + 6.0f, x + buttonSize, toolbarY + 6.0f + buttonSize);
+            m_toolbarButtons.push_back(std::move(button));
+            x += buttonSize + gap;
+        }
         addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩", buttonSize);
         addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪", buttonSize);
         addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑", buttonSize);
@@ -688,11 +739,17 @@ ToolbarButton* CaptureOverlay::hitTestToolbar(POINT point) {
 }
 
 void CaptureOverlay::executeToolbarCommand(const ToolbarButton& button) {
+    commitTextEditing();  // 任何工具栏操作前先提交未完成的文本
+
     switch (button.command) {
         case ToolbarCommand::SelectTool:
             m_currentTool = button.tool;
             m_state = OverlayState::Selected;
             m_isMarking = false;
+            break;
+
+        case ToolbarCommand::SelectColor:
+            m_currentColor = button.color;
             break;
 
         case ToolbarCommand::Undo:
@@ -819,7 +876,12 @@ void CaptureOverlay::beginMarkup(POINT point) {
         return;
     }
     if (m_currentTool == MarkupTool::Text) {
-        m_markup.addText(local, "Text", m_currentColor, 18.0f);
+        commitTextEditing();          // 先提交上一段未完成文本
+        m_editingText = true;
+        m_textAnchor = local;
+        m_textScreenPos = point;
+        m_textBuffer.clear();
+        m_state = OverlayState::Marking;
         return;
     }
 
@@ -878,7 +940,7 @@ void CaptureOverlay::finishMarkup(POINT point) {
             break;
 
         case MarkupTool::Highlight:
-            m_markup.drawHighlight(start, end, MarkupColor::Yellow());
+            m_markup.drawHighlight(start, end, m_currentColor);
             break;
 
         case MarkupTool::Mosaic:
@@ -893,8 +955,71 @@ void CaptureOverlay::finishMarkup(POINT point) {
     m_state = OverlayState::Selected;
 }
 
+// ── 文本输入 ─────────────────────────────────────────────────────────────────
+
+void CaptureOverlay::onTextChar(wchar_t ch) {
+    if (!m_editingText) return;
+    switch (ch) {
+        case 0x08:  // Backspace
+            if (!m_textBuffer.empty()) m_textBuffer.pop_back();
+            break;
+        case 0x1B:  // Esc: 放弃本次输入
+            m_editingText = false;
+            m_textBuffer.clear();
+            m_state = OverlayState::Selected;
+            break;
+        case 0x0D:  // Enter (回车提交)
+        case 0x0A:
+            commitTextEditing();
+            break;
+        default:
+            if (ch >= 0x20) m_textBuffer.push_back(ch);  // 可打印字符
+            break;
+    }
+}
+
+void CaptureOverlay::commitTextEditing() {
+    if (!m_editingText) return;
+    m_editingText = false;
+    if (!m_textBuffer.empty()) {
+        prepareMarkupBase();
+        if (m_markupBaseReady) {
+            m_markup.addText(m_textAnchor,
+                             easy::core::WinUtils::wstringToUtf8(m_textBuffer),
+                             m_currentColor, 18.0f);
+        }
+    }
+    m_textBuffer.clear();
+    if (m_state == OverlayState::Marking) m_state = OverlayState::Selected;
+}
+
+void CaptureOverlay::drawTextEditing(const D2D1_RECT_F& /*selectionRect*/) {
+    if (!m_editingText || !m_renderTarget) return;
+
+    // 当前文本 + 闪烁感的光标 (简化为常驻竖线)
+    std::wstring shown = m_textBuffer + L"|";
+
+    ComPtr<ID2D1SolidColorBrush> textBrush;
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(m_currentColor.r / 255.0f, m_currentColor.g / 255.0f,
+                     m_currentColor.b / 255.0f, 1.0f),
+        textBrush.GetAddressOf());
+    if (!textBrush) return;
+
+    D2D1_RECT_F box = D2D1::RectF(
+        static_cast<float>(m_textScreenPos.x),
+        static_cast<float>(m_textScreenPos.y),
+        static_cast<float>(m_textScreenPos.x) + 640.0f,
+        static_cast<float>(m_textScreenPos.y) + 48.0f);
+    IDWriteTextFormat* fmt = m_textInputFormat ? m_textInputFormat.Get() : m_infoTextFormat.Get();
+    m_renderTarget->DrawText(shown.c_str(), static_cast<UINT32>(shown.size()),
+                             fmt, box, textBrush.Get());
+}
+
 void CaptureOverlay::confirmSelection() {
     easy::core::TraceId::Scope scope;
+
+    commitTextEditing();  // 提交未完成的文本, 一并合成进截图
 
     int x1 = std::min(m_dragStart.x, m_dragEnd.x);
     int y1 = std::min(m_dragStart.y, m_dragEnd.y);
@@ -1037,8 +1162,18 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             return 0;
         }
 
+        case WM_CHAR: {
+            if (self && self->m_editingText) {
+                self->onTextChar(static_cast<wchar_t>(wParam));
+                return 0;
+            }
+            break;
+        }
+
         case WM_KEYDOWN: {
             if (!self) break;
+            // 文本输入中: 交给 WM_CHAR 处理 (回车提交 / Esc 取消 / 退格)
+            if (self->m_editingText) return 0;
             if (wParam == VK_ESCAPE) {
                 self->cancel();
             } else if (wParam == VK_RETURN) {

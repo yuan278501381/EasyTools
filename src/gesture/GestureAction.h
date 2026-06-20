@@ -53,6 +53,10 @@ struct KeyStroke {
     /// 从字符串解析 (如 "Ctrl+C")
     static KeyStroke fromString(const std::string& str);
     std::string toString() const;
+
+    /// 通过 SendInput 合成这组按键 (按下修饰键 → 主键 → 逆序释放)
+    /// virtualKey == 0 时为空操作。
+    void send() const;
 };
 
 /// 手势动作定义

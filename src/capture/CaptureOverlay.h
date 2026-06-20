@@ -44,6 +44,7 @@ enum class OverlayState {
 
 enum class ToolbarCommand {
     SelectTool,
+    SelectColor,    // 选择标注颜色
     Undo,
     Redo,
     Clear,
@@ -58,6 +59,7 @@ struct ToolbarButton {
     D2D1_RECT_F rect{};
     ToolbarCommand command = ToolbarCommand::SelectTool;
     MarkupTool tool = MarkupTool::Rectangle;
+    MarkupColor color = MarkupColor::Red();  // command == SelectColor 时使用
     std::wstring label;
 };
 
@@ -158,6 +160,11 @@ private:
     void updateMarkup(POINT point);
     void finishMarkup(POINT point);
 
+    /// 文本输入 (Text 工具): WM_CHAR 累积 → 回车/切换工具时提交
+    void onTextChar(wchar_t ch);
+    void commitTextEditing();
+    void drawTextEditing(const D2D1_RECT_F& selectionRect);
+
     /// 窗口过程
     static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -189,6 +196,12 @@ private:
     std::vector<cv::Point> m_penPoints;
     std::vector<ToolbarButton> m_toolbarButtons;
 
+    // 文本输入状态
+    bool m_editingText = false;
+    cv::Point m_textAnchor{};      // 文本在标注坐标系中的锚点
+    POINT m_textScreenPos{};       // 文本在覆盖层坐标系中的位置 (用于绘制)
+    std::wstring m_textBuffer;
+
     // 回调
     SelectionCallback m_callback;
     RecordSelectionCallback m_recordCallback;
@@ -206,6 +219,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_windowHighlightBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_infoTextFormat;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textInputFormat;  // 文本工具: 左对齐大字号
 };
 
 }  // namespace easy::capture

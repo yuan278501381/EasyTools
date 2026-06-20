@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "gesture/GestureAction.h"
+#include "gesture/BuiltinCommands.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/lua/LuaEngine.h"
@@ -71,6 +72,49 @@ std::string KeyStroke::toString() const {
     return result;
 }
 
+// ── KeyStroke::send ──────────────────────────────────────────────────────────
+
+void KeyStroke::send() const {
+    if (virtualKey == 0) {
+        LOG_WARN("KeyStroke::send 被调用但 virtualKey 为空, 跳过");
+        return;
+    }
+
+    // 构造 INPUT 数组: 按下修饰键 → 主键 → 逆序释放
+    std::vector<INPUT> inputs;
+    inputs.reserve(10);
+
+    auto addKey = [&](WORD vk, bool up) {
+        INPUT inp{};
+        inp.type = INPUT_KEYBOARD;
+        inp.ki.wVk = vk;
+        inp.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        inputs.push_back(inp);
+    };
+
+    // 修饰键按下顺序
+    static constexpr std::array<std::pair<uint8_t, WORD>, 4> kMods = {{
+        {MOD_CONTROL, VK_CONTROL}, {MOD_ALT, VK_MENU},
+        {MOD_SHIFT, VK_SHIFT},     {MOD_WIN, VK_LWIN},
+    }};
+
+    for (auto [mod, vk] : kMods) {
+        if (modifiers & mod) addKey(vk, /*up=*/false);
+    }
+    addKey(virtualKey, /*up=*/false);
+    addKey(virtualKey, /*up=*/true);
+    // 逆序释放修饰键
+    for (auto it = kMods.rbegin(); it != kMods.rend(); ++it) {
+        if (modifiers & it->first) addKey(it->second, /*up=*/true);
+    }
+
+    UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    if (sent != inputs.size()) {
+        LOG_WARN("SendInput 未完全发送: expected={}, sent={}, lastError={}",
+                 inputs.size(), sent, GetLastError());
+    }
+}
+
 // ── GestureAction::execute ───────────────────────────────────────────────────
 
 void GestureAction::execute() const {
@@ -79,60 +123,7 @@ void GestureAction::execute() const {
     switch (type) {
         case ActionType::SendKeys: {
             LOG_DEBUG("执行手势动作: SendKeys, keys={}", keyStroke.toString());
-
-            // 构造 INPUT 数组
-            std::vector<INPUT> inputs;
-
-            // 按下修饰键
-            auto addModDown = [&](uint8_t mod, WORD vk) {
-                if (keyStroke.modifiers & mod) {
-                    INPUT inp{};
-                    inp.type = INPUT_KEYBOARD;
-                    inp.ki.wVk = vk;
-                    inputs.push_back(inp);
-                }
-            };
-            addModDown(MOD_CONTROL, VK_CONTROL);
-            addModDown(MOD_ALT, VK_MENU);
-            addModDown(MOD_SHIFT, VK_SHIFT);
-            addModDown(MOD_WIN, VK_LWIN);
-
-            // 按下主键
-            {
-                INPUT inp{};
-                inp.type = INPUT_KEYBOARD;
-                inp.ki.wVk = keyStroke.virtualKey;
-                inputs.push_back(inp);
-            }
-
-            // 释放主键
-            {
-                INPUT inp{};
-                inp.type = INPUT_KEYBOARD;
-                inp.ki.wVk = keyStroke.virtualKey;
-                inp.ki.dwFlags = KEYEVENTF_KEYUP;
-                inputs.push_back(inp);
-            }
-
-            // 释放修饰键（逆序）
-            auto addModUp = [&](uint8_t mod, WORD vk) {
-                if (keyStroke.modifiers & mod) {
-                    INPUT inp{};
-                    inp.type = INPUT_KEYBOARD;
-                    inp.ki.wVk = vk;
-                    inp.ki.dwFlags = KEYEVENTF_KEYUP;
-                    inputs.push_back(inp);
-                }
-            };
-            addModUp(MOD_WIN, VK_LWIN);
-            addModUp(MOD_SHIFT, VK_SHIFT);
-            addModUp(MOD_ALT, VK_MENU);
-            addModUp(MOD_CONTROL, VK_CONTROL);
-
-            UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
-            if (sent != inputs.size()) {
-                LOG_WARN("SendInput 未完全发送: expected={}, sent={}", inputs.size(), sent);
-            }
+            keyStroke.send();
             break;
         }
 
@@ -144,7 +135,7 @@ void GestureAction::execute() const {
 
         case ActionType::BuiltinCommand: {
             LOG_DEBUG("执行手势动作: BuiltinCommand, cmd={}", static_cast<int>(builtinCmd));
-            // TODO: 调用内置命令处理器
+            BuiltinCommandDispatcher::instance().execute(builtinCmd);
             break;
         }
 

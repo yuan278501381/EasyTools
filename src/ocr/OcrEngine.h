@@ -26,14 +26,23 @@ class OcrEngine {
 public:
     static OcrEngine& instance();
 
-    /// 初始化引擎 (例如启动外部进程)
+    /// 初始化引擎 (探测可用的 OCR 语言包)。
     bool initialize();
 
     /// 关闭引擎
     void shutdown();
 
-    /// 提取文字
+    /// 系统是否存在可用的 OCR 语言包。
+    bool isAvailable() const { return m_available; }
+
+    /// 提取文字 (逐行结果 + 包围盒)。
     std::vector<OcrResult> extractText(const cv::Mat& image);
+
+    /// 提取文字并按行拼接为单个字符串。
+    std::string recognizeToText(const cv::Mat& image);
+
+    /// 从磁盘图片文件识别文字 (UTF-8 路径)。失败返回空串。
+    std::string recognizeImageFile(const std::string& utf8Path);
 
 private:
     OcrEngine() = default;
@@ -41,7 +50,7 @@ private:
     OcrEngine(const OcrEngine&) = delete;
     OcrEngine& operator=(const OcrEngine&) = delete;
 
-    // TODO: 管理外部进程句柄或 IPC 管道
+    bool m_available = false;
 };
 
 } // namespace easy::ocr

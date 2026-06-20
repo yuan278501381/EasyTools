@@ -2,29 +2,23 @@
  * GesturePage — 鼠标手势设置页
  *
  * 功能:
- *   - 手势全局开关
- *   - 默认手势列表（支持编辑/删除/添加）
- *   - 手势动作详情展示（方向箭头 + 对应操作）
- *   - 触发按钮配置
- *   - 轨迹显示配置
+ *   - 手势全局开关 / 触发按钮 / 轨迹显示
+ *   - 手势映射表的增 / 删 / 改 (经 gesture.updateProfile 持久化)
+ *   - 动作类型: 快捷键 / Lua 脚本 / 内置命令 / 运行程序
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Badge, Select } from '../components/UIKit';
+import { useState, useEffect, useCallback, type FC } from 'react';
+import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button } from '../components/UIKit';
+import { GestureEditorModal } from '../components/GestureEditorModal';
+import { ScopeRulesManager } from '../components/ScopeRulesManager';
+import {
+  codeToArrows,
+  ACTION_TYPE_OPTIONS,
+  BUILTIN_COMMANDS,
+  type GestureMapping,
+} from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import './GesturePage.css';
-
-// 手势映射数据
-interface GestureMapping {
-  gestureCode: string;
-  action: {
-    type: number;
-    name: string;
-    keyStroke?: string;
-    builtinCmd?: number;
-    description?: string;
-  };
-}
 
 interface GestureState {
   enabled: boolean;
@@ -33,39 +27,39 @@ interface GestureState {
   trailVisible: boolean;
 }
 
-// 方向编码 → 箭头显示
-const CODE_TO_ARROWS: Record<string, string> = {
-  'L': '←', 'R': '→', 'U': '↑', 'D': '↓',
-  'UL': '↖', 'UR': '↗', 'DL': '↙', 'DR': '↘',
-  'L-U': '←↑', 'L-D': '←↓', 'L-R': '←→',
-  'R-U': '→↑', 'R-D': '→↓', 'R-L': '→←',
-  'U-L': '↑←', 'U-R': '↑→', 'U-D': '↑↓',
-  'D-U': '↓↑', 'D-R': '↓→', 'D-L': '↓←',
-};
+const ACTION_TYPE_LABELS: Record<number, string> = Object.fromEntries(
+  ACTION_TYPE_OPTIONS.map((o) => [Number(o.value), o.label]),
+);
 
-// 动作类型标签
-const ACTION_TYPE_LABELS: Record<number, string> = {
-  0: '快捷键',
-  1: 'Lua 脚本',
-  2: '内置命令',
-  3: '运行程序',
-};
+const PROFILE_NAME = 'default';
+
+/** 取动作的“详情”文本 (按类型显示快捷键 / 命令 / 脚本 / 程序)。 */
+function actionDetail(action: GestureMapping['action']): string {
+  switch (action.type) {
+    case 0: return action.keyStroke ?? '';
+    case 1: return '脚本';
+    case 2: return BUILTIN_COMMANDS[action.builtinCmd ?? 0] ?? '';
+    case 3: return action.programPath ?? '';
+    default: return '';
+  }
+}
 
 export const GesturePage: FC = () => {
   const [enabled, setEnabled] = useState(true);
   const [trailVisible, setTrailVisible] = useState(true);
   const [triggerButton, setTriggerButton] = useState('right');
   const [mappings, setMappings] = useState<GestureMapping[]>([]);
+  const [profileNames, setProfileNames] = useState<string[]>([PROFILE_NAME]);
   const [loading, setLoading] = useState(true);
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<GestureMapping | null>(null);
 
   useBridgeEvent('gesture.stateChanged', (data) => {
     const state = data as Partial<GestureState>;
-    if (typeof state.enabled === 'boolean') {
-      setEnabled(state.enabled);
-    }
+    if (typeof state.enabled === 'boolean') setEnabled(state.enabled);
   });
 
-  // 加载数据
   useEffect(() => {
     async function loadData() {
       try {
@@ -73,15 +67,12 @@ export const GesturePage: FC = () => {
           bridgeRequest<GestureState>('gesture.getState'),
           bridgeRequest<Array<{ name: string; mappings: GestureMapping[] }>>('gesture.getProfiles'),
         ]);
-
         setEnabled(state.enabled);
         setTriggerButton(state.triggerButton ?? 'right');
         setTrailVisible(state.trailVisible ?? true);
-
-        const defaultProfile = profiles?.find(p => p.name === 'default');
-        if (defaultProfile) {
-          setMappings(defaultProfile.mappings);
-        }
+        if (profiles?.length) setProfileNames(profiles.map((p) => p.name));
+        const defaultProfile = profiles?.find((p) => p.name === PROFILE_NAME);
+        if (defaultProfile) setMappings(defaultProfile.mappings);
       } catch (err) {
         console.error('Failed to load gesture config:', err);
       } finally {
@@ -90,6 +81,18 @@ export const GesturePage: FC = () => {
     }
     loadData();
   }, []);
+
+  // ── 持久化整张映射表 ────────────────────────────────────────────────────────
+  const persist = useCallback(async (next: GestureMapping[]) => {
+    const prev = mappings;
+    setMappings(next);
+    try {
+      await bridgeRequest('gesture.updateProfile', { name: PROFILE_NAME, mappings: next });
+    } catch (err) {
+      console.error('Failed to save gesture profile:', err);
+      setMappings(prev); // 回滚
+    }
+  }, [mappings]);
 
   const handleToggleEnabled = async (checked: boolean) => {
     setEnabled(checked);
@@ -122,6 +125,28 @@ export const GesturePage: FC = () => {
     }
   };
 
+  // ── CRUD ────────────────────────────────────────────────────────────────────
+  const openAdd = () => { setEditing(null); setEditorOpen(true); };
+  const openEdit = (m: GestureMapping) => { setEditing(m); setEditorOpen(true); };
+
+  const handleSaveMapping = (saved: GestureMapping) => {
+    const idx = mappings.findIndex((m) => m.gestureCode === (editing?.gestureCode ?? saved.gestureCode));
+    const next = [...mappings];
+    if (editing && idx >= 0) next[idx] = saved;            // 编辑
+    else {
+      const dup = next.findIndex((m) => m.gestureCode === saved.gestureCode);
+      if (dup >= 0) next[dup] = saved;                     // 同码覆盖
+      else next.push(saved);                               // 新增
+    }
+    persist(next);
+    setEditorOpen(false);
+  };
+
+  const handleDelete = (m: GestureMapping) => {
+    if (!window.confirm(`确定删除手势 “${m.action.name}” (${m.gestureCode}) 吗？`)) return;
+    persist(mappings.filter((x) => x.gestureCode !== m.gestureCode));
+  };
+
   if (loading) {
     return (
       <div className="page-loading">
@@ -138,9 +163,7 @@ export const GesturePage: FC = () => {
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
-            <span className="gesture-status__text">
-              {enabled ? '手势正在运行' : '手势已暂停'}
-            </span>
+            <span className="gesture-status__text">{enabled ? '手势正在运行' : '手势已暂停'}</span>
             <kbd className="gesture-status__hotkey">Ctrl+Alt+Shift+W</kbd>
           </div>
           <Toggle
@@ -173,32 +196,35 @@ export const GesturePage: FC = () => {
 
       {/* ── 手势映射表 ────────────────────────────────────────────── */}
       <SettingGroup title="手势映射" icon="✋">
-        <Card subtitle={`共 ${mappings.length} 个手势`}>
+        <Card>
+          <div className="gesture-toolbar">
+            <span className="gesture-toolbar__count">共 {mappings.length} 个手势</span>
+            <Button size="sm" variant="primary" onClick={openAdd}>＋ 添加手势</Button>
+          </div>
+
           <div className="gesture-table">
             <div className="gesture-table__header">
               <span className="gesture-table__col gesture-table__col--arrow">手势</span>
               <span className="gesture-table__col gesture-table__col--code">编码</span>
               <span className="gesture-table__col gesture-table__col--action">动作</span>
               <span className="gesture-table__col gesture-table__col--type">类型</span>
-              <span className="gesture-table__col gesture-table__col--key">快捷键</span>
+              <span className="gesture-table__col gesture-table__col--key">详情</span>
+              <span className="gesture-table__col gesture-table__col--actions" />
             </div>
+
+            {mappings.length === 0 && (
+              <div className="gesture-empty">还没有手势，点击「添加手势」创建第一个。</div>
+            )}
+
             {mappings.map((m, i) => (
-              <div
-                key={m.gestureCode}
-                className="gesture-table__row"
-                style={{ animationDelay: `${i * 30}ms` }}
-              >
+              <div key={m.gestureCode} className="gesture-table__row" style={{ animationDelay: `${i * 30}ms` }}>
                 <span className="gesture-table__col gesture-table__col--arrow">
-                  <span className="gesture-arrow">
-                    {CODE_TO_ARROWS[m.gestureCode] ?? m.gestureCode}
-                  </span>
+                  <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
                 </span>
                 <span className="gesture-table__col gesture-table__col--code">
                   <code>{m.gestureCode}</code>
                 </span>
-                <span className="gesture-table__col gesture-table__col--action">
-                  {m.action.name}
-                </span>
+                <span className="gesture-table__col gesture-table__col--action">{m.action.name}</span>
                 <span className="gesture-table__col gesture-table__col--type">
                   <Badge
                     text={ACTION_TYPE_LABELS[m.action.type] ?? '未知'}
@@ -206,15 +232,36 @@ export const GesturePage: FC = () => {
                   />
                 </span>
                 <span className="gesture-table__col gesture-table__col--key">
-                  {m.action.keyStroke && (
-                    <kbd className="gesture-kbd">{m.action.keyStroke}</kbd>
-                  )}
+                  {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
+                </span>
+                <span className="gesture-table__col gesture-table__col--actions">
+                  <button className="gesture-icon-btn" title="编辑" onClick={() => openEdit(m)}>✎</button>
+                  <button
+                    className="gesture-icon-btn gesture-icon-btn--danger"
+                    title="删除"
+                    onClick={() => handleDelete(m)}
+                  >🗑</button>
                 </span>
               </div>
             ))}
           </div>
         </Card>
       </SettingGroup>
+
+      {/* ── 作用域规则 ────────────────────────────────────────────── */}
+      <SettingGroup title="作用域规则" icon="🎯">
+        <ScopeRulesManager profileNames={profileNames} />
+      </SettingGroup>
+
+      {editorOpen && (
+        <GestureEditorModal
+          key={editing?.gestureCode ?? '__new__'}
+          initial={editing}
+          existingCodes={mappings.map((m) => m.gestureCode)}
+          onSave={handleSaveMapping}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </div>
   );
 };

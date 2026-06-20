@@ -66,22 +66,25 @@
 ## Phase 3 — 高级功能
 
 ### 3.1 OCR（文字识别）
-- [ ] PaddleOCR Lite 外部进程架构设计与管道通信
-- [ ] 截图后自动 OCR 文字提取与剪贴板复制
-- [ ] 托盘气泡通知与 IPC 联动
+- [x] OCR 引擎实现（改用 **Windows.Media.Ocr** 离线引擎，免打包模型，详见 docs/api 决策）
+- [x] 截图区域 OCR 文字提取与剪贴板复制（Ctrl+Shift+O / 覆盖层 OCR 回调）
+- [x] 托盘气泡通知（后台线程推理，避免阻塞消息循环）与 IPC 联动（ocr.getStatus / ocr.recognizeImageFile）
 
 ### 3.2 录屏选区 UI 与标注工具栏交互
-- [ ] 标注工具栏按钮实际点击响应（支持高亮切换与撤销操作）
-- [ ] CaptureOverlay 增加 Screenshot/RecordRegion 模式区分
-- [ ] 通过 CaptureOverlay 选取区域后触发录屏
+- [x] 标注工具栏按钮实际点击响应（工具切换高亮 + 撤销/重做/清除）
+- [x] CaptureOverlay 增加 Screenshot/RecordRegion 模式区分
+- [x] 通过 CaptureOverlay 选取区域后触发录屏
+- [x] 文本工具真正可输入（WM_CHAR 累积 + 实时预览 + 回车提交）
+- [x] 颜色色板（红/黄/绿/蓝/白），高亮工具改用当前色；修正工具栏宽度计算
 
 ### 3.3 Lua 脚本扩展
-- [ ] LuaEngine 初始化与 sol2 绑定
-- [ ] C++ API 注入（mouseMove, keyboardPress, runCommand 等）
-- [ ] GestureAction Script 类型支持
+- [x] LuaEngine 初始化与 sol2 绑定（沙箱 + 线程安全 + executeFile）
+- [x] C++ API 注入（完整 easy.* 命名空间: keyboard/mouse/clipboard/shell/window/screen/fs/http/ui/url/log）
+- [x] GestureAction Script 类型支持（LuaScript 动作经引擎执行）
+- [x] 内置命令分发（BuiltinCommandDispatcher: 窗口管理 + 应用级命令回调）
 
 ### 3.4 IPC 持久化与完善
-- [ ] 手势设置 IPC Handler（增删改手势映射）
+- [x] 手势设置 IPC Handler（增删改手势映射）+ 前端 CRUD 编辑器（动作类型选择 / 快捷键捕获 / 冲突检测）
 - [x] 截图/录屏设置 IPC Handler
 - [x] 通用设置 IPC Handler（开机启动/语言/日志级别）
 - [x] 前端 useBridge 从 Mock 切换到真实 C++ 通信

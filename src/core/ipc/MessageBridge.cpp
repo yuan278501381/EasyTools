@@ -6,7 +6,9 @@
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/config/ConfigManager.h"
+#include "core/utils/WinUtils.h"
 #include "gesture/GestureEngine.h"
+#include "ocr/OcrEngine.h"
 
 namespace easy::core {
 
@@ -186,7 +188,11 @@ void MessageBridge::registerBuiltinHandlers() {
     });
 
     registerHandler("gesture.updateScopeRules", [](const json& params) -> json {
-        easy::gesture::GestureEngine::instance().scopeRules().loadFromJson(params);
+        // 兼容两种载荷: 裸数组, 或 { "rules": [...] }
+        const json& rules = (params.is_object() && params.contains("rules"))
+                                ? params["rules"]
+                                : params;
+        easy::gesture::GestureEngine::instance().scopeRules().loadFromJson(rules);
         easy::gesture::GestureEngine::instance().saveToConfig();
         return {{"success", true}};
     });
@@ -299,6 +305,25 @@ void MessageBridge::registerBuiltinHandlers() {
             config.set("/ocr/" + key, value);
         }
         return {{"success", true}};
+    });
+
+    registerHandler("ocr.getStatus", [](const json&) -> json {
+        return {{"available", easy::ocr::OcrEngine::instance().isAvailable()}};
+    });
+
+    // 识别磁盘上的图片文件，返回提取的文本 (可选复制到剪贴板)。
+    registerHandler("ocr.recognizeImageFile", [](const json& params) -> json {
+        std::string path = params.value("path", "");
+        if (path.empty()) {
+            return {{"success", false}, {"error", "path is required"}};
+        }
+        std::string text = easy::ocr::OcrEngine::instance().recognizeImageFile(path);
+        bool copy = params.value("copyToClipboard",
+                                 ConfigManager::instance().get<bool>("/ocr/copyResult", true));
+        if (copy && !text.empty()) {
+            WinUtils::copyToClipboard(text);
+        }
+        return {{"success", true}, {"text", text}, {"copied", copy && !text.empty()}};
     });
 
     LOG_INFO("内置 IPC 处理器注册完成 (config/gesture/capture/recording/general/ocr)");
