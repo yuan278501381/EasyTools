@@ -88,17 +88,24 @@ static void onCaptureCompletedForOcr(const easy::capture::CaptureResult& result)
 
     std::string path = result.filePath;  // 拷贝, 供后台线程使用
     std::thread([path]() {
-        auto& tray = easy::tray::TrayIcon::instance();
-        std::string text = easy::ocr::OcrEngine::instance().recognizeImageFile(path);
-        std::error_code ec;
-        std::filesystem::remove(path, ec);  // 清理临时文件
+        // 兜底: 分离线程中未捕获的异常会 std::terminate 整个进程
+        try {
+            auto& tray = easy::tray::TrayIcon::instance();
+            std::string text = easy::ocr::OcrEngine::instance().recognizeImageFile(path);
+            std::error_code ec;
+            std::filesystem::remove(path, ec);  // 清理临时文件
 
-        if (text.empty()) {
-            tray.showNotification(L"EasyTools OCR", L"未识别到文字。", NIIF_INFO);
-            return;
+            if (text.empty()) {
+                tray.showNotification(L"EasyTools OCR", L"未识别到文字。", NIIF_INFO);
+                return;
+            }
+            easy::core::WinUtils::copyToClipboard(text);
+            tray.showNotification(L"EasyTools OCR", L"文字已识别并复制到剪贴板。", NIIF_INFO);
+        } catch (const std::exception& e) {
+            LOG_ERROR("OCR 后台线程异常: {}", e.what());
+        } catch (...) {
+            LOG_ERROR("OCR 后台线程未知异常");
         }
-        easy::core::WinUtils::copyToClipboard(text);
-        tray.showNotification(L"EasyTools OCR", L"文字已识别并复制到剪贴板。", NIIF_INFO);
     }).detach();
 }
 

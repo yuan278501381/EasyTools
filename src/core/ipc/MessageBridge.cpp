@@ -67,6 +67,14 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
             {"error", {{"code", -32603}, {"message", std::string("Internal error: ") + e.what()}}}
         };
         return response.dump();
+    } catch (...) {
+        // 兜底: 任何非 std::exception 异常 (如 winrt::hresult_error) 都不得逃逸到 WebView2 native
+        LOG_ERROR("IPC 处理器未知异常 (非 std::exception)");
+        json response = {
+            {"id", 0},
+            {"error", {{"code", -32603}, {"message", "Internal error: unknown exception"}}}
+        };
+        return response.dump();
     }
 }
 

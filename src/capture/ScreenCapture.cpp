@@ -21,6 +21,7 @@
 #include <sstream>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 namespace easy::capture {
 
@@ -64,25 +65,28 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
     });
 
     overlay.setOcrCallback([this]([[maybe_unused]] const CaptureRegion& region, const cv::Mat& cropped) {
-        easy::core::TraceId::Scope scope;
         if (cropped.empty()) return;
-        
-        // 调用 OcrEngine 提取文字
-        auto results = easy::ocr::OcrEngine::instance().extractText(cropped);
-        
-        std::string fullText;
-        for (const auto& r : results) {
-            fullText += r.text + "\r\n";
-        }
-        
-        if (!fullText.empty()) {
-            // 复制到剪贴板
-            easy::core::WinUtils::copyToClipboard(fullText);
-            LOG_INFO("OCR 提取完成，已复制到剪贴板");
-            // 通过 Toast 或者气泡提醒用户，暂时这里只是记录日志
-        } else {
-            LOG_WARN("OCR 未提取到文字");
-        }
+        // OCR(WinRT .get()) 放后台线程: 避免在主 STA 线程阻塞/冻结 UI; 全程 try/catch 兜底。
+        std::string traceId = easy::core::TraceId::current();
+        cv::Mat img = cropped;  // cv::Mat 引用计数, 拷贝廉价
+        std::thread([img, traceId]() {
+            easy::core::TraceId::setCurrent(traceId);
+            try {
+                auto results = easy::ocr::OcrEngine::instance().extractText(img);
+                std::string fullText;
+                for (const auto& r : results) fullText += r.text + "\r\n";
+                if (!fullText.empty()) {
+                    easy::core::WinUtils::copyToClipboard(fullText);
+                    LOG_INFO("OCR 提取完成，已复制到剪贴板, 行数={}", results.size());
+                } else {
+                    LOG_WARN("OCR 未提取到文字");
+                }
+            } catch (const std::exception& e) {
+                LOG_ERROR("OCR(覆盖层) 异常: {}", e.what());
+            } catch (...) {
+                LOG_ERROR("OCR(覆盖层) 未知异常");
+            }
+        }).detach();
     });
 
     ScrollCapture::instance().setCompletionCallback([this](const ScrollCaptureResult& result) {
