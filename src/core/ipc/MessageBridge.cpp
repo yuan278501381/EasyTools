@@ -275,7 +275,7 @@ void MessageBridge::registerBuiltinHandlers() {
                     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
                     RegSetValueExW(hKey, L"EasyTools", 0, REG_SZ,
                                    reinterpret_cast<const BYTE*>(exePath),
-                                   (wcslen(exePath) + 1) * sizeof(wchar_t));
+                                   static_cast<DWORD>((wcslen(exePath) + 1) * sizeof(wchar_t)));
                 } else {
                     RegDeleteValueW(hKey, L"EasyTools");
                 }

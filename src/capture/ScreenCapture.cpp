@@ -63,7 +63,7 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
         if (m_callback) m_callback(result);
     });
 
-    overlay.setOcrCallback([this](const CaptureRegion& region, const cv::Mat& cropped) {
+    overlay.setOcrCallback([this]([[maybe_unused]] const CaptureRegion& region, const cv::Mat& cropped) {
         easy::core::TraceId::Scope scope;
         if (cropped.empty()) return;
         

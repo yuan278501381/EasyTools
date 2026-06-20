@@ -1,19 +1,16 @@
-build: 重构云端与本地双轨构建管线及工程基建完善
+feat: 集成原生离线 OCR、丰富截图标注与增强底层手势交互引擎
 
 【业务视角】
-1. 实现云端与本地“双轨制”构建：在保留 GitHub Actions 云端流水线的同时，一键提供纯净本地编译环境（Build Tools），满足极速开发与离线打包需求。
-2. 提升自动化体验：无论在云端还是本地，现在都可以通过一致的 PowerShell 部署脚本无缝出包，彻底告别繁杂的手动环境配置。
-3. 补全项目说明：新增详尽的 README 文档，从架构和业务功能层面为后续接手的开发者提供世界级的指引。
-4. 增强工程整洁度：重构了文件跟踪黑名单（.gitignore），将冗余构建产物拒之门外，保持项目纯粹。
+1. 极致轻量化文字识别：基于 Windows 系统自带的 WinRT OCR 引擎实现离线图文识别，彻底摒弃了笨重的几十MB第三方模型库，不占用多余硬盘空间，秒级响应并原生支持中文等多语种。
+2. 强大的截图与标注体验：在截图覆盖层中加入了高频刚需的“文字输入”功能与“调色板”支持，同时修复了工具条在特殊分辨率下的宽度错乱，让每次标注操作更加得心应手。
+3. 高阶的手势定制能力：底层提供了内置命令分发以及暴露给 Lua 的 `easy.*` API，并在前端 UI 完成了针对“手势”与“作用域”的完整 CRUD 交互闭环，让高阶极客用户可以随意编排自动化流水线。
 
 【技术视角】
-1. CI/CD 流水线升级：
-   - 移除 OpenCV 4 和 FFmpeg 包在 vcpkg 中的异常特性声明（core, avutil），解决 vcpkg 基线版本约束报错。
-   - 优化 GitHub Actions：加入路径过滤（忽略 md 等文档变更），接入 actions/attest-build-provenance 生成符合 SLSA 标准的防伪溯源签名。
-   - 升级 Node.js 环境到最新支持的 v24 版本，修复版本过期的废弃警告。
-2. 核心 C++ 代码兼容性修复：
-   - 针对严谨的 MSVC 编译器，修复 CaptureOverlay 默认参数绑定语法问题。
-   - 补充系统标准头文件（<windows.h>, <shellapi.h>, <fstream>），修复 WinUtils 剪贴板/进程调用与 LuaEngine 的类型签名不匹配问题。
-3. PowerShell 工具链强化：
-   - 编写 setup_local_build_tools.ps1 脚本，静默提权调用 winget 下发 C++ 桌面工作负载。
-   - 重构 deploy.ps1：引入 vswhere 自动嗅探及加载 VS 开发者环境变量，实现跨终端无缝识别 CMake 和 MSVC 工具链。
+1. WinRT API 深度整合：
+   - 移除外部子进程方案，直接在 C++ 中引入 `Windows.Media.Ocr`，实现 `cv::Mat` 到 `SoftwareBitmap(Bgra8)` 的低开销近似零拷贝转换。
+   - 在 `CMakeLists.txt` 中链入 `runtimeobject` 与 `winhttp`，保障 WinRT C++ 组件正常链接编译。
+2. 底层按键合成 (SendInput) 重构：
+   - 在 `GestureAction` 中重写 `KeyStroke::send` 方法，实现对组合修饰键的精准有序按下和逆序释放逻辑，彻底解决某些特定软件下组合键可能造成的键位卡死问题。
+3. 截图管线增强：
+   - CaptureOverlay 中实装了文字输入工具栏与相应的 UI 渲染分支，完善了此前的 UI 体验痛点，进一步解耦了截图底层事件流与上层标注逻辑。
+4. Lua与内置分发器解耦：引入 `BuiltinCommandDispatcher` 负责原生功能调度，使 `GestureAction` 的核心执行流更为纯净。

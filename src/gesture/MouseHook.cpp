@@ -72,6 +72,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
     if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed)) {
         auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
 
+        // 忽略注入事件 (手势动作的 SendInput、补发的右键点击、Lua 的 mouse.* 等),
+        // 否则会形成反馈循环 / 误触发新手势。
+        if (data->flags & LLMHF_INJECTED) {
+            return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+        }
+
         MouseEvent event{};
         event.position = data->pt;
         event.timestamp = std::chrono::steady_clock::now();

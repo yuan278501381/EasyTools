@@ -111,7 +111,8 @@ std::string clipboardGetText() {
 }
 
 // ── 目标窗口: 显式句柄或默认前台窗口 ──────────────────────────────────────────
-HWND resolveHwnd(std::optional<int64_t> handle) {
+// 接受 sol::optional (绑定回调收到的类型); 在该 sol2 配置下它与 std::optional 不同型。
+HWND resolveHwnd(sol::optional<int64_t> handle) {
     if (handle && *handle != 0) return reinterpret_cast<HWND>(static_cast<uintptr_t>(*handle));
     HWND fg = GetForegroundWindow();
     return fg ? GetAncestor(fg, GA_ROOT) : nullptr;
@@ -405,7 +406,7 @@ void LuaEngine::bindShell(sol::table& easy) {
 void LuaEngine::bindWindow(sol::table& easy) {
     sol::table t = easy.create_named("window");
     t.set_function("getForeground", []() -> int64_t {
-        return static_cast<int64_t>(reinterpret_cast<uintptr_t>(resolveHwnd(std::nullopt)));
+        return static_cast<int64_t>(reinterpret_cast<uintptr_t>(resolveHwnd(sol::optional<int64_t>{})));
     });
     t.set_function("getTitle", [](sol::optional<int64_t> h) {
         return WinUtils::wstringToUtf8(WinUtils::getWindowTitle(resolveHwnd(h)));

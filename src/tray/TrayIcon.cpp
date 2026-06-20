@@ -21,10 +21,18 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.uID = 1;
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
-    m_nid.uVersion = NOTIFYICON_VERSION_4;
+    // m_nid.uVersion = NOTIFYICON_VERSION_4; // 移除 V4，使用默认版本以接收标准鼠标消息
 
-    // 使用传入的图标，或加载默认应用图标
-    m_nid.hIcon = icon ? icon : LoadIconW(GetModuleHandleW(nullptr), IDI_APPLICATION);
+    // 尝试使用传入的图标，如果没有则尝试加载资源中的图标，最后 fallback 到系统图标
+    m_nid.hIcon = icon;
+    if (!m_nid.hIcon) {
+        // 尝试加载应用程序资源中可能包含的主图标（ID = 101 或者默认的应用程序图标）
+        m_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    }
+    if (!m_nid.hIcon) {
+        // IDI_APPLICATION 在某些系统和无窗口程序中会透明或不可见，这里改用 IDI_INFORMATION 避免空白占位
+        m_nid.hIcon = LoadIconW(nullptr, IDI_INFORMATION);
+    }
 
     wcscpy_s(m_nid.szTip, L"EasyTools — 桌面效率工具");
 
@@ -33,7 +41,7 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
         return false;
     }
 
-    Shell_NotifyIconW(NIM_SETVERSION, &m_nid);
+    // Shell_NotifyIconW(NIM_SETVERSION, &m_nid); // 移除版本设置
     LOG_INFO("系统托盘图标已创建");
     return true;
 }

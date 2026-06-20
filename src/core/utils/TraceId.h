@@ -39,17 +39,23 @@ public:
 
     /// 获取当前线程的活跃 TraceId
     static const std::string& current() {
-        thread_local std::string currentId;
-        if (currentId.empty()) {
-            currentId = generate();
+        std::string& id = storage();
+        if (id.empty()) {
+            id = generate();
         }
-        return currentId;
+        return id;
     }
 
     /// 设置当前线程的活跃 TraceId（用于跨线程传递）
     static void setCurrent(const std::string& traceId) {
-        thread_local std::string currentId;
-        currentId = traceId;
+        storage() = traceId;
+    }
+
+    /// 开启一个全新的 TraceId 并返回它（标记一次新的用户操作的开始）
+    static std::string begin() {
+        std::string id = generate();
+        storage() = id;
+        return id;
     }
 
     /// RAII 作用域守卫 —— 在作用域内自动设置/恢复 TraceId
@@ -68,6 +74,14 @@ public:
     private:
         std::string m_previous;
     };
+
+private:
+    /// 单一的线程局部存储 —— current()/setCurrent() 必须共享同一个变量,
+    /// 否则 setCurrent 写入的与 current 读取的不是同一对象 (历史 bug)。
+    static std::string& storage() {
+        thread_local std::string currentId;
+        return currentId;
+    }
 };
 
 }  // namespace easy::core

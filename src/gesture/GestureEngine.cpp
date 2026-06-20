@@ -6,7 +6,10 @@
 #include "gesture/GestureTrailOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
+
+#include <thread>
 
 namespace easy::gesture {
 
@@ -114,42 +117,48 @@ void GestureEngine::setTrailCallback(TrailRenderCallback callback) {
 bool GestureEngine::onMouseEvent(const MouseEvent& event) {
     if (m_paused.load(std::memory_order_relaxed)) return false;
 
-    // 获取配置以检查窗口过滤规则
-    auto exceptions = easy::core::ConfigManager::instance().get<nlohmann::json>("/gesture/exceptions", nlohmann::json::array());
-
     switch (m_state.load()) {
         case GestureState::Idle:
             if (event.type == m_triggerDown) {
-                // 检查当前窗口是否被禁用
+                // 每次触发键按下 = 一次新的用户操作, 开启全新 TraceId 贯穿整条链路
+                m_gestureTraceId = easy::core::TraceId::begin();
+
                 HWND hwnd = event.foregroundWindow;
-                if (hwnd) {
-                    std::string exeName = easy::core::WinUtils::getProcessNameFromWindow(hwnd);
-                    std::string className = easy::core::WinUtils::wstringToUtf8(easy::core::WinUtils::getWindowClassName(hwnd));
-                    // 暂时将十六进制 HWND 字符串作为 handle
-                    std::string handleStr = std::to_string(reinterpret_cast<uint64_t>(hwnd));
-                    
-                    bool disabled = false;
-                    for (const auto& rule : exceptions) {
-                        std::string ruleType = rule.value("type", "");
-                        std::string ruleValue = rule.value("value", "");
-                        if (ruleType == "process" && easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(ruleValue)) disabled = true;
-                        if (ruleType == "class" && className == ruleValue) disabled = true;
-                    }
-                    if (disabled) {
-                        LOG_DEBUG("窗口被手势黑名单过滤: exe={}, class={}", exeName, className);
-                        return false;
-                    }
+                std::string exeName = hwnd ? easy::core::WinUtils::getProcessNameFromWindow(hwnd) : "";
+                std::string className = hwnd
+                    ? easy::core::WinUtils::wstringToUtf8(easy::core::WinUtils::getWindowClassName(hwnd)) : "";
+
+                LOG_DEBUG("触发键按下: trigger={}, pos=({},{}), hwnd=0x{:X}, process='{}', class='{}'",
+                          triggerButton(), event.position.x, event.position.y,
+                          reinterpret_cast<uintptr_t>(hwnd), exeName, className);
+
+                // 检查当前窗口是否在黑名单（仅触发时读取配置，避免移动时频繁消耗性能）
+                auto exceptions = easy::core::ConfigManager::instance().get<nlohmann::json>(
+                    "/gesture/exceptions", nlohmann::json::array());
+                bool disabled = false;
+                for (const auto& rule : exceptions) {
+                    std::string ruleType = rule.value("type", "");
+                    std::string ruleValue = rule.value("value", "");
+                    if (ruleType == "process" &&
+                        easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(ruleValue)) disabled = true;
+                    if (ruleType == "class" && className == ruleValue) disabled = true;
+                }
+                if (disabled) {
+                    LOG_INFO("窗口在手势黑名单, 不拦截: process='{}', class='{}'", exeName, className);
+                    return false;  // 不拦截 → 右键照常工作
                 }
 
                 beginTracking(event);
-                return true; // 拦截触发按键的按下事件
+                return true;  // 拦截触发键按下, 进入手势追踪
             }
             break;
 
         case GestureState::Tracking:
             if (event.type == MouseEventType::Move) {
                 updateTracking(event);
-                return true; // 拦截移动事件，或者为了让底层应用也能看到鼠标移动，可以选择 return false; 但最好拦截以避免误操作
+                // 不拦截移动: 否则会吞掉光标移动, 导致右键拖动手势时鼠标"卡死不动"。
+                // 触发键的按下已被吞掉, 底层应用只会收到无按键的 hover 移动, 无副作用。
+                return false;
             } else if (event.type == m_triggerUp) {
                 endTracking(event);
                 return true; // 拦截触发按键的抬起事件
@@ -185,7 +194,7 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
         trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
     }
 
-    LOG_TRACE("手势追踪开始: pos=({},{})", event.position.x, event.position.y);
+    LOG_INFO("手势追踪开始: pos=({},{}), trailVisible={}", event.position.x, event.position.y, m_trailVisible.load());
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
@@ -207,25 +216,32 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
 }
 
 void GestureEngine::endTracking(const MouseEvent& event) {
+    // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
+    easy::core::TraceId::setCurrent(m_gestureTraceId);
+
     m_recognizer.addPoint(event.position.x, event.position.y);
 
     auto result = m_recognizer.finalize();
 
     if (!result || !result->isValid()) {
-        // 轨迹太短，视为普通右键点击，不拦截
+        // 轨迹太短 → 视为普通点击: 触发键按下已被吞掉, 这里补发一次点击, 让右键菜单正常弹出
         m_state = GestureState::Idle;
-        LOG_TRACE("手势追踪结束: 轨迹太短，视为普通点击");
+        if (m_trailVisible.load()) GestureTrailOverlay::instance().hide();
+        reinjectTriggerClick();
+        LOG_TRACE("手势追踪结束: 轨迹太短，还原为普通点击");
         return;
     }
 
-    easy::core::TraceId::Scope scope;
-    LOG_INFO("手势识别: code={}, arrows={}", result->code, result->toArrowString());
+    LOG_INFO("手势识别成功: code={}, arrows={}, 点数={}, 距离={:.0f}px",
+             result->code, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
 
     // 查找适用的 Profile
     GestureProfile* profile = resolveProfile(m_gestureStartWindow);
     if (!profile) {
-        // 手势在当前窗口被禁用
+        // 手势在当前窗口被禁用 → 还原为普通点击
         m_state = GestureState::Idle;
+        if (m_trailVisible.load()) GestureTrailOverlay::instance().hide();
+        reinjectTriggerClick();
         LOG_DEBUG("手势在当前窗口被禁用");
         return;
     }
@@ -239,7 +255,6 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     }
 
     if (action) {
-        m_state = GestureState::Executing;
         LOG_INFO("执行手势动作: gesture={}, action={}, profile={}",
                  result->toArrowString(), action->name, profile->name());
 
@@ -249,10 +264,22 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             GestureTrailOverlay::instance().endTrail(resultLabel);
         }
 
-        action->execute();
-
-        m_state = GestureState::Idle;
+        // 关键: 动作执行 (SendInput / Lua / ShellExecute / 弹窗) 可能耗时甚至阻塞，
+        // 而本函数运行在 WH_MOUSE_LL 低级钩子回调里（主线程消息泵上）。若在此同步执行，
+        // 超过 LowLevelHooksTimeout 会被系统静默移除钩子，Lua 的 MessageBox 更会冻结全局输入。
+        // 因此把动作放到分离线程异步执行。GestureAction 可拷贝，按值捕获保证生命周期安全。
+        // 把 TraceId 一并带入线程, 让动作执行日志与本次手势串在同一条链路上。
+        GestureAction actionCopy = *action;
+        std::string traceId = m_gestureTraceId;
+        std::thread([actionCopy = std::move(actionCopy), traceId = std::move(traceId)]() {
+            easy::core::TraceId::setCurrent(traceId);
+            LOG_INFO("手势动作开始执行(后台线程): action={}, type={}",
+                     actionCopy.name, static_cast<int>(actionCopy.type));
+            actionCopy.execute();
+            LOG_INFO("手势动作执行完毕: action={}", actionCopy.name);
+        }).detach();
     } else {
+        // 有意义的手势但未绑定动作 → 按手势工具惯例直接消费 (不弹菜单)
         LOG_DEBUG("未找到手势映射: code={}", result->code);
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().hide();
@@ -260,6 +287,19 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     }
 
     m_state = GestureState::Idle;
+}
+
+// 把被吞掉的触发键点击补发出去 (注入事件会被 MouseHook 忽略, 不会再次触发手势)。
+// 用于"没有有效手势/未绑定动作/窗口禁用"时, 让右键(或中键)菜单等正常工作。
+void GestureEngine::reinjectTriggerClick() {
+    const bool right = (m_triggerDown == MouseEventType::RightDown);
+    LOG_INFO("无手势, 补发{}键点击以还原正常菜单", right ? "右" : "中");
+    INPUT in[2] = {};
+    in[0].type = INPUT_MOUSE;
+    in[0].mi.dwFlags = right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_MIDDLEDOWN;
+    in[1].type = INPUT_MOUSE;
+    in[1].mi.dwFlags = right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_MIDDLEUP;
+    SendInput(2, in, sizeof(INPUT));
 }
 
 void GestureEngine::cancelTracking() {

@@ -26,11 +26,25 @@ jobs:
       contents: read
       attestations: write
 
+    # vcpkg 二进制缓存: 用 GitHub Actions Cache 作为后端, 按「每个依赖包的 ABI 哈希」
+    # 缓存编译产物。即使 vcpkg.json 改动, 未受影响的依赖(OpenCV/FFmpeg 等)仍可秒级还原,
+    # 避免整包从源码重编。与下方 actions/cache(缓存已安装树, 命中时直接跳过)互补。
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
     steps:
       - name: 检出代码 (Checkout Code)
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # vcpkg 的 x-gha 二进制缓存后端需要这两个变量, 由本步骤从 runner 环境导出给后续步骤
+      - name: 导出 vcpkg 缓存后端变量 (Export vcpkg cache env)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: 配置 Node.js 环境 (Setup Node.js)
         uses: actions/setup-node@v4

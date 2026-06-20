@@ -23,7 +23,7 @@
 
 namespace easy::capture {
 
-class PinWindow {
+class PinWindow : public std::enable_shared_from_this<PinWindow> {
 public:
     /// 创建一个新的贴图窗口
     static std::shared_ptr<PinWindow> create(const cv::Mat& image, int x, int y);

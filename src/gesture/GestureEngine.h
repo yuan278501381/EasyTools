@@ -108,6 +108,9 @@ private:
     /// 取消手势追踪
     void cancelTracking();
 
+    /// 把被吞掉的触发键点击补发出去 (无有效手势时还原右键/中键的正常点击)
+    void reinjectTriggerClick();
+
     /// 根据当前前台窗口查找适用的 Profile
     GestureProfile* resolveProfile(HWND hwnd);
 
@@ -121,6 +124,7 @@ private:
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_trailVisible{true};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时的前台窗口
+    std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
     PauseChangedCallback m_pauseChangedCallback;
 
     // 轨迹可视化

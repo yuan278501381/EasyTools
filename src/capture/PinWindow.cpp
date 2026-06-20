@@ -55,11 +55,21 @@ std::shared_ptr<PinWindow> PinWindow::create(const cv::Mat& image, int x, int y)
 }
 
 void PinWindow::close() {
+    // 保活: 下面的 erase 会丢弃 s_instances 中指向自身的最后一个 shared_ptr，
+    // 若不先持有自身引用，this 会在本函数执行途中被析构 (use-after-free)。
+    // close() 通常从 pinWndProc (双击/右键) 内被调用，UAF 会偶发崩溃。
+    std::shared_ptr<PinWindow> keepAlive;
+    try {
+        keepAlive = shared_from_this();
+    } catch (const std::bad_weak_ptr&) {
+        // 理论上不会发生 (实例总由 create() 用 shared_ptr 持有)
+    }
+
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
-    // 从全局列表移除
+    // 从全局列表移除已失效的实例
     s_instances.erase(
         std::remove_if(s_instances.begin(), s_instances.end(),
                        [](const auto& p) { return !p->isAlive(); }),

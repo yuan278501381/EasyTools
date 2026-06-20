@@ -86,6 +86,12 @@ void GestureTrailOverlay::beginTrail() {
 
 void GestureTrailOverlay::addPoint(float x, float y) {
     std::lock_guard lock(m_trailMutex);
+    // 距离过滤: 跳过与上一点过近的采样, 否则手势起点处的密集点会叠成一团("一坨")
+    if (!m_points.empty()) {
+        float dx = x - m_points.back().x;
+        float dy = y - m_points.back().y;
+        if (dx * dx + dy * dy < 16.0f) return;  // < 4px 忽略
+    }
     m_points.push_back({x, y, GetTickCount()});
 }
 
@@ -133,6 +139,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     int screenY = GetSystemMetrics(SM_YVIRTUALSCREEN);
     int screenW = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    m_originX = screenX;
+    m_originY = screenY;
 
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -253,8 +261,8 @@ void GestureTrailOverlay::render() {
 
             m_lineBrush->SetOpacity(alpha);
 
-            D2D1_POINT_2F p0 = D2D1::Point2F(m_points[i - 1].x, m_points[i - 1].y);
-            D2D1_POINT_2F p1 = D2D1::Point2F(m_points[i].x, m_points[i].y);
+            D2D1_POINT_2F p0 = D2D1::Point2F(m_points[i - 1].x - m_originX, m_points[i - 1].y - m_originY);
+            D2D1_POINT_2F p1 = D2D1::Point2F(m_points[i].x - m_originX, m_points[i].y - m_originY);
 
             m_renderTarget->DrawLine(p0, p1, m_lineBrush.Get(), m_style.lineWidth);
         }
@@ -264,7 +272,7 @@ void GestureTrailOverlay::render() {
             const auto& lastPt = m_points.back();
             m_lineBrush->SetOpacity(0.8f);
             m_renderTarget->FillEllipse(
-                D2D1::Ellipse(D2D1::Point2F(lastPt.x, lastPt.y), 5.0f, 5.0f),
+                D2D1::Ellipse(D2D1::Point2F(lastPt.x - m_originX, lastPt.y - m_originY), 5.0f, 5.0f),
                 m_lineBrush.Get()
             );
         }
@@ -280,6 +288,8 @@ void GestureTrailOverlay::render() {
         }
         centerX /= static_cast<float>(m_points.size());
         centerY /= static_cast<float>(m_points.size());
+        centerX -= m_originX;  // 转为覆盖层(客户区)坐标
+        centerY -= m_originY;
 
         // 背景圆角矩形
         float textW = m_style.resultFontSize * static_cast<float>(m_resultText.size()) * 0.6f + 24.0f;
@@ -359,6 +369,8 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
                 int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
                 int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                self->m_originX = x;
+                self->m_originY = y;
                 MoveWindow(self->m_hwnd, x, y, w, h, FALSE);
 
                 // 重建渲染目标

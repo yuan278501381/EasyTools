@@ -53,6 +53,26 @@ public:
         return dir;
     }
 
+    /// 由 PID 取得进程可执行文件名 (仅文件名, 如 "chrome.exe")。
+    /// 用 QueryFullProcessImageNameW 直接查询, 避免 Toolhelp 快照枚举全部进程
+    /// (后者在低级鼠标钩子热路径上代价过高)。
+    static std::wstring processNameFromPid(DWORD pid) {
+        if (pid == 0) return {};
+        HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!proc) return {};
+
+        wchar_t path[MAX_PATH] = {};
+        DWORD size = MAX_PATH;
+        std::wstring result;
+        if (QueryFullProcessImageNameW(proc, 0, path, &size)) {
+            std::wstring full(path, size);
+            size_t slash = full.find_last_of(L"\\/");
+            result = (slash == std::wstring::npos) ? full : full.substr(slash + 1);
+        }
+        CloseHandle(proc);
+        return result;
+    }
+
     /// 获取前台窗口的进程名
     static std::optional<std::wstring> getForegroundProcessName() {
         HWND hwnd = GetForegroundWindow();
@@ -60,25 +80,9 @@ public:
 
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
-        if (pid == 0) return std::nullopt;
-
-        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if (snapshot == INVALID_HANDLE_VALUE) return std::nullopt;
-
-        PROCESSENTRY32W entry{};
-        entry.dwSize = sizeof(entry);
-
-        std::optional<std::wstring> result;
-        if (Process32FirstW(snapshot, &entry)) {
-            do {
-                if (entry.th32ProcessID == pid) {
-                    result = entry.szExeFile;
-                    break;
-                }
-            } while (Process32NextW(snapshot, &entry));
-        }
-        CloseHandle(snapshot);
-        return result;
+        std::wstring name = processNameFromPid(pid);
+        if (name.empty()) return std::nullopt;
+        return name;
     }
 
     /// 获取窗口类名
@@ -120,25 +124,7 @@ public:
     static std::string getProcessNameFromWindow(HWND hwnd) {
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
-        if (pid == 0) return "";
-
-        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if (snapshot == INVALID_HANDLE_VALUE) return "";
-
-        PROCESSENTRY32W entry{};
-        entry.dwSize = sizeof(entry);
-
-        std::string result;
-        if (Process32FirstW(snapshot, &entry)) {
-            do {
-                if (entry.th32ProcessID == pid) {
-                    result = wstringToUtf8(entry.szExeFile);
-                    break;
-                }
-            } while (Process32NextW(snapshot, &entry));
-        }
-        CloseHandle(snapshot);
-        return result;
+        return wstringToUtf8(processNameFromPid(pid));
     }
 
     /// 字符串转小写

@@ -101,6 +101,10 @@ private:
     float m_fadeAlpha = 1.0f;
     DWORD m_fadeStartTick = 0;
 
+    // 虚拟屏幕原点: 轨迹点是绝对屏幕坐标, 覆盖层左上角对应此原点, 绘制时需减去
+    int m_originX = 0;
+    int m_originY = 0;
+
     // 轨迹数据
     std::mutex m_trailMutex;
     std::vector<TrailPoint> m_points;

@@ -15,6 +15,7 @@
 #include "capture/ScrollCapture.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 
 #include <algorithm>
 #include <array>

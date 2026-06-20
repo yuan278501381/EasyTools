@@ -57,18 +57,26 @@ find_library(SWRESAMPLE_LIBRARY swresample)
 
 # WebView2 (NuGet 包，通过 nuget.config 或手动下载)
 # 先检查 packages 目录下是否有 WebView2 SDK
-set(WEBVIEW2_DIR "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2")
+file(GLOB WEBVIEW2_DIRS "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2.*")
+if(WEBVIEW2_DIRS)
+    list(GET WEBVIEW2_DIRS 0 WEBVIEW2_DIR)
+else()
+    set(WEBVIEW2_DIR "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2")
+endif()
+
 if(NOT EXISTS "${WEBVIEW2_DIR}")
     message(STATUS "WebView2 SDK not found, will try to download via nuget...")
     # 尝试通过 nuget 下载
-    find_program(NUGET_EXE nuget)
+    find_program(NUGET_EXE nuget PATHS "${CMAKE_SOURCE_DIR}/packages")
     if(NUGET_EXE)
         execute_process(
             COMMAND ${NUGET_EXE} install Microsoft.Web.WebView2 -OutputDirectory "${CMAKE_SOURCE_DIR}/packages"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         )
         file(GLOB WEBVIEW2_DIRS "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2.*")
-        list(GET WEBVIEW2_DIRS 0 WEBVIEW2_DIR)
+        if(WEBVIEW2_DIRS)
+            list(GET WEBVIEW2_DIRS 0 WEBVIEW2_DIR)
+        endif()
     endif()
 endif()
 
@@ -76,6 +84,7 @@ endif()
 file(GLOB_RECURSE EASYTOOLS_SOURCES
     "src/*.cpp"
     "src/*.h"
+    "src/*.rc"
 )
 
 # ── 主可执行目标 ──────────────────────────────────────────────────────────────
@@ -132,6 +141,23 @@ endif()
 if(FFMPEG_INCLUDE_DIR)
     target_include_directories(EasyTools PRIVATE ${FFMPEG_INCLUDE_DIR})
 endif()
+
+# ── 单元测试 ──────────────────────────────────────────────────────────────────
+# 轻量、零测试框架依赖。覆盖纯逻辑 (手势识别 / 作用域规则匹配)。
+# 默认随构建一起编译; deploy.ps1 在构建后运行它, 失败则使 CI 失败。
+add_executable(EasyToolsTests
+    tests/unit/test_main.cpp
+    src/gesture/GestureRecognizer.cpp
+    src/gesture/ScopeRule.cpp
+    src/core/logger/Logger.cpp
+)
+target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(EasyToolsTests PRIVATE
+    spdlog::spdlog
+    fmt::fmt
+    nlohmann_json::nlohmann_json
+    user32 shell32  # ScopeRule/WinUtils/Logger 引用的 Win32 符号
+)
 
 # ── 复制前端资源到输出目录 ─────────────────────────────────────────────────────
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")

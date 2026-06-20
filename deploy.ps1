@@ -150,6 +150,24 @@ if ($LASTEXITCODE -ne 0) {
 Write-Log "C++ 编译完成。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
+# 4.5 运行单元测试 (失败则中断流水线)
+# ------------------------------------------------------------------------------
+$TestExe = Join-Path $BuildDir "bin\$Configuration\EasyToolsTests.exe"
+if (-not (Test-Path $TestExe)) {
+    $TestExe = Join-Path $BuildDir "bin\EasyToolsTests.exe"
+}
+if (Test-Path $TestExe) {
+    Write-Log "运行单元测试..."
+    & $TestExe
+    if ($LASTEXITCODE -ne 0) {
+        throw "单元测试失败！退出码: $LASTEXITCODE"
+    }
+    Write-Log "单元测试通过。" "SUCCESS"
+} else {
+    Write-Log "未找到单元测试可执行文件 ($TestExe)，跳过。" "WARN"
+}
+
+# ------------------------------------------------------------------------------
 # 5. 打包输出物 (Deploy)
 # ------------------------------------------------------------------------------
 Write-Log "开始提纯输出物..."
@@ -169,6 +187,14 @@ if (-not (Test-Path $ExePath)) {
 if (Test-Path $ExePath) {
     Copy-Item $ExePath -Destination $DeployDir
     Write-Log "已复制可执行文件: EasyTools.exe"
+    
+    # 复制所有同一目录下的 DLL 文件 (vcpkg 的依赖如 spdlog.dll 等)
+    $ExeDir = Split-Path $ExePath -Parent
+    $DllFiles = Join-Path $ExeDir "*.dll"
+    if (Test-Path $DllFiles) {
+        Copy-Item $DllFiles -Destination $DeployDir
+        Write-Log "已复制依赖库 DLL 文件"
+    }
 } else {
     throw "找不到编译后的 EasyTools.exe"
 }
