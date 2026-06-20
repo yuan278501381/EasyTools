@@ -259,13 +259,33 @@ void SettingsWindow::onWebView2Ready() {
         }
     );
 
+    // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
+    // 关键: Vite 产物是 ES Module(<script type=module>), 在 file:// 下会被 CORS 拦截 → 白屏。
+    // 把 ui 文件夹映射成一个正常的 https 源(虚拟主机), ES Module 即可正常加载。
+    if (m_config.devServerUrl.empty()) {
+        auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
+        std::error_code ec;
+        if (std::filesystem::exists(uiFolder, ec)) {
+            ComPtr<ICoreWebView2_3> webView3;
+            if (SUCCEEDED(m_webView->QueryInterface(IID_PPV_ARGS(&webView3))) && webView3) {
+                webView3->SetVirtualHostNameToFolderMapping(
+                    L"easytools.local", uiFolder.c_str(),
+                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                LOG_INFO("虚拟主机映射已设置: https://easytools.local/ -> {}",
+                         easy::core::WinUtils::wstringToUtf8(uiFolder));
+            } else {
+                LOG_WARN("无法获取 ICoreWebView2_3, 虚拟主机映射不可用 (将回退 file://, 可能白屏)");
+            }
+        }
+    }
+
     // ── 加载前端 UI ─────────────────────────────────────────────────────
     std::string entryUrl = getUIEntryUrl();
     std::wstring wUrl = easy::core::WinUtils::utf8ToWstring(entryUrl);
     m_webView->Navigate(wUrl.c_str());
 
     m_webViewReady = true;
-    LOG_INFO("WebView2 已加载前端 UI: {}", entryUrl);
+    LOG_INFO("WebView2 正在加载前端 UI: {}", entryUrl);
 }
 
 std::string SettingsWindow::getUIEntryUrl() const {
@@ -274,13 +294,13 @@ std::string SettingsWindow::getUIEntryUrl() const {
         return m_config.devServerUrl;
     }
 
-    // 使用本地打包文件
+    // 使用本地打包文件: 经虚拟主机映射以 https 源加载 (见 onWebView2Ready)
     auto exeDir = easy::core::WinUtils::getExeDirectory();
     auto indexPath = exeDir / L"ui" / L"index.html";
 
     std::error_code ec;
     if (std::filesystem::exists(indexPath, ec)) {
-        return "file:///" + easy::core::WinUtils::wstringToUtf8(indexPath.wstring());
+        return "https://easytools.local/index.html";
     }
 
     // 降级: 使用开发服务器默认地址
