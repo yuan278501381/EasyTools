@@ -275,8 +275,15 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             easy::core::TraceId::setCurrent(traceId);
             LOG_INFO("手势动作开始执行(后台线程): action={}, type={}",
                      actionCopy.name, static_cast<int>(actionCopy.type));
-            actionCopy.execute();
-            LOG_INFO("手势动作执行完毕: action={}", actionCopy.name);
+            // 兜底: 分离线程中未捕获的异常会 std::terminate 整个进程
+            try {
+                actionCopy.execute();
+                LOG_INFO("手势动作执行完毕: action={}", actionCopy.name);
+            } catch (const std::exception& e) {
+                LOG_ERROR("手势动作执行异常: action={}, error={}", actionCopy.name, e.what());
+            } catch (...) {
+                LOG_ERROR("手势动作执行未知异常: action={}", actionCopy.name);
+            }
         }).detach();
     } else {
         // 有意义的手势但未绑定动作 → 按手势工具惯例直接消费 (不弹菜单)

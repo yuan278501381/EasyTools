@@ -218,21 +218,25 @@ void SettingsWindow::onWebView2Ready() {
     m_webView->add_WebMessageReceived(
         Callback<ICoreWebView2WebMessageReceivedEventHandler>(
             [](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                LPWSTR messageRaw = nullptr;
-                args->TryGetWebMessageAsString(&messageRaw);
+                // 关键: C++ 异常绝不能逃逸回 WebView2 的 native 调用栈, 否则进程崩溃。
+                try {
+                    LPWSTR messageRaw = nullptr;
+                    args->TryGetWebMessageAsString(&messageRaw);
 
-                if (messageRaw) {
-                    std::string message = easy::core::WinUtils::wstringToUtf8(messageRaw);
-                    CoTaskMemFree(messageRaw);
+                    if (messageRaw) {
+                        std::string message = easy::core::WinUtils::wstringToUtf8(messageRaw);
+                        CoTaskMemFree(messageRaw);
 
-                    // 路由到 MessageBridge
-                    std::string response = easy::core::MessageBridge::instance().handleMessage(message);
+                        std::string response = easy::core::MessageBridge::instance().handleMessage(message);
 
-                    // 将响应发回前端
-                    std::wstring wResponse = easy::core::WinUtils::utf8ToWstring(response);
-                    sender->PostWebMessageAsString(wResponse.c_str());
+                        std::wstring wResponse = easy::core::WinUtils::utf8ToWstring(response);
+                        sender->PostWebMessageAsString(wResponse.c_str());
+                    }
+                } catch (const std::exception& e) {
+                    LOG_ERROR("WebMessageReceived 处理异常: {}", e.what());
+                } catch (...) {
+                    LOG_ERROR("WebMessageReceived 处理未知异常");
                 }
-
                 return S_OK;
             }
         ).Get(),
@@ -274,7 +278,8 @@ std::string SettingsWindow::getUIEntryUrl() const {
     auto exeDir = easy::core::WinUtils::getExeDirectory();
     auto indexPath = exeDir / L"ui" / L"index.html";
 
-    if (std::filesystem::exists(indexPath)) {
+    std::error_code ec;
+    if (std::filesystem::exists(indexPath, ec)) {
         return "file:///" + easy::core::WinUtils::wstringToUtf8(indexPath.wstring());
     }
 
