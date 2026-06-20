@@ -227,6 +227,18 @@ bool GestureTrailOverlay::createD2DResources() {
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f), m_textBgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), m_textBrush.GetAddressOf());
 
+    // 笔触样式 (使线段更平滑，具有圆头)
+    D2D1_STROKE_STYLE_PROPERTIES strokeProps = D2D1::StrokeStyleProperties(
+        D2D1_CAP_STYLE_ROUND,
+        D2D1_CAP_STYLE_ROUND,
+        D2D1_CAP_STYLE_ROUND,
+        D2D1_LINE_JOIN_ROUND,
+        10.0f,
+        D2D1_DASH_STYLE_SOLID,
+        0.0f
+    );
+    hr = m_d2dFactory->CreateStrokeStyle(strokeProps, nullptr, 0, m_strokeStyle.GetAddressOf());
+
     return true;
 }
 
@@ -235,6 +247,7 @@ void GestureTrailOverlay::releaseD2DResources() {
     m_textBgBrush.Reset();
     m_lineBrush.Reset();
     m_textFormat.Reset();
+    m_strokeStyle.Reset();
     m_renderTarget.Reset();
     m_dwriteFactory.Reset();
     m_d2dFactory.Reset();
@@ -264,7 +277,7 @@ void GestureTrailOverlay::render() {
             D2D1_POINT_2F p0 = D2D1::Point2F(m_points[i - 1].x - m_originX, m_points[i - 1].y - m_originY);
             D2D1_POINT_2F p1 = D2D1::Point2F(m_points[i].x - m_originX, m_points[i].y - m_originY);
 
-            m_renderTarget->DrawLine(p0, p1, m_lineBrush.Get(), m_style.lineWidth);
+            m_renderTarget->DrawLine(p0, p1, m_lineBrush.Get(), m_style.lineWidth, m_strokeStyle.Get());
         }
 
         // 绘制轨迹头部发光点

@@ -78,7 +78,7 @@ export const SettingRow: FC<SettingRowProps> = ({ label, description, children }
 
 interface SettingGroupProps {
   title: string;
-  icon?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }
 

@@ -118,6 +118,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> m_strokeStyle;
 };
 
 }  // namespace easy::gesture

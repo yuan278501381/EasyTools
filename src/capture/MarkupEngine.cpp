@@ -19,8 +19,103 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 
 namespace easy::capture {
+
+static std::atomic<uint32_t> g_elementIdCounter{1};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MarkupElement 矢量操作
+// ─────────────────────────────────────────────────────────────────────────────
+
+cv::Rect MarkupElement::getBoundingBox() const {
+    switch (tool) {
+        case MarkupTool::Rectangle:
+        case MarkupTool::Highlight:
+        case MarkupTool::Mosaic: {
+            int x1 = std::min(startPt.x, endPt.x);
+            int y1 = std::min(startPt.y, endPt.y);
+            int x2 = std::max(startPt.x, endPt.x);
+            int y2 = std::max(startPt.y, endPt.y);
+            return cv::Rect(x1, y1, x2 - x1, y2 - y1);
+        }
+        case MarkupTool::Arrow: {
+            int x1 = std::min(startPt.x, endPt.x);
+            int y1 = std::min(startPt.y, endPt.y);
+            int x2 = std::max(startPt.x, endPt.x);
+            int y2 = std::max(startPt.y, endPt.y);
+            return cv::Rect(x1, y1, x2 - x1, y2 - y1);
+        }
+        case MarkupTool::Ellipse: {
+            int rx = std::abs(endPt.x - startPt.x) / 2;
+            int ry = std::abs(endPt.y - startPt.y) / 2;
+            int cx = (startPt.x + endPt.x) / 2;
+            int cy = (startPt.y + endPt.y) / 2;
+            return cv::Rect(cx - rx, cy - ry, rx * 2, ry * 2);
+        }
+        case MarkupTool::Text: {
+            // Text is anchored at startPt (bottom-left usually, but we draw background above it)
+            if (textRenderSize.width == 0) {
+                double fontScale = fontSize / 20.0;
+                int baseline = 0;
+                auto size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, static_cast<int>(thickness), &baseline);
+                size.height += baseline;
+                const_cast<MarkupElement*>(this)->textRenderSize = size;
+            }
+            return cv::Rect(startPt.x - 4, startPt.y - textRenderSize.height - 4, textRenderSize.width + 8, textRenderSize.height + 8);
+        }
+        case MarkupTool::Magnifier: {
+            return cv::Rect(startPt.x - magnifierRadius, startPt.y - magnifierRadius, magnifierRadius * 2, magnifierRadius * 2);
+        }
+        case MarkupTool::Number: {
+            int r = 14;
+            return cv::Rect(startPt.x - r, startPt.y - r, r * 2, r * 2);
+        }
+        case MarkupTool::Pen: {
+            if (penPoints.empty()) return cv::Rect();
+            int minX = penPoints[0].x, minY = penPoints[0].y;
+            int maxX = minX, maxY = minY;
+            for (const auto& pt : penPoints) {
+                minX = std::min(minX, pt.x); minY = std::min(minY, pt.y);
+                maxX = std::max(maxX, pt.x); maxY = std::max(maxY, pt.y);
+            }
+            return cv::Rect(minX, minY, maxX - minX, maxY - minY);
+        }
+        default: return cv::Rect();
+    }
+}
+
+bool MarkupElement::hitTest(cv::Point pt, int padding) const {
+    cv::Rect bbox = getBoundingBox();
+    bbox.x -= padding;
+    bbox.y -= padding;
+    bbox.width += padding * 2;
+    bbox.height += padding * 2;
+    return bbox.contains(pt);
+}
+
+void MarkupElement::moveBy(int dx, int dy) {
+    startPt.x += dx; startPt.y += dy;
+    endPt.x += dx; endPt.y += dy;
+    for (auto& pt : penPoints) {
+        pt.x += dx; pt.y += dy;
+    }
+}
+
+void MarkupElement::resize(int dx, int dy, int handleIndex) {
+    // 简单实现：对于矩形等由两点决定的图形，修改其中一个点
+    // 对于文本，我们这里仅作为包围盒调整（可能引发换行，但目前按单行处理）
+    // 为了简单，我们直接将 dx dy 加到 endPt 上
+    if (tool != MarkupTool::Text && tool != MarkupTool::Magnifier && tool != MarkupTool::Number) {
+        endPt.x += dx;
+        endPt.y += dy;
+    } else if (tool == MarkupTool::Magnifier) {
+        // 缩放放大镜半径
+        magnifierRadius += std::max(dx, dy);
+        if (magnifierRadius < 20) magnifierRadius = 20;
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 底图管理
@@ -46,9 +141,11 @@ cv::Mat MarkupEngine::getCompositeImage() const {
 // 元素操作
 // ─────────────────────────────────────────────────────────────────────────────
 
-void MarkupEngine::addElement(std::unique_ptr<MarkupElement> element) {
+MarkupElement* MarkupEngine::addElement(std::unique_ptr<MarkupElement> element) {
     m_undoStack.clear();  // 新增元素后清空重做栈
+    element->id = g_elementIdCounter++;
     m_elements.push_back(std::move(element));
+    return m_elements.back().get();
 }
 
 bool MarkupEngine::undo() {
@@ -73,6 +170,29 @@ void MarkupEngine::clearAll() {
     m_elements.clear();
     m_undoStack.clear();
     m_nextNumber = 1;
+}
+
+void MarkupEngine::removeElement(uint32_t id) {
+    m_elements.erase(std::remove_if(m_elements.begin(), m_elements.end(),
+        [id](const std::unique_ptr<MarkupElement>& e) { return e->id == id; }),
+        m_elements.end());
+}
+
+MarkupElement* MarkupEngine::getElementAt(cv::Point pt, int padding) const {
+    // 倒序查找，优先命中上层元素
+    for (auto it = m_elements.rbegin(); it != m_elements.rend(); ++it) {
+        if ((*it)->hitTest(pt, padding)) {
+            return it->get();
+        }
+    }
+    return nullptr;
+}
+
+MarkupElement* MarkupEngine::getElementById(uint32_t id) const {
+    for (const auto& elem : m_elements) {
+        if (elem->id == id) return elem.get();
+    }
+    return nullptr;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,6 +370,7 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
             int baseline = 0;
             cv::Size textSize = cv::getTextSize(element.text, cv::FONT_HERSHEY_SIMPLEX,
                                                 fontScale, thick, &baseline);
+            const_cast<MarkupElement*>(&element)->textRenderSize = cv::Size(textSize.width, textSize.height + baseline); // 更新包围盒尺寸
 
             // 文字背景（半透明黑色）
             cv::Rect bgRect(element.startPt.x - 4, element.startPt.y - textSize.height - 4,

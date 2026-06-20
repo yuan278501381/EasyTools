@@ -34,10 +34,14 @@
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
+#include "core/hotkey/KeyboardHook.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/stats/StatsManager.h"
 #include "core/crash/CrashHandler.h"
 #include "core/lua/LuaEngine.h"
 #include "tray/TrayIcon.h"
+#include "ui/SettingsWindow.h"
+#include "ui/KeycastOverlay.h"
 #include "ocr/OcrEngine.h"
 #include "gesture/GestureEngine.h"
 #include "gesture/BuiltinCommands.h"
@@ -169,6 +173,11 @@ static void toggleRecording() {
 // ─────────────────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     LPWSTR /*lpCmdLine*/, int /*nCmdShow*/) {
+    // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
+    // 启用 Per-Monitor V2 DPI 感知，确保在高分屏下物理像素和逻辑像素一比一映射
+    // 避免鼠标钩子得到的物理坐标与系统自动缩放的窗口逻辑坐标产生分离和偏移
+    easy::core::WinUtils::enableHighDpiSupport();
+
     // ── 1. 单实例检测 ────────────────────────────────────────────────────
     if (!checkSingleInstance()) {
         MessageBoxW(nullptr, L"EasyTools 已在运行中。", L"EasyTools", MB_OK | MB_ICONINFORMATION);
@@ -316,11 +325,19 @@ void initializeSubsystems(HWND hwnd) {
         });
     });
 
+    // 4. 统计系统初始化
+    easy::core::StatsManager::instance().initialize();
+    
+    // 5. 初始化手势引擎与按键拦截
+    easy::gesture::MouseHook::instance().install();
+    easy::core::KeyboardHook::instance().install();
+    easy::gesture::GestureEngine::instance().start();
+    
+    // 6. 初始化 OCR
+    easy::ocr::OcrEngine::instance().initialize();
+
     // Lua 引擎
     easy::core::LuaEngine::instance().initialize();
-
-    // OCR 引擎
-    easy::ocr::OcrEngine::instance().initialize();
 
     // 系统托盘
     auto& tray = easy::tray::TrayIcon::instance();
@@ -392,8 +409,10 @@ void initializeSubsystems(HWND hwnd) {
 
     // 手势引擎
     gestureEngine.loadFromConfig();
-    gestureEngine.start();
-    tray.setGesturePaused(gestureEngine.isPaused());
+    // Keycast
+    easy::ui::KeycastOverlay::instance().initialize(GetModuleHandleW(nullptr));
+    bool keycastEnabled = easy::core::ConfigManager::instance().get<bool>("/general/keycastEnabled", false);
+    easy::ui::KeycastOverlay::instance().setEnabled(keycastEnabled);
 
     LOG_INFO("所有子系统初始化完成");
 }
@@ -408,8 +427,12 @@ void shutdownSubsystems() {
     easy::capture::ScreenCapture::instance().shutdown();
     easy::gesture::GestureEngine::instance().saveToConfig();
     easy::gesture::GestureEngine::instance().stop();
+    easy::gesture::MouseHook::instance().uninstall();
+    easy::core::KeyboardHook::instance().uninstall();
+    easy::core::StatsManager::instance().shutdown();
     easy::core::HotkeyManager::instance().shutdown();
     easy::tray::TrayIcon::instance().destroy();
+    easy::ui::KeycastOverlay::instance().shutdown();
     easy::ocr::OcrEngine::instance().shutdown();
     easy::core::LuaEngine::instance().shutdown();
     easy::core::ConfigManager::instance().shutdown();
