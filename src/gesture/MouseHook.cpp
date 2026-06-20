@@ -4,6 +4,8 @@
 
 #include "gesture/MouseHook.h"
 #include "core/logger/Logger.h"
+#include "core/stats/StatsManager.h"
+#include <cmath>
 
 namespace easy::gesture {
 
@@ -86,13 +88,27 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
         bool shouldCapture = false;
 
         switch (wParam) {
-            case WM_MOUSEMOVE:
+            case WM_MOUSEMOVE: {
                 event.type = MouseEventType::Move;
                 shouldCapture = true;  // Move 事件总是采集（由上层过滤）
+                
+                // 计算欧几里得距离并累加
+                static POINT lastPt = { -1, -1 };
+                if (lastPt.x != -1 && lastPt.y != -1) {
+                    double dx = data->pt.x - lastPt.x;
+                    double dy = data->pt.y - lastPt.y;
+                    double dist = std::sqrt(dx*dx + dy*dy);
+                    if (dist > 0) {
+                        easy::core::StatsManager::instance().recordMouseDistance(dist);
+                    }
+                }
+                lastPt = data->pt;
                 break;
+            }
             case WM_RBUTTONDOWN:
                 event.type = MouseEventType::RightDown;
                 shouldCapture = true;
+                easy::core::StatsManager::instance().recordRightClick();
                 break;
             case WM_RBUTTONUP:
                 event.type = MouseEventType::RightUp;
@@ -109,6 +125,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             case WM_LBUTTONDOWN:
                 event.type = MouseEventType::LeftDown;
                 shouldCapture = true;
+                easy::core::StatsManager::instance().recordLeftClick();
                 break;
             case WM_LBUTTONUP:
                 event.type = MouseEventType::LeftUp;
@@ -118,6 +135,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                 short delta = HIWORD(data->mouseData);
                 event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
                 shouldCapture = true;
+                easy::core::StatsManager::instance().recordScroll();
                 break;
             }
             default:

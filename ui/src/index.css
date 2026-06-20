@@ -9,11 +9,11 @@
 
 /* ── CSS 变量 (暗色主题 = 默认) ──────────────────────────────────────────── */
 :root {
-  /* 主色调 */
+  /* 主色调: 鲜活的紫色系 */
   --primary: #8b5cf6;
   --primary-hover: #a78bfa;
-  --primary-dim: rgba(139, 92, 246, 0.15);
-  --primary-glow: rgba(139, 92, 246, 0.3);
+  --primary-dim: rgba(139, 92, 246, 0.2);
+  --primary-glow: rgba(139, 92, 246, 0.4);
 
   /* 语义色 */
   --success: #34d399;
@@ -21,31 +21,31 @@
   --danger: #f87171;
   --info: #60a5fa;
 
-  /* 背景层级 */
-  --bg-base: #0f0f14;
-  --bg-surface: #16161e;
-  --bg-elevated: #1e1e2a;
-  --bg-overlay: rgba(0, 0, 0, 0.6);
+  /* 背景层级 (毛玻璃化暗色背景) */
+  --bg-base: #0a0a0f;
+  --bg-surface: rgba(20, 20, 30, 0.6);
+  --bg-elevated: rgba(30, 30, 45, 0.8);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
 
-  /* 卡片 */
-  --card-bg: #1a1a24;
-  --card-border: rgba(255, 255, 255, 0.06);
-  --card-hover: #1e1e2c;
+  /* 卡片玻璃态 */
+  --card-bg: rgba(25, 25, 35, 0.45);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --card-hover: rgba(40, 40, 55, 0.6);
 
   /* 文本 */
-  --text-primary: #f0f0f5;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  --text-disabled: #4b5563;
+  --text-primary: #f8f8fc;
+  --text-secondary: #a1a1b5;
+  --text-muted: #73738c;
+  --text-disabled: #4b4b5c;
 
-  /* 输入框 */
-  --input-bg: #1a1a24;
+  /* 输入框玻璃态 */
+  --input-bg: rgba(15, 15, 25, 0.5);
   --input-border: rgba(255, 255, 255, 0.1);
   --input-focus: var(--primary);
 
   /* 滚动条 */
-  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
-  --scrollbar-hover: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-hover: rgba(255, 255, 255, 0.25);
 
   /* 间距 */
   --spacing-xs: 4px;
@@ -55,8 +55,8 @@
   --spacing-xl: 32px;
 
   /* 圆角 */
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
   --radius-lg: 16px;
   --radius-full: 9999px;
 
@@ -75,34 +75,34 @@
   --sidebar-collapsed-width: 64px;
 }
 
-/* ── 亮色主题 ────────────────────────────────────────────────────────────── */
+/* ── 亮色主题 (毛玻璃化亮色) ────────────────────────────────────────────── */
 [data-theme="light"] {
   --primary: #7c3aed;
   --primary-hover: #6d28d9;
-  --primary-dim: rgba(124, 58, 237, 0.1);
-  --primary-glow: rgba(124, 58, 237, 0.2);
+  --primary-dim: rgba(124, 58, 237, 0.15);
+  --primary-glow: rgba(124, 58, 237, 0.25);
 
-  --bg-base: #f5f5f7;
-  --bg-surface: #ffffff;
-  --bg-elevated: #f0f0f3;
+  --bg-base: #f4f4f9;
+  --bg-surface: rgba(255, 255, 255, 0.7);
+  --bg-elevated: rgba(255, 255, 255, 0.9);
 
-  --card-bg: #ffffff;
-  --card-border: rgba(0, 0, 0, 0.08);
-  --card-hover: #f8f8fc;
+  --card-bg: rgba(255, 255, 255, 0.6);
+  --card-border: rgba(255, 255, 255, 0.8);
+  --card-hover: rgba(255, 255, 255, 0.9);
 
-  --text-primary: #1a1a2e;
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
+  --text-primary: #1e1e2a;
+  --text-secondary: #5a5a72;
+  --text-muted: #8b8b9f;
 
-  --input-bg: #f5f5f7;
-  --input-border: rgba(0, 0, 0, 0.12);
+  --input-bg: rgba(255, 255, 255, 0.7);
+  --input-border: rgba(0, 0, 0, 0.08);
 
-  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
-  --scrollbar-hover: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-hover: rgba(0, 0, 0, 0.25);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
 }
 
 /* ── 全局重置 ────────────────────────────────────────────────────────────── */
@@ -122,7 +122,12 @@ html {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-base);
+  background-color: var(--bg-base);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(52, 211, 153, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(96, 165, 250, 0.08) 0px, transparent 50%);
+  background-attachment: fixed;
   color: var(--text-primary);
   line-height: 1.6;
   overflow: hidden;

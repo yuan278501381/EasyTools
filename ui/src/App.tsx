@@ -19,10 +19,13 @@ import { CapturePage } from './pages/CapturePage';
 import { OcrPage } from './pages/OcrPage';
 import { GeneralPage } from './pages/GeneralPage';
 import { AboutPage } from './pages/AboutPage';
+import { KeyStatsPage } from './pages/KeyStatsPage';
+import { Toaster } from 'sonner';
 import './App.css';
 
 // 页面标题映射
 const PAGE_TITLES: Record<NavId, { title: string; subtitle: string }> = {
+  stats:   { title: '统计数据', subtitle: '按键和鼠标活动使用统计' },
   gesture: { title: '鼠标手势', subtitle: '配置手势动作映射和作用域规则' },
   capture: { title: '截图录屏', subtitle: '截图、贴图、长截图和屏幕录制设置' },
   ocr:     { title: 'OCR 识别', subtitle: '文字识别引擎和语言配置' },
@@ -31,8 +34,8 @@ const PAGE_TITLES: Record<NavId, { title: string; subtitle: string }> = {
 };
 
 function App() {
-  const [activeNav, setActiveNav] = useState<NavId>('gesture');
-  const [theme, setTheme] = useState<'dark' | 'light'>('light');
+  const [activeNav, setActiveNav] = useState<NavId>('stats');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   // 主题切换
   const handleToggleTheme = useCallback(() => {
@@ -51,12 +54,13 @@ function App() {
   // 渲染当前页面
   const renderPage = () => {
     switch (activeNav) {
+      case 'stats':   return <KeyStatsPage />;
       case 'gesture': return <GesturePage />;
       case 'capture': return <CapturePage />;
       case 'ocr':     return <OcrPage />;
       case 'general': return <GeneralPage />;
       case 'about':   return <AboutPage />;
-      default:        return <GesturePage />;
+      default:        return <KeyStatsPage />;
     }
   };
 
@@ -71,6 +75,7 @@ function App() {
         onToggleTheme={handleToggleTheme}
       />
       <main className="app__main">
+        <Toaster position="bottom-right" theme={theme} richColors expand={true} />
         {/* ── 页面头部 ────────────────────────────────────── */}
         <header className="app__header">
           <div className="app__header-text">

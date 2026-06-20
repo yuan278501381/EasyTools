@@ -65,6 +65,7 @@ struct MarkupElement {
     // 文本内容
     std::string text;
     float fontSize = 16.0f;
+    cv::Size textRenderSize{0, 0}; // 记录最后一次渲染的文本尺寸，用于包围盒
 
     // 序列号值
     int numberValue = 0;
@@ -76,7 +77,14 @@ struct MarkupElement {
     float magnifierScale = 2.0f;
     int magnifierRadius = 60;
 
+    uint32_t id = 0; // 唯一标识
+
     virtual ~MarkupElement() = default;
+
+    cv::Rect getBoundingBox() const;
+    bool hitTest(cv::Point pt, int padding = 5) const;
+    void moveBy(int dx, int dy);
+    void resize(int dx, int dy, int handleIndex); // 0:LT, 1:T, 2:RT, 3:R, 4:RB, 5:B, 6:LB, 7:L
 };
 
 /// 标注引擎
@@ -93,7 +101,7 @@ public:
     // ── 元素操作 ─────────────────────────────────────────────────────────
 
     /// 添加标注元素
-    void addElement(std::unique_ptr<MarkupElement> element);
+    MarkupElement* addElement(std::unique_ptr<MarkupElement> element);
 
     /// 撤销最后一个标注
     bool undo();
@@ -106,6 +114,15 @@ public:
 
     /// 获取当前标注数量
     size_t elementCount() const { return m_elements.size(); }
+
+    /// 删除指定元素
+    void removeElement(uint32_t id);
+
+    /// 获取位于某点的元素（倒序查找，即最顶层的元素）
+    MarkupElement* getElementAt(cv::Point pt, int padding = 5) const;
+
+    /// 获取指定 ID 的元素
+    MarkupElement* getElementById(uint32_t id) const;
 
     // ── 工具快捷方法 ─────────────────────────────────────────────────────
 

@@ -10,7 +10,7 @@
 import { type FC } from 'react';
 import './Sidebar.css';
 
-export type NavId = 'gesture' | 'capture' | 'ocr' | 'general' | 'about';
+export type NavId = 'stats' | 'gesture' | 'capture' | 'ocr' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
@@ -19,6 +19,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { id: 'stats',   icon: '📊', label: '统计数据' },
   { id: 'gesture', icon: '🖱️', label: '鼠标手势' },
   { id: 'capture', icon: '📷', label: '截图录屏' },
   { id: 'ocr',     icon: '📝', label: 'OCR 识别' },

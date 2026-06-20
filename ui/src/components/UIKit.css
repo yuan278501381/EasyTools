@@ -7,14 +7,18 @@
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   overflow: hidden;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   animation: fadeIn 0.3s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .uikit-card:hover {
-  border-color: var(--primary-dim);
-  box-shadow: 0 0 20px var(--primary-dim);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15), 0 0 20px var(--primary-dim);
+  transform: translateY(-2px);
 }
 
 .uikit-card__header {

@@ -105,18 +105,23 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 
     RegisterClassExW(&wc);  // 重复注册会返回 0，忽略即可
 
+    // 获取 DPI 缩放比例
+    float scale = easy::core::WinUtils::getDpiScale();
+    int scaledWidth = static_cast<int>(m_config.width * scale);
+    int scaledHeight = static_cast<int>(m_config.height * scale);
+
     // 计算居中位置
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int x = m_config.startCentered ? (screenW - m_config.width) / 2 : CW_USEDEFAULT;
-    int y = m_config.startCentered ? (screenH - m_config.height) / 2 : CW_USEDEFAULT;
+    int x = m_config.startCentered ? (screenW - scaledWidth) / 2 : CW_USEDEFAULT;
+    int y = m_config.startCentered ? (screenH - scaledHeight) / 2 : CW_USEDEFAULT;
 
     m_hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         SETTINGS_WINDOW_CLASS,
         L"EasyTools 设置",
         WS_OVERLAPPEDWINDOW,
-        x, y, m_config.width, m_config.height,
+        x, y, scaledWidth, scaledHeight,
         nullptr, nullptr, hInstance, this  // 传递 this 指针
     );
 
@@ -351,9 +356,10 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
 
         case WM_GETMINMAXINFO: {
+            float scale = easy::core::WinUtils::getDpiScale(hwnd);
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
-            mmi->ptMinTrackSize.x = 800;
-            mmi->ptMinTrackSize.y = 600;
+            mmi->ptMinTrackSize.x = static_cast<int>(800 * scale);
+            mmi->ptMinTrackSize.y = static_cast<int>(600 * scale);
             return 0;
         }
 

@@ -7,11 +7,13 @@
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
+import { toast } from 'sonner';
 
 interface GeneralSettings {
   autoStart: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
+  keycastEnabled: boolean;
   language: string;
   logLevel: string;
   theme: string;
@@ -22,6 +24,7 @@ export const GeneralPage: FC = () => {
     autoStart: false,
     minimizeToTray: true,
     checkUpdates: true,
+    keycastEnabled: false,
     language: 'zh-CN',
     logLevel: 'info',
     theme: 'light',
@@ -39,7 +42,14 @@ export const GeneralPage: FC = () => {
   // 保存单个设置项
   const updateSetting = useCallback((key: keyof GeneralSettings, value: unknown) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-    bridgeRequest('general.updateSettings', { [key]: value });
+    bridgeRequest('general.updateSettings', { [key]: value }).then(() => {
+      toast.success('已保存', {
+        description: `已更新: ${key}`,
+        duration: 2000,
+      });
+    }).catch(e => {
+      toast.error('保存失败', { description: String(e) });
+    });
   }, []);
 
   if (loading) {
@@ -76,6 +86,13 @@ export const GeneralPage: FC = () => {
 
       <SettingGroup title="界面与语言" icon="🌐">
         <Card>
+          <Toggle
+            id="keycast"
+            label="屏幕按键回显"
+            description="开启后在屏幕下方实时显示您的按键操作 (适合教程录制)"
+            checked={settings.keycastEnabled}
+            onChange={(v) => updateSetting('keycastEnabled', v)}
+          />
           <SettingRow label="界面语言" description="设置界面显示的语言">
             <Select
               id="language"

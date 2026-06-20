@@ -196,6 +196,12 @@ private:
     std::vector<cv::Point> m_penPoints;
     std::vector<ToolbarButton> m_toolbarButtons;
 
+    // 二次编辑与拖拽
+    uint32_t m_selectedElementId = 0;
+    int m_resizingHandle = -1; // -1:移动, 0-7:缩放控制点
+    bool m_isManipulating = false;
+    POINT m_lastMousePos{};
+
     // 文本输入状态
     bool m_editingText = false;
     cv::Point m_textAnchor{};      // 文本在标注坐标系中的锚点

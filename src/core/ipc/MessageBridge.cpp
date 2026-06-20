@@ -9,6 +9,8 @@
 #include "core/utils/WinUtils.h"
 #include "gesture/GestureEngine.h"
 #include "ocr/OcrEngine.h"
+#include "core/stats/StatsManager.h"
+#include "ui/KeycastOverlay.h"
 
 namespace easy::core {
 
@@ -260,6 +262,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
+            {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},
         };
     });
 
@@ -267,6 +270,10 @@ void MessageBridge::registerBuiltinHandlers() {
         auto& config = ConfigManager::instance();
         for (auto& [key, value] : params.items()) {
             config.set("/general/" + key, value);
+        }
+
+        if (params.contains("keycastEnabled")) {
+            easy::ui::KeycastOverlay::instance().setEnabled(params["keycastEnabled"].get<bool>());
         }
 
         // 特殊处理：开机自启动
@@ -292,7 +299,47 @@ void MessageBridge::registerBuiltinHandlers() {
             LOG_INFO("开机自启动设置: {}", autoStart ? "启用" : "禁用");
         }
 
+        // 处理主题和语言等可以发出事件
         return {{"success", true}};
+    });
+
+    // ── 统计信息 ─────────────────────────────────────────────────────────
+
+    registerHandler("stats.getDaily", [](const json& params) -> json {
+        int days = params.value("days", 7);
+        auto historyMap = easy::core::StatsManager::instance().getHistory(days);
+        json result = json::array();
+        
+        // 由于 historyMap 是一个以日期为 key 的对象，我们需要转换为数组并按日期排序
+        std::vector<std::pair<std::string, json>> sortedHistory;
+        for (auto& [date, stat] : historyMap.items()) {
+            sortedHistory.push_back({date, stat});
+        }
+        std::sort(sortedHistory.begin(), sortedHistory.end(), [](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+
+        for (const auto& item : sortedHistory) {
+            result.push_back({
+                {"date", item.first},
+                {"keystrokes", item.second.value("totalKeys", 0ULL)},
+                {"mouseClicks", item.second.value("leftClicks", 0ULL) + item.second.value("rightClicks", 0ULL)},
+                {"mouseDistance", item.second.value("mouseDistance", 0.0)}
+            });
+        }
+        return result;
+    });
+
+    registerHandler("stats.getTotal", [](const json&) -> json {
+        // 由于 StatsManager 没有独立记录历史总和的方法，我们可以取 3650 天（10年）的数据累加
+        auto historyMap = easy::core::StatsManager::instance().getHistory(3650);
+        uint64_t totalKey = 0;
+        for (auto& [date, stat] : historyMap.items()) {
+            totalKey += stat.value("totalKeys", 0ULL);
+        }
+        return {
+            {"totalKeystrokes", totalKey}
+        };
     });
 
     // ── OCR 设置 ──────────────────────────────────────────────────────────
@@ -334,7 +381,23 @@ void MessageBridge::registerBuiltinHandlers() {
         return {{"success", true}, {"text", text}, {"copied", copy && !text.empty()}};
     });
 
-    LOG_INFO("内置 IPC 处理器注册完成 (config/gesture/capture/recording/general/ocr)");
+    // ── 统计数据 ─────────────────────────────────────────────────────────
+
+    registerHandler("stats.getToday", [](const json&) -> json {
+        return StatsManager::instance().getTodayStats().toJson();
+    });
+
+    registerHandler("stats.getHistory", [](const json& params) -> json {
+        int days = params.value("days", 7);
+        return StatsManager::instance().getHistory(days);
+    });
+
+    registerHandler("stats.clearToday", [](const json&) -> json {
+        StatsManager::instance().clearToday();
+        return {{"success", true}};
+    });
+
+    LOG_INFO("内置 IPC 处理器注册完成 (config/gesture/capture/recording/general/ocr/stats)");
 }
 
 }  // namespace easy::core

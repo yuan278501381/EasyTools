@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 

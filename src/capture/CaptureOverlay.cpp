@@ -77,6 +77,8 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_isMarking = false;
     m_markupBaseReady = false;
     m_editingText = false;
+    m_selectedElementId = 0;
+    m_isManipulating = false;
     m_textBuffer.clear();
     m_currentColor = MarkupColor::Red();
     m_markup.clearAll();
@@ -336,6 +338,59 @@ void CaptureOverlay::render() {
         drawDimOverlay(selRect);
         drawMarkupPreview(selRect);
         drawActiveMarkupPreview(selRect);
+        
+        // 绘制选中元素的包围盒和控制点
+        if (m_selectedElementId > 0 && !m_isMarking && !m_isManipulating) {
+            if (auto* elem = m_markup.getElementById(m_selectedElementId)) {
+                cv::Rect bbox = elem->getBoundingBox();
+                D2D1_RECT_F sBbox = D2D1::RectF(
+                    selRect.left + bbox.x, selRect.top + bbox.y,
+                    selRect.left + bbox.x + bbox.width, selRect.top + bbox.y + bbox.height
+                );
+                
+                // 虚线边框
+                ComPtr<ID2D1StrokeStyle> dashStyle;
+                D2D1_STROKE_STYLE_PROPERTIES dashProps = D2D1::StrokeStyleProperties(
+                    D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND,
+                    D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_DASH, 0.0f);
+                m_d2dFactory->CreateStrokeStyle(dashProps, nullptr, 0, dashStyle.GetAddressOf());
+                m_renderTarget->DrawRectangle(sBbox, m_borderBrush.Get(), 1.5f, dashStyle.Get());
+                
+                // 控制点
+                float controlSize = 6.0f;
+                float cx = (sBbox.left + sBbox.right) / 2;
+                float cy = (sBbox.top + sBbox.bottom) / 2;
+                D2D1_POINT_2F controls[] = {
+                    {sBbox.left, sBbox.top}, {cx, sBbox.top}, {sBbox.right, sBbox.top},
+                    {sBbox.right, cy}, {sBbox.right, sBbox.bottom},
+                    {cx, sBbox.bottom}, {sBbox.left, sBbox.bottom}, {sBbox.left, cy}
+                };
+                for (auto& pt : controls) {
+                    m_renderTarget->FillRectangle(
+                        D2D1::RectF(pt.x - controlSize / 2, pt.y - controlSize / 2,
+                                    pt.x + controlSize / 2, pt.y + controlSize / 2),
+                        m_infoTextBrush.Get()
+                    );
+                    m_renderTarget->DrawRectangle(
+                        D2D1::RectF(pt.x - controlSize / 2, pt.y - controlSize / 2,
+                                    pt.x + controlSize / 2, pt.y + controlSize / 2),
+                        m_borderBrush.Get(), 1.0f
+                    );
+                }
+            }
+        }
+        // 如果正在操作，为了流畅可以只画框，这里简化为原样
+        if (m_isManipulating && m_selectedElementId > 0) {
+            if (auto* elem = m_markup.getElementById(m_selectedElementId)) {
+                cv::Rect bbox = elem->getBoundingBox();
+                D2D1_RECT_F sBbox = D2D1::RectF(
+                    selRect.left + bbox.x, selRect.top + bbox.y,
+                    selRect.left + bbox.x + bbox.width, selRect.top + bbox.y + bbox.height
+                );
+                m_renderTarget->DrawRectangle(sBbox, m_borderBrush.Get(), 1.0f);
+            }
+        }
+
         drawTextEditing(selRect);
         drawSelection(selRect);
         drawSizeInfo(selRect);
@@ -882,7 +937,7 @@ void CaptureOverlay::beginMarkup(POINT point) {
         m_textAnchor = local;
         m_textScreenPos = point;
         m_textBuffer.clear();
-        m_state = OverlayState::Marking;
+        m_state = OverlayState::Selected; // 保持 Selected，只有编辑态
         return;
     }
 
@@ -1089,8 +1144,43 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (self->m_state == OverlayState::Selected || self->m_state == OverlayState::Marking) {
                 if (auto* button = self->hitTestToolbar(point)) {
                     self->executeToolbarCommand(*button);
-                } else {
-                    self->beginMarkup(point);
+                } else if (self->isPointInSelection(point)) {
+                    cv::Point local = self->toMarkupPoint(point);
+                    
+                    bool hitHandle = false;
+                    if (self->m_selectedElementId > 0) {
+                        if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
+                            cv::Rect bbox = elem->getBoundingBox();
+                            int cx = bbox.x + bbox.width / 2;
+                            int cy = bbox.y + bbox.height / 2;
+                            cv::Point controls[] = {
+                                {bbox.x, bbox.y}, {cx, bbox.y}, {bbox.x + bbox.width, bbox.y},
+                                {bbox.x + bbox.width, cy}, {bbox.x + bbox.width, bbox.y + bbox.height},
+                                {cx, bbox.y + bbox.height}, {bbox.x, bbox.y + bbox.height}, {bbox.x, cy}
+                            };
+                            for (int i = 0; i < 8; ++i) {
+                                if (std::abs(local.x - controls[i].x) <= 6 && std::abs(local.y - controls[i].y) <= 6) {
+                                    self->m_resizingHandle = i;
+                                    self->m_isManipulating = true;
+                                    self->m_lastMousePos = point;
+                                    hitHandle = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (!hitHandle) {
+                        if (auto* hit = self->m_markup.getElementAt(local)) {
+                            self->m_selectedElementId = hit->id;
+                            self->m_resizingHandle = -1;
+                            self->m_isManipulating = true;
+                            self->m_lastMousePos = point;
+                        } else {
+                            self->m_selectedElementId = 0;
+                            self->beginMarkup(point);
+                        }
+                    }
                 }
                 return 0;
             }
@@ -1106,7 +1196,18 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (!self) break;
             self->m_currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
-            if (self->m_isMarking) {
+            if (self->m_isManipulating && self->m_selectedElementId > 0) {
+                if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
+                    int dx = self->m_currentCursor.x - self->m_lastMousePos.x;
+                    int dy = self->m_currentCursor.y - self->m_lastMousePos.y;
+                    if (self->m_resizingHandle == -1) {
+                        elem->moveBy(dx, dy);
+                    } else {
+                        elem->resize(dx, dy, self->m_resizingHandle);
+                    }
+                    self->m_lastMousePos = self->m_currentCursor;
+                }
+            } else if (self->m_isMarking) {
                 self->updateMarkup(self->m_currentCursor);
             } else if (self->m_dragging) {
                 self->m_dragEnd = self->m_currentCursor;
@@ -1123,6 +1224,11 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
         }
 
         case WM_LBUTTONUP: {
+            if (self && self->m_isManipulating) {
+                self->m_isManipulating = false;
+                return 0;
+            }
+
             if (self && self->m_isMarking) {
                 self->finishMarkup({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
                 return 0;
@@ -1156,8 +1262,23 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
         }
 
         case WM_LBUTTONDBLCLK: {
-            // 双击确认
             if (self && self->m_state == OverlayState::Selected) {
+                if (self->m_selectedElementId > 0) {
+                    if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
+                        if (elem->tool == MarkupTool::Text) {
+                            self->m_editingText = true;
+                            self->m_textBuffer = easy::core::WinUtils::utf8ToWstring(elem->text);
+                            self->m_textAnchor = elem->startPt;
+                            auto rect = self->currentSelectionRect();
+                            self->m_textScreenPos = {static_cast<LONG>(rect.left + elem->startPt.x), 
+                                                     static_cast<LONG>(rect.top + elem->startPt.y - elem->textRenderSize.height)};
+                            self->m_currentColor = elem->color;
+                            self->m_markup.removeElement(self->m_selectedElementId);
+                            self->m_selectedElementId = 0;
+                            return 0;
+                        }
+                    }
+                }
                 self->confirmSelection();
             }
             return 0;
@@ -1169,6 +1290,20 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
                 return 0;
             }
             break;
+        }
+
+        case WM_MOUSEWHEEL: {
+            if (!self) break;
+            if (self->m_state == OverlayState::Selected && self->m_selectedElementId > 0) {
+                if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
+                    if (elem->tool == MarkupTool::Magnifier) {
+                        short zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+                        elem->magnifierScale += (zDelta > 0) ? 0.2f : -0.2f;
+                        elem->magnifierScale = std::clamp(elem->magnifierScale, 1.0f, 5.0f);
+                    }
+                }
+            }
+            return 0;
         }
 
         case WM_KEYDOWN: {

@@ -83,6 +83,7 @@ void TrayIcon::setGesturePaused(bool paused) {
 }
 
 void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
+    (void)wParam;
     UINT msg = LOWORD(lParam);
 
     switch (msg) {

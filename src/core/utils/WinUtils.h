@@ -150,6 +150,19 @@ public:
         CloseClipboard();
         return true;
     }
+
+    /// 启用全局高分屏 (DPI) 感知
+    /// 解决高分屏下截屏、鼠标手势坐标以及窗口渲染产生的偏移问题
+    static void enableHighDpiSupport() {
+        // 启用 Per-Monitor V2 DPI 感知，确保在高分屏下物理像素和逻辑像素一比一映射
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
+    /// 获取指定窗口的 DPI 缩放比例 (例如 125% DPI 时返回 1.25)
+    static float getDpiScale(HWND hwnd = nullptr) {
+        UINT dpi = hwnd ? GetDpiForWindow(hwnd) : GetDpiForSystem();
+        return dpi / 96.0f;
+    }
 };
 
 }  // namespace easy::core
