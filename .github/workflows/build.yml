@@ -3,14 +3,28 @@ name: EasyTools CI/CD
 on:
   push:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch: # 允许在 GitHub 网页上手动触发
 
 jobs:
   build-and-deploy:
     name: Build EasyTools (Windows x64)
     runs-on: windows-latest
+    
+    # 世界级项目安全要求：为构建溯源证明授予必要权限
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
 
     steps:
       - name: 检出代码 (Checkout Code)
@@ -52,3 +66,9 @@ jobs:
           path: deploy_dist/
           if-no-files-found: error
           retention-days: 7
+
+      - name: 生成安全构建溯源证明 (Attest Build Provenance)
+        # 为生成的产物签发带有加密防伪校验的 SBOM / SLSA 来源证明
+        uses: actions/attest-build-provenance@v4.1.0
+        with:
+          subject-path: 'deploy_dist/**'

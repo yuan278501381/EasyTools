@@ -22,6 +22,7 @@
 #include <optional>
 #include <atomic>
 #include <thread>
+#include <windows.h>
 
 #include <nlohmann/json.hpp>
 

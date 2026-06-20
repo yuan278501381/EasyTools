@@ -8,6 +8,7 @@
 #include "core/lua/LuaEngine.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <array>
 
 namespace easy::gesture {

@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
+#include <fstream>
 
 namespace easy::capture {
 

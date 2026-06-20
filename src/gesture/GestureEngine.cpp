@@ -115,7 +115,7 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
     if (m_paused.load(std::memory_order_relaxed)) return false;
 
     // 获取配置以检查窗口过滤规则
-    auto& config = easy::core::ConfigManager::instance().config();
+    auto exceptions = easy::core::ConfigManager::instance().get<nlohmann::json>("/gesture/exceptions", nlohmann::json::array());
 
     switch (m_state.load()) {
         case GestureState::Idle:
@@ -124,14 +124,16 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
                 HWND hwnd = event.foregroundWindow;
                 if (hwnd) {
                     std::string exeName = easy::core::WinUtils::getProcessNameFromWindow(hwnd);
-                    std::string className = easy::core::WinUtils::getClassName(hwnd);
+                    std::string className = easy::core::WinUtils::wstringToUtf8(easy::core::WinUtils::getWindowClassName(hwnd));
                     // 暂时将十六进制 HWND 字符串作为 handle
                     std::string handleStr = std::to_string(reinterpret_cast<uint64_t>(hwnd));
                     
                     bool disabled = false;
-                    for (const auto& rule : config.gestureExceptions) {
-                        if (rule.type == "process" && easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(rule.value)) disabled = true;
-                        if (rule.type == "class" && className == rule.value) disabled = true;
+                    for (const auto& rule : exceptions) {
+                        std::string ruleType = rule.value("type", "");
+                        std::string ruleValue = rule.value("value", "");
+                        if (ruleType == "process" && easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(ruleValue)) disabled = true;
+                        if (ruleType == "class" && className == ruleValue) disabled = true;
                     }
                     if (disabled) {
                         LOG_DEBUG("窗口被手势黑名单过滤: exe={}, class={}", exeName, className);

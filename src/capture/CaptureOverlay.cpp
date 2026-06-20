@@ -648,7 +648,7 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
     toolbarY = std::max(8.0f, toolbarY);
 
     float x = toolbarX + padding;
-    auto addButton = [&](ToolbarCommand command, MarkupTool tool, std::wstring label, float width = buttonSize) {
+    auto addButton = [&](ToolbarCommand command, MarkupTool tool, std::wstring label, float width) {
         ToolbarButton button;
         button.command = command;
         button.tool = tool;
@@ -663,16 +663,16 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖ 取消", 60.0f);
     } else {
         for (const auto& tool : tools) {
-            addButton(ToolbarCommand::SelectTool, tool.tool, tool.label);
+            addButton(ToolbarCommand::SelectTool, tool.tool, tool.label, buttonSize);
         }
-        addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩");
-        addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪");
-        addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑");
-        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, L"文");
-        addButton(ToolbarCommand::PinWindow, MarkupTool::Rectangle, L"📌");
-        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, L"长");
-        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖");
-        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"✓");
+        addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩", buttonSize);
+        addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪", buttonSize);
+        addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑", buttonSize);
+        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, L"文", buttonSize);
+        addButton(ToolbarCommand::PinWindow, MarkupTool::Rectangle, L"📌", buttonSize);
+        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, L"长", buttonSize);
+        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖", buttonSize);
+        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"✓", buttonSize);
     }
 }
 

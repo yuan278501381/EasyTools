@@ -88,13 +88,13 @@ void LuaEngine::bindApi() {
 
     // 3. 执行系统命令/打开文件
     easyTools.set_function("runCommand", [](const std::string& cmd) {
-        std::wstring wcmd = easy::core::WinUtils::utf8ToWide(cmd);
+        std::wstring wcmd = easy::core::WinUtils::utf8ToWstring(cmd);
         ShellExecuteW(nullptr, L"open", wcmd.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     });
 
     // 4. 弹窗提示
     easyTools.set_function("alert", [](const std::string& msg) {
-        std::wstring wmsg = easy::core::WinUtils::utf8ToWide(msg);
+        std::wstring wmsg = easy::core::WinUtils::utf8ToWstring(msg);
         MessageBoxW(nullptr, wmsg.c_str(), L"EasyTools - Lua Script", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
     });
 

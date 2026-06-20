@@ -1,0 +1,19 @@
+build: 重构云端与本地双轨构建管线及工程基建完善
+
+【业务视角】
+1. 实现云端与本地“双轨制”构建：在保留 GitHub Actions 云端流水线的同时，一键提供纯净本地编译环境（Build Tools），满足极速开发与离线打包需求。
+2. 提升自动化体验：无论在云端还是本地，现在都可以通过一致的 PowerShell 部署脚本无缝出包，彻底告别繁杂的手动环境配置。
+3. 补全项目说明：新增详尽的 README 文档，从架构和业务功能层面为后续接手的开发者提供世界级的指引。
+4. 增强工程整洁度：重构了文件跟踪黑名单（.gitignore），将冗余构建产物拒之门外，保持项目纯粹。
+
+【技术视角】
+1. CI/CD 流水线升级：
+   - 移除 OpenCV 4 和 FFmpeg 包在 vcpkg 中的异常特性声明（core, avutil），解决 vcpkg 基线版本约束报错。
+   - 优化 GitHub Actions：加入路径过滤（忽略 md 等文档变更），接入 actions/attest-build-provenance 生成符合 SLSA 标准的防伪溯源签名。
+   - 升级 Node.js 环境到最新支持的 v24 版本，修复版本过期的废弃警告。
+2. 核心 C++ 代码兼容性修复：
+   - 针对严谨的 MSVC 编译器，修复 CaptureOverlay 默认参数绑定语法问题。
+   - 补充系统标准头文件（<windows.h>, <shellapi.h>, <fstream>），修复 WinUtils 剪贴板/进程调用与 LuaEngine 的类型签名不匹配问题。
+3. PowerShell 工具链强化：
+   - 编写 setup_local_build_tools.ps1 脚本，静默提权调用 winget 下发 C++ 桌面工作负载。
+   - 重构 deploy.ps1：引入 vswhere 自动嗅探及加载 VS 开发者环境变量，实现跨终端无缝识别 CMake 和 MSVC 工具链。

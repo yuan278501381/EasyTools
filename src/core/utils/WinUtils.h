@@ -7,10 +7,13 @@
 #define EASYTOOLS_CORE_UTILS_WINUTILS_H
 
 #include <windows.h>
+#include <shlobj.h>
 #include <string>
 #include <filesystem>
 #include <optional>
 #include <tlhelp32.h>
+#include <algorithm>
+#include <cctype>
 
 namespace easy::core {
 
@@ -104,13 +107,62 @@ public:
         return result;
     }
 
-    /// UTF-8 string → wstring
+    /// UTF-8 string 到 wstring
     static std::wstring utf8ToWstring(const std::string& str) {
         if (str.empty()) return {};
         int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.size()), nullptr, 0);
         std::wstring result(size, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.size()), result.data(), size);
         return result;
+    }
+
+    /// 获取窗口的进程名 (UTF-8)
+    static std::string getProcessNameFromWindow(HWND hwnd) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (pid == 0) return "";
+
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) return "";
+
+        PROCESSENTRY32W entry{};
+        entry.dwSize = sizeof(entry);
+
+        std::string result;
+        if (Process32FirstW(snapshot, &entry)) {
+            do {
+                if (entry.th32ProcessID == pid) {
+                    result = wstringToUtf8(entry.szExeFile);
+                    break;
+                }
+            } while (Process32NextW(snapshot, &entry));
+        }
+        CloseHandle(snapshot);
+        return result;
+    }
+
+    /// 字符串转小写
+    static std::string toLower(std::string str) {
+        std::transform(str.begin(), str.end(), str.begin(),
+            [](unsigned char c){ return std::tolower(c); });
+        return str;
+    }
+
+    /// 复制文本到剪贴板
+    static bool copyToClipboard(const std::string& text) {
+        if (!OpenClipboard(nullptr)) return false;
+        EmptyClipboard();
+        std::wstring wtext = utf8ToWstring(text);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (wtext.length() + 1) * sizeof(wchar_t));
+        if (!hMem) {
+            CloseClipboard();
+            return false;
+        }
+        memcpy(GlobalLock(hMem), wtext.c_str(), (wtext.length() + 1) * sizeof(wchar_t));
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+        CloseClipboard();
+        return true;
     }
 };
 

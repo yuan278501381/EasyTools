@@ -1,6 +1,7 @@
 #include "ocr/OcrEngine.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include <windows.h>
 
 namespace easy::ocr {
 

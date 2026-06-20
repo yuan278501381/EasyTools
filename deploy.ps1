@@ -110,8 +110,29 @@ if ($WebView2Dirs.Count -eq 0) {
 }
 
 # ------------------------------------------------------------------------------
-# 4. CMake 编译 (含 vcpkg 依赖)
+# 4. CMake 编译 (带 vcpkg 依赖)
 # ------------------------------------------------------------------------------
+# 如果环境中没有 cmake，则尝试自动装载 VS 开发者环境
+if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
+    Write-Log "未在 PATH 中找到 CMake，尝试自动挂载 Visual Studio 开发者环境..."
+    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
+        if ($vsPath) {
+            $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+            if (Test-Path $devShell) {
+                Import-Module $devShell
+                Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=x64" | Out-Null
+                Write-Log "✅ 成功挂载 VS 编译环境 ($vsPath)!"
+            }
+        }
+    }
+}
+
+if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
+    throw "仍然无法找到 CMake！请确保已安装 C++ 桌面开发工作负载，或尝试在 'Developer PowerShell for VS' 窗口中运行此脚本。"
+}
+
 Write-Log "执行 CMake Configure..."
 $BuildDir = Join-Path $ScriptDir "build"
 if (-not (Test-Path $BuildDir)) {
