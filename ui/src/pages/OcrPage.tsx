@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { FileText } from 'lucide-react';
 
 interface OcrSettings {
   engine: string;
@@ -51,7 +52,7 @@ export const OcrPage: FC = () => {
 
   return (
     <div className="ocr-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title={t('ocr.title')} icon="📝">
+      <SettingGroup title={t('ocr.title')} icon={<FileText size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('ocr.shortcut')} description={t('ocr.shortcutDesc')}>
             <kbd style={{

@@ -4,6 +4,7 @@ import { bridgeRequest } from '../hooks/useBridge';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { KeyboardHeatmap } from '../components/KeyboardHeatmap';
+import { LineChart as LineChartIcon, Flame, Trophy } from 'lucide-react';
 
 interface DailyStat {
   date: string;
@@ -54,7 +55,7 @@ export const KeyStatsPage: FC = () => {
 
   return (
     <div className="stats-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title={t('stats.dailyTitle')} icon="📈">
+      <SettingGroup title={t('stats.dailyTitle')} icon={<LineChartIcon size={20} strokeWidth={2.5} />}>
         <Card>
           <div style={{ height: '300px', width: '100%', marginTop: '16px' }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -79,11 +80,11 @@ export const KeyStatsPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title={t('stats.heatmapTitle', '按键热力图')} icon="🔥">
+      <SettingGroup title={t('stats.heatmapTitle' as any, '按键热力图')} icon={<Flame size={20} strokeWidth={2.5} />}>
         <KeyboardHeatmap keyMap={todayStats.keyMap || {}} />
       </SettingGroup>
 
-      <SettingGroup title={t('stats.totalOverview')} icon="🏆">
+      <SettingGroup title={t('stats.totalOverview')} icon={<Trophy size={20} strokeWidth={2.5} />}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
           <Card>
             <div style={{ padding: '16px', textAlign: 'center' }}>
