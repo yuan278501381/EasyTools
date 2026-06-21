@@ -73,6 +73,12 @@ public:
 
 private:
     ScrollCapture() = default;
+    ~ScrollCapture() {
+        // 退出时回收滚动线程: 单例析构时若 m_scrollThread 仍 joinable 会触发 std::terminate。
+        // 先置 false 让 autoScrollLoop 尽快跳出循环, 再 join 等其收尾(UAF 安全)。
+        m_running = false;
+        if (m_scrollThread.joinable()) m_scrollThread.join();
+    }
 
     /// 自动滚动线程
     void autoScrollLoop();

@@ -1,0 +1,101 @@
+.keyboard-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  user-select: none;
+  overflow-x: auto; /* In case it's too wide */
+}
+
+.keyboard-heatmap__row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.keyboard-heatmap__key {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-width: 44px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  cursor: default;
+  overflow: hidden;
+}
+
+/* Base key sizing for standard layout */
+.key-width-150 { width: 66px; }  /* Tab, \ */
+.key-width-175 { width: 77px; }  /* Caps */
+.key-width-200 { width: 88px; }  /* Backspace, Enter */
+.key-width-225 { width: 99px; }  /* LShift, RShift */
+.key-width-250 { width: 110px; }
+.key-width-275 { width: 121px; } /* RShift alternative */
+.key-width-space { width: 264px; } /* Spacebar */
+.key-width-125 { width: 55px; } /* Ctrl, Alt, Win */
+
+/* The heat overlay */
+.keyboard-heatmap__heat {
+  position: absolute;
+  inset: 0;
+  background: var(--heat-color, transparent);
+  box-shadow: var(--heat-glow, none);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+
+.keyboard-heatmap__label {
+  position: relative;
+  z-index: 2;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.keyboard-heatmap__key:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  z-index: 5;
+}
+
+/* Tooltip container */
+.keyboard-heatmap__key .tooltip {
+  visibility: hidden;
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px) scale(0.95);
+  background: rgba(30, 30, 30, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+  z-index: 10;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.keyboard-heatmap__key:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+

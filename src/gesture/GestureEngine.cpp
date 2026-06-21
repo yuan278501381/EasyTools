@@ -115,70 +115,79 @@ void GestureEngine::setTrailCallback(TrailRenderCallback callback) {
 // ── 鼠标事件处理管道 ─────────────────────────────────────────────────────────
 
 bool GestureEngine::onMouseEvent(const MouseEvent& event) {
-    if (m_paused.load(std::memory_order_relaxed)) return false;
+    try {
+        std::lock_guard lock(m_mutex);
 
-    switch (m_state.load()) {
-        case GestureState::Idle:
-            if (event.type == m_triggerDown) {
-                // 每次触发键按下 = 一次新的用户操作, 开启全新 TraceId 贯穿整条链路
-                m_gestureTraceId = easy::core::TraceId::begin();
+        if (m_paused.load()) return false;
 
-                HWND hwnd = event.foregroundWindow;
-                std::string exeName = hwnd ? easy::core::WinUtils::getProcessNameFromWindow(hwnd) : "";
-                std::string className = hwnd
-                    ? easy::core::WinUtils::wstringToUtf8(easy::core::WinUtils::getWindowClassName(hwnd)) : "";
+        switch (m_state.load()) {
+            case GestureState::Idle:
+                if (event.type == m_triggerDown) {
+                    // 每次触发键按下 = 一次新的用户操作, 开启全新 TraceId 贯穿整条链路
+                    m_gestureTraceId = easy::core::TraceId::begin();
 
-                LOG_DEBUG("触发键按下: trigger={}, pos=({},{}), hwnd=0x{:X}, process='{}', class='{}'",
-                          triggerButton(), event.position.x, event.position.y,
-                          reinterpret_cast<uintptr_t>(hwnd), exeName, className);
+                    HWND hwnd = event.foregroundWindow;
+                    std::string exeName = hwnd ? easy::core::WinUtils::getProcessNameFromWindow(hwnd) : "";
+                    std::string className = hwnd
+                        ? easy::core::WinUtils::wstringToUtf8(easy::core::WinUtils::getWindowClassName(hwnd)) : "";
 
-                // 检查当前窗口是否在黑名单（仅触发时读取配置，避免移动时频繁消耗性能）
-                auto exceptions = easy::core::ConfigManager::instance().get<nlohmann::json>(
-                    "/gesture/exceptions", nlohmann::json::array());
-                bool disabled = false;
-                for (const auto& rule : exceptions) {
-                    std::string ruleType = rule.value("type", "");
-                    std::string ruleValue = rule.value("value", "");
-                    if (ruleType == "process" &&
-                        easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(ruleValue)) disabled = true;
-                    if (ruleType == "class" && className == ruleValue) disabled = true;
+                    LOG_DEBUG("触发键按下: trigger={}, pos=({},{}), hwnd=0x{:X}, process='{}', class='{}'",
+                              triggerButton(), event.position.x, event.position.y,
+                              reinterpret_cast<uintptr_t>(hwnd), exeName, className);
+
+                    // 检查当前窗口是否在黑名单（仅触发时读取配置，避免移动时频繁消耗性能）
+                    auto exceptions = easy::core::ConfigManager::instance().get<nlohmann::json>(
+                        "/gesture/exceptions", nlohmann::json::array());
+                    bool disabled = false;
+                    for (const auto& rule : exceptions) {
+                        std::string ruleType = rule.value("type", "");
+                        std::string ruleValue = rule.value("value", "");
+                        if (ruleType == "process" &&
+                            easy::core::WinUtils::toLower(exeName) == easy::core::WinUtils::toLower(ruleValue)) disabled = true;
+                        if (ruleType == "class" && className == ruleValue) disabled = true;
+                    }
+                    if (disabled) {
+                        LOG_INFO("窗口在手势黑名单, 不拦截: process='{}', class='{}'", exeName, className);
+                        return false;  // 不拦截 → 右键照常工作
+                    }
+
+                    beginTracking(event);
+                    return true;  // 拦截触发键按下, 进入手势追踪
                 }
-                if (disabled) {
-                    LOG_INFO("窗口在手势黑名单, 不拦截: process='{}', class='{}'", exeName, className);
-                    return false;  // 不拦截 → 右键照常工作
-                }
+                break;
 
-                beginTracking(event);
-                return true;  // 拦截触发键按下, 进入手势追踪
-            }
-            break;
-
-        case GestureState::Tracking:
-            if (event.type == MouseEventType::Move) {
-                updateTracking(event);
-                // 不拦截移动: 否则会吞掉光标移动, 导致右键拖动手势时鼠标"卡死不动"。
-                // 触发键的按下已被吞掉, 底层应用只会收到无按键的 hover 移动, 无副作用。
-                return false;
-            } else if (event.type == m_triggerUp) {
-                endTracking(event);
-                return true; // 拦截触发按键的抬起事件
-            } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::RightDown) {
-                // 如果在手势过程中按下了其他键，可能是取消手势
-                if (event.type != m_triggerDown) {
-                    cancelTracking();
-                    // 取消时，可以将当前按键透传
+            case GestureState::Tracking:
+                if (event.type == MouseEventType::Move) {
+                    updateTracking(event);
+                    // 不拦截移动: 否则会吞掉光标移动, 导致右键拖动手势时鼠标"卡死不动"。
+                    // 触发键的按下已被吞掉, 底层应用只会收到无按键的 hover 移动, 无副作用。
                     return false;
+                } else if (event.type == m_triggerUp) {
+                    endTracking(event);
+                    return true; // 拦截触发按键的抬起事件
+                } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::RightDown) {
+                    // 如果在手势过程中按下了其他键，可能是取消手势
+                    if (event.type != m_triggerDown) {
+                        cancelTracking();
+                        // 取消时，可以将当前按键透传
+                        return false;
+                    }
                 }
-            }
-            // 追踪期间拦截滚轮等其他事件也可以
-            return true; 
+                // 追踪期间拦截滚轮等其他事件也可以
+                return true; 
 
-        case GestureState::Executing:
-            // 动作执行中，忽略事件但不一定拦截，如果拦截可能会影响脚本的输入注入
-            break;
+            case GestureState::Executing:
+                // 动作执行中，忽略事件但不一定拦截，如果拦截可能会影响脚本的输入注入
+                break;
+        }
+        return false;
+    } catch (const std::exception& e) {
+        LOG_ERROR("GestureEngine 发生未捕获异常: {}", e.what());
+        return false;
+    } catch (...) {
+        LOG_ERROR("GestureEngine 发生未知异常");
+        return false;
     }
-    
-    return false;
 }
 
 void GestureEngine::beginTracking(const MouseEvent& event) {

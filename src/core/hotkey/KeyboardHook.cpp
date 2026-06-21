@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <format>
+#include <mutex>
 
 namespace easy::core {
 
@@ -47,9 +48,10 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
     auto& self = KeyboardHook::instance();
 
     if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed)) {
-        auto* data = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        try {
+            auto* data = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 
-        // 忽略注入的按键
+            // 忽略注入的按键
         if (!(data->flags & LLKHF_INJECTED)) {
             if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
                 // 记录按键统计
@@ -59,6 +61,9 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                 if (easy::ui::KeycastOverlay::instance().isEnabled()) {
                     static std::vector<std::string> currentSequence;
                     static uint64_t lastKeyTick = 0;
+                    static std::mutex sequenceMutex;
+                    std::lock_guard<std::mutex> lock(sequenceMutex);
+
                     uint64_t now = GetTickCount64();
 
                     // 超时清空序列 (1500ms 内没有新按键则打断)
@@ -140,6 +145,11 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                     }
                 }
             }
+        }
+        } catch (const std::exception& e) {
+            LOG_ERROR("KeyboardHook 发生未捕获异常: {}", e.what());
+        } catch (...) {
+            LOG_ERROR("KeyboardHook 发生未知异常");
         }
     }
 

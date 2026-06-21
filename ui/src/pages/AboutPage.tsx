@@ -4,6 +4,8 @@
 
 import { type FC } from 'react';
 import { Card, SettingGroup, Badge } from '../components/UIKit';
+import { Info } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import './AboutPage.css';
 
 interface DependencyInfo {
@@ -24,42 +26,43 @@ const DEPENDENCIES: DependencyInfo[] = [
   { name: 'PaddleOCR',      version: 'Lite',       purpose: '文字识别' },
 ];
 
-export const AboutPage: FC = () => (
-  <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-    <SettingGroup title="关于 EasyTools" icon="ℹ️">
-      <Card>
-        <div className="about-hero">
-          <span className="about-hero__icon">⚡</span>
-          <div className="about-hero__info">
-            <h2 className="about-hero__title">EasyTools</h2>
-            <p className="about-hero__subtitle">桌面效率工具</p>
-            <div className="about-hero__badges">
-              <Badge text="v0.1.0" variant="primary" />
-              <Badge text="Windows 10+" variant="muted" />
-              <Badge text="C++ & React" variant="success" />
+export const AboutPage: FC = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
+      <SettingGroup title={t('about.title')} icon={<Info size={18} />}>
+        <Card>
+          <div className="about-hero">
+            <span className="about-hero__icon">⚡</span>
+            <div className="about-hero__info">
+              <h2 className="about-hero__title">EasyTools</h2>
+              <p className="about-hero__subtitle">桌面效率工具</p>
+              <div className="about-hero__badges">
+                <Badge text="v0.1.0" variant="primary" />
+                <Badge text="Windows 10+" variant="muted" />
+                <Badge text="C++ & React" variant="success" />
+              </div>
             </div>
           </div>
-        </div>
-        <p className="about-desc">
-          EasyTools 是一款高性能桌面效率工具，集成鼠标手势、截图贴图、
-          屏幕录制、OCR 文字识别等功能。采用 C++ 核心引擎 + WebView2 设置界面架构，
-          追求极致性能与优雅体验的统一。
-        </p>
-      </Card>
-    </SettingGroup>
+          <p className="about-desc">
+            {t('about.description')}
+          </p>
+        </Card>
+      </SettingGroup>
 
-    <SettingGroup title="技术栈" icon="🧱">
-      <Card>
-        <div className="about-deps">
-          {DEPENDENCIES.map((dep) => (
-            <div key={dep.name} className="about-dep-item">
-              <span className="about-dep-name">{dep.name}</span>
-              <Badge text={dep.version} variant="muted" />
-              <span className="about-dep-purpose">{dep.purpose}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </SettingGroup>
-  </div>
-);
+      <SettingGroup title={t('about.techStack' as any)} icon="🧱">
+        <Card>
+          <div className="about-deps">
+            {DEPENDENCIES.map((dep) => (
+              <div key={dep.name} className="about-dep-item">
+                <span className="about-dep-name">{dep.name}</span>
+                <Badge text={dep.version} variant="muted" />
+                <span className="about-dep-purpose">{dep.purpose}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </SettingGroup>
+    </div>
+  );
+};

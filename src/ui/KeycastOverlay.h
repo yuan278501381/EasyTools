@@ -43,13 +43,16 @@ private:
     std::mutex m_mutex;
     UINT_PTR m_timerId = 0;
     float m_opacity = 0.0f;
+    float m_animScale = 1.0f; // For subtle pop-up animation
     bool m_fadingOut = false;
+    bool m_fadingIn = false;
 
     // D2D 资源
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_bgBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_strokeBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
 };

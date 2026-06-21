@@ -12,6 +12,7 @@
 #include "gesture/GestureTrailOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 
 #include <cmath>
 
@@ -134,11 +135,12 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     wc.lpszClassName = OVERLAY_CLASS;
     RegisterClassExW(&wc);
 
-    // 覆盖整个虚拟屏幕（多显示器支持）
-    int screenX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    int screenY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    int screenW = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    int screenH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    // 覆盖整个虚拟屏幕（多显示器支持，使用物理边界防止高DPI错位）
+    RECT bounds = easy::core::WinUtils::getVirtualScreenPhysicalBounds();
+    int screenX = bounds.left;
+    int screenY = bounds.top;
+    int screenW = bounds.right - bounds.left;
+    int screenH = bounds.bottom - bounds.top;
     m_originX = screenX;
     m_originY = screenY;
 
@@ -217,6 +219,9 @@ bool GestureTrailOverlay::createD2DResources() {
 
     hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
     if (FAILED(hr)) return false;
+
+    // 禁用 D2D 的自动 DPI 缩放，使逻辑坐标 1:1 映射到物理像素 (因为输入坐标已是物理像素)
+    m_renderTarget->SetDpi(96.0f, 96.0f);
 
     // 画笔
     float r = ((m_style.lineColor >> 16) & 0xFF) / 255.0f;

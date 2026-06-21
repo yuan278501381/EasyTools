@@ -21,19 +21,13 @@ import { GeneralPage } from './pages/GeneralPage';
 import { AboutPage } from './pages/AboutPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { Toaster } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import './App.css';
 
-// 页面标题映射
-const PAGE_TITLES: Record<NavId, { title: string; subtitle: string }> = {
-  stats:   { title: '统计数据', subtitle: '按键和鼠标活动使用统计' },
-  gesture: { title: '鼠标手势', subtitle: '配置手势动作映射和作用域规则' },
-  capture: { title: '截图录屏', subtitle: '截图、贴图、长截图和屏幕录制设置' },
-  ocr:     { title: 'OCR 识别', subtitle: '文字识别引擎和语言配置' },
-  general: { title: '通用设置', subtitle: '启动、语言、日志等通用配置' },
-  about:   { title: '关于', subtitle: '版本信息和技术栈' },
-};
+// 页面组件导入
 
 function App() {
+  const { t } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>('stats');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -64,8 +58,6 @@ function App() {
     }
   };
 
-  const { title, subtitle } = PAGE_TITLES[activeNav];
-
   return (
     <div className="app">
       <Sidebar
@@ -79,8 +71,8 @@ function App() {
         {/* ── 页面头部 ────────────────────────────────────── */}
         <header className="app__header">
           <div className="app__header-text">
-            <h1 className="app__header-title">{title}</h1>
-            <p className="app__header-subtitle">{subtitle}</p>
+            <h1 className="app__header-title">{t(`nav.${activeNav === 'general' ? 'settings' : activeNav}` as any)}</h1>
+            <p className="app__header-subtitle">{t(`navSubtitle.${activeNav}` as any)}</p>
           </div>
         </header>
 

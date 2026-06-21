@@ -8,6 +8,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import './Sidebar.css';
 
 export type NavId = 'stats' | 'gesture' | 'capture' | 'ocr' | 'general' | 'about';
@@ -15,16 +16,16 @@ export type NavId = 'stats' | 'gesture' | 'capture' | 'ocr' | 'general' | 'about
 interface NavItem {
   id: NavId;
   icon: string;
-  label: string;
+  labelKey: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'stats',   icon: '📊', label: '统计数据' },
-  { id: 'gesture', icon: '🖱️', label: '鼠标手势' },
-  { id: 'capture', icon: '📷', label: '截图录屏' },
-  { id: 'ocr',     icon: '📝', label: 'OCR 识别' },
-  { id: 'general', icon: '⚙️', label: '通用设置' },
-  { id: 'about',   icon: 'ℹ️', label: '关于' },
+  { id: 'stats',   icon: '📊', labelKey: 'nav.stats' },
+  { id: 'gesture', icon: '🖱️', labelKey: 'nav.gesture' },
+  { id: 'capture', icon: '📷', labelKey: 'nav.capture' },
+  { id: 'ocr',     icon: '📝', labelKey: 'nav.ocr' },
+  { id: 'general', icon: '⚙️', labelKey: 'nav.settings' },
+  { id: 'about',   icon: 'ℹ️', labelKey: 'nav.about' },
 ];
 
 interface SidebarProps {
@@ -35,6 +36,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onToggleTheme }) => {
+  const { t } = useTranslation();
+
   return (
     <aside className="sidebar" role="navigation" aria-label="主导航">
       {/* ── Logo ──────────────────────────────────────────────────── */}
@@ -55,7 +58,7 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
           >
             <span className="sidebar__item-indicator" />
             <span className="sidebar__item-icon">{item.icon}</span>
-            <span className="sidebar__item-label">{item.label}</span>
+            <span className="sidebar__item-label">{t(item.labelKey as any)}</span>
           </button>
         ))}
       </nav>

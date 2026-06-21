@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <atomic>
 #include <functional>
+#include <mutex>
 
 namespace easy::gesture {
 
@@ -133,6 +134,8 @@ private:
     // 触发按键 (默认右键)
     MouseEventType m_triggerDown = MouseEventType::RightDown;
     MouseEventType m_triggerUp   = MouseEventType::RightUp;
+
+    std::mutex m_mutex;
 };
 
 }  // namespace easy::gesture

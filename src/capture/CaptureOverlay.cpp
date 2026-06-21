@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
 #include <windowsx.h>
 
@@ -76,12 +77,16 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_dragging = false;
     m_isMarking = false;
     m_markupBaseReady = false;
-    m_editingText = false;
-    m_selectedElementId = 0;
+    m_activeElement = nullptr;
+    m_dragHandle = HitArea::None;
     m_isManipulating = false;
-    m_textBuffer.clear();
+    m_isAdjustingSelection = false;
+    m_selAdjustHandle = HitArea::None;
     m_currentColor = MarkupColor::Red();
     m_markup.clearAll();
+    m_markupCacheBitmap.Reset();
+    m_markupCacheDirty = true;
+    m_needsRender = true;
     m_toolbarButtons.clear();
     m_penPoints.clear();
     m_dragStart = {};
@@ -121,12 +126,14 @@ void CaptureOverlay::cancel() {
     m_state = OverlayState::Idle;
     m_isMarking = false;
     m_markupBaseReady = false;
-    m_editingText = false;
-    m_textBuffer.clear();
+    m_activeElement = nullptr;
+    m_isAdjustingSelection = false;
     m_toolbarButtons.clear();
     m_penPoints.clear();
     m_frozenScreen.release();
     m_screenBitmap.Reset();
+    m_markupCacheBitmap.Reset();
+    m_markupCacheDirty = true;
     LOG_DEBUG("截图已取消");
 }
 
@@ -145,10 +152,11 @@ bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
     wc.lpszClassName = OVERLAY_CLASS;
     RegisterClassExW(&wc);
 
-    int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    RECT bounds = easy::core::WinUtils::getVirtualScreenPhysicalBounds();
+    int x = bounds.left;
+    int y = bounds.top;
+    int w = bounds.right - bounds.left;
+    int h = bounds.bottom - bounds.top;
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -215,6 +223,9 @@ bool CaptureOverlay::createRenderResources() {
 
     hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
     if (FAILED(hr)) return false;
+    
+    // 禁用 D2D 的自动 DPI 缩放
+    m_renderTarget->SetDpi(96.0f, 96.0f);
 
     // 画笔
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.5f), m_dimBrush.GetAddressOf());
@@ -246,12 +257,13 @@ void CaptureOverlay::releaseRenderResources() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void CaptureOverlay::freezeScreen() {
-    // 截取全屏
+    // 截取全屏，使用物理边界以防止高分屏下截图不全或偏移
+    RECT bounds = easy::core::WinUtils::getVirtualScreenPhysicalBounds();
     CaptureRegion fullScreen;
-    fullScreen.x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    fullScreen.y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    fullScreen.width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    fullScreen.height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    fullScreen.x = bounds.left;
+    fullScreen.y = bounds.top;
+    fullScreen.width = bounds.right - bounds.left;
+    fullScreen.height = bounds.bottom - bounds.top;
 
     // 使用 BitBlt 截屏
     HDC screenDC = GetDC(nullptr);
@@ -338,60 +350,11 @@ void CaptureOverlay::render() {
         drawDimOverlay(selRect);
         drawMarkupPreview(selRect);
         drawActiveMarkupPreview(selRect);
-        
-        // 绘制选中元素的包围盒和控制点
-        if (m_selectedElementId > 0 && !m_isMarking && !m_isManipulating) {
-            if (auto* elem = m_markup.getElementById(m_selectedElementId)) {
-                cv::Rect bbox = elem->getBoundingBox();
-                D2D1_RECT_F sBbox = D2D1::RectF(
-                    selRect.left + bbox.x, selRect.top + bbox.y,
-                    selRect.left + bbox.x + bbox.width, selRect.top + bbox.y + bbox.height
-                );
-                
-                // 虚线边框
-                ComPtr<ID2D1StrokeStyle> dashStyle;
-                D2D1_STROKE_STYLE_PROPERTIES dashProps = D2D1::StrokeStyleProperties(
-                    D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND,
-                    D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_DASH, 0.0f);
-                m_d2dFactory->CreateStrokeStyle(dashProps, nullptr, 0, dashStyle.GetAddressOf());
-                m_renderTarget->DrawRectangle(sBbox, m_borderBrush.Get(), 1.5f, dashStyle.Get());
-                
-                // 控制点
-                float controlSize = 6.0f;
-                float cx = (sBbox.left + sBbox.right) / 2;
-                float cy = (sBbox.top + sBbox.bottom) / 2;
-                D2D1_POINT_2F controls[] = {
-                    {sBbox.left, sBbox.top}, {cx, sBbox.top}, {sBbox.right, sBbox.top},
-                    {sBbox.right, cy}, {sBbox.right, sBbox.bottom},
-                    {cx, sBbox.bottom}, {sBbox.left, sBbox.bottom}, {sBbox.left, cy}
-                };
-                for (auto& pt : controls) {
-                    m_renderTarget->FillRectangle(
-                        D2D1::RectF(pt.x - controlSize / 2, pt.y - controlSize / 2,
-                                    pt.x + controlSize / 2, pt.y + controlSize / 2),
-                        m_infoTextBrush.Get()
-                    );
-                    m_renderTarget->DrawRectangle(
-                        D2D1::RectF(pt.x - controlSize / 2, pt.y - controlSize / 2,
-                                    pt.x + controlSize / 2, pt.y + controlSize / 2),
-                        m_borderBrush.Get(), 1.0f
-                    );
-                }
-            }
-        }
-        // 如果正在操作，为了流畅可以只画框，这里简化为原样
-        if (m_isManipulating && m_selectedElementId > 0) {
-            if (auto* elem = m_markup.getElementById(m_selectedElementId)) {
-                cv::Rect bbox = elem->getBoundingBox();
-                D2D1_RECT_F sBbox = D2D1::RectF(
-                    selRect.left + bbox.x, selRect.top + bbox.y,
-                    selRect.left + bbox.x + bbox.width, selRect.top + bbox.y + bbox.height
-                );
-                m_renderTarget->DrawRectangle(sBbox, m_borderBrush.Get(), 1.0f);
-            }
+
+        if (m_currentTool == MarkupTool::Magnifier && !m_isMarking && !m_isManipulating) {
+            drawDynamicMagnifier();
         }
 
-        drawTextEditing(selRect);
         drawSelection(selRect);
         drawSizeInfo(selRect);
         drawToolbar(selRect);
@@ -491,6 +454,35 @@ void CaptureOverlay::drawSizeInfo(const D2D1_RECT_F& rect) {
                              m_infoTextBrush.Get());
 }
 
+// 工具栏按钮 → 人类可读提示（名称 + 快捷键），解决生僻字形不易辨识的问题
+static std::wstring tooltipForButton(const ToolbarButton& b, bool zh) {
+    switch (b.command) {
+        case ToolbarCommand::SelectTool:
+            switch (b.tool) {
+                case MarkupTool::Rectangle: return zh ? L"矩形  R"    : L"Rectangle  R";
+                case MarkupTool::Arrow:     return zh ? L"箭头  A"    : L"Arrow  A";
+                case MarkupTool::Ellipse:   return zh ? L"椭圆  O"    : L"Ellipse  O";
+                case MarkupTool::Pen:       return zh ? L"画笔  P"    : L"Pen  P";
+                case MarkupTool::Highlight: return zh ? L"高亮  H"    : L"Highlight  H";
+                case MarkupTool::Mosaic:    return zh ? L"马赛克  M"  : L"Mosaic  M";
+                case MarkupTool::Text:      return zh ? L"文字  T"    : L"Text  T";
+                case MarkupTool::Number:    return zh ? L"序号  N"    : L"Number  N";
+                case MarkupTool::Magnifier: return zh ? L"放大镜  G"  : L"Magnifier  G";
+                default: return L"";
+            }
+        case ToolbarCommand::SelectColor: return zh ? L"颜色  1-5" : L"Color  1-5";
+        case ToolbarCommand::Undo:        return zh ? L"撤销  Ctrl+Z" : L"Undo  Ctrl+Z";
+        case ToolbarCommand::Redo:        return zh ? L"重做  Ctrl+Y" : L"Redo  Ctrl+Y";
+        case ToolbarCommand::Clear:       return zh ? L"清空全部" : L"Clear all";
+        case ToolbarCommand::ExtractText: return zh ? L"提取文字 (OCR)" : L"Extract text (OCR)";
+        case ToolbarCommand::PinWindow:   return zh ? L"贴图置顶" : L"Pin to screen";
+        case ToolbarCommand::ScrollCapture: return zh ? L"滚动长截图" : L"Scrolling capture";
+        case ToolbarCommand::Cancel:      return zh ? L"取消  Esc" : L"Cancel  Esc";
+        case ToolbarCommand::Confirm:     return zh ? L"完成  Enter" : L"Done  Enter";
+        default: return L"";
+    }
+}
+
 void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
     rebuildToolbarButtons(selectionRect);
     if (m_toolbarButtons.empty()) return;
@@ -549,37 +541,73 @@ void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
             m_infoTextBrush.Get()
         );
     }
+
+    // 悬停浮层提示：把生僻字形翻译成「名称 + 快捷键」
+    bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
+    for (const auto& button : m_toolbarButtons) {
+        if (m_currentCursor.x < button.rect.left || m_currentCursor.x > button.rect.right ||
+            m_currentCursor.y < button.rect.top  || m_currentCursor.y > button.rect.bottom) {
+            continue;
+        }
+        std::wstring tip = tooltipForButton(button, isZh);
+        if (tip.empty()) break;
+
+        float tw = 16.0f + static_cast<float>(tip.size()) * 12.0f;  // 粗略估宽，足够容纳中英文
+        float th = 22.0f;
+        auto sz = m_renderTarget->GetSize();
+        float bcx = (button.rect.left + button.rect.right) * 0.5f;
+        float tx = std::clamp(bcx - tw * 0.5f, 4.0f, std::max(4.0f, sz.width - tw - 4.0f));
+        float ty = button.rect.top - th - 6.0f;
+        if (ty < 4.0f) ty = button.rect.bottom + 6.0f;
+
+        m_renderTarget->FillRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(tx, ty, tx + tw, ty + th), 5.0f, 5.0f),
+            m_infoBgBrush.Get());
+        m_renderTarget->DrawText(tip.c_str(), static_cast<UINT32>(tip.size()),
+                                 m_infoTextFormat.Get(),
+                                 D2D1::RectF(tx, ty, tx + tw, ty + th),
+                                 m_infoTextBrush.Get());
+        break;
+    }
 }
 
 void CaptureOverlay::drawMarkupPreview(const D2D1_RECT_F& selectionRect) {
     if (!m_markupBaseReady || m_markup.elementCount() == 0 || !m_renderTarget) return;
 
-    cv::Mat composite = m_markup.getCompositeImage();
-    if (composite.empty()) return;
+    // 仅在标注内容变化时才重新合成并重建 D2D 位图，否则复用缓存。
+    // 这条路径原本每帧（16ms）都 clone 整图 + 重绘全部标注 + 新建位图，是主要性能浪费点。
+    if (m_markupCacheDirty || !m_markupCacheBitmap) {
+        cv::Mat composite = m_markup.getCompositeImage();
+        if (composite.empty()) return;
 
-    cv::Mat bgra;
-    if (composite.channels() == 3) {
-        cv::cvtColor(composite, bgra, cv::COLOR_BGR2BGRA);
-    } else if (composite.channels() == 4) {
-        bgra = composite;
-    } else {
-        return;
+        cv::Mat bgra;
+        if (composite.channels() == 3) {
+            cv::cvtColor(composite, bgra, cv::COLOR_BGR2BGRA);
+        } else if (composite.channels() == 4) {
+            bgra = composite;
+        } else {
+            return;
+        }
+
+        D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+        );
+
+        ComPtr<ID2D1Bitmap> bitmap;
+        HRESULT hr = m_renderTarget->CreateBitmap(
+            D2D1::SizeU(bgra.cols, bgra.rows),
+            bgra.data,
+            bgra.cols * 4,
+            bitmapProps,
+            bitmap.GetAddressOf()
+        );
+        if (FAILED(hr) || !bitmap) return;
+        m_markupCacheBitmap = bitmap;
+        m_markupCacheDirty = false;
     }
 
-    D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-    );
-
-    ComPtr<ID2D1Bitmap> bitmap;
-    HRESULT hr = m_renderTarget->CreateBitmap(
-        D2D1::SizeU(bgra.cols, bgra.rows),
-        bgra.data,
-        bgra.cols * 4,
-        bitmapProps,
-        bitmap.GetAddressOf()
-    );
-    if (SUCCEEDED(hr) && bitmap) {
-        m_renderTarget->DrawBitmap(bitmap.Get(), selectionRect);
+    if (m_markupCacheBitmap) {
+        m_renderTarget->DrawBitmap(m_markupCacheBitmap.Get(), selectionRect);
     }
 }
 
@@ -647,6 +675,46 @@ void CaptureOverlay::drawActiveMarkupPreview(const D2D1_RECT_F& selectionRect) {
     }
 }
 
+void CaptureOverlay::drawDynamicMagnifier() {
+    if (!m_renderTarget || !m_screenBitmap) return;
+
+    float r = static_cast<float>(m_dynamicMagnifierRadius);
+    float scale = m_dynamicMagnifierScale;
+
+    // 获取光标在覆盖层中的位置 (屏幕坐标 -> 覆盖层坐标)
+    float cx = static_cast<float>(m_currentCursor.x);
+    float cy = static_cast<float>(m_currentCursor.y);
+
+    float srcR = r / scale;
+    D2D1_RECT_F srcRect = D2D1::RectF(cx - srcR, cy - srcR, cx + srcR, cy + srcR);
+    D2D1_RECT_F dstRect = D2D1::RectF(cx - r, cy - r, cx + r, cy + r);
+
+    // 创建圆形裁剪
+    ComPtr<ID2D1EllipseGeometry> ellipse;
+    m_d2dFactory->CreateEllipseGeometry(D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r), ellipse.GetAddressOf());
+
+    if (ellipse) {
+        ComPtr<ID2D1Layer> layer;
+        m_renderTarget->CreateLayer(layer.GetAddressOf());
+        m_renderTarget->PushLayer(D2D1::LayerParameters(
+            D2D1::InfiniteRect(), ellipse.Get(),
+            D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            D2D1::IdentityMatrix(),
+            1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE), layer.Get());
+
+        m_renderTarget->DrawBitmap(m_screenBitmap.Get(), dstRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, srcRect);
+
+        m_renderTarget->PopLayer();
+
+        // 边框
+        m_renderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r), m_borderBrush.Get(), 2.0f);
+        
+        // 十字准星
+        m_renderTarget->DrawLine(D2D1::Point2F(cx - 5, cy), D2D1::Point2F(cx + 5, cy), m_borderBrush.Get(), 1.0f);
+        m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 5), D2D1::Point2F(cx, cy + 5), m_borderBrush.Get(), 1.0f);
+    }
+}
+
 void CaptureOverlay::drawCrosshair(float x, float y) {
     auto size = m_renderTarget->GetSize();
     m_renderTarget->DrawLine(D2D1::Point2F(x, 0), D2D1::Point2F(x, size.height), m_crosshairBrush.Get(), 1.0f);
@@ -675,6 +743,140 @@ D2D1_RECT_F CaptureOverlay::currentSelectionRect() const {
     float x2 = static_cast<float>(std::max(m_dragStart.x, m_dragEnd.x));
     float y2 = static_cast<float>(std::max(m_dragStart.y, m_dragEnd.y));
     return D2D1::RectF(x1, y1, x2, y2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 选区二次调整 / 工具切换 / 光标反馈
+// ─────────────────────────────────────────────────────────────────────────────
+
+HitArea CaptureOverlay::hitTestSelectionBox(POINT point) const {
+    auto r = currentSelectionRect();
+    if (r.right - r.left < 1.0f || r.bottom - r.top < 1.0f) return HitArea::None;
+
+    const float hw = 9.0f;   // 控制点命中半径
+    float cx = (r.left + r.right) * 0.5f;
+    float cy = (r.top + r.bottom) * 0.5f;
+
+    struct H { float x, y; HitArea area; };
+    const H handles[8] = {
+        {r.left,  r.top,    HitArea::LT}, {cx,      r.top,    HitArea::T},
+        {r.right, r.top,    HitArea::RT}, {r.right, cy,       HitArea::R},
+        {r.right, r.bottom, HitArea::RB}, {cx,      r.bottom, HitArea::B},
+        {r.left,  r.bottom, HitArea::LB}, {r.left,  cy,       HitArea::L},
+    };
+    float px = static_cast<float>(point.x);
+    float py = static_cast<float>(point.y);
+    for (const auto& h : handles) {
+        if (std::abs(px - h.x) <= hw && std::abs(py - h.y) <= hw) return h.area;
+    }
+
+    // 边框带（用于整体移动）：靠近任意一条边即可拖动整块选区
+    const float band = 6.0f;
+    bool insideX = px >= r.left - band && px <= r.right + band;
+    bool insideY = py >= r.top - band && py <= r.bottom + band;
+    bool nearLeft   = std::abs(px - r.left)   <= band && insideY;
+    bool nearRight  = std::abs(px - r.right)  <= band && insideY;
+    bool nearTop    = std::abs(py - r.top)    <= band && insideX;
+    bool nearBottom = std::abs(py - r.bottom) <= band && insideX;
+    if (nearLeft || nearRight || nearTop || nearBottom) return HitArea::Body;
+    return HitArea::None;
+}
+
+void CaptureOverlay::adjustSelection(HitArea handle, int dx, int dy) {
+    float l = static_cast<float>(std::min(m_dragStart.x, m_dragEnd.x));
+    float t = static_cast<float>(std::min(m_dragStart.y, m_dragEnd.y));
+    float r = static_cast<float>(std::max(m_dragStart.x, m_dragEnd.x));
+    float b = static_cast<float>(std::max(m_dragStart.y, m_dragEnd.y));
+
+    if (handle == HitArea::Body) {
+        l += dx; r += dx; t += dy; b += dy;
+    } else {
+        switch (handle) {
+            case HitArea::LT: l += dx; t += dy; break;
+            case HitArea::T:  t += dy; break;
+            case HitArea::RT: r += dx; t += dy; break;
+            case HitArea::R:  r += dx; break;
+            case HitArea::RB: r += dx; b += dy; break;
+            case HitArea::B:  b += dy; break;
+            case HitArea::LB: l += dx; b += dy; break;
+            case HitArea::L:  l += dx; break;
+            default: break;
+        }
+    }
+
+    float maxW = 1.0e6f, maxH = 1.0e6f;
+    if (m_renderTarget) {
+        auto s = m_renderTarget->GetSize();
+        maxW = s.width; maxH = s.height;
+    }
+
+    if (handle == HitArea::Body) {
+        // 移动：整体夹取到屏幕内，保持尺寸不变
+        float w = r - l, h = b - t;
+        if (l < 0)     { l = 0;        r = w; }
+        if (t < 0)     { t = 0;        b = h; }
+        if (r > maxW)  { r = maxW;     l = maxW - w; }
+        if (b > maxH)  { b = maxH;     t = maxH - h; }
+    } else {
+        // 缩放：夹取边界并保证最小尺寸
+        l = std::clamp(l, 0.0f, maxW); r = std::clamp(r, 0.0f, maxW);
+        t = std::clamp(t, 0.0f, maxH); b = std::clamp(b, 0.0f, maxH);
+        const float minSize = 8.0f;
+        if (r - l < minSize) {
+            if (handle == HitArea::L || handle == HitArea::LT || handle == HitArea::LB) l = r - minSize;
+            else r = l + minSize;
+        }
+        if (b - t < minSize) {
+            if (handle == HitArea::T || handle == HitArea::LT || handle == HitArea::RT) t = b - minSize;
+            else b = t + minSize;
+        }
+    }
+
+    m_dragStart = { static_cast<LONG>(l), static_cast<LONG>(t) };
+    m_dragEnd   = { static_cast<LONG>(r), static_cast<LONG>(b) };
+    // 选区已变，标注底图需在下次标注时按新选区重新裁剪
+    m_markupBaseReady = false;
+    m_needsRender = true;
+}
+
+void CaptureOverlay::setCurrentTool(MarkupTool tool) {
+    if (m_activeElement) {
+        m_activeElement->isActive = false;
+        m_activeElement->isEditing = false;
+        m_activeElement = nullptr;
+    }
+    m_currentTool = tool;
+    m_isMarking = false;
+    if (m_state == OverlayState::Marking) m_state = OverlayState::Selected;
+    markMarkupDirty();
+}
+
+static HCURSOR cursorForArea(HitArea area) {
+    switch (area) {
+        case HitArea::LT: case HitArea::RB: return LoadCursor(nullptr, IDC_SIZENWSE);
+        case HitArea::RT: case HitArea::LB: return LoadCursor(nullptr, IDC_SIZENESW);
+        case HitArea::T:  case HitArea::B:  return LoadCursor(nullptr, IDC_SIZENS);
+        case HitArea::L:  case HitArea::R:  return LoadCursor(nullptr, IDC_SIZEWE);
+        case HitArea::Body: return LoadCursor(nullptr, IDC_SIZEALL);
+        default: return nullptr;
+    }
+}
+
+void CaptureOverlay::updateHoverCursor(POINT point) {
+    HCURSOR cur = nullptr;
+    auto st = m_state.load();
+    if (st == OverlayState::Selected || st == OverlayState::Marking) {
+        if (hitTestToolbar(point)) {
+            cur = LoadCursor(nullptr, IDC_ARROW);
+        } else if (m_activeElement) {
+            HitArea a = m_activeElement->hitTestEx(toMarkupPoint(point));
+            cur = cursorForArea(a);
+        } else if (m_markup.elementCount() == 0) {
+            cur = cursorForArea(hitTestSelectionBox(point));
+        }
+    }
+    if (!cur) cur = LoadCursor(nullptr, IDC_CROSS);
+    SetCursor(cur);
 }
 
 void CaptureOverlay::prepareMarkupBase() {
@@ -756,9 +958,11 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         x += width + gap;
     };
 
+    bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
+
     if (isRecord) {
-        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"🔴 录制", 60.0f);
-        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖ 取消", 60.0f);
+        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, isZh ? L"🔴 录制" : L"🔴 Rec", 65.0f);
+        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, isZh ? L"✖ 取消" : L"✖ Cancel", 75.0f);
     } else {
         for (const auto& tool : tools) {
             addButton(ToolbarCommand::SelectTool, tool.tool, tool.label, buttonSize);
@@ -775,9 +979,9 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩", buttonSize);
         addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪", buttonSize);
         addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑", buttonSize);
-        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, L"文", buttonSize);
+        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, isZh ? L"文" : L"T", buttonSize);
         addButton(ToolbarCommand::PinWindow, MarkupTool::Rectangle, L"📌", buttonSize);
-        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, L"长", buttonSize);
+        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, isZh ? L"长" : L"⇊", buttonSize);
         addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖", buttonSize);
         addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"✓", buttonSize);
     }
@@ -795,7 +999,11 @@ ToolbarButton* CaptureOverlay::hitTestToolbar(POINT point) {
 }
 
 void CaptureOverlay::executeToolbarCommand(const ToolbarButton& button) {
-    commitTextEditing();  // 任何工具栏操作前先提交未完成的文本
+    if (m_activeElement) {
+        m_activeElement->isActive = false;
+        m_activeElement->isEditing = false;
+        m_activeElement = nullptr;
+    }
 
     switch (button.command) {
         case ToolbarCommand::SelectTool:
@@ -932,12 +1140,17 @@ void CaptureOverlay::beginMarkup(POINT point) {
         return;
     }
     if (m_currentTool == MarkupTool::Text) {
-        commitTextEditing();          // 先提交上一段未完成文本
-        m_editingText = true;
-        m_textAnchor = local;
-        m_textScreenPos = point;
-        m_textBuffer.clear();
-        m_state = OverlayState::Selected; // 保持 Selected，只有编辑态
+        if (m_activeElement) {
+            m_activeElement->isActive = false;
+            m_activeElement->isEditing = false;
+        }
+        m_markup.addText(local, "", m_currentColor, 18.0f);
+        m_activeElement = m_markup.getElementAtEx(local).element;
+        if (m_activeElement) {
+            m_activeElement->isActive = true;
+            m_activeElement->isEditing = true;
+        }
+        m_state = OverlayState::Selected;
         return;
     }
 
@@ -1011,71 +1224,14 @@ void CaptureOverlay::finishMarkup(POINT point) {
     m_state = OverlayState::Selected;
 }
 
-// ── 文本输入 ─────────────────────────────────────────────────────────────────
-
-void CaptureOverlay::onTextChar(wchar_t ch) {
-    if (!m_editingText) return;
-    switch (ch) {
-        case 0x08:  // Backspace
-            if (!m_textBuffer.empty()) m_textBuffer.pop_back();
-            break;
-        case 0x1B:  // Esc: 放弃本次输入
-            m_editingText = false;
-            m_textBuffer.clear();
-            m_state = OverlayState::Selected;
-            break;
-        case 0x0D:  // Enter (回车提交)
-        case 0x0A:
-            commitTextEditing();
-            break;
-        default:
-            if (ch >= 0x20) m_textBuffer.push_back(ch);  // 可打印字符
-            break;
-    }
-}
-
-void CaptureOverlay::commitTextEditing() {
-    if (!m_editingText) return;
-    m_editingText = false;
-    if (!m_textBuffer.empty()) {
-        prepareMarkupBase();
-        if (m_markupBaseReady) {
-            m_markup.addText(m_textAnchor,
-                             easy::core::WinUtils::wstringToUtf8(m_textBuffer),
-                             m_currentColor, 18.0f);
-        }
-    }
-    m_textBuffer.clear();
-    if (m_state == OverlayState::Marking) m_state = OverlayState::Selected;
-}
-
-void CaptureOverlay::drawTextEditing(const D2D1_RECT_F& /*selectionRect*/) {
-    if (!m_editingText || !m_renderTarget) return;
-
-    // 当前文本 + 闪烁感的光标 (简化为常驻竖线)
-    std::wstring shown = m_textBuffer + L"|";
-
-    ComPtr<ID2D1SolidColorBrush> textBrush;
-    m_renderTarget->CreateSolidColorBrush(
-        D2D1::ColorF(m_currentColor.r / 255.0f, m_currentColor.g / 255.0f,
-                     m_currentColor.b / 255.0f, 1.0f),
-        textBrush.GetAddressOf());
-    if (!textBrush) return;
-
-    D2D1_RECT_F box = D2D1::RectF(
-        static_cast<float>(m_textScreenPos.x),
-        static_cast<float>(m_textScreenPos.y),
-        static_cast<float>(m_textScreenPos.x) + 640.0f,
-        static_cast<float>(m_textScreenPos.y) + 48.0f);
-    IDWriteTextFormat* fmt = m_textInputFormat ? m_textInputFormat.Get() : m_infoTextFormat.Get();
-    m_renderTarget->DrawText(shown.c_str(), static_cast<UINT32>(shown.size()),
-                             fmt, box, textBrush.Get());
-}
-
 void CaptureOverlay::confirmSelection() {
     easy::core::TraceId::Scope scope;
 
-    commitTextEditing();  // 提交未完成的文本, 一并合成进截图
+    if (m_activeElement) {
+        m_activeElement->isActive = false;
+        m_activeElement->isEditing = false;
+        m_activeElement = nullptr;
+    }
 
     int x1 = std::min(m_dragStart.x, m_dragEnd.x);
     int y1 = std::min(m_dragStart.y, m_dragEnd.y);
@@ -1136,50 +1292,59 @@ void CaptureOverlay::confirmSelection() {
 LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     auto* self = reinterpret_cast<CaptureOverlay*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
+    // 窗口过程兜底：渲染/标注路径含 OpenCV 分配、std::format 等可抛操作，异常绝不能逃逸到
+    // Win32 派发层（否则 std::terminate 崩溃）。
+    try {
     switch (msg) {
         case WM_LBUTTONDOWN: {
             if (!self) break;
+            self->markMarkupDirty();
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
             if (self->m_state == OverlayState::Selected || self->m_state == OverlayState::Marking) {
+                HitArea selHit = HitArea::None;
                 if (auto* button = self->hitTestToolbar(point)) {
                     self->executeToolbarCommand(*button);
+                } else if (self->m_markup.elementCount() == 0 &&
+                           (selHit = self->hitTestSelectionBox(point)) != HitArea::None) {
+                    // 尚无标注时：拖拽控制点缩放选区 / 拖拽边框移动选区
+                    self->m_isAdjustingSelection = true;
+                    self->m_selAdjustHandle = selHit;
+                    self->m_selAdjustLast = point;
                 } else if (self->isPointInSelection(point)) {
                     cv::Point local = self->toMarkupPoint(point);
-                    
-                    bool hitHandle = false;
-                    if (self->m_selectedElementId > 0) {
-                        if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
-                            cv::Rect bbox = elem->getBoundingBox();
-                            int cx = bbox.x + bbox.width / 2;
-                            int cy = bbox.y + bbox.height / 2;
-                            cv::Point controls[] = {
-                                {bbox.x, bbox.y}, {cx, bbox.y}, {bbox.x + bbox.width, bbox.y},
-                                {bbox.x + bbox.width, cy}, {bbox.x + bbox.width, bbox.y + bbox.height},
-                                {cx, bbox.y + bbox.height}, {bbox.x, bbox.y + bbox.height}, {bbox.x, cy}
-                            };
-                            for (int i = 0; i < 8; ++i) {
-                                if (std::abs(local.x - controls[i].x) <= 6 && std::abs(local.y - controls[i].y) <= 6) {
-                                    self->m_resizingHandle = i;
-                                    self->m_isManipulating = true;
-                                    self->m_lastMousePos = point;
-                                    hitHandle = true;
-                                    break;
-                                }
-                            }
+                    HitResult hit = self->m_markup.getElementAtEx(local);
+
+                    if (self->m_activeElement && self->m_activeElement->tool == MarkupTool::Text && self->m_activeElement->isEditing) {
+                        if (!hit.element || hit.element != self->m_activeElement) {
+                            self->m_activeElement->isEditing = false;
                         }
                     }
-                    
-                    if (!hitHandle) {
-                        if (auto* hit = self->m_markup.getElementAt(local)) {
-                            self->m_selectedElementId = hit->id;
-                            self->m_resizingHandle = -1;
+
+                    if (hit.element) {
+                        if (self->m_activeElement && self->m_activeElement != hit.element) {
+                            self->m_activeElement->isActive = false;
+                            self->m_activeElement->isEditing = false;
+                        }
+                        self->m_activeElement = hit.element;
+                        self->m_activeElement->isActive = true;
+
+                        if (hit.area == HitArea::Body) {
+                            self->m_dragHandle = HitArea::None;
                             self->m_isManipulating = true;
                             self->m_lastMousePos = point;
                         } else {
-                            self->m_selectedElementId = 0;
-                            self->beginMarkup(point);
+                            self->m_dragHandle = hit.area;
+                            self->m_isManipulating = true;
+                            self->m_lastMousePos = point;
                         }
+                    } else {
+                        if (self->m_activeElement) {
+                            self->m_activeElement->isActive = false;
+                            self->m_activeElement->isEditing = false;
+                            self->m_activeElement = nullptr;
+                        }
+                        self->beginMarkup(point);
                     }
                 }
                 return 0;
@@ -1196,45 +1361,66 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (!self) break;
             self->m_currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
-            if (self->m_isManipulating && self->m_selectedElementId > 0) {
-                if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
-                    int dx = self->m_currentCursor.x - self->m_lastMousePos.x;
-                    int dy = self->m_currentCursor.y - self->m_lastMousePos.y;
-                    if (self->m_resizingHandle == -1) {
-                        elem->moveBy(dx, dy);
-                    } else {
-                        elem->resize(dx, dy, self->m_resizingHandle);
-                    }
-                    self->m_lastMousePos = self->m_currentCursor;
+            if (self->m_isAdjustingSelection) {
+                int dx = self->m_currentCursor.x - self->m_selAdjustLast.x;
+                int dy = self->m_currentCursor.y - self->m_selAdjustLast.y;
+                self->adjustSelection(self->m_selAdjustHandle, dx, dy);
+                self->m_selAdjustLast = self->m_currentCursor;
+                self->invalidate();
+            } else if (self->m_isManipulating && self->m_activeElement) {
+                int dx = self->m_currentCursor.x - self->m_lastMousePos.x;
+                int dy = self->m_currentCursor.y - self->m_lastMousePos.y;
+                if (self->m_dragHandle == HitArea::None) {
+                    self->m_activeElement->moveBy(dx, dy);
+                } else {
+                    self->m_activeElement->resize(dx, dy, self->m_dragHandle);
                 }
+                self->m_lastMousePos = self->m_currentCursor;
+                self->markMarkupDirty();   // 元素几何变了，合成缓存失效
             } else if (self->m_isMarking) {
                 self->updateMarkup(self->m_currentCursor);
+                self->invalidate();        // 拖拽预览走 D2D，合成图不变
             } else if (self->m_dragging) {
                 self->m_dragEnd = self->m_currentCursor;
-            } else if (self->m_state == OverlayState::Selecting && !self->m_dragging) {
-                // 未拖拽时检测光标下的窗口
-                POINT screenPt = self->m_currentCursor;
-                int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                screenPt.x += offX;
-                screenPt.y += offY;
-                self->m_detectedWindow = self->detectWindowUnderCursor(screenPt);
+                self->invalidate();
+            } else {
+                if (self->m_state == OverlayState::Selecting && !self->m_dragging) {
+                    // 未拖拽时检测光标下的窗口
+                    POINT screenPt = self->m_currentCursor;
+                    int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                    int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                    screenPt.x += offX;
+                    screenPt.y += offY;
+                    self->m_detectedWindow = self->detectWindowUnderCursor(screenPt);
+                }
+                self->invalidate();        // 十字准星/动态放大镜跟随光标
             }
+
+            self->updateHoverCursor(self->m_currentCursor);
             return 0;
         }
 
         case WM_LBUTTONUP: {
-            if (self && self->m_isManipulating) {
+            if (!self) break;
+            self->markMarkupDirty();
+
+            if (self->m_isAdjustingSelection) {
+                self->m_isAdjustingSelection = false;
+                self->m_selAdjustHandle = HitArea::None;
+                return 0;
+            }
+
+            if (self->m_isManipulating) {
                 self->m_isManipulating = false;
                 return 0;
             }
 
-            if (self && self->m_isMarking) {
+            if (self->m_isMarking) {
                 self->finishMarkup({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
                 return 0;
             }
 
-            if (!self || !self->m_dragging) break;
+            if (!self->m_dragging) break;
             self->m_dragEnd = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             self->m_dragging = false;
 
@@ -1263,21 +1449,10 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
         case WM_LBUTTONDBLCLK: {
             if (self && self->m_state == OverlayState::Selected) {
-                if (self->m_selectedElementId > 0) {
-                    if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
-                        if (elem->tool == MarkupTool::Text) {
-                            self->m_editingText = true;
-                            self->m_textBuffer = easy::core::WinUtils::utf8ToWstring(elem->text);
-                            self->m_textAnchor = elem->startPt;
-                            auto rect = self->currentSelectionRect();
-                            self->m_textScreenPos = {static_cast<LONG>(rect.left + elem->startPt.x), 
-                                                     static_cast<LONG>(rect.top + elem->startPt.y - elem->textRenderSize.height)};
-                            self->m_currentColor = elem->color;
-                            self->m_markup.removeElement(self->m_selectedElementId);
-                            self->m_selectedElementId = 0;
-                            return 0;
-                        }
-                    }
+                self->markMarkupDirty();
+                if (self->m_activeElement && self->m_activeElement->tool == MarkupTool::Text) {
+                    self->m_activeElement->isEditing = true;
+                    return 0;
                 }
                 self->confirmSelection();
             }
@@ -1285,8 +1460,24 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
         }
 
         case WM_CHAR: {
-            if (self && self->m_editingText) {
-                self->onTextChar(static_cast<wchar_t>(wParam));
+            if (self && self->m_activeElement && self->m_activeElement->tool == MarkupTool::Text && self->m_activeElement->isEditing) {
+                self->markMarkupDirty();
+                wchar_t ch = static_cast<wchar_t>(wParam);
+                if (ch == 0x08) { // Backspace
+                    std::wstring wstr = easy::core::WinUtils::utf8ToWstring(self->m_activeElement->text);
+                    if (!wstr.empty()) {
+                        wstr.pop_back();
+                        self->m_activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
+                        self->m_activeElement->textRenderSize = cv::Size(0,0);
+                    }
+                } else if (ch == 0x0D || ch == 0x0A) { // Enter
+                    self->m_activeElement->isEditing = false;
+                } else if (ch >= 0x20) {
+                    std::wstring wstr = easy::core::WinUtils::utf8ToWstring(self->m_activeElement->text);
+                    wstr.push_back(ch);
+                    self->m_activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
+                    self->m_activeElement->textRenderSize = cv::Size(0,0);
+                }
                 return 0;
             }
             break;
@@ -1294,48 +1485,136 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
         case WM_MOUSEWHEEL: {
             if (!self) break;
-            if (self->m_state == OverlayState::Selected && self->m_selectedElementId > 0) {
-                if (auto* elem = self->m_markup.getElementById(self->m_selectedElementId)) {
-                    if (elem->tool == MarkupTool::Magnifier) {
-                        short zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-                        elem->magnifierScale += (zDelta > 0) ? 0.2f : -0.2f;
-                        elem->magnifierScale = std::clamp(elem->magnifierScale, 1.0f, 5.0f);
-                    }
-                }
+            self->markMarkupDirty();
+            short zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+            if (self->m_activeElement && self->m_activeElement->tool == MarkupTool::Magnifier) {
+                self->m_activeElement->magnifierScale += (zDelta > 0) ? 0.2f : -0.2f;
+                self->m_activeElement->magnifierScale = std::clamp(self->m_activeElement->magnifierScale, 1.0f, 8.0f);
+            } else if (self->m_currentTool == MarkupTool::Magnifier && !self->m_isMarking && !self->m_isManipulating) {
+                self->m_dynamicMagnifierScale += (zDelta > 0) ? 0.2f : -0.2f;
+                self->m_dynamicMagnifierScale = std::clamp(self->m_dynamicMagnifierScale, 1.0f, 8.0f);
             }
             return 0;
         }
 
         case WM_KEYDOWN: {
             if (!self) break;
-            // 文本输入中: 交给 WM_CHAR 处理 (回车提交 / Esc 取消 / 退格)
-            if (self->m_editingText) return 0;
+            self->markMarkupDirty();
+
+            bool editingText = self->m_activeElement &&
+                               self->m_activeElement->tool == MarkupTool::Text &&
+                               self->m_activeElement->isEditing;
+            bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool hasSelection = (self->m_state == OverlayState::Selected ||
+                                 self->m_state == OverlayState::Marking);
+
+            // ESC 分级退出：编辑文字→退出编辑；选中元素→取消选中；否则→关闭截图
             if (wParam == VK_ESCAPE) {
-                self->cancel();
-            } else if (wParam == VK_RETURN) {
-                if (self->m_state == OverlayState::Selected || 
-                    self->m_state == OverlayState::Marking) {
-                    self->confirmSelection();
+                if (editingText) {
+                    self->m_activeElement->isEditing = false;
+                } else if (self->m_activeElement) {
+                    self->m_activeElement->isActive = false;
+                    self->m_activeElement = nullptr;
+                } else {
+                    self->cancel();
                 }
-            } else if ((GetKeyState(VK_CONTROL) & 0x8000) && wParam == 'Z') {
-                self->m_markup.undo();
-            } else if ((GetKeyState(VK_CONTROL) & 0x8000) && wParam == 'Y') {
-                self->m_markup.redo();
-            } else if (wParam == VK_DELETE) {
-                self->m_markup.clearAll();
+                return 0;
+            }
+
+            // 正在输入文字：其余按键交给 WM_CHAR
+            if (editingText) return 0;
+
+            // 全局命令
+            switch (wParam) {
+                case VK_RETURN:
+                    if (hasSelection) self->confirmSelection();
+                    return 0;
+                case 'Z':
+                    if (ctrl) { self->m_activeElement = nullptr; self->m_markup.undo(); }
+                    return 0;
+                case 'Y':
+                    if (ctrl) { self->m_activeElement = nullptr; self->m_markup.redo(); }
+                    return 0;
+                case VK_DELETE:
+                    // 只删除当前选中的标注，避免一键误清空全部
+                    if (self->m_activeElement) {
+                        self->m_markup.removeElement(self->m_activeElement->id);
+                        self->m_activeElement = nullptr;
+                    }
+                    return 0;
+                default: break;
+            }
+
+            if (!hasSelection) return 0;
+
+            // 方向键微调（需用到 Ctrl 作加速，故先于 Ctrl 拦截处理）
+            if (wParam == VK_LEFT || wParam == VK_RIGHT ||
+                wParam == VK_UP   || wParam == VK_DOWN) {
+                int step = ctrl ? 10 : 1;
+                int dx = (wParam == VK_LEFT ? -step : wParam == VK_RIGHT ? step : 0);
+                int dy = (wParam == VK_UP   ? -step : wParam == VK_DOWN  ? step : 0);
+                if (self->m_activeElement) {
+                    self->m_activeElement->moveBy(dx, dy);   // 微调选中元素
+                } else if (self->m_markup.elementCount() == 0) {
+                    self->adjustSelection(HitArea::Body, dx, dy);  // 微调整块选区
+                }
+                return 0;
+            }
+
+            // 其余 Ctrl 组合键不触发工具/颜色快捷键
+            if (ctrl) return 0;
+
+            // 颜色快捷键 1-5（与工具栏色板顺序一致）
+            switch (wParam) {
+                case '1': self->m_currentColor = MarkupColor::Red();    return 0;
+                case '2': self->m_currentColor = MarkupColor::Yellow(); return 0;
+                case '3': self->m_currentColor = MarkupColor::Green();  return 0;
+                case '4': self->m_currentColor = MarkupColor::Blue();   return 0;
+                case '5': self->m_currentColor = MarkupColor::White();  return 0;
+                default: break;
+            }
+
+            // 工具快捷键
+            switch (wParam) {
+                case 'R': self->setCurrentTool(MarkupTool::Rectangle); return 0;
+                case 'A': self->setCurrentTool(MarkupTool::Arrow);     return 0;
+                case 'O': case 'E': self->setCurrentTool(MarkupTool::Ellipse); return 0;
+                case 'P': self->setCurrentTool(MarkupTool::Pen);       return 0;
+                case 'H': self->setCurrentTool(MarkupTool::Highlight); return 0;
+                case 'M': self->setCurrentTool(MarkupTool::Mosaic);    return 0;
+                case 'T': self->setCurrentTool(MarkupTool::Text);      return 0;
+                case 'N': self->setCurrentTool(MarkupTool::Number);    return 0;
+                case 'G': self->setCurrentTool(MarkupTool::Magnifier); return 0;
+                default: break;
             }
             return 0;
         }
 
         case WM_TIMER: {
             if (self && wParam == RENDER_TIMER_ID) {
-                self->render();
+                // 文字编辑期间需持续重算以保留闪烁光标；其余情况按脏标记重绘。
+                bool editingText = self->m_activeElement &&
+                                   self->m_activeElement->tool == MarkupTool::Text &&
+                                   self->m_activeElement->isEditing;
+                if (editingText) {
+                    self->m_markupCacheDirty = true;
+                    self->m_needsRender = true;
+                }
+                if (self->m_needsRender) {
+                    self->m_needsRender = false;
+                    self->render();
+                }
             }
             return 0;
         }
 
         default:
             return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    } catch (const std::exception& e) {
+        LOG_ERROR("CaptureOverlay 窗口过程异常: {}", e.what());
+    } catch (...) {
+        LOG_ERROR("CaptureOverlay 窗口过程未知异常");
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);

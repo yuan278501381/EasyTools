@@ -158,10 +158,43 @@ public:
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
+    /// 获取全部多显示器合并后的真实物理边界
+    static RECT getVirtualScreenPhysicalBounds() {
+        RECT virtualBounds = { 0, 0, 0, 0 };
+        EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR hMonitor, HDC, LPRECT, LPARAM dwData) -> BOOL {
+            MONITORINFO info;
+            info.cbSize = sizeof(MONITORINFO);
+            if (GetMonitorInfoW(hMonitor, &info)) {
+                RECT* bounds = reinterpret_cast<RECT*>(dwData);
+                bounds->left = std::min(bounds->left, info.rcMonitor.left);
+                bounds->top = std::min(bounds->top, info.rcMonitor.top);
+                bounds->right = std::max(bounds->right, info.rcMonitor.right);
+                bounds->bottom = std::max(bounds->bottom, info.rcMonitor.bottom);
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&virtualBounds));
+        
+        // 如果没有获取到(比如失败了)，回退到 GetSystemMetrics
+        if (virtualBounds.left == 0 && virtualBounds.right == 0 && 
+            virtualBounds.top == 0 && virtualBounds.bottom == 0) {
+            virtualBounds.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            virtualBounds.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            virtualBounds.right = virtualBounds.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            virtualBounds.bottom = virtualBounds.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        }
+        return virtualBounds;
+    }
+
     /// 获取指定窗口的 DPI 缩放比例 (例如 125% DPI 时返回 1.25)
     static float getDpiScale(HWND hwnd = nullptr) {
         UINT dpi = hwnd ? GetDpiForWindow(hwnd) : GetDpiForSystem();
         return dpi / 96.0f;
+    }
+
+    /// 判断系统界面语言是否为中文
+    static bool isSystemLanguageChinese() {
+        LANGID langId = GetUserDefaultUILanguage();
+        return PRIMARYLANGID(langId) == LANG_CHINESE;
     }
 };
 

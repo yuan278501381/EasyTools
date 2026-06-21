@@ -49,6 +49,19 @@ struct MarkupColor {
     static MarkupColor Black()  { return {0, 0, 0, 255}; }
 };
 
+enum class HitArea {
+    None = -1,
+    Body = 0,
+    LT = 1, T = 2, RT = 3, R = 4, RB = 5, B = 6, LB = 7, L = 8
+};
+
+struct MarkupElement;
+
+struct HitResult {
+    MarkupElement* element = nullptr;
+    HitArea area = HitArea::None;
+};
+
 /// 标注元素基类
 struct MarkupElement {
     MarkupTool tool;
@@ -79,12 +92,17 @@ struct MarkupElement {
 
     uint32_t id = 0; // 唯一标识
 
+    // 交互状态
+    bool isActive = false;
+    bool isEditing = false;
+
     virtual ~MarkupElement() = default;
 
     cv::Rect getBoundingBox() const;
-    bool hitTest(cv::Point pt, int padding = 5) const;
+    HitArea hitTestEx(cv::Point pt, int padding = 5) const;
+    bool hitTest(cv::Point pt, int padding = 5) const { return hitTestEx(pt, padding) != HitArea::None; }
     void moveBy(int dx, int dy);
-    void resize(int dx, int dy, int handleIndex); // 0:LT, 1:T, 2:RT, 3:R, 4:RB, 5:B, 6:LB, 7:L
+    void resize(int dx, int dy, HitArea handle);
 };
 
 /// 标注引擎
@@ -118,8 +136,13 @@ public:
     /// 删除指定元素
     void removeElement(uint32_t id);
 
-    /// 获取位于某点的元素（倒序查找，即最顶层的元素）
-    MarkupElement* getElementAt(cv::Point pt, int padding = 5) const;
+    /// 获取位于某点的元素及其命中区域（倒序查找，即最顶层的元素）
+    HitResult getElementAtEx(cv::Point pt, int padding = 5) const;
+
+    /// 获取位于某点的元素
+    MarkupElement* getElementAt(cv::Point pt, int padding = 5) const {
+        return getElementAtEx(pt, padding).element;
+    }
 
     /// 获取指定 ID 的元素
     MarkupElement* getElementById(uint32_t id) const;
