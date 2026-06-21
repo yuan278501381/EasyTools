@@ -87,6 +87,7 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_markupCacheBitmap.Reset();
     m_markupCacheDirty = true;
     m_needsRender = true;
+    m_loupeToastUntil = 0;
     m_toolbarButtons.clear();
     m_penPoints.clear();
     m_dragStart = {};
@@ -134,6 +135,7 @@ void CaptureOverlay::cancel() {
     m_screenBitmap.Reset();
     m_markupCacheBitmap.Reset();
     m_markupCacheDirty = true;
+    m_loupeToastUntil = 0;
     LOG_DEBUG("截图已取消");
 }
 
@@ -339,6 +341,9 @@ void CaptureOverlay::render() {
         drawDimOverlay(selRect);
         drawSelection(selRect);
         drawSizeInfo(selRect);
+        // 拖拽中也显示取色放大镜，便于像素级对齐选区边缘
+        drawSelectionLoupe(static_cast<float>(m_currentCursor.x),
+                           static_cast<float>(m_currentCursor.y));
     } else if (state == OverlayState::Selected || state == OverlayState::Marking) {
         // 选区已确认
         float x1 = static_cast<float>(std::min(m_dragStart.x, m_dragEnd.x));
@@ -387,6 +392,9 @@ void CaptureOverlay::render() {
 
         drawCrosshair(static_cast<float>(m_currentCursor.x),
                       static_cast<float>(m_currentCursor.y));
+        // 预选悬停时显示像素级取色放大镜（坐标 + RGB/HEX，按 C 复制）
+        drawSelectionLoupe(static_cast<float>(m_currentCursor.x),
+                           static_cast<float>(m_currentCursor.y));
     }
 
     m_renderTarget->EndDraw();
@@ -442,12 +450,8 @@ void CaptureOverlay::drawSizeInfo(const D2D1_RECT_F& rect) {
     float labelY = rect.top - labelH - 4;
     if (labelY < 0) labelY = rect.bottom + 4;
 
-    D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(
-        D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH),
-        4.0f, 4.0f
-    );
-
-    m_renderTarget->FillRoundedRectangle(bgRect, m_infoBgBrush.Get());
+    // 统一玻璃风：尺寸标签也用磨砂面板（小标签走廉价无图层模式）
+    drawGlassPanel(D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH), 5.0f, false);
     m_renderTarget->DrawText(info.c_str(), static_cast<UINT32>(info.size()),
                              m_infoTextFormat.Get(),
                              D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH),
@@ -483,6 +487,48 @@ static std::wstring tooltipForButton(const ToolbarButton& b, bool zh) {
     }
 }
 
+void CaptureOverlay::drawGlassPanel(const D2D1_RECT_F& rect, float radius, bool seeThrough) {
+    if (!m_renderTarget) return;
+    auto rr = D2D1::RoundedRect(rect, radius, radius);
+
+    ComPtr<ID2D1SolidColorBrush> tint, sheen, border;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.74f), tint.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.16f), sheen.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.12f), border.GetAddressOf());
+
+    // 透视玻璃：圆角裁剪 → 透出未暗化的背后画面 → 深色蒙版（图层，较重）。
+    bool glass = false;
+    if (seeThrough && m_d2dFactory && m_screenBitmap) {
+        ComPtr<ID2D1RoundedRectangleGeometry> geo;
+        if (SUCCEEDED(m_d2dFactory->CreateRoundedRectangleGeometry(rr, geo.GetAddressOf())) && geo) {
+            ComPtr<ID2D1Layer> layer;
+            if (SUCCEEDED(m_renderTarget->CreateLayer(layer.GetAddressOf())) && layer) {
+                m_renderTarget->PushLayer(
+                    D2D1::LayerParameters(D2D1::InfiniteRect(), geo.Get(),
+                        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(),
+                        1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE),
+                    layer.Get());
+                m_renderTarget->DrawBitmap(m_screenBitmap.Get(), rect, 1.0f,
+                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &rect);
+                if (tint) m_renderTarget->FillRectangle(rect, tint.Get());
+                m_renderTarget->PopLayer();
+                glass = true;
+            }
+        }
+    }
+    if (!glass) {
+        // 廉价磨砂：半透明深色直接叠加在当前帧上（透出已暗化的背后画面），无图层开销。
+        if (tint) m_renderTarget->FillRoundedRectangle(rr, tint.Get());
+        else m_renderTarget->FillRoundedRectangle(rr, m_infoBgBrush.Get());
+    }
+
+    // 顶部高光（玻璃边沿反光）+ 细边框
+    if (sheen) m_renderTarget->DrawLine(
+        D2D1::Point2F(rect.left + radius, rect.top + 1.0f),
+        D2D1::Point2F(rect.right - radius, rect.top + 1.0f), sheen.Get(), 1.2f);
+    if (border) m_renderTarget->DrawRoundedRectangle(rr, border.Get(), 1.0f);
+}
+
 void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
     rebuildToolbarButtons(selectionRect);
     if (m_toolbarButtons.empty()) return;
@@ -493,25 +539,46 @@ void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
         m_toolbarButtons.back().rect.right + 8.0f,
         m_toolbarButtons.back().rect.bottom + 6.0f
     );
-    m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(bgRect, 7.0f, 7.0f), m_infoBgBrush.Get());
+    // 磨砂玻璃 HUD 面板（替代原扁平深色条）
+    drawGlassPanel(bgRect, 9.0f);
+
+    // 分组分隔线（工具 | 颜色 | 命令），提升辨识度
+    if (m_mode != OverlayMode::RecordRegion && m_toolbarButtons.size() >= 22) {
+        ComPtr<ID2D1SolidColorBrush> sep;
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.14f), sep.GetAddressOf());
+        float y0 = m_toolbarButtons.front().rect.top + 3.0f;
+        float y1 = m_toolbarButtons.front().rect.bottom - 3.0f;
+        auto drawSep = [&](size_t l, size_t r) {
+            if (sep && r < m_toolbarButtons.size()) {
+                float mx = (m_toolbarButtons[l].rect.right + m_toolbarButtons[r].rect.left) * 0.5f;
+                m_renderTarget->DrawLine(D2D1::Point2F(mx, y0), D2D1::Point2F(mx, y1), sep.Get(), 1.0f);
+            }
+        };
+        drawSep(8, 9);    // 工具 | 颜色
+        drawSep(13, 14);  // 颜色 | 命令
+    }
 
     ComPtr<ID2D1SolidColorBrush> buttonBrush;
     ComPtr<ID2D1SolidColorBrush> activeBrush;
     ComPtr<ID2D1SolidColorBrush> dangerBrush;
+    ComPtr<ID2D1SolidColorBrush> hoverBrush;
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.10f), buttonBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.95f), activeBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.25f, 0.25f, 0.85f), dangerBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.20f), hoverBrush.GetAddressOf());
 
     for (const auto& button : m_toolbarButtons) {
         bool isTool = button.command == ToolbarCommand::SelectTool;
         bool isActiveTool = isTool && button.tool == m_currentTool;
         bool isColor = button.command == ToolbarCommand::SelectColor;
         bool isDanger = button.command == ToolbarCommand::Cancel || button.command == ToolbarCommand::Clear;
+        bool isHovered = m_currentCursor.x >= button.rect.left && m_currentCursor.x <= button.rect.right &&
+                         m_currentCursor.y >= button.rect.top  && m_currentCursor.y <= button.rect.bottom;
 
         auto rounded = D2D1::RoundedRect(button.rect, 5.0f, 5.0f);
 
         if (isColor) {
-            // 颜色色板: 用色块填充, 当前色加白色描边
+            // 颜色色板: 用色块填充, 当前色加白色描边, 悬停加淡描边
             ComPtr<ID2D1SolidColorBrush> swatch;
             m_renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(button.color.r / 255.0f, button.color.g / 255.0f,
@@ -523,11 +590,16 @@ void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
                                  button.color.b == m_currentColor.b;
             if (isActiveColor) {
                 m_renderTarget->DrawRoundedRectangle(rounded, m_infoTextBrush.Get(), 2.0f);
+            } else if (isHovered && hoverBrush) {
+                m_renderTarget->DrawRoundedRectangle(rounded, hoverBrush.Get(), 1.5f);
             }
             continue;  // 色板不画文字
         }
 
-        auto* fillBrush = isActiveTool ? activeBrush.Get() : isDanger ? dangerBrush.Get() : buttonBrush.Get();
+        auto* fillBrush = isActiveTool ? activeBrush.Get()
+                        : isDanger ? dangerBrush.Get()
+                        : isHovered ? hoverBrush.Get()
+                        : buttonBrush.Get();
         m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
 
         if (isActiveTool) {
@@ -560,9 +632,7 @@ void CaptureOverlay::drawToolbar(const D2D1_RECT_F& selectionRect) {
         float ty = button.rect.top - th - 6.0f;
         if (ty < 4.0f) ty = button.rect.bottom + 6.0f;
 
-        m_renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(tx, ty, tx + tw, ty + th), 5.0f, 5.0f),
-            m_infoBgBrush.Get());
+        drawGlassPanel(D2D1::RectF(tx, ty, tx + tw, ty + th), 5.0f, false);
         m_renderTarget->DrawText(tip.c_str(), static_cast<UINT32>(tip.size()),
                                  m_infoTextFormat.Get(),
                                  D2D1::RectF(tx, ty, tx + tw, ty + th),
@@ -721,6 +791,86 @@ void CaptureOverlay::drawCrosshair(float x, float y) {
     m_renderTarget->DrawLine(D2D1::Point2F(0, y), D2D1::Point2F(size.width, y), m_crosshairBrush.Get(), 1.0f);
 }
 
+bool CaptureOverlay::sampleScreenColor(int x, int y, int& r, int& g, int& b) const {
+    if (m_frozenScreen.empty()) return false;
+    if (x < 0 || y < 0 || x >= m_frozenScreen.cols || y >= m_frozenScreen.rows) return false;
+    // 冻结图为 BGRA（freezeScreen 写入 CV_8UC4）
+    const cv::Vec4b& px = m_frozenScreen.at<cv::Vec4b>(y, x);
+    b = px[0]; g = px[1]; r = px[2];
+    return true;
+}
+
+void CaptureOverlay::drawSelectionLoupe(float cx, float cy) {
+    if (!m_renderTarget || !m_screenBitmap) return;
+
+    int px = static_cast<int>(cx);
+    int py = static_cast<int>(cy);
+    int r = 0, g = 0, b = 0;
+    bool hasColor = sampleScreenColor(px, py, r, g, b);
+
+    constexpr float loupe = 120.0f;   // 放大视窗边长
+    constexpr float zoom = 8.0f;      // 放大倍率（8x，便于像素级对齐/取色）
+    constexpr float pad = 8.0f;
+    constexpr float panelH = 84.0f;   // 信息面板高度
+    const float srcHalf = loupe / zoom / 2.0f;
+    const float totalH = loupe + panelH;
+
+    auto size = m_renderTarget->GetSize();
+
+    // 默认放在光标右下；靠近右/下边缘时翻转，避免越界或遮挡取样点
+    float lx = cx + 18.0f;
+    float ly = cy + 18.0f;
+    if (lx + loupe + pad > size.width)  lx = cx - 18.0f - loupe;
+    if (ly + totalH + pad > size.height) ly = cy - 18.0f - totalH;
+    lx = std::clamp(lx, pad, std::max(pad, size.width - loupe - pad));
+    ly = std::clamp(ly, pad, std::max(pad, size.height - totalH - pad));
+
+    // ── 放大视窗（最近邻，像素清晰可数）──
+    D2D1_RECT_F dst = D2D1::RectF(lx, ly, lx + loupe, ly + loupe);
+    D2D1_RECT_F src = D2D1::RectF(cx - srcHalf, cy - srcHalf, cx + srcHalf, cy + srcHalf);
+    m_renderTarget->DrawBitmap(m_screenBitmap.Get(), dst, 1.0f,
+        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, src);
+
+    // 准星 + 中心像素高亮框（标出正在取样的那一个像素）
+    float mcx = lx + loupe / 2.0f;
+    float mcy = ly + loupe / 2.0f;
+    m_renderTarget->DrawLine(D2D1::Point2F(lx, mcy), D2D1::Point2F(lx + loupe, mcy), m_crosshairBrush.Get(), 1.0f);
+    m_renderTarget->DrawLine(D2D1::Point2F(mcx, ly), D2D1::Point2F(mcx, ly + loupe), m_crosshairBrush.Get(), 1.0f);
+    D2D1_RECT_F centerCell = D2D1::RectF(mcx - zoom / 2, mcy - zoom / 2, mcx + zoom / 2, mcy + zoom / 2);
+    m_renderTarget->DrawRectangle(centerCell, m_infoTextBrush.Get(), 1.5f);
+    m_renderTarget->DrawRectangle(dst, m_borderBrush.Get(), 2.0f);
+
+    // ── 信息面板（与玻璃面板统一：深色磨砂 + 细边框；方角以贴合上方放大窗）──
+    D2D1_RECT_F panel = D2D1::RectF(lx, ly + loupe, lx + loupe, ly + totalH);
+    {
+        ComPtr<ID2D1SolidColorBrush> pf, pb;
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.80f), pf.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.10f), pb.GetAddressOf());
+        if (pf) m_renderTarget->FillRectangle(panel, pf.Get());
+        if (pb) m_renderTarget->DrawRectangle(panel, pb.Get(), 1.0f);
+    }
+
+    // 顶部颜色条（直观显示取样色）
+    if (hasColor) {
+        ComPtr<ID2D1SolidColorBrush> swatch;
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f), swatch.GetAddressOf());
+        if (swatch)
+            m_renderTarget->FillRectangle(
+                D2D1::RectF(lx, ly + loupe, lx + loupe, ly + loupe + 12.0f), swatch.Get());
+    }
+
+    // 文本：坐标 / HEX / RGB / 复制提示
+    std::wstring hex = hasColor ? std::format(L"#{:02X}{:02X}{:02X}", r, g, b) : std::wstring(L"--");
+    bool toast = (m_loupeToastUntil != 0 && GetTickCount() < m_loupeToastUntil);
+    std::wstring info = std::format(L"({}, {})\n{}\nR{} G{} B{}\n{}",
+        px, py, hex, r, g, b, toast ? L"✓ 已复制" : L"C 复制");
+
+    D2D1_RECT_F textRect = D2D1::RectF(lx, ly + loupe + 14.0f, lx + loupe, ly + totalH);
+    m_renderTarget->DrawText(info.c_str(), static_cast<UINT32>(info.size()),
+                             m_infoTextFormat.Get(), textRect, m_infoTextBrush.Get());
+}
+
 RECT CaptureOverlay::detectWindowUnderCursor(POINT cursorPos) {
     HWND hwnd = WindowFromPoint(cursorPos);
     RECT rc{};
@@ -783,6 +933,10 @@ HitArea CaptureOverlay::hitTestSelectionBox(POINT point) const {
 }
 
 void CaptureOverlay::adjustSelection(HitArea handle, int dx, int dy) {
+    // 记录调整前的选区左上角，用于已有标注的坐标重映射
+    int oldLeft = std::min(m_dragStart.x, m_dragEnd.x);
+    int oldTop  = std::min(m_dragStart.y, m_dragEnd.y);
+
     float l = static_cast<float>(std::min(m_dragStart.x, m_dragEnd.x));
     float t = static_cast<float>(std::min(m_dragStart.y, m_dragEnd.y));
     float r = static_cast<float>(std::max(m_dragStart.x, m_dragEnd.x));
@@ -834,9 +988,42 @@ void CaptureOverlay::adjustSelection(HitArea handle, int dx, int dy) {
 
     m_dragStart = { static_cast<LONG>(l), static_cast<LONG>(t) };
     m_dragEnd   = { static_cast<LONG>(r), static_cast<LONG>(b) };
-    // 选区已变，标注底图需在下次标注时按新选区重新裁剪
-    m_markupBaseReady = false;
+
+    int newLeft = std::min(m_dragStart.x, m_dragEnd.x);
+    int newTop  = std::min(m_dragStart.y, m_dragEnd.y);
+
+    if (m_markup.hasAnyMarkup()) {
+        // 已有标注（含撤销栈）：按左上角位移反向平移，使其"钉"在原屏幕内容上；并按新选区重裁底图
+        m_markup.translateAll(oldLeft - newLeft, oldTop - newTop);
+        rebuildMarkupBase();
+        markMarkupDirty();
+    } else {
+        // 无任何标注：底图在下次标注时按新选区再裁（避免每帧重裁）
+        m_markupBaseReady = false;
+    }
     m_needsRender = true;
+}
+
+void CaptureOverlay::rebuildMarkupBase() {
+    if (m_frozenScreen.empty()) return;
+    auto rect = currentSelectionRect();
+    int x = static_cast<int>(rect.left);
+    int y = static_cast<int>(rect.top);
+    int w = static_cast<int>(rect.right - rect.left);
+    int h = static_cast<int>(rect.bottom - rect.top);
+    if (w <= 0 || h <= 0) return;
+
+    cv::Rect roi(x, y, w, h);
+    roi &= cv::Rect(0, 0, m_frozenScreen.cols, m_frozenScreen.rows);
+    if (roi.area() <= 0) return;
+
+    cv::Mat cropped;
+    m_frozenScreen(roi).copyTo(cropped);
+    if (cropped.channels() == 4) {
+        cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
+    }
+    m_markup.updateBaseImage(cropped);  // 保留标注，仅替换底图
+    m_markupBaseReady = true;
 }
 
 void CaptureOverlay::setCurrentTool(MarkupTool tool) {
@@ -868,11 +1055,14 @@ void CaptureOverlay::updateHoverCursor(POINT point) {
     if (st == OverlayState::Selected || st == OverlayState::Marking) {
         if (hitTestToolbar(point)) {
             cur = LoadCursor(nullptr, IDC_ARROW);
-        } else if (m_activeElement) {
-            HitArea a = m_activeElement->hitTestEx(toMarkupPoint(point));
-            cur = cursorForArea(a);
-        } else if (m_markup.elementCount() == 0) {
-            cur = cursorForArea(hitTestSelectionBox(point));
+        } else {
+            // 选区控制点/边框优先（与点击命中顺序一致），其次才是选中元素的手柄
+            HitArea sel = hitTestSelectionBox(point);
+            if (sel != HitArea::None) {
+                cur = cursorForArea(sel);
+            } else if (m_activeElement) {
+                cur = cursorForArea(m_activeElement->hitTestEx(toMarkupPoint(point)));
+            }
         }
     }
     if (!cur) cur = LoadCursor(nullptr, IDC_CROSS);
@@ -1305,9 +1495,8 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
                 HitArea selHit = HitArea::None;
                 if (auto* button = self->hitTestToolbar(point)) {
                     self->executeToolbarCommand(*button);
-                } else if (self->m_markup.elementCount() == 0 &&
-                           (selHit = self->hitTestSelectionBox(point)) != HitArea::None) {
-                    // 尚无标注时：拖拽控制点缩放选区 / 拖拽边框移动选区
+                } else if ((selHit = self->hitTestSelectionBox(point)) != HitArea::None) {
+                    // 拖拽控制点缩放选区 / 拖拽边框移动选区（已有标注时会自动重映射坐标）
                     self->m_isAdjustingSelection = true;
                     self->m_selAdjustHandle = selHit;
                     self->m_selAdjustLast = point;
@@ -1524,6 +1713,17 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             // 正在输入文字：其余按键交给 WM_CHAR
             if (editingText) return 0;
 
+            // 取色：选区前/拖拽中按 C 复制光标处像素的 HEX 颜色
+            if (wParam == 'C' && self->m_state == OverlayState::Selecting) {
+                int cr, cg, cb;
+                if (self->sampleScreenColor(self->m_currentCursor.x, self->m_currentCursor.y, cr, cg, cb)) {
+                    easy::core::WinUtils::copyToClipboard(std::format("#{:02X}{:02X}{:02X}", cr, cg, cb));
+                    self->m_loupeToastUntil = GetTickCount() + 1200;
+                    self->invalidate();
+                }
+                return 0;
+            }
+
             // 全局命令
             switch (wParam) {
                 case VK_RETURN:
@@ -1555,8 +1755,8 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
                 int dy = (wParam == VK_UP   ? -step : wParam == VK_DOWN  ? step : 0);
                 if (self->m_activeElement) {
                     self->m_activeElement->moveBy(dx, dy);   // 微调选中元素
-                } else if (self->m_markup.elementCount() == 0) {
-                    self->adjustSelection(HitArea::Body, dx, dy);  // 微调整块选区
+                } else {
+                    self->adjustSelection(HitArea::Body, dx, dy);  // 微调整块选区（含标注重映射）
                 }
                 return 0;
             }
@@ -1592,6 +1792,11 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
         case WM_TIMER: {
             if (self && wParam == RENDER_TIMER_ID) {
+                // 取色复制提示存续期间持续重绘，到期后再渲染一帧将其清除
+                if (self->m_loupeToastUntil != 0) {
+                    self->m_needsRender = true;
+                    if (GetTickCount() >= self->m_loupeToastUntil) self->m_loupeToastUntil = 0;
+                }
                 // 文字编辑期间需持续重算以保留闪烁光标；其余情况按脏标记重绘。
                 bool editingText = self->m_activeElement &&
                                    self->m_activeElement->tool == MarkupTool::Text &&

@@ -110,8 +110,14 @@ class MarkupEngine {
 public:
     MarkupEngine() = default;
 
-    /// 设置底图（截图原图）
+    /// 设置底图（截图原图）。会清空所有标注与撤销栈（用于全新选区）。
     void setBaseImage(const cv::Mat& image);
+
+    /// 仅替换底图，保留现有标注与撤销栈（用于选区二次调整后重裁底图）。
+    void updateBaseImage(const cv::Mat& image);
+
+    /// 平移所有标注（含撤销栈）。用于选区移动/缩放时让标注跟随屏幕内容。
+    void translateAll(int dx, int dy);
 
     /// 获取当前合成图（底图 + 所有标注）
     cv::Mat getCompositeImage() const;
@@ -132,6 +138,9 @@ public:
 
     /// 获取当前标注数量
     size_t elementCount() const { return m_elements.size(); }
+
+    /// 是否存在任何标注（含撤销栈中已撤销但可重做的元素）
+    bool hasAnyMarkup() const { return !m_elements.empty() || !m_undoStack.empty(); }
 
     /// 删除指定元素
     void removeElement(uint32_t id);

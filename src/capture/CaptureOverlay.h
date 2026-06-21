@@ -133,6 +133,11 @@ private:
     /// 绘制标注工具栏
     void drawToolbar(const D2D1_RECT_F& selectionRect);
 
+    /// 绘制磨砂玻璃面板（深色蒙版 + 顶部高光 + 边框）。
+    /// seeThrough=true: 圆角裁剪透出未暗化的背后画面（图层，较重，用于工具栏等主面板）；
+    /// false: 直接半透明叠加在当前帧上（无图层，廉价，用于尺寸/提示等小标签）。
+    void drawGlassPanel(const D2D1_RECT_F& rect, float radius, bool seeThrough = true);
+
     /// 绘制已完成标注预览
     void drawMarkupPreview(const D2D1_RECT_F& selectionRect);
 
@@ -141,6 +146,12 @@ private:
 
     /// 绘制实时的动态放大镜预览
     void drawDynamicMagnifier();
+
+    /// 选区阶段的像素级取色放大镜（放大窗 + 坐标 + RGB/HEX）
+    void drawSelectionLoupe(float cx, float cy);
+
+    /// 读取冻结屏幕在 (x,y) 处的像素颜色（覆盖层坐标 == 冻结图坐标）
+    bool sampleScreenColor(int x, int y, int& r, int& g, int& b) const;
 
     /// 绘制十字准星
     void drawCrosshair(float x, float y);
@@ -154,8 +165,11 @@ private:
     /// 当前选区矩形
     D2D1_RECT_F currentSelectionRect() const;
 
-    /// 准备标注底图
+    /// 准备标注底图（首次，elementCount==0 时）
     void prepareMarkupBase();
+
+    /// 按当前选区重裁标注底图，但保留已有标注（用于带标注的选区二次调整）
+    void rebuildMarkupBase();
 
     /// 构建并命中测试工具栏按钮
     void rebuildToolbarButtons(const D2D1_RECT_F& selectionRect);
@@ -231,6 +245,9 @@ private:
     // 动态放大镜
     int m_dynamicMagnifierRadius = 60;
     float m_dynamicMagnifierScale = 2.0f;
+
+    // 取色放大镜：复制成功提示的截止 tick（GetTickCount，0 表示无提示）
+    DWORD m_loupeToastUntil = 0;
 
     // 回调
     SelectionCallback m_callback;
