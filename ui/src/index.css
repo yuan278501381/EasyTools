@@ -73,6 +73,15 @@
   /* 侧边栏 */
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
+
+  /* Keyboard Heatmap (Dark Theme) */
+  --key-bg: rgba(255, 255, 255, 0.05);
+  --key-border: rgba(255, 255, 255, 0.1);
+  --key-hover-border: rgba(255, 255, 255, 0.5);
+  --key-hover-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+  --key-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  --key-tooltip-bg: rgba(30, 30, 30, 0.85);
+  --key-tooltip-text: #ffffff;
 }
 
 /* ── 亮色主题 (毛玻璃化亮色) ────────────────────────────────────────────── */
@@ -83,26 +92,35 @@
   --primary-glow: rgba(124, 58, 237, 0.25);
 
   --bg-base: #f4f4f9;
-  --bg-surface: rgba(255, 255, 255, 0.7);
-  --bg-elevated: rgba(255, 255, 255, 0.9);
+  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-elevated: #ffffff;
 
-  --card-bg: rgba(255, 255, 255, 0.6);
-  --card-border: rgba(255, 255, 255, 0.8);
-  --card-hover: rgba(255, 255, 255, 0.9);
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(0, 0, 0, 0.06);
+  --card-hover: rgba(255, 255, 255, 0.95);
 
-  --text-primary: #1e1e2a;
-  --text-secondary: #5a5a72;
+  --text-primary: #111118;
+  --text-secondary: #4a4a5e;
   --text-muted: #8b8b9f;
 
-  --input-bg: rgba(255, 255, 255, 0.7);
-  --input-border: rgba(0, 0, 0, 0.08);
+  --input-bg: rgba(255, 255, 255, 0.9);
+  --input-border: rgba(0, 0, 0, 0.12);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-hover: rgba(0, 0, 0, 0.25);
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+
+  /* Keyboard Heatmap (Light Theme) */
+  --key-bg: rgba(0, 0, 0, 0.04);
+  --key-border: rgba(0, 0, 0, 0.1);
+  --key-hover-border: rgba(0, 0, 0, 0.25);
+  --key-hover-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --key-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8); /* Glow for dark text */
+  --key-tooltip-bg: rgba(255, 255, 255, 0.9);
+  --key-tooltip-text: #1e1e2a;
 }
 
 /* ── 全局重置 ────────────────────────────────────────────────────────────── */

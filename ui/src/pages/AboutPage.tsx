@@ -4,8 +4,8 @@
 
 import { type FC } from 'react';
 import { Card, SettingGroup, Badge } from '../components/UIKit';
-import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Info, Zap, Layers } from 'lucide-react';
 import './AboutPage.css';
 
 interface DependencyInfo {
@@ -30,10 +30,10 @@ export const AboutPage: FC = () => {
   const { t } = useTranslation();
   return (
     <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title={t('about.title')} icon={<Info size={18} />}>
+      <SettingGroup title={t('about.title')} icon={<Info size={20} strokeWidth={2.5} />}>
         <Card>
           <div className="about-hero">
-            <span className="about-hero__icon">⚡</span>
+            <span className="about-hero__icon"><Zap size={24} fill="var(--primary)" stroke="var(--primary)" /></span>
             <div className="about-hero__info">
               <h2 className="about-hero__title">EasyTools</h2>
               <p className="about-hero__subtitle">桌面效率工具</p>
@@ -50,7 +50,7 @@ export const AboutPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title={t('about.techStack' as any)} icon="🧱">
+      <SettingGroup title={t('about.techStack' as any)} icon={<Layers size={20} strokeWidth={2.5} />}>
         <Card>
           <div className="about-deps">
             {DEPENDENCIES.map((dep) => (

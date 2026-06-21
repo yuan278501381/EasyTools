@@ -7,25 +7,26 @@
  *   - 底部有版本信息和主题切换
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { type FC } from 'react';
+import { type ReactNode, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap } from 'lucide-react';
 import './Sidebar.css';
 
 export type NavId = 'stats' | 'gesture' | 'capture' | 'ocr' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
-  icon: string;
+  icon: ReactNode;
   labelKey: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'stats',   icon: '📊', labelKey: 'nav.stats' },
-  { id: 'gesture', icon: '🖱️', labelKey: 'nav.gesture' },
-  { id: 'capture', icon: '📷', labelKey: 'nav.capture' },
-  { id: 'ocr',     icon: '📝', labelKey: 'nav.ocr' },
-  { id: 'general', icon: '⚙️', labelKey: 'nav.settings' },
-  { id: 'about',   icon: 'ℹ️', labelKey: 'nav.about' },
+  { id: 'stats',   icon: <BarChart3 size={20} strokeWidth={2.2} />, labelKey: 'nav.stats' },
+  { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture' },
+  { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture' },
+  { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr' },
+  { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
+  { id: 'about',   icon: <Info size={20} strokeWidth={2.2} />, labelKey: 'nav.about' },
 ];
 
 interface SidebarProps {
@@ -42,7 +43,9 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
     <aside className="sidebar" role="navigation" aria-label="主导航">
       {/* ── Logo ──────────────────────────────────────────────────── */}
       <div className="sidebar__logo">
-        <span className="sidebar__logo-icon">⚡</span>
+        <span className="sidebar__logo-icon">
+          <Zap size={24} fill="var(--primary)" stroke="var(--primary)" strokeWidth={1} />
+        </span>
         <span className="sidebar__logo-text">EasyTools</span>
       </div>
 
@@ -71,7 +74,7 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
           title={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
           id="theme-toggle"
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {theme === 'dark' ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
         </button>
         <span className="sidebar__version">v0.1.0</span>
       </div>

@@ -29,7 +29,7 @@ import './App.css';
 function App() {
   const { t } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>('stats');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>('light');
 
   // 主题切换
   const handleToggleTheme = useCallback(() => {

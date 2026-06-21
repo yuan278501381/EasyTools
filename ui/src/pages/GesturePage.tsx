@@ -19,6 +19,7 @@ import {
 } from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { MousePointer2, Hand, Edit3, Trash2, Target } from 'lucide-react';
 import './GesturePage.css';
 
 interface GestureState {
@@ -159,9 +160,9 @@ export const GesturePage: FC = () => {
   }
 
   return (
-    <div className="gesture-page">
+    <div className="gesture-page" style={{ animation: 'fadeIn 0.3s ease', paddingBottom: '2rem' }}>
       {/* ── 全局开关 ──────────────────────────────────────────────── */}
-      <SettingGroup title={t('gesture.title')} icon="🖱️">
+      <SettingGroup title={t('gesture.title')} icon={<MousePointer2 size={20} strokeWidth={2.5} />}>
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
@@ -197,7 +198,7 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── 手势映射表 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('gesture.mapping')} icon="✋">
+      <SettingGroup title={t('gesture.mapping')} icon={<Hand size={20} strokeWidth={2.5} />}>
         <Card>
           <div className="gesture-toolbar">
             <span className="gesture-toolbar__count">{t('gesture.mappingCount', { count: mappings.length })}</span>
@@ -237,12 +238,15 @@ export const GesturePage: FC = () => {
                   {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
                 </span>
                 <span className="gesture-table__col gesture-table__col--actions">
-                  <button className="gesture-icon-btn" title="编辑" onClick={() => openEdit(m)}>✎</button>
-                  <button
-                    className="gesture-icon-btn gesture-icon-btn--danger"
-                    title="删除"
-                    onClick={() => handleDelete(m)}
-                  >🗑</button>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button className="gesture-icon-btn" title="编辑" onClick={() => openEdit(m)}><Edit3 size={16} /></button>
+                    <button 
+                      className="gesture-icon-btn" 
+                      title="删除" 
+                      onClick={() => handleDelete(m)}
+                      style={{ color: 'var(--error, #ef4444)' }}
+                    ><Trash2 size={16} /></button>
+                  </div>
                 </span>
               </div>
             ))}
@@ -251,7 +255,7 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── 作用域规则 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('gesture.scopeRules')} icon="🎯">
+      <SettingGroup title={t('gesture.scopeRules')} icon={<Target size={20} strokeWidth={2.5} />}>
         <ScopeRulesManager profileNames={profileNames} />
       </SettingGroup>
 

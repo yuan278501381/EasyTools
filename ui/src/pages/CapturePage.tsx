@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, TextInput, Select, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { Camera, Video } from 'lucide-react';
 
 interface CaptureSettings {
   format: string;
@@ -70,7 +71,7 @@ export const CapturePage: FC = () => {
 
   return (
     <div className="capture-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title={t('capture.title')} icon="📷">
+      <SettingGroup title={t('capture.title')} icon={<Camera size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
             <kbd style={{
@@ -137,7 +138,7 @@ export const CapturePage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title="录屏设置" icon="🎬">
+      <SettingGroup title="录屏设置" icon={<Video size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label="录屏快捷键" description="开始/停止录屏的全局快捷键">
             <kbd style={{

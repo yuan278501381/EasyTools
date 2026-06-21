@@ -9,6 +9,7 @@ import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UI
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { Settings, Zap, Globe } from 'lucide-react';
 
 interface GeneralSettings {
   autoStart: boolean;
@@ -78,7 +79,7 @@ export const GeneralPage: FC = () => {
 
   return (
     <div className="general-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title={t('general.behavior')} icon="⚙️">
+      <SettingGroup title={t('general.behavior')} icon={<Zap size={20} strokeWidth={2.5} />}>
         <Card>
           <Toggle
             id="autoStart"
@@ -104,7 +105,7 @@ export const GeneralPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title={t('general.uiAndLang')} icon="🌐">
+      <SettingGroup title={t('general.uiAndLang')} icon={<Globe size={20} strokeWidth={2.5} />}>
         <Card>
           <Toggle
             id="keycast"
@@ -139,7 +140,7 @@ export const GeneralPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title={t('general.advanced')} icon="🔧">
+      <SettingGroup title={t('general.advanced')} icon={<Settings size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('general.logLevel')} description={t('general.logLevelDesc')}>
             <Select

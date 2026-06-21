@@ -26,8 +26,8 @@
   height: 44px;
   min-width: 44px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--key-bg);
+  border: 1px solid var(--key-border);
   color: var(--text-primary);
   font-size: 0.85rem;
   font-weight: 500;
@@ -59,13 +59,13 @@
 .keyboard-heatmap__label {
   position: relative;
   z-index: 2;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  text-shadow: var(--key-text-shadow);
 }
 
 .keyboard-heatmap__key:hover {
   transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: var(--key-hover-shadow);
+  border-color: var(--key-hover-border);
   z-index: 5;
 }
 
@@ -76,10 +76,10 @@
   bottom: 120%;
   left: 50%;
   transform: translateX(-50%) translateY(8px) scale(0.95);
-  background: rgba(30, 30, 30, 0.85);
+  background: var(--key-tooltip-bg);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  color: #fff;
+  color: var(--key-tooltip-text);
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 0.8rem;
@@ -89,8 +89,8 @@
   transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   pointer-events: none;
   z-index: 10;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-md);
 }
 
 .keyboard-heatmap__key:hover .tooltip {
