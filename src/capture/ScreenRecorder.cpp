@@ -158,24 +158,34 @@ void ScreenRecorder::recordingLoop() {
     using clock = std::chrono::high_resolution_clock;
     auto frameDuration = std::chrono::microseconds(1'000'000 / m_options.fps);
 
-    while (m_state != RecordState::Idle) {
-        auto frameStart = clock::now();
+    // 线程入口兜底: 任何 std 异常(如全屏帧缓冲 std::bad_alloc、日志 std::format 抛错)若逃逸出
+    // 线程函数会直接 std::terminate 整个进程。这里全程兜底, 异常时干净停止录制。
+    try {
+        while (m_state != RecordState::Idle) {
+            auto frameStart = clock::now();
 
-        if (m_state == RecordState::Recording) {
-            if (!captureAndEncodeFrame()) {
-                LOG_ERROR("帧捕获/编码失败, 停止录制");
-                m_state = RecordState::Idle;
-                break;
+            if (m_state == RecordState::Recording) {
+                if (!captureAndEncodeFrame()) {
+                    LOG_ERROR("帧捕获/编码失败, 停止录制");
+                    m_state = RecordState::Idle;
+                    break;
+                }
+                m_stats.frameCount++;
+                m_stats.durationSec = static_cast<double>(m_stats.frameCount) / m_options.fps;
             }
-            m_stats.frameCount++;
-            m_stats.durationSec = static_cast<double>(m_stats.frameCount) / m_options.fps;
-        }
 
-        // 帧率控制
-        auto elapsed = clock::now() - frameStart;
-        if (elapsed < frameDuration) {
-            std::this_thread::sleep_for(frameDuration - elapsed);
+            // 帧率控制
+            auto elapsed = clock::now() - frameStart;
+            if (elapsed < frameDuration) {
+                std::this_thread::sleep_for(frameDuration - elapsed);
+            }
         }
+    } catch (const std::exception& e) {
+        LOG_ERROR("录制线程异常, 已停止录制: {}", e.what());
+        m_state = RecordState::Idle;
+    } catch (...) {
+        LOG_ERROR("录制线程未知异常, 已停止录制");
+        m_state = RecordState::Idle;
     }
 }
 

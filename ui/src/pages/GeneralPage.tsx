@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 interface GeneralSettings {
   autoStart: boolean;
@@ -25,32 +26,51 @@ export const GeneralPage: FC = () => {
     minimizeToTray: true,
     checkUpdates: true,
     keycastEnabled: false,
-    language: 'zh-CN',
+    language: 'auto',
     logLevel: 'info',
-    theme: 'light',
+    theme: 'dark',
   });
   const [loading, setLoading] = useState(true);
 
-  // 加载设置
+  const { t, i18n } = useTranslation();
+
+  // 初始化获取设置
   useEffect(() => {
-    bridgeRequest<GeneralSettings>('general.getSettings').then(data => {
-      setSettings(prev => ({ ...prev, ...data }));
-      setLoading(false);
-    });
-  }, []);
+    bridgeRequest<GeneralSettings>('general.getSettings')
+      .then(res => {
+        setSettings(prev => ({ ...prev, ...res }));
+        const lang = res.language;
+        if (lang && lang !== 'auto') {
+          i18n.changeLanguage(lang);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [i18n]);
 
   // 保存单个设置项
   const updateSetting = useCallback((key: keyof GeneralSettings, value: unknown) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+
+    if (key === 'language') {
+      const langValue = value as string;
+      if (langValue === 'auto') {
+        const browserLang = navigator.language;
+        i18n.changeLanguage(browserLang);
+      } else {
+        i18n.changeLanguage(langValue);
+      }
+    }
+
     bridgeRequest('general.updateSettings', { [key]: value }).then(() => {
-      toast.success('已保存', {
-        description: `已更新: ${key}`,
+      toast.success(t('general.toastSaveSuccess'), {
+        description: t('general.toastSaveDesc', { key }),
         duration: 2000,
       });
     }).catch(e => {
-      toast.error('保存失败', { description: String(e) });
+      toast.error(t('general.toastSaveFailed'), { description: String(e) });
     });
-  }, []);
+  }, [i18n, t]);
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>加载中...</div>;
@@ -58,58 +78,70 @@ export const GeneralPage: FC = () => {
 
   return (
     <div className="general-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title="启动与运行" icon="🚀">
+      <SettingGroup title={t('general.behavior')} icon="⚙️">
         <Card>
           <Toggle
-            id="auto-start"
-            label="开机自动启动"
-            description="设置 EasyTools 在系统启动时自动运行"
+            id="autoStart"
+            label={t('general.autoStart')}
+            description={t('general.autoStartDesc')}
             checked={settings.autoStart}
             onChange={(v) => updateSetting('autoStart', v)}
           />
           <Toggle
-            id="minimize-to-tray"
-            label="关闭窗口时最小化到托盘"
-            description="关闭设置窗口不会退出程序，而是最小化到系统托盘"
+            id="minimizeToTray"
+            label={t('general.minimizeToTray')}
+            description={t('general.minimizeToTrayDesc')}
             checked={settings.minimizeToTray}
             onChange={(v) => updateSetting('minimizeToTray', v)}
           />
           <Toggle
-            id="check-updates"
-            label="自动检查更新"
-            description="启动时自动检查是否有新版本"
+            id="checkUpdates"
+            label={t('general.checkUpdates')}
+            description={t('general.checkUpdatesDesc')}
             checked={settings.checkUpdates}
             onChange={(v) => updateSetting('checkUpdates', v)}
           />
         </Card>
       </SettingGroup>
 
-      <SettingGroup title="界面与语言" icon="🌐">
+      <SettingGroup title={t('general.uiAndLang')} icon="🌐">
         <Card>
           <Toggle
             id="keycast"
-            label="屏幕按键回显"
-            description="开启后在屏幕下方实时显示您的按键操作 (适合教程录制)"
+            label={t('general.keycast')}
+            description={t('general.keycastDesc')}
             checked={settings.keycastEnabled}
             onChange={(v) => updateSetting('keycastEnabled', v)}
           />
-          <SettingRow label="界面语言" description="设置界面显示的语言">
+          <SettingRow label={t('general.language')} description={t('general.languageDesc')}>
             <Select
               id="language"
               value={settings.language}
               onChange={(v) => updateSetting('language', v)}
               options={[
-                { value: 'zh-CN', label: '简体中文' },
-                { value: 'en-US', label: 'English' },
+                { value: 'auto', label: t('general.langAuto') },
+                { value: 'zh-CN', label: t('general.langZh') },
+                { value: 'en-US', label: t('general.langEn') }
+              ]}
+            />
+          </SettingRow>
+          <SettingRow label={t('general.theme')} description={t('general.themeDesc')}>
+            <Select
+              id="theme"
+              value={settings.theme}
+              onChange={(v) => updateSetting('theme', v)}
+              options={[
+                { value: 'light', label: t('general.themeLight') },
+                { value: 'dark', label: t('general.themeDark') }
               ]}
             />
           </SettingRow>
         </Card>
       </SettingGroup>
 
-      <SettingGroup title="高级设置" icon="🔧">
+      <SettingGroup title={t('general.advanced')} icon="🔧">
         <Card>
-          <SettingRow label="日志级别" description="控制日志输出的详细程度">
+          <SettingRow label={t('general.logLevel')} description={t('general.logLevelDesc')}>
             <Select
               id="log-level"
               value={settings.logLevel}

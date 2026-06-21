@@ -47,6 +47,12 @@ KeyStroke KeyStroke::fromString(const std::string& str) {
     auto it = keyMap.find(remaining);
     if (it != keyMap.end()) {
         ks.virtualKey = it->second;
+    } else if (remaining.size() >= 3 && remaining.starts_with("0x")) {
+        try {
+            ks.virtualKey = static_cast<uint16_t>(std::stoul(remaining.substr(2), nullptr, 16));
+        } catch (...) {
+            ks.virtualKey = 0;
+        }
     } else if (remaining.size() == 1) {
         ks.virtualKey = static_cast<uint16_t>(std::toupper(static_cast<unsigned char>(remaining[0])));
     }

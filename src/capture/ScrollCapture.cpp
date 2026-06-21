@@ -34,6 +34,12 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
     m_running = true;
 
     if (options.mode == ScrollMode::Auto) {
+        // 回收上一次已结束但尚未 join 的线程: autoScrollLoop 自行完成拼接后只置 m_running=false,
+        // 并不 join 自身, 故 m_scrollThread 仍处于 joinable。直接向 joinable 的 std::thread 赋值
+        // 会触发 std::terminate。此处 m_running 已为 false(被上方守卫保证), join 会立即返回。
+        if (m_scrollThread.joinable()) {
+            m_scrollThread.join();
+        }
         m_scrollThread = std::thread([this]() { autoScrollLoop(); });
     }
 
@@ -95,6 +101,8 @@ void ScrollCapture::captureCurrentFrame() {
 void ScrollCapture::autoScrollLoop() {
     easy::core::TraceId::Scope scope;
 
+    // 线程入口兜底: 截屏(cv::Mat 分配)、拼接、回调等可抛异常, 逃逸出线程函数会 std::terminate。
+    try {
     for (int i = 0; i < m_options.maxFrames && m_running; ++i) {
         // 截取当前画面
         auto frame = captureRegion(m_options.captureRect);
@@ -145,6 +153,13 @@ void ScrollCapture::autoScrollLoop() {
         if (m_completionCb) {
             m_completionCb(result);
         }
+    }
+    } catch (const std::exception& e) {
+        m_running = false;
+        LOG_ERROR("长截图线程异常, 已停止: {}", e.what());
+    } catch (...) {
+        m_running = false;
+        LOG_ERROR("长截图线程未知异常, 已停止");
     }
 }
 

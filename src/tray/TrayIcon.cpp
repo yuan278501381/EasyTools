@@ -4,8 +4,19 @@
 
 #include "tray/TrayIcon.h"
 #include "core/logger/Logger.h"
+#include "core/config/ConfigManager.h"
 
 namespace easy::tray {
+
+static bool isEnglishLocale() {
+    std::string lang = easy::core::ConfigManager::instance().get<std::string>("/general/language", "auto");
+    if (lang == "en" || lang == "en-US") return true;
+    if (lang == "auto") {
+        LANGID langID = GetUserDefaultUILanguage();
+        if (PRIMARYLANGID(langID) == LANG_ENGLISH) return true;
+    }
+    return false;
+}
 
 TrayIcon& TrayIcon::instance() {
     static TrayIcon inst;
@@ -34,7 +45,7 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
         m_nid.hIcon = LoadIconW(nullptr, IDI_INFORMATION);
     }
 
-    wcscpy_s(m_nid.szTip, L"EasyTools — 桌面效率工具");
+    wcscpy_s(m_nid.szTip, isEnglishLocale() ? L"EasyTools - Desktop Utility" : L"EasyTools — 桌面效率工具");
 
     if (!Shell_NotifyIconW(NIM_ADD, &m_nid)) {
         LOG_ERROR("创建托盘图标失败, error={}", GetLastError());
@@ -79,7 +90,11 @@ void TrayIcon::setTooltip(const std::wstring& tooltip) {
 
 void TrayIcon::setGesturePaused(bool paused) {
     m_gesturePaused = paused;
-    setTooltip(paused ? L"EasyTools — 手势已暂停" : L"EasyTools — 桌面效率工具");
+    if (isEnglishLocale()) {
+        setTooltip(paused ? L"EasyTools - Gesture Paused" : L"EasyTools - Desktop Utility");
+    } else {
+        setTooltip(paused ? L"EasyTools — 手势已暂停" : L"EasyTools — 桌面效率工具");
+    }
 }
 
 void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
@@ -106,18 +121,20 @@ void TrayIcon::showContextMenu() {
     HMENU hMenu = CreatePopupMenu();
     if (!hMenu) return;
 
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::OpenSettings), L"⚙ 设置(&S)");
+    bool isEn = isEnglishLocale();
+
+    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::OpenSettings), isEn ? L"⚙ Settings(&S)" : L"⚙ 设置(&S)");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Screenshot), L"📷 截图(&C)");
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Recording), L"🎬 录屏(&R)");
+    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Screenshot), isEn ? L"📷 Capture(&C)" : L"📷 截图(&C)");
+    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Recording), isEn ? L"🎬 Record(&R)" : L"🎬 录屏(&R)");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
     // 暂停手势 — 带勾选状态
     AppendMenuW(hMenu, MF_STRING | (m_gesturePaused ? MF_CHECKED : MF_UNCHECKED),
-                static_cast<UINT>(TrayMenuId::PauseGesture), L"⏸ 暂停手势(&P)");
+                static_cast<UINT>(TrayMenuId::PauseGesture), isEn ? L"⏸ Pause Gesture(&P)" : L"⏸ 暂停手势(&P)");
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Exit), L"退出(&X)");
+    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Exit), isEn ? L"Exit(&X)" : L"退出(&X)");
 
     // 必须先 SetForegroundWindow 再 TrackPopupMenu，否则菜单无法正确关闭
     SetForegroundWindow(m_hwnd);

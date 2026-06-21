@@ -141,6 +141,9 @@ bool RecordingIndicator::createRenderResources() {
     hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
     if (FAILED(hr)) return false;
 
+    // 禁用 D2D 的自动 DPI 缩放
+    m_renderTarget->SetDpi(96.0f, 96.0f);
+
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.15f, 1.0f), m_bgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.95f), m_textBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.2f, 0.2f, 1.0f), m_redDotBrush.GetAddressOf());

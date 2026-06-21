@@ -17,9 +17,11 @@
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
+#include <windows.h>
 #include <algorithm>
 #include <cmath>
 #include <atomic>
+#include <chrono>
 
 namespace easy::capture {
 
@@ -86,13 +88,33 @@ cv::Rect MarkupElement::getBoundingBox() const {
     }
 }
 
-bool MarkupElement::hitTest(cv::Point pt, int padding) const {
+HitArea MarkupElement::hitTestEx(cv::Point pt, int padding) const {
     cv::Rect bbox = getBoundingBox();
+    
+    // 如果处于激活状态，优先测试缩放手柄
+    if (isActive) {
+        int hw = 6; // handle half-width
+        cv::Point handles[8] = {
+            {bbox.x, bbox.y}, {bbox.x + bbox.width / 2, bbox.y}, {bbox.x + bbox.width, bbox.y},
+            {bbox.x + bbox.width, bbox.y + bbox.height / 2},
+            {bbox.x + bbox.width, bbox.y + bbox.height}, {bbox.x + bbox.width / 2, bbox.y + bbox.height},
+            {bbox.x, bbox.y + bbox.height}, {bbox.x, bbox.y + bbox.height / 2}
+        };
+        HitArea areas[8] = { HitArea::LT, HitArea::T, HitArea::RT, HitArea::R, HitArea::RB, HitArea::B, HitArea::LB, HitArea::L };
+        for (int i = 0; i < 8; ++i) {
+            cv::Rect hrect(handles[i].x - hw, handles[i].y - hw, hw * 2, hw * 2);
+            if (hrect.contains(pt)) return areas[i];
+        }
+    }
+
+    // 然后测试主体区域
     bbox.x -= padding;
     bbox.y -= padding;
     bbox.width += padding * 2;
     bbox.height += padding * 2;
-    return bbox.contains(pt);
+    if (bbox.contains(pt)) return HitArea::Body;
+    
+    return HitArea::None;
 }
 
 void MarkupElement::moveBy(int dx, int dy) {
@@ -103,17 +125,58 @@ void MarkupElement::moveBy(int dx, int dy) {
     }
 }
 
-void MarkupElement::resize(int dx, int dy, int handleIndex) {
-    // 简单实现：对于矩形等由两点决定的图形，修改其中一个点
-    // 对于文本，我们这里仅作为包围盒调整（可能引发换行，但目前按单行处理）
-    // 为了简单，我们直接将 dx dy 加到 endPt 上
-    if (tool != MarkupTool::Text && tool != MarkupTool::Magnifier && tool != MarkupTool::Number) {
-        endPt.x += dx;
-        endPt.y += dy;
-    } else if (tool == MarkupTool::Magnifier) {
-        // 缩放放大镜半径
-        magnifierRadius += std::max(dx, dy);
+void MarkupElement::resize(int dx, int dy, HitArea handle) {
+    if (tool == MarkupTool::Text) {
+        // 改善文本框缩放交互: 无论抓取哪个手柄，向外拖拽变大，向内变小
+        int delta = 0;
+        switch (handle) {
+            case HitArea::LT: delta = -dx - dy; break;
+            case HitArea::T:  delta = -dy; break;
+            case HitArea::RT: delta = dx - dy; break;
+            case HitArea::R:  delta = dx; break;
+            case HitArea::RB: delta = dx + dy; break;
+            case HitArea::B:  delta = dy; break;
+            case HitArea::LB: delta = -dx + dy; break;
+            case HitArea::L:  delta = -dx; break;
+            default: break;
+        }
+        fontSize += delta * 0.3f;
+        if (fontSize < 10.0f) fontSize = 10.0f;
+        if (fontSize > 200.0f) fontSize = 200.0f;
+        const_cast<MarkupElement*>(this)->textRenderSize = cv::Size(0,0); // 强制重算
+        return;
+    }
+    if (tool == MarkupTool::Magnifier) {
+        // 改善放大镜缩放交互
+        int delta = 0;
+        switch (handle) {
+            case HitArea::LT: delta = -dx - dy; break;
+            case HitArea::T:  delta = -dy; break;
+            case HitArea::RT: delta = dx - dy; break;
+            case HitArea::R:  delta = dx; break;
+            case HitArea::RB: delta = dx + dy; break;
+            case HitArea::B:  delta = dy; break;
+            case HitArea::LB: delta = -dx + dy; break;
+            case HitArea::L:  delta = -dx; break;
+            default: break;
+        }
+        magnifierRadius += delta / 2;
         if (magnifierRadius < 20) magnifierRadius = 20;
+        if (magnifierRadius > 500) magnifierRadius = 500;
+        return;
+    }
+    
+    // 基于拖拽手柄调整边界
+    switch (handle) {
+        case HitArea::LT: startPt.x += dx; startPt.y += dy; break;
+        case HitArea::T:  startPt.y += dy; break;
+        case HitArea::RT: endPt.x += dx; startPt.y += dy; break;
+        case HitArea::R:  endPt.x += dx; break;
+        case HitArea::RB: endPt.x += dx; endPt.y += dy; break;
+        case HitArea::B:  endPt.y += dy; break;
+        case HitArea::LB: startPt.x += dx; endPt.y += dy; break;
+        case HitArea::L:  startPt.x += dx; break;
+        default: break;
     }
 }
 
@@ -178,14 +241,15 @@ void MarkupEngine::removeElement(uint32_t id) {
         m_elements.end());
 }
 
-MarkupElement* MarkupEngine::getElementAt(cv::Point pt, int padding) const {
+HitResult MarkupEngine::getElementAtEx(cv::Point pt, int padding) const {
     // 倒序查找，优先命中上层元素
     for (auto it = m_elements.rbegin(); it != m_elements.rend(); ++it) {
-        if ((*it)->hitTest(pt, padding)) {
-            return it->get();
+        HitArea area = (*it)->hitTestEx(pt, padding);
+        if (area != HitArea::None) {
+            return { it->get(), area };
         }
     }
-    return nullptr;
+    return { nullptr, HitArea::None };
 }
 
 MarkupElement* MarkupEngine::getElementById(uint32_t id) const {
@@ -385,6 +449,13 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
 
             cv::putText(canvas, element.text, element.startPt, cv::FONT_HERSHEY_SIMPLEX,
                         fontScale, color, thick, cv::LINE_AA);
+
+            // 如果处于编辑状态，绘制光标
+            if (element.isEditing && (GetTickCount() / 500) % 2 == 0) {
+                cv::Point cursorStart(element.startPt.x + textSize.width + 2, element.startPt.y - textSize.height);
+                cv::Point cursorEnd(element.startPt.x + textSize.width + 2, element.startPt.y + baseline);
+                cv::line(canvas, cursorStart, cursorEnd, color, thick, cv::LINE_AA);
+            }
             break;
         }
 
@@ -435,11 +506,56 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
                     cv::Mat croppedMask = mask(cv::Rect(0, 0, dstRect.width, dstRect.height));
                     croppedEnlarged.copyTo(dstROI, croppedMask);
 
-                    // 边框
-                    cv::circle(canvas, element.startPt, r - 1, cv::Scalar(200, 200, 200), 2, cv::LINE_AA);
+                    // 边框 - 双层高反差设计
+                    cv::circle(canvas, element.startPt, r, cv::Scalar(0, 0, 0), 2, cv::LINE_AA); // 外层黑
+                    cv::circle(canvas, element.startPt, r - 2, cv::Scalar(255, 255, 255), 2, cv::LINE_AA); // 内层白
+
+                    // 中心精细准心
+                    int ch = 4;
+                    cv::line(canvas, cv::Point(element.startPt.x - ch, element.startPt.y), 
+                                     cv::Point(element.startPt.x + ch, element.startPt.y), 
+                                     cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
+                    cv::line(canvas, cv::Point(element.startPt.x, element.startPt.y - ch), 
+                                     cv::Point(element.startPt.x, element.startPt.y + ch), 
+                                     cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
                 }
             }
             break;
+        }
+        }
+
+    // 绘制被选中状态的高亮边框和把手
+    if (element.isActive) {
+        cv::Rect bbox = element.getBoundingBox();
+        // 边框 - 现代 Figma 蓝
+        cv::Scalar activeColor(255, 140, 0); // BGR: Deep Sky Blue / Azure style
+        cv::rectangle(canvas, bbox, activeColor, 1, cv::LINE_AA);
+        
+        // 绘制 8 个把手
+        int hw = 4;
+        cv::Point handles[8] = {
+            {bbox.x, bbox.y}, {bbox.x + bbox.width / 2, bbox.y}, {bbox.x + bbox.width, bbox.y},
+            {bbox.x + bbox.width, bbox.y + bbox.height / 2},
+            {bbox.x + bbox.width, bbox.y + bbox.height}, {bbox.x + bbox.width / 2, bbox.y + bbox.height},
+            {bbox.x, bbox.y + bbox.height}, {bbox.x, bbox.y + bbox.height / 2}
+        };
+
+        for (const auto& pt : handles) {
+            // 白色填充
+            cv::rectangle(canvas, cv::Rect(pt.x - hw, pt.y - hw, hw * 2, hw * 2), cv::Scalar(255, 255, 255), cv::FILLED, cv::LINE_AA);
+            // 蓝色描边
+            cv::rectangle(canvas, cv::Rect(pt.x - hw, pt.y - hw, hw * 2, hw * 2), activeColor, 1, cv::LINE_AA);
+        }
+    }
+
+    // 如果是文本且正在编辑，绘制闪烁光标
+    if (element.tool == MarkupTool::Text && element.isEditing) {
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        if ((ms / 500) % 2 == 0) {
+            int cx = element.startPt.x + element.textRenderSize.width + 2;
+            int cy1 = element.startPt.y - element.textRenderSize.height + 8;
+            int cy2 = element.startPt.y + 4;
+            cv::line(canvas, cv::Point(cx, cy1), cv::Point(cx, cy2), color, thick, cv::LINE_AA);
         }
     }
 }

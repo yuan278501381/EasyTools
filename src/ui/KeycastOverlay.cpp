@@ -10,6 +10,7 @@ namespace easy::ui {
 static constexpr const wchar_t* KEYCAST_CLASS = L"EasyTools_KeycastOverlay";
 static constexpr UINT_PTR TIMER_ID = 1;
 static constexpr UINT_PTR FADE_TIMER_ID = 2;
+static constexpr UINT_PTR FADE_IN_TIMER_ID = 3;
 static constexpr int HIDE_TIMEOUT_MS = 2000;
 static constexpr int FADE_INTERVAL_MS = 16;
 
@@ -82,7 +83,16 @@ void KeycastOverlay::showKeys(const std::string& text) {
     {
         std::lock_guard lock(m_mutex);
         m_displayText = text;
-        m_opacity = 1.0f;
+        if (!m_fadingOut && m_opacity > 0.0f && !m_fadingIn) {
+            // Already fully visible, just refresh timer
+            m_opacity = 1.0f;
+            m_animScale = 1.0f;
+        } else {
+            // Start fresh animation
+            m_opacity = 0.0f;
+            m_animScale = 0.9f;
+            m_fadingIn = true;
+        }
         m_fadingOut = false;
     }
 
@@ -90,9 +100,13 @@ void KeycastOverlay::showKeys(const std::string& text) {
     KillTimer(m_hwnd, FADE_TIMER_ID);
     
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
-    render();
-
-    SetTimer(m_hwnd, TIMER_ID, HIDE_TIMEOUT_MS, nullptr);
+    
+    if (m_fadingIn) {
+        SetTimer(m_hwnd, FADE_IN_TIMER_ID, FADE_INTERVAL_MS, nullptr);
+    } else {
+        render();
+        SetTimer(m_hwnd, TIMER_ID, HIDE_TIMEOUT_MS, nullptr);
+    }
 }
 
 void KeycastOverlay::createResources() {
@@ -104,7 +118,8 @@ void KeycastOverlay::createResources() {
         m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget);
 
         if (m_renderTarget) {
-            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.7f), &m_bgBrush);
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.85f), &m_bgBrush);
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f), &m_strokeBrush);
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_textBrush);
         }
 
@@ -123,6 +138,7 @@ void KeycastOverlay::createResources() {
 void KeycastOverlay::discardResources() {
     m_renderTarget = nullptr;
     m_bgBrush = nullptr;
+    m_strokeBrush = nullptr;
     m_textBrush = nullptr;
     m_textFormat = nullptr;
 }
@@ -154,29 +170,37 @@ void KeycastOverlay::render() {
 
     std::string text;
     float alpha;
+    float scaleAnim;
     {
         std::lock_guard lock(m_mutex);
         text = m_displayText;
         alpha = m_opacity;
+        scaleAnim = m_animScale;
     }
 
     if (!text.empty() && alpha > 0.0f) {
         std::wstring wText = easy::core::WinUtils::utf8ToWstring(text);
         
-        // 测量文本宽度 (简单计算或固定 padding)
-        // 这里简单绘制一个居中的圆角矩形
         float cx = (width / scale) / 2.0f;
         float cy = (height / scale) / 2.0f;
         float textWidth = static_cast<float>(wText.length() * 20.0f + 60.0f); 
         float rectHeight = 60.0f;
+
+        // 应用进场缩放动画
+        D2D1::Matrix3x2F transform = D2D1::Matrix3x2F::Scale(scaleAnim, scaleAnim, D2D1::Point2F(cx, cy));
+        m_renderTarget->SetTransform(transform);
         
         D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
             D2D1::RectF(cx - textWidth/2, cy - rectHeight/2, cx + textWidth/2, cy + rectHeight/2),
             12.0f, 12.0f
         );
 
-        m_bgBrush->SetOpacity(0.8f * alpha);
+        m_bgBrush->SetOpacity(alpha);
         m_renderTarget->FillRoundedRectangle(rrect, m_bgBrush.Get());
+
+        // 绘制高亮极细描边
+        m_strokeBrush->SetOpacity(alpha);
+        m_renderTarget->DrawRoundedRectangle(rrect, m_strokeBrush.Get(), 1.0f);
 
         m_textBrush->SetOpacity(alpha);
         m_renderTarget->DrawTextW(
@@ -206,30 +230,65 @@ void KeycastOverlay::render() {
 LRESULT CALLBACK KeycastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     auto* self = reinterpret_cast<KeycastOverlay*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
-    switch (msg) {
-        case WM_TIMER: {
-            if (self) {
-                if (wParam == TIMER_ID) {
-                    KillTimer(hwnd, TIMER_ID);
-                    self->m_fadingOut = true;
-                    SetTimer(hwnd, FADE_TIMER_ID, FADE_INTERVAL_MS, nullptr);
-                } else if (wParam == FADE_TIMER_ID) {
-                    std::lock_guard lock(self->m_mutex);
-                    self->m_opacity -= 0.05f;
-                    if (self->m_opacity <= 0.0f) {
-                        self->m_opacity = 0.0f;
-                        KillTimer(hwnd, FADE_TIMER_ID);
-                        ShowWindow(hwnd, SW_HIDE);
-                    } else {
+    // 窗口过程兜底：任何 std 异常都不得逃逸到 Win32 派发层（否则 std::terminate 崩溃）。
+    try {
+        switch (msg) {
+            case WM_TIMER: {
+                if (self) {
+                    if (wParam == TIMER_ID) {
+                        KillTimer(hwnd, TIMER_ID);
+                        self->m_fadingOut = true;
+                        SetTimer(hwnd, FADE_TIMER_ID, FADE_INTERVAL_MS, nullptr);
+                    } else if (wParam == FADE_TIMER_ID) {
+                        // 关键修复：先在锁内更新动画状态并取快照，释放锁后再 render()。
+                        // render() 内部会再次锁 m_mutex；若在持锁状态下调用，会递归锁非递归
+                        // std::mutex，MSVC 抛 "resource deadlock would occur" 并崩溃。
+                        bool hide = false;
+                        {
+                            std::lock_guard lock(self->m_mutex);
+                            self->m_opacity -= 0.05f;
+                            self->m_animScale += 0.01f; // fade out with slight scale up
+                            if (self->m_opacity <= 0.0f) {
+                                self->m_opacity = 0.0f;
+                                hide = true;
+                            }
+                        }
+                        if (hide) {
+                            KillTimer(hwnd, FADE_TIMER_ID);
+                            ShowWindow(hwnd, SW_HIDE);
+                        } else {
+                            self->render();
+                        }
+                    } else if (wParam == FADE_IN_TIMER_ID) {
+                        bool done = false;
+                        {
+                            std::lock_guard lock(self->m_mutex);
+                            self->m_opacity += 0.1f;
+                            self->m_animScale += 0.01f;
+                            if (self->m_opacity >= 1.0f) {
+                                self->m_opacity = 1.0f;
+                                self->m_animScale = 1.0f;
+                                self->m_fadingIn = false;
+                                done = true;
+                            }
+                        }
+                        if (done) {
+                            KillTimer(hwnd, FADE_IN_TIMER_ID);
+                            SetTimer(hwnd, TIMER_ID, HIDE_TIMEOUT_MS, nullptr);
+                        }
                         self->render();
                     }
                 }
+                return 0;
             }
-            return 0;
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                return 0;
         }
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
+    } catch (const std::exception& e) {
+        LOG_ERROR("KeycastOverlay 窗口过程异常: {}", e.what());
+    } catch (...) {
+        LOG_ERROR("KeycastOverlay 窗口过程未知异常");
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }

@@ -5,8 +5,9 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, TextInput, Select, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
+import { useTranslation } from 'react-i18next';
 
 interface CaptureSettings {
   format: string;
@@ -15,6 +16,8 @@ interface CaptureSettings {
   copyToClipboard: boolean;
   showCrosshair: boolean;
   autoDetectWindow: boolean;
+  shortcut?: string;
+  saveDirectory?: string;
 }
 
 interface RecordingSettings {
@@ -25,6 +28,7 @@ interface RecordingSettings {
 }
 
 export const CapturePage: FC = () => {
+  const { t } = useTranslation();
   const [capture, setCapture] = useState<CaptureSettings>({
     format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
     showCrosshair: true, autoDetectWindow: true,
@@ -55,22 +59,56 @@ export const CapturePage: FC = () => {
     bridgeRequest('recording.updateSettings', { [key]: value });
   }, []);
 
+  const handleBrowseDir = async () => {
+    const dir = await bridgeRequest<string>('capture.browseDirectory');
+    if (dir) updateCapture('saveDirectory', dir);
+  };
+
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>加载中...</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading' as any, '加载中...')}</div>;
   }
 
   return (
     <div className="capture-page" style={{ animation: 'fadeIn 0.3s ease' }}>
-      <SettingGroup title="截图设置" icon="📷">
+      <SettingGroup title={t('capture.title')} icon="📷">
         <Card>
-          <SettingRow label="截图快捷键" description="触发截图的全局快捷键">
+          <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
             <kbd style={{
               padding: '4px 10px', borderRadius: '6px',
               background: 'var(--bg-elevated)', border: '1px solid var(--card-border)',
               fontFamily: 'Consolas, monospace', fontSize: '0.85rem', color: 'var(--text-secondary)'
             }}>Ctrl+Shift+A</kbd>
           </SettingRow>
-          <SettingRow label="截图格式" description="截图保存的默认图片格式">
+          <Toggle
+            id="capture-copy-clipboard"
+            label={t('capture.copyToClipboard')}
+            description={t('capture.copyToClipboardDesc')}
+            checked={capture.copyToClipboard}
+            onChange={(v) => updateCapture('copyToClipboard', v)}
+          />
+          <Toggle
+            id="capture-auto-save"
+            label={t('capture.saveToFile')}
+            description={t('capture.saveToFileDesc')}
+            checked={capture.saveToFile}
+            onChange={(v) => updateCapture('saveToFile', v)}
+          />
+          {capture.saveToFile && (
+            <SettingRow label={t('capture.saveDir')} description={t('capture.saveDirDesc')}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <div>
+                  <TextInput
+                    id="saveDir"
+                    value={capture.saveDirectory || ''}
+                    disabled
+                    onChange={() => {}}
+                  />
+                </div>
+                <Button variant="ghost" onClick={handleBrowseDir}>{t('capture.browse')}</Button>
+              </div>
+            </SettingRow>
+          )}
+          <SettingRow label={t('capture.imageFormat')} description={t('capture.imageFormatDesc')}>
             <Select
               id="capture-format"
               value={capture.format}
@@ -79,37 +117,9 @@ export const CapturePage: FC = () => {
                 { value: 'png', label: 'PNG (无损)' },
                 { value: 'jpg', label: 'JPEG (压缩)' },
                 { value: 'webp', label: 'WebP (高效)' },
-                { value: 'bmp', label: 'BMP (原始)' },
               ]}
             />
           </SettingRow>
-          <SettingRow label="图片质量" description="JPEG/WebP 压缩质量 (1-100)">
-            <Select
-              id="capture-quality"
-              value={String(capture.quality)}
-              onChange={(v) => updateCapture('quality', parseInt(v))}
-              options={[
-                { value: '100', label: '100 (最高)' },
-                { value: '95', label: '95 (推荐)' },
-                { value: '85', label: '85 (平衡)' },
-                { value: '70', label: '70 (压缩)' },
-              ]}
-            />
-          </SettingRow>
-          <Toggle
-            id="capture-copy-clipboard"
-            label="复制到剪贴板"
-            description="截图完成后自动复制到系统剪贴板"
-            checked={capture.copyToClipboard}
-            onChange={(v) => updateCapture('copyToClipboard', v)}
-          />
-          <Toggle
-            id="capture-auto-save"
-            label="自动保存到文件"
-            description="截图完成后自动保存到指定目录"
-            checked={capture.saveToFile}
-            onChange={(v) => updateCapture('saveToFile', v)}
-          />
           <Toggle
             id="capture-crosshair"
             label="显示十字准星"

@@ -115,6 +115,12 @@ private:
     /// 渲染帧
     void render();
 
+    /// 请求重绘（脏标记驱动，避免空转全屏重绘）
+    void invalidate() { m_needsRender = true; }
+
+    /// 标记标注内容已变更（合成缓存失效 + 请求重绘）
+    void markMarkupDirty() { m_markupCacheDirty = true; m_needsRender = true; }
+
     /// 绘制半透明遮罩（选区外区域变暗）
     void drawDimOverlay(const D2D1_RECT_F& selectionRect);
 
@@ -132,6 +138,9 @@ private:
 
     /// 绘制当前正在拖拽的标注预览
     void drawActiveMarkupPreview(const D2D1_RECT_F& selectionRect);
+
+    /// 绘制实时的动态放大镜预览
+    void drawDynamicMagnifier();
 
     /// 绘制十字准星
     void drawCrosshair(float x, float y);
@@ -153,6 +162,15 @@ private:
     ToolbarButton* hitTestToolbar(POINT point);
     void executeToolbarCommand(const ToolbarButton& button);
 
+    /// 选区二次调整：命中选区控制点/边框（仅在尚无标注时启用）
+    HitArea hitTestSelectionBox(POINT point) const;
+    /// 应用选区缩放/移动
+    void adjustSelection(HitArea handle, int dx, int dy);
+    /// 切换当前标注工具（快捷键/工具栏共用）
+    void setCurrentTool(MarkupTool tool);
+    /// 根据光标位置更新鼠标指针外观
+    void updateHoverCursor(POINT point);
+
     /// 标注交互
     bool isPointInSelection(POINT point) const;
     cv::Point toMarkupPoint(POINT point) const;
@@ -160,10 +178,7 @@ private:
     void updateMarkup(POINT point);
     void finishMarkup(POINT point);
 
-    /// 文本输入 (Text 工具): WM_CHAR 累积 → 回车/切换工具时提交
-    void onTextChar(wchar_t ch);
-    void commitTextEditing();
-    void drawTextEditing(const D2D1_RECT_F& selectionRect);
+
 
     /// 窗口过程
     static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -197,16 +212,25 @@ private:
     std::vector<ToolbarButton> m_toolbarButtons;
 
     // 二次编辑与拖拽
-    uint32_t m_selectedElementId = 0;
-    int m_resizingHandle = -1; // -1:移动, 0-7:缩放控制点
+    MarkupElement* m_activeElement = nullptr;
+    HitArea m_dragHandle = HitArea::None;
     bool m_isManipulating = false;
     POINT m_lastMousePos{};
 
-    // 文本输入状态
-    bool m_editingText = false;
-    cv::Point m_textAnchor{};      // 文本在标注坐标系中的锚点
-    POINT m_textScreenPos{};       // 文本在覆盖层坐标系中的位置 (用于绘制)
-    std::wstring m_textBuffer;
+    // 选区二次调整（缩放/移动）
+    bool m_isAdjustingSelection = false;
+    HitArea m_selAdjustHandle = HitArea::None;
+    POINT m_selAdjustLast{};
+
+    // 渲染脏标记（按需重绘，避免空转）
+    bool m_needsRender = true;
+    // 标注合成缓存（仅在标注变化时重建 D2D 位图）
+    bool m_markupCacheDirty = true;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> m_markupCacheBitmap;
+
+    // 动态放大镜
+    int m_dynamicMagnifierRadius = 60;
+    float m_dynamicMagnifierScale = 2.0f;
 
     // 回调
     SelectionCallback m_callback;

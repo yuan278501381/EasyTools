@@ -9,6 +9,7 @@
 
 #include "capture/PinWindow.h"
 #include "core/logger/Logger.h"
+#include "core/utils/WinUtils.h"
 
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
@@ -175,6 +176,9 @@ bool PinWindow::createRenderResources(const cv::Mat& image) {
     hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
     if (FAILED(hr)) return false;
 
+    // 禁用 D2D 的自动 DPI 缩放
+    m_renderTarget->SetDpi(96.0f, 96.0f);
+
     // 转为 BGRA 并创建 D2D Bitmap
     cv::Mat bgra;
     if (image.channels() == 3) {
@@ -271,14 +275,15 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             // 右键菜单
             if (!self) break;
             HMENU menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, 1, L"复制到剪贴板");
+            bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
+            AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板" : L"Copy to Clipboard");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 2, L"透明度 100%");
-            AppendMenuW(menu, MF_STRING, 3, L"透明度 75%");
-            AppendMenuW(menu, MF_STRING, 4, L"透明度 50%");
+            AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%" : L"Opacity 100%");
+            AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%" : L"Opacity 75%");
+            AppendMenuW(menu, MF_STRING, 4, isZh ? L"透明度 50%" : L"Opacity 50%");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 5, L"关闭");
-            AppendMenuW(menu, MF_STRING, 6, L"关闭全部贴图");
+            AppendMenuW(menu, MF_STRING, 5, isZh ? L"关闭" : L"Close");
+            AppendMenuW(menu, MF_STRING, 6, isZh ? L"关闭全部贴图" : L"Close All Pins");
 
             POINT pt;
             GetCursorPos(&pt);

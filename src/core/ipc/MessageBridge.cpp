@@ -324,7 +324,8 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"date", item.first},
                 {"keystrokes", item.second.value("totalKeys", 0ULL)},
                 {"mouseClicks", item.second.value("leftClicks", 0ULL) + item.second.value("rightClicks", 0ULL)},
-                {"mouseDistance", item.second.value("mouseDistance", 0.0)}
+                {"mouseDistance", item.second.value("mouseDistance", 0.0)},
+                {"keyMap", item.second.value("keyMap", json::object())}
             });
         }
         return result;

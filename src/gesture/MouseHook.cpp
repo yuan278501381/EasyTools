@@ -71,81 +71,95 @@ std::vector<MouseEvent> MouseHook::drainEvents(size_t maxCount) {
 LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     auto& self = MouseHook::instance();
 
-    if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed)) {
-        auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+    // 同线程重入防护: 手势引擎在回调里 SendInput 合成点击(补发右键等)会同步重入本钩子。
+    // 若不挡掉, 内层会再次锁 m_callbackMutex / 手势引擎 m_mutex, 递归锁非递归 std::mutex
+    // → "resource deadlock would occur"。注入事件虽已在下方按 LLMHF_INJECTED 过滤, 但此处
+    // 多一道线程级防护更稳妥(覆盖任何同步重入路径)。
+    static thread_local bool s_reentry = false;
 
-        // 忽略注入事件 (手势动作的 SendInput、补发的右键点击、Lua 的 mouse.* 等),
-        // 否则会形成反馈循环 / 误触发新手势。
-        if (data->flags & LLMHF_INJECTED) {
-            return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
-        }
+    if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed) && !s_reentry) {
+        s_reentry = true;
+        struct ReentryGuard { ~ReentryGuard() { s_reentry = false; } } reentryGuard;
+        try {
+            auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
 
-        MouseEvent event{};
-        event.position = data->pt;
-        event.timestamp = std::chrono::steady_clock::now();
-        event.foregroundWindow = GetForegroundWindow();
+            // 忽略注入事件 (手势动作的 SendInput、补发的右键点击、Lua 的 mouse.* 等),
+            // 否则会形成反馈循环 / 误触发新手势。
+            if (data->flags & LLMHF_INJECTED) {
+                return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+            }
 
-        bool shouldCapture = false;
+            MouseEvent event{};
+            event.position = data->pt;
+            event.timestamp = std::chrono::steady_clock::now();
+            event.foregroundWindow = GetForegroundWindow();
 
-        switch (wParam) {
-            case WM_MOUSEMOVE: {
-                event.type = MouseEventType::Move;
-                shouldCapture = true;  // Move 事件总是采集（由上层过滤）
-                
-                // 计算欧几里得距离并累加
-                static POINT lastPt = { -1, -1 };
-                if (lastPt.x != -1 && lastPt.y != -1) {
-                    double dx = data->pt.x - lastPt.x;
-                    double dy = data->pt.y - lastPt.y;
-                    double dist = std::sqrt(dx*dx + dy*dy);
-                    if (dist > 0) {
-                        easy::core::StatsManager::instance().recordMouseDistance(dist);
+            bool shouldCapture = false;
+
+            switch (wParam) {
+                case WM_MOUSEMOVE: {
+                    event.type = MouseEventType::Move;
+                    shouldCapture = true;  // Move 事件总是采集（由上层过滤）
+                    
+                    // 计算欧几里得距离并累加
+                    static POINT lastPt = { -1, -1 };
+                    if (lastPt.x != -1 && lastPt.y != -1) {
+                        double dx = data->pt.x - lastPt.x;
+                        double dy = data->pt.y - lastPt.y;
+                        double dist = std::sqrt(dx*dx + dy*dy);
+                        if (dist > 0) {
+                            easy::core::StatsManager::instance().recordMouseDistance(dist);
+                        }
                     }
+                    lastPt = data->pt;
+                    break;
                 }
-                lastPt = data->pt;
-                break;
+                case WM_RBUTTONDOWN:
+                    event.type = MouseEventType::RightDown;
+                    shouldCapture = true;
+                    easy::core::StatsManager::instance().recordRightClick();
+                    break;
+                case WM_RBUTTONUP:
+                    event.type = MouseEventType::RightUp;
+                    shouldCapture = true;
+                    break;
+                case WM_MBUTTONDOWN:
+                    event.type = MouseEventType::MiddleDown;
+                    shouldCapture = true;
+                    break;
+                case WM_MBUTTONUP:
+                    event.type = MouseEventType::MiddleUp;
+                    shouldCapture = true;
+                    break;
+                case WM_LBUTTONDOWN:
+                    event.type = MouseEventType::LeftDown;
+                    shouldCapture = true;
+                    easy::core::StatsManager::instance().recordLeftClick();
+                    break;
+                case WM_LBUTTONUP:
+                    event.type = MouseEventType::LeftUp;
+                    shouldCapture = true;
+                    break;
+                case WM_MOUSEWHEEL: {
+                    short delta = HIWORD(data->mouseData);
+                    event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
+                    shouldCapture = true;
+                    easy::core::StatsManager::instance().recordScroll();
+                    break;
+                }
+                default:
+                    break;
             }
-            case WM_RBUTTONDOWN:
-                event.type = MouseEventType::RightDown;
-                shouldCapture = true;
-                easy::core::StatsManager::instance().recordRightClick();
-                break;
-            case WM_RBUTTONUP:
-                event.type = MouseEventType::RightUp;
-                shouldCapture = true;
-                break;
-            case WM_MBUTTONDOWN:
-                event.type = MouseEventType::MiddleDown;
-                shouldCapture = true;
-                break;
-            case WM_MBUTTONUP:
-                event.type = MouseEventType::MiddleUp;
-                shouldCapture = true;
-                break;
-            case WM_LBUTTONDOWN:
-                event.type = MouseEventType::LeftDown;
-                shouldCapture = true;
-                easy::core::StatsManager::instance().recordLeftClick();
-                break;
-            case WM_LBUTTONUP:
-                event.type = MouseEventType::LeftUp;
-                shouldCapture = true;
-                break;
-            case WM_MOUSEWHEEL: {
-                short delta = HIWORD(data->mouseData);
-                event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
-                shouldCapture = true;
-                easy::core::StatsManager::instance().recordScroll();
-                break;
-            }
-            default:
-                break;
-        }
 
-        if (shouldCapture) {
-            if (self.processEvent(event)) {
-                return 1; // 拦截事件，不传递给系统和其他应用
+            if (shouldCapture) {
+                if (self.processEvent(event)) {
+                    return 1; // 拦截事件，不传递给系统和其他应用
+                }
             }
+        } catch (const std::exception& e) {
+            LOG_ERROR("MouseHook 发生未捕获异常: {}", e.what());
+        } catch (...) {
+            LOG_ERROR("MouseHook 发生未知异常");
         }
     }
 
@@ -154,12 +168,15 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
 }
 
 bool MouseHook::processEvent(const MouseEvent& event) {
-    // 尝试直接回调（同步模式，支持拦截）
+    // 复制回调后立即释放锁, 绝不在持有 m_callbackMutex 时执行回调:
+    // 回调可能合成输入(SendInput)并同步重入本钩子, 持锁执行会递归锁 → 死锁异常。
+    MouseEventCallback cb;
     {
         std::lock_guard lock(m_callbackMutex);
-        if (m_callback) {
-            return m_callback(event);
-        }
+        cb = m_callback;
+    }
+    if (cb) {
+        return cb(event);
     }
 
     // 入队模式（异步处理不支持拦截）

@@ -18,6 +18,7 @@ import {
   type GestureMapping,
 } from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
+import { useTranslation } from 'react-i18next';
 import './GesturePage.css';
 
 interface GestureState {
@@ -51,6 +52,7 @@ export const GesturePage: FC = () => {
   const [mappings, setMappings] = useState<GestureMapping[]>([]);
   const [profileNames, setProfileNames] = useState<string[]>([PROFILE_NAME]);
   const [loading, setLoading] = useState(true);
+  const { t } = useTranslation();
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<GestureMapping | null>(null);
@@ -159,7 +161,7 @@ export const GesturePage: FC = () => {
   return (
     <div className="gesture-page">
       {/* ── 全局开关 ──────────────────────────────────────────────── */}
-      <SettingGroup title="基本设置" icon="🖱️">
+      <SettingGroup title={t('gesture.title')} icon="🖱️">
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
@@ -168,26 +170,26 @@ export const GesturePage: FC = () => {
           </div>
           <Toggle
             id="gesture-enabled"
-            label="启用鼠标手势"
-            description="在全局范围内启用鼠标手势功能"
+            label={t('gesture.enabled')}
+            description={t('gesture.enabledDesc')}
             checked={enabled}
             onChange={handleToggleEnabled}
           />
           <Toggle
             id="gesture-trail"
-            label="显示手势轨迹"
-            description="画手势时在屏幕上显示彩色轨迹"
+            label={t('gesture.showTrail')}
+            description={t('gesture.showTrailDesc')}
             checked={trailVisible}
             onChange={handleToggleTrail}
           />
-          <SettingRow label="触发按钮" description="选择用哪个鼠标按钮触发手势">
+          <SettingRow label={t('gesture.triggerButton')} description={t('gesture.triggerButtonDesc')}>
             <Select
               id="gesture-trigger"
               value={triggerButton}
               onChange={handleTriggerChange}
               options={[
-                { value: 'right', label: '右键' },
-                { value: 'middle', label: '中键' },
+                { value: 'right', label: t('gesture.btnRight') },
+                { value: 'middle', label: t('gesture.btnMiddle') },
               ]}
             />
           </SettingRow>
@@ -195,25 +197,25 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── 手势映射表 ────────────────────────────────────────────── */}
-      <SettingGroup title="手势映射" icon="✋">
+      <SettingGroup title={t('gesture.mapping')} icon="✋">
         <Card>
           <div className="gesture-toolbar">
-            <span className="gesture-toolbar__count">共 {mappings.length} 个手势</span>
-            <Button size="sm" variant="primary" onClick={openAdd}>＋ 添加手势</Button>
+            <span className="gesture-toolbar__count">{t('gesture.mappingCount', { count: mappings.length })}</span>
+            <Button size="sm" variant="primary" onClick={openAdd}>{t('gesture.addMapping')}</Button>
           </div>
 
           <div className="gesture-table">
             <div className="gesture-table__header">
-              <span className="gesture-table__col gesture-table__col--arrow">手势</span>
-              <span className="gesture-table__col gesture-table__col--code">编码</span>
-              <span className="gesture-table__col gesture-table__col--action">动作</span>
-              <span className="gesture-table__col gesture-table__col--type">类型</span>
-              <span className="gesture-table__col gesture-table__col--key">详情</span>
+              <span className="gesture-table__col gesture-table__col--arrow">{t('gesture.colGesture')}</span>
+              <span className="gesture-table__col gesture-table__col--code">{t('gesture.colCode')}</span>
+              <span className="gesture-table__col gesture-table__col--action">{t('gesture.colAction')}</span>
+              <span className="gesture-table__col gesture-table__col--type">{t('gesture.colType')}</span>
+              <span className="gesture-table__col gesture-table__col--key">{t('gesture.colDetail')}</span>
               <span className="gesture-table__col gesture-table__col--actions" />
             </div>
 
             {mappings.length === 0 && (
-              <div className="gesture-empty">还没有手势，点击「添加手势」创建第一个。</div>
+              <div className="gesture-empty">{t('gesture.emptyMapping')}</div>
             )}
 
             {mappings.map((m, i) => (
@@ -249,7 +251,7 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── 作用域规则 ────────────────────────────────────────────── */}
-      <SettingGroup title="作用域规则" icon="🎯">
+      <SettingGroup title={t('gesture.scopeRules')} icon="🎯">
         <ScopeRulesManager profileNames={profileNames} />
       </SettingGroup>
 
