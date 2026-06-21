@@ -192,6 +192,17 @@ void MarkupEngine::setBaseImage(const cv::Mat& image) {
     LOG_DEBUG("标注引擎: 设置底图 {}x{}", image.cols, image.rows);
 }
 
+void MarkupEngine::updateBaseImage(const cv::Mat& image) {
+    // 仅替换底图，保留标注/撤销栈/序号状态（选区二次调整后重裁用）
+    m_baseImage = image.clone();
+}
+
+void MarkupEngine::translateAll(int dx, int dy) {
+    if (dx == 0 && dy == 0) return;
+    for (auto& e : m_elements) e->moveBy(dx, dy);
+    for (auto& e : m_undoStack) e->moveBy(dx, dy);  // 撤销栈一并平移，保证 redo 位置正确
+}
+
 cv::Mat MarkupEngine::getCompositeImage() const {
     if (m_baseImage.empty()) return {};
 

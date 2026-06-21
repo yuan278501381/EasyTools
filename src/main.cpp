@@ -372,6 +372,20 @@ void initializeSubsystems(HWND hwnd) {
         auto& engine = easy::gesture::GestureEngine::instance();
         engine.setPaused(!engine.isPaused());
     });
+    hotkeys.registerHotkey("切换贴图穿透", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'X'}, []() {
+        // 切换光标下贴图的鼠标穿透；无命中则静默忽略
+        easy::capture::PinWindow::toggleClickThroughUnderCursor();
+    });
+    hotkeys.registerHotkey("剪贴板贴图", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'V'}, []() {
+        // 将剪贴板内容（图/文本/颜色）直接贴成浮空贴图
+        easy::capture::PinWindow::createFromClipboard();
+    });
+    hotkeys.registerHotkey("隐藏显示贴图", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'H'}, []() {
+        easy::capture::PinWindow::toggleHideAll();
+    });
+    hotkeys.registerHotkey("整理贴图", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'G'}, []() {
+        easy::capture::PinWindow::arrangeAll();
+    });
 
     // 注册手势内置命令的应用级回调 (保持 gesture → capture/tray 单向依赖)
     {

@@ -28,6 +28,9 @@ public:
     /// 创建一个新的贴图窗口
     static std::shared_ptr<PinWindow> create(const cv::Mat& image, int x, int y);
 
+    /// 将剪贴板内容（图像 / 文本 / #颜色）直接贴成浮空贴图，置于当前光标处。
+    static std::shared_ptr<PinWindow> createFromClipboard();
+
     /// 关闭此贴图窗口
     void close();
 
@@ -36,6 +39,14 @@ public:
 
     /// 设置缩放比例
     void setScale(float scale);
+
+    /// 设置鼠标穿透（点透）。开启后窗口忽略所有鼠标事件，透传到下层窗口。
+    void setClickThrough(bool enable);
+
+    /// 切换光标所在贴图的鼠标穿透状态。供全局快捷键调用——
+    /// 穿透窗口收不到右键，必须靠快捷键切回；且 WS_EX_TRANSPARENT 会被 WindowFromPoint 跳过，
+    /// 故此处用窗口矩形包含判断定位光标下的贴图。
+    static bool toggleClickThroughUnderCursor();
 
     /// 是否存活
     bool isAlive() const { return m_hwnd != nullptr; }
@@ -46,6 +57,12 @@ public:
 
     /// 关闭所有贴图窗口
     static void closeAll();
+
+    /// 隐藏/显示所有贴图（在屏幕贴满时一键看桌面；隐藏后靠快捷键恢复）
+    static void toggleHideAll();
+
+    /// 整理所有贴图：归拢为从主屏左上角开始的整齐层叠堆，并恢复可见
+    static void arrangeAll();
 
     /// 当前贴图数量
     static size_t count() { return s_instances.size(); }
@@ -58,6 +75,7 @@ private:
     bool initWindow(HINSTANCE hInstance, int x, int y, int w, int h);
     bool createRenderResources(const cv::Mat& image);
     void render();
+    void applyLayeredOpacity();  // 按 opacity × 穿透提示系数 应用分层透明度
 
     static LRESULT CALLBACK pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -68,6 +86,9 @@ private:
     int m_origHeight = 0;
     bool m_isDragging = false;
     POINT m_dragOffset{};
+    bool m_clickThrough = false;
+    bool m_focused = false;  // 选中态（键盘焦点）：显示高亮边框，可按 Esc 隐藏
+    cv::Mat m_sourceImage;  // 原图副本，供"复制到剪贴板"
 
     // D2D
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
@@ -77,6 +98,7 @@ private:
     // 全局实例管理
     static std::vector<std::shared_ptr<PinWindow>> s_instances;
     static bool s_classRegistered;
+    static bool s_allHidden;  // toggleHideAll 的隐藏态
 };
 
 }  // namespace easy::capture
