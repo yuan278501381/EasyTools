@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // CaptureOverlay.cpp — 截图区域选择覆盖层实现
 //
 // 交互流程:
@@ -21,7 +21,9 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <ShellScalingApi.h>
 #include <windowsx.h>
+#include <imm.h>
 
 namespace easy::capture {
 
@@ -47,6 +49,7 @@ bool CaptureOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
+    m_dpiScale = GetDpiForWindow(m_hwnd) / 96.0f;
     if (!createRenderResources()) {
         LOG_ERROR("创建截图覆盖层渲染资源失败");
         return false;
@@ -115,6 +118,7 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
 
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
+        SetFocus(m_hwnd);
         SetCapture(m_hwnd);
 
         SetTimer(m_hwnd, RENDER_TIMER_ID, 16, nullptr);
@@ -194,6 +198,9 @@ bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
         LOG_ERROR("CreateWindowExW 失败: error={}", GetLastError());
         return false;
     }
+    
+    // Disable IME for this window to allow WASD hotkeys
+    ImmAssociateContext(m_hwnd, NULL);
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
     return true;
@@ -216,7 +223,7 @@ bool CaptureOverlay::createRenderResources() {
     hr = m_dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f, L"zh-CN", m_infoTextFormat.GetAddressOf()
+        13.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f), L"zh-CN", m_infoTextFormat.GetAddressOf()
     );
     if (FAILED(hr)) return false;
     m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -226,7 +233,7 @@ bool CaptureOverlay::createRenderResources() {
     hr = m_dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        18.0f, L"zh-CN", m_textInputFormat.GetAddressOf()
+        18.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f), L"zh-CN", m_textInputFormat.GetAddressOf()
     );
     if (SUCCEEDED(hr) && m_textInputFormat) {
         m_textInputFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -830,67 +837,136 @@ void CaptureOverlay::drawSelectionLoupe(float cx, float cy) {
     int r = 0, g = 0, b = 0;
     bool hasColor = sampleScreenColor(px, py, r, g, b);
 
-    constexpr float loupe = 120.0f;   // 放大视窗边长
-    constexpr float zoom = 8.0f;      // 放大倍率（8x，便于像素级对齐/取色）
-    constexpr float pad = 8.0f;
-    constexpr float panelH = 84.0f;   // 信息面板高度
-    const float srcHalf = loupe / zoom / 2.0f;
-    const float totalH = loupe + panelH;
+    float scale = (m_dpiScale > 0) ? m_dpiScale : 1.0f;
+    constexpr float zoom = 9.0f; 
+    
+    int gridCountX = 17;
+    int gridCountY = 7;
+    float loupeBoxW = gridCountX * zoom * scale;
+    float loupeBoxH = gridCountY * zoom * scale;
+    float panelH = 96.0f * scale; 
+    const float totalH = loupeBoxH + panelH;
+    const float pad = 12.0f * scale;
 
     auto size = m_renderTarget->GetSize();
 
-    // 默认放在光标右下；靠近右/下边缘时翻转，避免越界或遮挡取样点
-    float lx = cx + 18.0f;
-    float ly = cy + 18.0f;
-    if (lx + loupe + pad > size.width)  lx = cx - 18.0f - loupe;
-    if (ly + totalH + pad > size.height) ly = cy - 18.0f - totalH;
-    lx = std::clamp(lx, pad, std::max(pad, size.width - loupe - pad));
+    float lx = cx + 24.0f * scale;
+    float ly = cy + 24.0f * scale;
+
+    if (lx + loupeBoxW + pad > size.width) lx = cx - 24.0f * scale - loupeBoxW;
+    if (ly + totalH + pad > size.height) ly = cy - 24.0f * scale - totalH;
+    lx = std::clamp(lx, pad, std::max(pad, size.width - loupeBoxW - pad));
     ly = std::clamp(ly, pad, std::max(pad, size.height - totalH - pad));
 
-    // ── 放大视窗（最近邻，像素清晰可数）──
-    D2D1_RECT_F dst = D2D1::RectF(lx, ly, lx + loupe, ly + loupe);
-    D2D1_RECT_F src = D2D1::RectF(cx - srcHalf, cy - srcHalf, cx + srcHalf, cy + srcHalf);
+    D2D1_RECT_F dst = D2D1::RectF(lx, ly, lx + loupeBoxW, ly + loupeBoxH);
+    
+    float srcHalfX = gridCountX / 2.0f; 
+    float srcHalfY = gridCountY / 2.0f; 
+    D2D1_RECT_F src = D2D1::RectF(cx - srcHalfX, cy - srcHalfY, cx + srcHalfX, cy + srcHalfY);
+    
     m_renderTarget->DrawBitmap(m_screenBitmap.Get(), dst, 1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, src);
 
-    // 准星 + 中心像素高亮框（标出正在取样的那一个像素）
-    float mcx = lx + loupe / 2.0f;
-    float mcy = ly + loupe / 2.0f;
-    m_renderTarget->DrawLine(D2D1::Point2F(lx, mcy), D2D1::Point2F(lx + loupe, mcy), m_crosshairBrush.Get(), 1.0f);
-    m_renderTarget->DrawLine(D2D1::Point2F(mcx, ly), D2D1::Point2F(mcx, ly + loupe), m_crosshairBrush.Get(), 1.0f);
-    D2D1_RECT_F centerCell = D2D1::RectF(mcx - zoom / 2, mcy - zoom / 2, mcx + zoom / 2, mcy + zoom / 2);
-    m_renderTarget->DrawRectangle(centerCell, m_infoTextBrush.Get(), 1.5f);
-    m_renderTarget->DrawRectangle(dst, m_borderBrush.Get(), 2.0f);
-
-    // ── 信息面板（与玻璃面板统一：深色磨砂 + 细边框；方角以贴合上方放大窗）──
-    D2D1_RECT_F panel = D2D1::RectF(lx, ly + loupe, lx + loupe, ly + totalH);
-    {
-        ComPtr<ID2D1SolidColorBrush> pf, pb;
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.80f), pf.GetAddressOf());
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.10f), pb.GetAddressOf());
-        if (pf) m_renderTarget->FillRectangle(panel, pf.Get());
-        if (pb) m_renderTarget->DrawRectangle(panel, pb.Get(), 1.0f);
+    ComPtr<ID2D1SolidColorBrush> gridBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.5f, 0.5f, 0.4f), gridBrush.GetAddressOf());
+    if (gridBrush) {
+        for (int i = 0; i <= gridCountY; ++i) {
+            float lineOffset = i * zoom * scale;
+            m_renderTarget->DrawLine(D2D1::Point2F(lx, ly + lineOffset), D2D1::Point2F(lx + loupeBoxW, ly + lineOffset), gridBrush.Get(), 1.0f);
+        }
+        for (int i = 0; i <= gridCountX; ++i) {
+            float lineOffset = i * zoom * scale;
+            m_renderTarget->DrawLine(D2D1::Point2F(lx + lineOffset, ly), D2D1::Point2F(lx + lineOffset, ly + loupeBoxH), gridBrush.Get(), 1.0f);
+        }
     }
 
-    // 顶部颜色条（直观显示取样色）
-    if (hasColor) {
-        ComPtr<ID2D1SolidColorBrush> swatch;
-        m_renderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f), swatch.GetAddressOf());
-        if (swatch)
-            m_renderTarget->FillRectangle(
-                D2D1::RectF(lx, ly + loupe, lx + loupe, ly + loupe + 12.0f), swatch.Get());
+    ComPtr<ID2D1SolidColorBrush> blueCrosshair;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.7f, 1.0f, 0.6f), blueCrosshair.GetAddressOf());
+    
+    float pixelSz = zoom * scale;
+    float mcx = lx + (gridCountX / 2) * pixelSz; 
+    float mcy = ly + (gridCountY / 2) * pixelSz; 
+
+    if (blueCrosshair) {
+        m_renderTarget->FillRectangle(D2D1::RectF(mcx, ly, mcx + pixelSz, mcy), blueCrosshair.Get());
+        m_renderTarget->FillRectangle(D2D1::RectF(mcx, mcy + pixelSz, mcx + pixelSz, ly + loupeBoxH), blueCrosshair.Get());
+        m_renderTarget->FillRectangle(D2D1::RectF(lx, mcy, mcx, mcy + pixelSz), blueCrosshair.Get());
+        m_renderTarget->FillRectangle(D2D1::RectF(mcx + pixelSz, mcy, lx + loupeBoxW, mcy + pixelSz), blueCrosshair.Get());
     }
 
-    // 文本：坐标 / HEX / RGB / 复制提示
-    std::wstring hex = hasColor ? std::format(L"#{:02X}{:02X}{:02X}", r, g, b) : std::wstring(L"--");
-    bool toast = (m_loupeToastUntil != 0 && GetTickCount() < m_loupeToastUntil);
-    std::wstring info = std::format(L"({}, {})\n{}\nR{} G{} B{}\n{}",
-        px, py, hex, r, g, b, toast ? L"✓ 已复制" : L"C 复制");
+    ComPtr<ID2D1SolidColorBrush> blackBrush, whiteBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0,0,0, 1.0f), blackBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1,1,1, 1.0f), whiteBrush.GetAddressOf());
+    if (blackBrush && whiteBrush) {
+        D2D1_RECT_F centerCell = D2D1::RectF(mcx, mcy, mcx + pixelSz, mcy + pixelSz);
+        m_renderTarget->DrawRectangle(centerCell, blackBrush.Get(), 1.5f);
+    }
+    
+    m_renderTarget->DrawRectangle(dst, blackBrush.Get(), 1.0f);
 
-    D2D1_RECT_F textRect = D2D1::RectF(lx, ly + loupe + 14.0f, lx + loupe, ly + totalH);
-    m_renderTarget->DrawText(info.c_str(), static_cast<UINT32>(info.size()),
-                             m_infoTextFormat.Get(), textRect, m_infoTextBrush.Get());
+    D2D1_RECT_F panel = D2D1::RectF(lx, ly + loupeBoxH, lx + loupeBoxW, ly + totalH);
+    ComPtr<ID2D1SolidColorBrush> panelBg;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f, 0.95f), panelBg.GetAddressOf());
+    if (panelBg) m_renderTarget->FillRectangle(panel, panelBg.Get());
+
+    if (hasColor && m_infoTextFormat && m_dwriteFactory) {
+        std::wstring text1 = std::format(L"({} , {})", px, py);
+        std::wstring text2 = m_colorFormatHex ? 
+                             std::format(L"#{:02X}{:02X}{:02X}", r, g, b) : 
+                             std::format(L"rgb({}, {}, {})", r, g, b);
+        std::wstring text3 = L"Shift: 切换颜色格式";
+        
+        bool toast = (m_loupeToastUntil != 0 && GetTickCount() < m_loupeToastUntil);
+        std::wstring text4 = toast ? L"已复制!" : L"C: 复制颜色值";
+
+        float tx = lx;
+        float tw = loupeBoxW;
+        float currY = ly + loupeBoxH + 8.0f * scale;
+        
+        m_renderTarget->DrawTextW(text1.c_str(), (UINT32)text1.size(), m_infoTextFormat.Get(),
+            D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), m_infoTextBrush.Get());
+        currY += 22.0f * scale;
+
+        m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        ComPtr<IDWriteTextLayout> layout;
+        m_dwriteFactory->CreateTextLayout(text2.c_str(), (UINT32)text2.size(), m_infoTextFormat.Get(), 1000.0f, 24.0f * scale, layout.GetAddressOf());
+        float textW = 0;
+        if (layout) {
+            DWRITE_TEXT_METRICS metrics;
+            layout->GetMetrics(&metrics);
+            textW = metrics.width;
+        }
+
+        float boxSz = 12.0f * scale;
+        float gap = 6.0f * scale;
+        float totalBlockW = boxSz + gap + textW;
+        float startX = tx + (tw - totalBlockW) / 2.0f;
+
+        ComPtr<ID2D1SolidColorBrush> colorBox;
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f), colorBox.GetAddressOf());
+        if (colorBox) {
+            float boxY = currY + (20.0f * scale - boxSz) / 2.0f; // center vertically with text
+            m_renderTarget->FillRectangle(D2D1::RectF(startX, boxY, startX + boxSz, boxY + boxSz), colorBox.Get());
+            m_renderTarget->DrawRectangle(D2D1::RectF(startX, boxY, startX + boxSz, boxY + boxSz), whiteBrush.Get(), 1.0f * scale);
+            
+            m_renderTarget->DrawTextW(text2.c_str(), (UINT32)text2.size(), m_infoTextFormat.Get(),
+                D2D1::RectF(startX + boxSz + gap, currY, startX + totalBlockW, currY + 24.0f * scale), m_infoTextBrush.Get());
+        }
+
+        m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        currY += 22.0f * scale;
+
+        ComPtr<ID2D1SolidColorBrush> hintBrush;
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.8f, 0.8f, 0.8f, 1.0f), hintBrush.GetAddressOf());
+        m_renderTarget->DrawTextW(text3.c_str(), (UINT32)text3.size(), m_infoTextFormat.Get(),
+            D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), hintBrush.Get());
+        currY += 20.0f * scale;
+
+        m_renderTarget->DrawTextW(text4.c_str(), (UINT32)text4.size(), m_infoTextFormat.Get(),
+            D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), hintBrush.Get());
+    }
+
+    m_renderTarget->DrawRectangle(D2D1::RectF(lx, ly, lx + loupeBoxW, ly + totalH), blackBrush.Get(), 1.0f);
 }
 
 RECT CaptureOverlay::detectWindowUnderCursor(POINT cursorPos) {
@@ -1142,10 +1218,11 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
     }};
 
     auto size = m_renderTarget->GetSize();
-    constexpr float buttonSize = 30.0f;
-    constexpr float gap = 4.0f;
-    constexpr float toolbarHeight = 42.0f;
-    constexpr float padding = 8.0f;
+    const float buttonSize = 30.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f);
+    const float gap = 4.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f);
+    const float toolbarHeight = 42.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f);
+    const float padding = 8.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f);
+    const float btnGapY = 6.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f);
     bool isRecord = (m_mode == OverlayMode::RecordRegion);
     // 非录屏: 9 工具 + 5 颜色 + 8 命令(撤销/重做/清除/OCR/贴图/长截图/取消/确认)
     const int buttonCount = isRecord ? 2
@@ -1165,7 +1242,7 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
         button.command = command;
         button.tool = tool;
         button.label = std::move(label);
-        button.rect = D2D1::RectF(x, toolbarY + 6.0f, x + width, toolbarY + 6.0f + buttonSize);
+        button.rect = D2D1::RectF(x, toolbarY + btnGapY, x + width, toolbarY + btnGapY + buttonSize);
         m_toolbarButtons.push_back(std::move(button));
         x += width + gap;
     };
@@ -1173,8 +1250,8 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
     bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
 
     if (isRecord) {
-        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, isZh ? L"🔴 录制" : L"🔴 Rec", 65.0f);
-        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, isZh ? L"✖ 取消" : L"✖ Cancel", 75.0f);
+        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, isZh ? L"🔴 录制" : L"🔴 Rec", 65.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f));
+        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, isZh ? L"✖ 取消" : L"✖ Cancel", 75.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f));
     } else {
         for (const auto& tool : tools) {
             addButton(ToolbarCommand::SelectTool, tool.tool, tool.label, buttonSize);
@@ -1184,7 +1261,7 @@ void CaptureOverlay::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
             ToolbarButton button;
             button.command = ToolbarCommand::SelectColor;
             button.color = c;
-            button.rect = D2D1::RectF(x, toolbarY + 6.0f, x + buttonSize, toolbarY + 6.0f + buttonSize);
+            button.rect = D2D1::RectF(x, toolbarY + btnGapY, x + buttonSize, toolbarY + btnGapY + buttonSize);
             m_toolbarButtons.push_back(std::move(button));
             x += buttonSize + gap;
         }
@@ -1356,7 +1433,7 @@ void CaptureOverlay::beginMarkup(POINT point) {
             m_activeElement->isActive = false;
             m_activeElement->isEditing = false;
         }
-        m_markup.addText(local, "", m_currentColor, 18.0f);
+        m_markup.addText(local, "", m_currentColor, 18.0f * (m_dpiScale > 0 ? m_dpiScale : 1.0f));
         m_activeElement = m_markup.getElementAtEx(local).element;
         if (m_activeElement) {
             m_activeElement->isActive = true;
@@ -1581,6 +1658,12 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (!self) break;
             self->m_currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
+            // 获取当前鼠标所在显示器的 DPI 缩放比例
+            HMONITOR hMon = MonitorFromPoint({self->m_currentCursor.x, self->m_currentCursor.y}, MONITOR_DEFAULTTONEAREST);
+            UINT dpiX = 96, dpiY = 96;
+            GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+            self->m_dpiScale = dpiX / 96.0f;
+
             if (self->m_isAdjustingSelection) {
                 int dx = self->m_currentCursor.x - self->m_selAdjustLast.x;
                 int dy = self->m_currentCursor.y - self->m_selAdjustLast.y;
@@ -1721,28 +1804,55 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (!self) break;
             self->markMarkupDirty();
 
-            // WASD 控制取色光标
-            if (self->m_state == OverlayState::Idle) {
-                POINT pt;
-                GetCursorPos(&pt);
-                bool moved = false;
-                if (wParam == 'W' || wParam == VK_UP) { pt.y -= 1; moved = true; }
-                if (wParam == 'S' || wParam == VK_DOWN) { pt.y += 1; moved = true; }
-                if (wParam == 'A' || wParam == VK_LEFT) { pt.x -= 1; moved = true; }
-                if (wParam == 'D' || wParam == VK_RIGHT) { pt.x += 1; moved = true; }
-                if (moved) {
-                    SetCursorPos(pt.x, pt.y);
-                    self->m_needsRender = true;
-                    return 0;
-                }
-            }
-
             bool editingText = self->m_activeElement &&
                                self->m_activeElement->tool == MarkupTool::Text &&
                                self->m_activeElement->isEditing;
             bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             bool hasSelection = (self->m_state == OverlayState::Selected ||
                                  self->m_state == OverlayState::Marking);
+
+            // 世界级细节：方向键微调
+            if (!editingText) {
+                bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                
+                // 如果已经有选区了，方向键用来微调选区边界
+                if (hasSelection && (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT)) {
+                    int dx = 0, dy = 0;
+                    if (wParam == VK_UP) dy = -1;
+                    if (wParam == VK_DOWN) dy = 1;
+                    if (wParam == VK_LEFT) dx = -1;
+                    if (wParam == VK_RIGHT) dx = 1;
+                    
+                    if (shift) {
+                        // 缩放选区（右下角）
+                        self->m_dragEnd.x += dx;
+                        self->m_dragEnd.y += dy;
+                    } else {
+                        // 移动整个选区
+                        self->m_dragStart.x += dx;
+                        self->m_dragStart.y += dy;
+                        self->m_dragEnd.x += dx;
+                        self->m_dragEnd.y += dy;
+                    }
+                    self->prepareMarkupBase();
+                    self->m_needsRender = true;
+                    return 0;
+                }
+                
+                // 否则（或按 WASD 时），控制鼠标光标进行像素级移动（取色/找点）
+                POINT pt;
+                GetCursorPos(&pt);
+                bool moved = false;
+                if (wParam == 'W' || (!hasSelection && wParam == VK_UP)) { pt.y -= 1; moved = true; }
+                if (wParam == 'S' || (!hasSelection && wParam == VK_DOWN)) { pt.y += 1; moved = true; }
+                if (wParam == 'A' || (!hasSelection && wParam == VK_LEFT)) { pt.x -= 1; moved = true; }
+                if (wParam == 'D' || (!hasSelection && wParam == VK_RIGHT)) { pt.x += 1; moved = true; }
+                if (moved) {
+                    SetCursorPos(pt.x, pt.y);
+                    self->m_needsRender = true;
+                    return 0;
+                }
+            }
 
             // ESC 分级退出：编辑文字→退出编辑；选中元素→取消选中；否则→关闭截图
             if (wParam == VK_ESCAPE) {

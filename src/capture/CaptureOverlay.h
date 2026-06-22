@@ -250,6 +250,8 @@ private:
     DWORD m_loupeToastUntil = 0;
     DWORD m_showTimestamp = 0;
     bool m_isFadingOut = false;
+    float m_dpiScale = 1.0f;
+    bool m_colorFormatHex = false;
     DWORD m_fadeOutStart = 0;
     void realCancel();
 

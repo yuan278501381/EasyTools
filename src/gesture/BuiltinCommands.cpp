@@ -5,8 +5,10 @@
 #include "gesture/BuiltinCommands.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/ipc/MessageBridge.h"
 
 #include <windows.h>
+#include <shellapi.h>
 
 namespace easy::gesture {
 
@@ -47,6 +49,29 @@ void toggleTopmost(HWND hwnd) {
     LOG_DEBUG("窗口置顶切换: {} -> {}", isTopmost, !isTopmost);
 }
 
+void toggleTransparency(HWND hwnd) {
+    if (!hwnd) return;
+    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (!(ex & WS_EX_LAYERED)) {
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+        SetLayeredWindowAttributes(hwnd, 0, 180, LWA_ALPHA); // 约 70% 透明度
+        LOG_DEBUG("窗口透明度切换: 开启 (70%)");
+    } else {
+        BYTE alpha = 255;
+        DWORD flags = 0;
+        GetLayeredWindowAttributes(hwnd, nullptr, &alpha, &flags);
+        if (alpha < 255) {
+            // 已透明，恢复不透明
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_LAYERED);
+            LOG_DEBUG("窗口透明度切换: 关闭 (不透明)");
+        } else {
+            // 有 Layered 属性但全不透明，设为透明
+            SetLayeredWindowAttributes(hwnd, 0, 180, LWA_ALPHA);
+            LOG_DEBUG("窗口透明度切换: 开启 (70%)");
+        }
+    }
+}
+
 }  // namespace
 
 bool BuiltinCommandDispatcher::dispatchAppCommand(BuiltinCommand cmd) const {
@@ -85,10 +110,41 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
             toggleTopmost(targetWindow());
             break;
         }
+        case BuiltinCommand::ToggleWindowTransparency: {
+            toggleTransparency(targetWindow());
+            break;
+        }
 
         // ── 标签页 / 编辑 (合成快捷键, 由前台应用解释) ─────────────────────
         case BuiltinCommand::CloseTab:           sendCombo(MOD_CONTROL, 'W'); break;
         case BuiltinCommand::RestoreClosedTab:   sendCombo(MOD_CONTROL | MOD_SHIFT, 'T'); break;
+        case BuiltinCommand::WebSearch: {
+            sendCombo(MOD_CONTROL, 'C'); // 发送 Ctrl+C 复制
+            Sleep(50); // 等待剪贴板更新
+            if (OpenClipboard(nullptr)) {
+                HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+                if (hData) {
+                    wchar_t* pszText = static_cast<wchar_t*>(GlobalLock(hData));
+                    if (pszText) {
+                        std::wstring text(pszText);
+                        GlobalUnlock(hData);
+                        
+                        // 简单处理: 如果包含 http:// 或 https://，直接打开，否则使用搜索引擎
+                        std::wstring url;
+                        if (text.find(L"http://") == 0 || text.find(L"https://") == 0) {
+                            url = text;
+                        } else {
+                            // URL encode 过于复杂，我们采用最简单的宽字符启动，让浏览器/系统自动处理
+                            // 注意：实际上 ShellExecuteW 能比较好地处理搜索参数
+                            url = L"https://www.baidu.com/s?wd=" + text;
+                        }
+                        ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                    }
+                }
+                CloseClipboard();
+            }
+            break;
+        }
 
         // ── 系统 / 桌面 ──────────────────────────────────────────────────────
         case BuiltinCommand::ShowDesktop:        sendCombo(MOD_WIN, 'D'); break;
@@ -101,8 +157,17 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
         case BuiltinCommand::TakeScreenshot:
         case BuiltinCommand::StartRecording:
         case BuiltinCommand::ToggleSearch:
+        case BuiltinCommand::PasteAsPin:
             dispatchAppCommand(cmd);
             break;
+            
+        case BuiltinCommand::ShowRadialMenu: {
+            POINT pt;
+            GetCursorPos(&pt);
+            // 依赖注入或回调比较好，这里为了简单直接调用 MessageBridge 发 IPC 给自己
+            easy::core::MessageBridge::instance().handleMessage("gesture.showRadialMenu");
+            break;
+        }
     }
 }
 

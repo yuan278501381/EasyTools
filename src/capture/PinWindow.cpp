@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // PinWindow.cpp — 贴图窗口实现
 //
 // 功能:
@@ -407,7 +407,7 @@ bool PinWindow::initWindow(HINSTANCE hInstance, int x, int y, int w, int h) {
     if (!s_classRegistered) {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
-        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS | 0x00020000 /*CS_DROPSHADOW*/;
         wc.lpfnWndProc = pinWndProc;
         wc.hInstance = hInstance;
         wc.hCursor = LoadCursor(nullptr, IDC_SIZEALL);

@@ -137,6 +137,13 @@ export default function SearchApp() {
                         ))}
                     </ul>
                 )}
+                {results.length > 0 && (
+                    <div className="search-footer">
+                        <span className="search-hint"><kbd>Enter</kbd> 打开文件</span>
+                        <span className="search-hint"><kbd>Ctrl+P</kbd> 悬浮贴图</span>
+                        <span className="search-hint"><kbd>Esc</kbd> 退出</span>
+                    </div>
+                )}
             </div>
         </div>
     );

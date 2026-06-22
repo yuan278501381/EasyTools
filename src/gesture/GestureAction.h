@@ -43,7 +43,11 @@ enum class BuiltinCommand {
     StartRecording,         // 开始录屏
     RestoreClosedTab,       // 恢复最近关闭的标签页
     ToggleTopmost,          // 窗口置顶切换
-    ToggleSearch            // 切换搜索框
+    ToggleWindowTransparency, // 窗口透明度切换
+    WebSearch,              // 选中文本直接网页搜索
+    ToggleSearch,           // 切换搜索框
+    ShowRadialMenu,         // 显示呼出轮盘
+    PasteAsPin              // 将剪贴板内容作为贴图显示
 };
 
 /// 按键定义 (用于 SendKeys 类型)

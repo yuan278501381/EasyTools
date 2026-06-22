@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+﻿cmake_minimum_required(VERSION 3.25)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EasyTools — 高性能桌面效率工具 (Microkernel Architecture)
@@ -103,7 +103,7 @@ target_link_libraries(Plugin_Capture PRIVATE EasyCore
     ${OpenCV_LIBS}
     ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY}
     d2d1 dwrite d3d11 dxgi dxguid dwmapi mfplat mfreadwrite mfuuid
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 windowscodecs winhttp windowsapp
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 windowscodecs winhttp windowsapp Shcore imm32
 )
 if(FFMPEG_INCLUDE_DIR)
     target_include_directories(Plugin_Capture PRIVATE ${FFMPEG_INCLUDE_DIR})
