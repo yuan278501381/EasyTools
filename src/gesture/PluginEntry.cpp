@@ -7,6 +7,8 @@
 #include "gesture/GestureEngine.h"
 #include "gesture/MouseHook.h"
 #include "gesture/BuiltinCommands.h"
+#include "gesture/HotCornerEngine.h"
+#include "gesture/RadialMenuOverlay.h"
 #include <windows.h>
 
 namespace easy::gesture {
@@ -34,6 +36,9 @@ public:
         });
         dispatcher.registerHandler(BuiltinCommand::ToggleSearch, []() {
             easy::core::MessageBridge::instance().handleMessage(R"({"method":"search.toggle"})");
+        });
+        dispatcher.registerHandler(BuiltinCommand::PasteAsPin, []() {
+            easy::core::MessageBridge::instance().handleMessage(R"({"method":"capture.pasteAsPin"})");
         });
 
         // 状态变化回调
@@ -135,9 +140,54 @@ public:
             return {{"success", true}};
         });
 
+        // 注册 HotCorner 相关 IPC
+        mb.registerHandler("gesture.updateHotCorners", [](const nlohmann::json& params) -> nlohmann::json {
+            auto& config = easy::core::ConfigManager::instance();
+            auto& hce = easy::gesture::HotCornerEngine::instance();
+            if (params.contains("topLeft")) hce.setCornerAction(easy::gesture::HotCorner::TopLeft, params["topLeft"].get<std::string>());
+            if (params.contains("topRight")) hce.setCornerAction(easy::gesture::HotCorner::TopRight, params["topRight"].get<std::string>());
+            if (params.contains("bottomLeft")) hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, params["bottomLeft"].get<std::string>());
+            if (params.contains("bottomRight")) hce.setCornerAction(easy::gesture::HotCorner::BottomRight, params["bottomRight"].get<std::string>());
+            
+            // 顺便保存到 Config
+            config.set("/gesture/hotCorners/topLeft", hce.getCornerAction(easy::gesture::HotCorner::TopLeft));
+            config.set("/gesture/hotCorners/topRight", hce.getCornerAction(easy::gesture::HotCorner::TopRight));
+            config.set("/gesture/hotCorners/bottomLeft", hce.getCornerAction(easy::gesture::HotCorner::BottomLeft));
+            config.set("/gesture/hotCorners/bottomRight", hce.getCornerAction(easy::gesture::HotCorner::BottomRight));
+
+            return {{"success", true}};
+        });
+
+        // 注册 RadialMenu 弹出接口
+        mb.registerHandler("gesture.showRadialMenu", [](const nlohmann::json&) -> nlohmann::json {
+            POINT pt;
+            GetCursorPos(&pt);
+            easy::gesture::RadialMenuOverlay::instance().show(pt);
+            return {{"success", true}};
+        });
+
         gestureEngine.loadFromConfig();
+        
+        // 加载 HotCorner 配置并启动
+        auto& config = easy::core::ConfigManager::instance();
+        auto& hce = easy::gesture::HotCornerEngine::instance();
+        hce.setCornerAction(easy::gesture::HotCorner::TopLeft, config.get<std::string>("/gesture/hotCorners/topLeft", ""));
+        hce.setCornerAction(easy::gesture::HotCorner::TopRight, config.get<std::string>("/gesture/hotCorners/topRight", "capture")); // 默认右上角截图
+        hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, config.get<std::string>("/gesture/hotCorners/bottomLeft", ""));
+        hce.setCornerAction(easy::gesture::HotCorner::BottomRight, config.get<std::string>("/gesture/hotCorners/bottomRight", "search")); // 默认右下角搜索
+
+        // 初始化 RadialMenu
+        std::vector<easy::gesture::RadialMenuItem> rItems = {
+            {"截图 (Top)", "capture"},
+            {"搜索 (Right)", "search"},
+            {"锁定 (Bottom)", "lock"}, // 这里可以填真实的内置指令
+            {"贴图 (Left)", "pin"}
+        };
+        easy::gesture::RadialMenuOverlay::instance().setItems(rItems);
+
         easy::gesture::MouseHook::instance().install();
         gestureEngine.start();
+        hce.start();
         return true;
     }
 
@@ -146,6 +196,7 @@ public:
         auto& gestureEngine = easy::gesture::GestureEngine::instance();
         gestureEngine.saveToConfig();
         gestureEngine.stop();
+        easy::gesture::HotCornerEngine::instance().stop();
         easy::gesture::MouseHook::instance().uninstall();
     }
 };
