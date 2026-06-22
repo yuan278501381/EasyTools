@@ -13,6 +13,8 @@
 #ifndef EASYTOOLS_CORE_HOTKEY_HOTKEYMANAGER_H
 #define EASYTOOLS_CORE_HOTKEY_HOTKEYMANAGER_H
 
+#include "core/utils/Export.h"
+
 #include <windows.h>
 #include <string>
 #include <unordered_map>
@@ -62,7 +64,7 @@ struct HotkeyEntry {
     HotkeyCallback callback;    // 触发回调
 };
 
-class HotkeyManager {
+class EASYCORE_API HotkeyManager {
 public:
     static HotkeyManager& instance();
 

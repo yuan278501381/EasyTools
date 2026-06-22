@@ -42,7 +42,8 @@ enum class BuiltinCommand {
     TakeScreenshot,         // 截图
     StartRecording,         // 开始录屏
     RestoreClosedTab,       // 恢复最近关闭的标签页
-    ToggleTopmost           // 窗口置顶切换
+    ToggleTopmost,          // 窗口置顶切换
+    ToggleSearch            // 切换搜索框
 };
 
 /// 按键定义 (用于 SendKeys 类型)

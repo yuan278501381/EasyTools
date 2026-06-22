@@ -11,6 +11,8 @@
 #ifndef EASYTOOLS_CORE_IPC_MESSAGEBRIDGE_H
 #define EASYTOOLS_CORE_IPC_MESSAGEBRIDGE_H
 
+#include "core/utils/Export.h"
+
 #include <string>
 #include <functional>
 #include <unordered_map>
@@ -26,7 +28,7 @@ using MessageHandler = std::function<json(const json& params)>;
 /// 事件推送器类型: 由 WebView2 层实现，用于向 JS 发送消息
 using EventPusher = std::function<void(const std::string& eventName, const json& data)>;
 
-class MessageBridge {
+class EASYCORE_API MessageBridge {
 public:
     static MessageBridge& instance();
 

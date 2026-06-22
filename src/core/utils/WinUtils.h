@@ -6,6 +6,8 @@
 #ifndef EASYTOOLS_CORE_UTILS_WINUTILS_H
 #define EASYTOOLS_CORE_UTILS_WINUTILS_H
 
+#include "core/utils/Export.h"
+
 #include <windows.h>
 #include <shlobj.h>
 #include <string>
@@ -17,7 +19,7 @@
 
 namespace easy::core {
 
-class WinUtils {
+class EASYCORE_API WinUtils {
 public:
     /// 获取可执行文件所在目录
     static std::filesystem::path getExeDirectory() {

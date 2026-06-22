@@ -75,6 +75,9 @@ void GestureTrailOverlay::beginTrail() {
     m_fading = false;
     m_fadeAlpha = 1.0f;
 
+    // 渲染第一帧（全透明），确保 UpdateLayeredWindow 更新了画面，防止出现图层闪烁
+    render();
+
     // 显示窗口
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
@@ -143,6 +146,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     int screenH = bounds.bottom - bounds.top;
     m_originX = screenX;
     m_originY = screenY;
+    m_width = screenW;
+    m_height = screenH;
 
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -158,8 +163,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         return false;
     }
 
-    // 设置 Layered 窗口的透明色键（让黑色背景透明）
-    SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
+    // 移除 COLORKEY，改用 UpdateLayeredWindow 逐像素透明渲染
+    // SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
@@ -203,22 +208,34 @@ bool GestureTrailOverlay::createD2DResources() {
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     // 渲染目标
-    RECT rc;
-    GetClientRect(m_hwnd, &rc);
-
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_DEFAULT,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
     );
 
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
-        m_hwnd,
-        D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top),
-        D2D1_PRESENT_OPTIONS_IMMEDIATELY
-    );
-
-    hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
+    hr = m_d2dFactory->CreateDCRenderTarget(&rtProps, m_renderTarget.GetAddressOf());
     if (FAILED(hr)) return false;
+
+    // 创建内存 DC 与 DIB
+    HDC hdcScreen = GetDC(nullptr);
+    m_memoryDC = CreateCompatibleDC(hdcScreen);
+    
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = m_width;
+    bmi.bmiHeader.biHeight = -m_height; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    
+    void* pBits = nullptr;
+    m_memoryBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+    m_oldBitmap = (HBITMAP)SelectObject(m_memoryDC, m_memoryBitmap);
+    
+    RECT memRect = { 0, 0, m_width, m_height };
+    m_renderTarget->BindDC(m_memoryDC, &memRect);
+    
+    ReleaseDC(nullptr, hdcScreen);
 
     // 禁用 D2D 的自动 DPI 缩放，使逻辑坐标 1:1 映射到物理像素 (因为输入坐标已是物理像素)
     m_renderTarget->SetDpi(96.0f, 96.0f);
@@ -256,6 +273,18 @@ void GestureTrailOverlay::releaseD2DResources() {
     m_renderTarget.Reset();
     m_dwriteFactory.Reset();
     m_d2dFactory.Reset();
+    
+    if (m_memoryDC && m_oldBitmap) {
+        SelectObject(m_memoryDC, m_oldBitmap);
+    }
+    if (m_memoryBitmap) {
+        DeleteObject(m_memoryBitmap);
+        m_memoryBitmap = nullptr;
+    }
+    if (m_memoryDC) {
+        DeleteDC(m_memoryDC);
+        m_memoryDC = nullptr;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,14 +327,18 @@ void GestureTrailOverlay::render() {
 
     // 绘制识别结果文字
     if (!m_resultText.empty() && !m_points.empty()) {
-        // 在轨迹中心位置显示
-        float centerX = 0, centerY = 0;
-        for (const auto& pt : m_points) {
-            centerX += pt.x;
-            centerY += pt.y;
-        }
-        centerX /= static_cast<float>(m_points.size());
-        centerY /= static_cast<float>(m_points.size());
+        // 获取当前鼠标所在的显示器
+        POINT ptCursor;
+        GetCursorPos(&ptCursor);
+        HMONITOR hMon = MonitorFromPoint(ptCursor, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(hMon, &mi);
+        
+        // 在屏幕中下方（合十位置）显示
+        float centerX = static_cast<float>(mi.rcMonitor.left + mi.rcMonitor.right) / 2.0f;
+        float centerY = mi.rcMonitor.top + static_cast<float>(mi.rcMonitor.bottom - mi.rcMonitor.top) * 0.85f;
+        
         centerX -= m_originX;  // 转为覆盖层(客户区)坐标
         centerY -= m_originY;
 
@@ -334,6 +367,18 @@ void GestureTrailOverlay::render() {
     }
 
     m_renderTarget->EndDraw();
+    
+    // 使用 UpdateLayeredWindow 一次性提交画面（逐像素Alpha混合）
+    if (m_memoryDC) {
+        HDC hdcScreen = GetDC(nullptr);
+        POINT ptSrc = {0, 0};
+        POINT ptWin = {m_originX, m_originY};
+        SIZE size = {m_width, m_height};
+        BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        
+        UpdateLayeredWindow(m_hwnd, hdcScreen, &ptWin, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
+        ReleaseDC(nullptr, hdcScreen);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,11 +434,33 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
                 self->m_originX = x;
                 self->m_originY = y;
+                self->m_width = w;
+                self->m_height = h;
                 MoveWindow(self->m_hwnd, x, y, w, h, FALSE);
 
-                // 重建渲染目标
-                if (self->m_renderTarget) {
-                    self->m_renderTarget->Resize(D2D1::SizeU(w, h));
+                // 重建内存位图并重新绑定 DC
+                if (self->m_memoryDC) {
+                    if (self->m_oldBitmap) SelectObject(self->m_memoryDC, self->m_oldBitmap);
+                    if (self->m_memoryBitmap) DeleteObject(self->m_memoryBitmap);
+                    
+                    HDC hdcScreen = GetDC(nullptr);
+                    BITMAPINFO bmi{};
+                    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bmi.bmiHeader.biWidth = w;
+                    bmi.bmiHeader.biHeight = -h;
+                    bmi.bmiHeader.biPlanes = 1;
+                    bmi.bmiHeader.biBitCount = 32;
+                    bmi.bmiHeader.biCompression = BI_RGB;
+                    
+                    void* pBits = nullptr;
+                    self->m_memoryBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+                    self->m_oldBitmap = (HBITMAP)SelectObject(self->m_memoryDC, self->m_memoryBitmap);
+                    ReleaseDC(nullptr, hdcScreen);
+                    
+                    if (self->m_renderTarget) {
+                        RECT memRect = {0, 0, w, h};
+                        self->m_renderTarget->BindDC(self->m_memoryDC, &memRect);
+                    }
                 }
             }
             return 0;

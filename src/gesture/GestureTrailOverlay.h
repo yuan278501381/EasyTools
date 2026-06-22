@@ -112,7 +112,13 @@ private:
 
     // Direct2D 资源
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
-    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> m_renderTarget;
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
+    HDC m_memoryDC = nullptr;
+    HBITMAP m_memoryBitmap = nullptr;
+    HBITMAP m_oldBitmap = nullptr;
+    int m_width = 0;
+    int m_height = 0;
+    
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_lineBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBgBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;

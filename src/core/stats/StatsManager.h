@@ -1,6 +1,8 @@
 #ifndef EASYTOOLS_CORE_STATS_STATSMANAGER_H
 #define EASYTOOLS_CORE_STATS_STATSMANAGER_H
 
+#include "core/utils/Export.h"
+
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -22,7 +24,7 @@ struct DailyStats {
     static DailyStats fromJson(const nlohmann::json& j);
 };
 
-class StatsManager {
+class EASYCORE_API StatsManager {
 public:
     static StatsManager& instance();
 
@@ -39,6 +41,7 @@ public:
     // 获取数据
     DailyStats getTodayStats();
     nlohmann::json getHistory(int days);
+    nlohmann::json getTotalStats();
     void clearToday();
 
 private:

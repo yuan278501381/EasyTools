@@ -9,6 +9,8 @@
 #ifndef EASYTOOLS_CORE_CRASH_CRASHHANDLER_H
 #define EASYTOOLS_CORE_CRASH_CRASHHANDLER_H
 
+#include "core/utils/Export.h"
+
 #include <windows.h>
 #include <dbghelp.h>
 #include <string>

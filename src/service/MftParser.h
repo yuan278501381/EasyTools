@@ -1,0 +1,49 @@
+#pragma once
+#include <windows.h>
+#include <winioctl.h>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+
+struct FileRecord {
+    DWORDLONG fileReferenceNumber;
+    DWORDLONG parentFileReferenceNumber;
+    std::wstring fileName;
+    std::wstring pinyinInitials;
+    bool isDirectory;
+};
+
+class MftParser {
+public:
+    MftParser();
+    ~MftParser();
+
+    bool Initialize(char driveLetter);
+    void EnumerateFiles();
+    
+    // USN Journal Monitoring
+    void StartListening();
+    void StopListening();
+    
+    // Quick search
+    std::vector<FileRecord*> Search(const std::wstring& query, int limit = 100);
+
+private:
+    char m_DriveLetter;
+    HANDLE m_hVolume;
+    USN_JOURNAL_DATA_V0 m_UsnJournalData;
+    
+    // Listener Thread
+    std::atomic<bool> m_IsListening{false};
+    std::unique_ptr<std::thread> m_ListenerThread;
+    void UsnListenerLoop();
+    
+    // Memory structures
+    std::shared_mutex m_MapMutex;
+    std::unordered_map<DWORDLONG, std::unique_ptr<FileRecord>> m_FileMap;
+
+    bool QueryUsnJournal();
+};
