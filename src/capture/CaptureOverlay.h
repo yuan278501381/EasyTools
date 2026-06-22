@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // CaptureOverlay — 截图区域选择覆盖层
 //
@@ -248,6 +248,10 @@ private:
 
     // 取色放大镜：复制成功提示的截止 tick（GetTickCount，0 表示无提示）
     DWORD m_loupeToastUntil = 0;
+    DWORD m_showTimestamp = 0;
+    bool m_isFadingOut = false;
+    DWORD m_fadeOutStart = 0;
+    void realCancel();
 
     // 回调
     SelectionCallback m_callback;
