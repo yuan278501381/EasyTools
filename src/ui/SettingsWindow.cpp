@@ -21,6 +21,7 @@
 #include <wrl/event.h>
 
 #include <filesystem>
+#include <fstream>
 
 using namespace Microsoft::WRL;
 
@@ -267,20 +268,18 @@ void SettingsWindow::onWebView2Ready() {
     // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
     // 关键: Vite 产物是 ES Module(<script type=module>), 在 file:// 下会被 CORS 拦截 → 白屏。
     // 把 ui 文件夹映射成一个正常的 https 源(虚拟主机), ES Module 即可正常加载。
-    if (m_config.devServerUrl.empty()) {
-        auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
-        std::error_code ec;
-        if (std::filesystem::exists(uiFolder, ec)) {
-            ComPtr<ICoreWebView2_3> webView3;
-            if (SUCCEEDED(m_webView->QueryInterface(IID_PPV_ARGS(&webView3))) && webView3) {
-                webView3->SetVirtualHostNameToFolderMapping(
-                    L"easytools.local", uiFolder.c_str(),
-                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-                LOG_INFO("虚拟主机映射已设置: https://easytools.local/ -> {}",
-                         easy::core::WinUtils::wstringToUtf8(uiFolder));
-            } else {
-                LOG_WARN("无法获取 ICoreWebView2_3, 虚拟主机映射不可用 (将回退 file://, 可能白屏)");
-            }
+    auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
+    std::error_code ec;
+    if (std::filesystem::exists(uiFolder, ec)) {
+        ComPtr<ICoreWebView2_3> webView3;
+        if (SUCCEEDED(m_webView->QueryInterface(IID_PPV_ARGS(&webView3))) && webView3) {
+            webView3->SetVirtualHostNameToFolderMapping(
+                L"easytools.local", uiFolder.c_str(),
+                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+            LOG_INFO("虚拟主机映射已设置: https://easytools.local/ -> {}",
+                     easy::core::WinUtils::wstringToUtf8(uiFolder));
+        } else {
+            LOG_WARN("无法获取 ICoreWebView2_3, 虚拟主机映射不可用 (将回退 file://, 可能白屏)");
         }
     }
 
@@ -294,22 +293,35 @@ void SettingsWindow::onWebView2Ready() {
 }
 
 std::string SettingsWindow::getUIEntryUrl() const {
-    // 优先使用开发服务器（开发模式）
-    if (!m_config.devServerUrl.empty()) {
-        return m_config.devServerUrl;
-    }
-
-    // 使用本地打包文件: 经虚拟主机映射以 https 源加载 (见 onWebView2Ready)
     auto exeDir = easy::core::WinUtils::getExeDirectory();
     auto indexPath = exeDir / L"ui" / L"index.html";
 
+    // 1. 优先使用本地打包文件: 经虚拟主机映射以 https 源加载 (生产模式)
     std::error_code ec;
     if (std::filesystem::exists(indexPath, ec)) {
         return "https://easytools.local/index.html";
     }
 
-    // 降级: 使用开发服务器默认地址
-    LOG_WARN("未找到本地 UI 文件, 尝试连接开发服务器 http://localhost:5173");
+    // 2. 如果本地不存在，说明是在 C++ 开发模式下运行。尝试读取 Vite 动态端口文件
+    auto devUrlPath = exeDir.parent_path().parent_path().parent_path() / L"ui" / L".dev-server-url";
+    if (std::filesystem::exists(devUrlPath, ec)) {
+        try {
+            std::ifstream file(devUrlPath);
+            std::string url;
+            if (std::getline(file, url) && !url.empty()) {
+                LOG_INFO("成功读取到动态开发服务器地址: {}", url);
+                return url;
+            }
+        } catch (...) {}
+    }
+
+    // 3. 配置中的备用开发地址 (如果有的话，主要防呆)
+    if (!m_config.devServerUrl.empty() && m_config.devServerUrl != "http://localhost:5173") {
+        return m_config.devServerUrl;
+    }
+
+    // 4. 终极降级: 使用开发服务器默认地址
+    LOG_WARN("未找到本地 UI 文件及动态端口文件, 尝试连接默认开发服务器 http://localhost:5173");
     return "http://localhost:5173";
 }
 

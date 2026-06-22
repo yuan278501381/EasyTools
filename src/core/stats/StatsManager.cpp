@@ -194,6 +194,23 @@ nlohmann::json StatsManager::getHistory(int days) {
     return result;
 }
 
+nlohmann::json StatsManager::getTotalStats() {
+    std::lock_guard lock(m_mutex);
+    checkDateRollover();
+    
+    // 确保今日数据也计入
+    m_historyData[m_currentDate] = m_todayStats.toJson();
+
+    uint64_t totalKeystrokes = 0;
+    for (const auto& [dateStr, dailyJson] : m_historyData.items()) {
+        totalKeystrokes += dailyJson.value("totalKeys", 0ULL);
+    }
+    
+    return {
+        {"totalKeystrokes", totalKeystrokes}
+    };
+}
+
 void StatsManager::clearToday() {
     std::lock_guard lock(m_mutex);
     m_todayStats = DailyStats();

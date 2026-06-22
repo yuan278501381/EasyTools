@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button } from '../components/UIKit';
 import { GestureEditorModal } from '../components/GestureEditorModal';
 import { ScopeRulesManager } from '../components/ScopeRulesManager';
+import { GestureGuide } from '../components/GestureGuide';
 import {
   codeToArrows,
   ACTION_TYPE_OPTIONS,
@@ -194,6 +195,8 @@ export const GesturePage: FC = () => {
               ]}
             />
           </SettingRow>
+
+          <GestureGuide />
         </Card>
       </SettingGroup>
 

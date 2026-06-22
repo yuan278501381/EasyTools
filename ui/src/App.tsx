@@ -29,7 +29,10 @@ import './App.css';
 function App() {
   const { t } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>('stats');
-  const [theme, setTheme] = useState<'dark' | 'light'>('light');
+  const getSystemTheme = () => 
+    window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+  const [theme, setTheme] = useState<'dark' | 'light'>(getSystemTheme());
 
   // 主题切换
   const handleToggleTheme = useCallback(() => {
@@ -40,9 +43,16 @@ function App() {
     });
   }, []);
 
-  // 初始化主题
+  // 监听系统主题变化并初始设置
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      setTheme(e.matches ? 'dark' : 'light');
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, [theme]);
 
   // 渲染当前页面

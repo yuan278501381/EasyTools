@@ -13,6 +13,8 @@
 #ifndef EASYTOOLS_CORE_CONFIG_CONFIGMANAGER_H
 #define EASYTOOLS_CORE_CONFIG_CONFIGMANAGER_H
 
+#include "core/utils/Export.h"
+
 #include <string>
 #include <string_view>
 #include <filesystem>
@@ -31,7 +33,7 @@ namespace easy::core {
 using json = nlohmann::json;
 using ConfigChangeCallback = std::function<void(const std::string& key)>;
 
-class ConfigManager {
+class EASYCORE_API ConfigManager {
 public:
     /// 获取单例实例
     static ConfigManager& instance();

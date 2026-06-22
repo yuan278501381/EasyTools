@@ -298,7 +298,8 @@ static cv::Mat renderColorSwatch(const cv::Scalar& bgr, const std::wstring& labe
     cv::Mat img(h, w, CV_8UC3, bgr);
     double lum = 0.114 * bgr[0] + 0.587 * bgr[1] + 0.299 * bgr[2];
     cv::Scalar tc = lum > 140 ? cv::Scalar(20, 20, 20) : cv::Scalar(240, 240, 240);
-    std::string lbl(label.begin(), label.end());  // hex 为 ASCII，可安全窄化
+    std::string lbl;
+    for(auto c : label) lbl.push_back((char)c);  // hex 为 ASCII，可安全窄化
     cv::putText(img, lbl, cv::Point(14, h - 18), cv::FONT_HERSHEY_SIMPLEX, 0.7, tc, 1, cv::LINE_AA);
     return img;
 }

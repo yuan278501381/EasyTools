@@ -1,0 +1,76 @@
+.gesture-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1rem;
+}
+
+.gesture-guide__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gesture-guide__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gesture-guide__desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.gesture-guide__badge {
+  display: inline-flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--surface-3);
+  border-radius: var(--radius);
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--primary);
+  width: fit-content;
+  margin-top: 0.5rem;
+}
+
+.gesture-guide__canvas {
+  width: 100px;
+  height: 100px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.gesture-guide__path {
+  stroke-dasharray: 200;
+  stroke-dashoffset: 200;
+  animation: drawPath 2s ease-in-out infinite;
+}
+
+.gesture-guide__dot {
+  animation: moveDot 2s ease-in-out infinite;
+  opacity: 0;
+}
+
+@keyframes drawPath {
+  0% { stroke-dashoffset: 200; }
+  50% { stroke-dashoffset: 0; }
+  80% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes moveDot {
+  0% { offset-distance: 0%; opacity: 1; }
+  50% { offset-distance: 100%; opacity: 1; }
+  80% { offset-distance: 100%; opacity: 0; }
+  100% { offset-distance: 100%; opacity: 0; }
+}

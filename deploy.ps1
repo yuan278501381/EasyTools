@@ -18,9 +18,15 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
 
+$TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
+$LogDir = Join-Path $ScriptDir "deploy_logs"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$LogFile = Join-Path $LogDir "deploy_$(Get-Date -Format 'yyyyMMdd').log"
+
 # 统一日志函数
 function Write-Log ($Message, $Level = "INFO") {
     $TimeStamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $LogStr = "[$TimeStamp] [$TraceID] [$Level] $Message"
     $Color = switch ($Level) {
         "INFO" { "Cyan" }
         "WARN" { "Yellow" }
@@ -29,6 +35,7 @@ function Write-Log ($Message, $Level = "INFO") {
         default { "White" }
     }
     Write-Host "[$TimeStamp] [$Level] $Message" -ForegroundColor $Color
+    Add-Content -Path $LogFile -Value $LogStr -Encoding UTF8
 }
 
 Write-Log "======================================================="
@@ -54,6 +61,9 @@ if (Test-Path "ui/package.json") {
         # 始终确保打包产物最新
         Write-Log "执行 npm run build..."
         npm run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm run build 失败，退出码: $LASTEXITCODE"
+        }
         Write-Log "前端构建完成。" "SUCCESS"
     } catch {
         Write-Log "前端构建失败: $_" "ERROR"
@@ -170,12 +180,14 @@ if (Test-Path $TestExe) {
 # ------------------------------------------------------------------------------
 # 5. 打包输出物 (Deploy)
 # ------------------------------------------------------------------------------
-Write-Log "开始提纯输出物..."
+Write-Log "开始提纯输出物并写入暂存区..."
 $DeployDir = Join-Path $ScriptDir "deploy_dist"
-if (Test-Path $DeployDir) {
-    Remove-Item -Recurse -Force $DeployDir
+$StagingDir = Join-Path $ScriptDir "deploy_dist_staging_$TraceID"
+
+if (Test-Path $StagingDir) {
+    Remove-Item -Recurse -Force $StagingDir
 }
-New-Item -ItemType Directory -Path $DeployDir | Out-Null
+New-Item -ItemType Directory -Path $StagingDir | Out-Null
 
 # 二进制文件
 $ExePath = Join-Path $BuildDir "bin\$Configuration\EasyTools.exe"
@@ -185,15 +197,26 @@ if (-not (Test-Path $ExePath)) {
 }
 
 if (Test-Path $ExePath) {
-    Copy-Item $ExePath -Destination $DeployDir
+    Copy-Item $ExePath -Destination $StagingDir
     Write-Log "已复制可执行文件: EasyTools.exe"
     
     # 复制所有同一目录下的 DLL 文件 (vcpkg 的依赖如 spdlog.dll 等)
     $ExeDir = Split-Path $ExePath -Parent
     $DllFiles = Join-Path $ExeDir "*.dll"
     if (Test-Path $DllFiles) {
-        Copy-Item $DllFiles -Destination $DeployDir
+        Copy-Item $DllFiles -Destination $StagingDir
         Write-Log "已复制依赖库 DLL 文件"
+    }
+    
+    # 复制插件目录
+    $PluginsDir = Join-Path $BuildDir "bin\plugins\$Configuration"
+    if (Test-Path $PluginsDir) {
+        $TargetPluginsDir = Join-Path $StagingDir "plugins"
+        New-Item -ItemType Directory -Path $TargetPluginsDir -ErrorAction SilentlyContinue | Out-Null
+        Copy-Item "$PluginsDir\*" -Destination $TargetPluginsDir -Recurse
+        Write-Log "已复制插件与相关依赖 (plugins/)"
+    } else {
+        Write-Log "未找到插件构建目录: $PluginsDir" "WARN"
     }
 } else {
     throw "找不到编译后的 EasyTools.exe"
@@ -204,26 +227,70 @@ $WebView2TargetDir = Get-ChildItem -Path $PackagesDir -Filter "Microsoft.Web.Web
 if ($WebView2TargetDir) {
     $LoaderPath = Join-Path $WebView2TargetDir.FullName "build\native\x64\WebView2Loader.dll"
     if (Test-Path $LoaderPath) {
-        Copy-Item $LoaderPath -Destination $DeployDir
+        Copy-Item $LoaderPath -Destination $StagingDir
         Write-Log "已复制 WebView2Loader.dll"
     }
 }
 
 # 拷贝资源文件和 UI
 if (Test-Path "resources") {
-    Copy-Item "resources" -Destination $DeployDir -Recurse
+    Copy-Item "resources" -Destination $StagingDir -Recurse
     Write-Log "已复制资源文件 (resources/)"
 }
 
 if (Test-Path "ui/dist") {
-    $UiDeployDir = Join-Path $DeployDir "ui"
+    $UiDeployDir = Join-Path $StagingDir "ui"
     New-Item -ItemType Directory -Path $UiDeployDir | Out-Null
     Copy-Item "ui/dist\*" -Destination $UiDeployDir -Recurse
     Write-Log "已复制前端产物 (ui/)"
 }
 
+# ------------------------------------------------------------------------------
+# 6. 优雅关闭及原子交换 (Atomic Swap)
+# ------------------------------------------------------------------------------
+Write-Log "开始执行原子目录交换..."
+
+# 优雅停止可能正在运行的 EasyTools 进程
+$runningProcesses = Get-Process -Name "EasyTools*" -ErrorAction SilentlyContinue
+if ($runningProcesses) {
+    Write-Log "检测到 EasyTools 进程正在运行，尝试发送优雅关闭信号 (CloseMainWindow)..." "WARN"
+    foreach ($p in $runningProcesses) {
+        try {
+            $p.CloseMainWindow() | Out-Null
+        } catch { }
+    }
+    
+    # 等待最多 3 秒让其优雅退出
+    $waited = 0
+    while ((Get-Process -Name "EasyTools*" -ErrorAction SilentlyContinue) -and $waited -lt 3) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+    
+    $remaining = Get-Process -Name "EasyTools*" -ErrorAction SilentlyContinue
+    if ($remaining) {
+        Write-Log "进程未在规定时间内退出，执行强制关闭 (Force Stop)..." "WARN"
+        $remaining | Stop-Process -Force
+        Start-Sleep -Seconds 1
+    }
+}
+
+# 备份旧版并上线新版
+$BackupDir = Join-Path $ScriptDir "deploy_dist_backup"
+if (Test-Path $DeployDir) {
+    if (Test-Path $BackupDir) {
+        Remove-Item -Recurse -Force $BackupDir
+    }
+    Rename-Item -Path $DeployDir -NewName "deploy_dist_backup"
+    Write-Log "旧版本已安全备份到: deploy_dist_backup"
+}
+
+Rename-Item -Path $StagingDir -NewName "deploy_dist"
+Write-Log "新版本秒级切换上线完成。" "SUCCESS"
+
 Write-Log "======================================================="
-Write-Log "EasyTools 一键部署成功！" "SUCCESS"
+Write-Log "EasyTools 一键原子部署成功！" "SUCCESS"
 Write-Log "您的纯净发布版位于: $DeployDir"
+Write-Log "全链路 TraceID: $TraceID (详见 deploy_logs)"
 Write-Log "直接双击运行 deploy_dist/EasyTools.exe 即可启动工具。"
 Write-Log "======================================================="

@@ -40,11 +40,22 @@ export const KeyStatsPage: FC = () => {
 
   useEffect(() => {
     Promise.all([
-      bridgeRequest<DailyStat[]>('stats.getDaily', { days: 7 }),
+      bridgeRequest<Record<string, any>>('stats.getHistory', { days: 7 }),
       bridgeRequest<TotalStat>('stats.getTotal')
-    ]).then(([daily, total]) => {
+    ]).then(([historyMap, total]) => {
+      const daily = Object.entries(historyMap).map(([date, data]) => ({
+        date,
+        keystrokes: data.totalKeys || 0,
+        mouseClicks: (data.leftClicks || 0) + (data.rightClicks || 0),
+        mouseDistance: data.mouseDistance || 0,
+        keyMap: data.keyMap || {}
+      })).sort((a, b) => a.date.localeCompare(b.date));
+
       setDailyStats(daily);
       setTotalStats(total);
+      setLoading(false);
+    }).catch(err => {
+      console.error('Failed to load stats:', err);
       setLoading(false);
     });
   }, []);

@@ -17,6 +17,8 @@
 #ifndef EASYTOOLS_CORE_LOGGER_LOGGER_H
 #define EASYTOOLS_CORE_LOGGER_LOGGER_H
 
+#include "core/utils/Export.h"
+
 #include <string>
 #include <memory>
 #include <source_location>
@@ -36,7 +38,7 @@ struct LoggerConfig {
     bool enableMsvcSink = true;                // 是否启用 MSVC Output 窗口
 };
 
-class Logger {
+class EASYCORE_API Logger {
 public:
     /// 初始化日志系统（应在 main 入口处调用一次）
     static void initialize(const LoggerConfig& config);

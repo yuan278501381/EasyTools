@@ -8,6 +8,8 @@
 #ifndef EASYTOOLS_CORE_UTILS_TRACEID_H
 #define EASYTOOLS_CORE_UTILS_TRACEID_H
 
+#include "core/utils/Export.h"
+
 #include <string>
 #include <chrono>
 #include <random>
@@ -16,7 +18,7 @@
 
 namespace easy::core {
 
-class TraceId {
+class EASYCORE_API TraceId {
 public:
     /// 生成一个新的 TraceId
     /// @return 格式: "20260619-180215-A3F7"

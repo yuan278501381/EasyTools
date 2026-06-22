@@ -16,6 +16,8 @@
 #ifndef EASYTOOLS_CORE_LUAENGINE_H
 #define EASYTOOLS_CORE_LUAENGINE_H
 
+#include "core/utils/Export.h"
+
 #include <sol/sol.hpp>
 #include <functional>
 #include <memory>
@@ -24,7 +26,7 @@
 
 namespace easy::core {
 
-class LuaEngine {
+class EASYCORE_API LuaEngine {
 public:
     static LuaEngine& instance();
 

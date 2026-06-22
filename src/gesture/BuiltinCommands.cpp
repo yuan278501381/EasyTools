@@ -100,6 +100,7 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
         case BuiltinCommand::PauseGestures:
         case BuiltinCommand::TakeScreenshot:
         case BuiltinCommand::StartRecording:
+        case BuiltinCommand::ToggleSearch:
             dispatchAppCommand(cmd);
             break;
     }
