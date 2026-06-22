@@ -88,6 +88,9 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_markupCacheDirty = true;
     m_needsRender = true;
     m_loupeToastUntil = 0;
+    m_showTimestamp = GetTickCount();
+    m_isFadingOut = false;
+    m_fadeOutStart = 0;
     m_toolbarButtons.clear();
     m_penPoints.clear();
     m_dragStart = {};
@@ -121,10 +124,29 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
 }
 
 void CaptureOverlay::cancel() {
+    if (!m_isFadingOut && m_hwnd && IsWindowVisible(m_hwnd)) {
+        m_isFadingOut = true;
+        m_fadeOutStart = GetTickCount();
+        m_needsRender = true;
+        LONG_PTR ex = GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT | WS_EX_LAYERED);
+        SetLayeredWindowAttributes(m_hwnd, 0, 255, LWA_ALPHA);
+        SetTimer(m_hwnd, RENDER_TIMER_ID, 16, nullptr);
+    } else {
+        realCancel();
+    }
+}
+
+void CaptureOverlay::realCancel() {
     KillTimer(m_hwnd, RENDER_TIMER_ID);
     ReleaseCapture();
     ShowWindow(m_hwnd, SW_HIDE);
+    
+    LONG_PTR ex = GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE);
+    SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, ex & ~(WS_EX_TRANSPARENT | WS_EX_LAYERED));
+
     m_state = OverlayState::Idle;
+    m_isFadingOut = false;
     m_isMarking = false;
     m_markupBaseReady = false;
     m_activeElement = nullptr;
@@ -1491,6 +1513,15 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             self->markMarkupDirty();
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
+            // 文字编辑失焦提交
+            if (self->m_activeElement && self->m_activeElement->tool == MarkupTool::Text && self->m_activeElement->isEditing) {
+                self->m_activeElement->isEditing = false;
+                self->m_activeElement->isActive = false;
+                self->m_activeElement = nullptr;
+                self->m_needsRender = true;
+                return 0; // 拦截点击，转为渲染态
+            }
+
             if (self->m_state == OverlayState::Selected || self->m_state == OverlayState::Marking) {
                 HitArea selHit = HitArea::None;
                 if (auto* button = self->hitTestToolbar(point)) {
@@ -1690,6 +1721,22 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
             if (!self) break;
             self->markMarkupDirty();
 
+            // WASD 控制取色光标
+            if (self->m_state == OverlayState::Idle) {
+                POINT pt;
+                GetCursorPos(&pt);
+                bool moved = false;
+                if (wParam == 'W' || wParam == VK_UP) { pt.y -= 1; moved = true; }
+                if (wParam == 'S' || wParam == VK_DOWN) { pt.y += 1; moved = true; }
+                if (wParam == 'A' || wParam == VK_LEFT) { pt.x -= 1; moved = true; }
+                if (wParam == 'D' || wParam == VK_RIGHT) { pt.x += 1; moved = true; }
+                if (moved) {
+                    SetCursorPos(pt.x, pt.y);
+                    self->m_needsRender = true;
+                    return 0;
+                }
+            }
+
             bool editingText = self->m_activeElement &&
                                self->m_activeElement->tool == MarkupTool::Text &&
                                self->m_activeElement->isEditing;
@@ -1792,7 +1839,18 @@ LRESULT CALLBACK CaptureOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
         case WM_TIMER: {
             if (self && wParam == RENDER_TIMER_ID) {
-                // 取色复制提示存续期间持续重绘，到期后再渲染一帧将其清除
+                if (self->m_isFadingOut) {
+                    DWORD elapsed = GetTickCount() - self->m_fadeOutStart;
+                    if (elapsed >= 150) {
+                        self->realCancel();
+                    } else {
+                        float alpha = 1.0f - (elapsed / 150.0f);
+                        SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(alpha * 255), LWA_ALPHA);
+                    }
+                    return 0;
+                }
+                
+                // 取色放大镜：复制成功提示的存续期间持续重绘，到期后再渲染一帧将其清除
                 if (self->m_loupeToastUntil != 0) {
                     self->m_needsRender = true;
                     if (GetTickCount() >= self->m_loupeToastUntil) self->m_loupeToastUntil = 0;
