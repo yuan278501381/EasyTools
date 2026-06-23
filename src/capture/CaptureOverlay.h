@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // CaptureOverlay — 截图区域选择覆盖层
 //
@@ -17,8 +17,10 @@
 #include "capture/MarkupEngine.h"
 
 #include <windows.h>
+#include <imm.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <UIAutomation.h>
 #include <wrl/client.h>
 #include <opencv2/core.hpp>
 #include <memory>
@@ -192,7 +194,16 @@ private:
     void updateMarkup(POINT point);
     void finishMarkup(POINT point);
 
+    IUIAutomation* m_uiAutomation = nullptr;
+    std::thread m_uiaThread;
+    std::atomic<bool> m_uiaThreadRunning{false};
+    std::mutex m_uiaMutex;
+    POINT m_uiaLastMousePos{-1, -1};
+    RECT m_uiaLastRect{0, 0, 0, 0};
+    
+    void uiaDetectionWorker();
 
+    void initD2D();
 
     /// 窗口过程
     static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -273,6 +284,11 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_infoTextFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textInputFormat;  // 文本工具: 左对齐大字号
+
+    void enableIME(bool enable);
+    HIMC m_defaultImc = nullptr;
+    std::wstring m_toastText;
+    int m_toastAlpha = 0;
 };
 
 }  // namespace easy::capture

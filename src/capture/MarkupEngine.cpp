@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // MarkupEngine.cpp — 截图标注引擎实现
 //
 // 所有标注元素使用 OpenCV 绘制:
@@ -18,6 +18,95 @@
 #include "core/utils/TraceId.h"
 
 #include <windows.h>
+
+#include <objidl.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
+#include <opencv2/imgproc.hpp>
+#include <cmath>
+
+namespace {
+    std::vector<cv::Point> generateSmoothSpline(const std::vector<cv::Point>& pts, int stepsPerSegment = 10) {
+        if (pts.size() < 3) return pts;
+        
+        std::vector<cv::Point> extended(pts.size() + 2);
+        extended[0] = pts[0] - (pts[1] - pts[0]);
+        for (size_t i = 0; i < pts.size(); ++i) extended[i+1] = pts[i];
+        extended[extended.size()-1] = pts.back() + (pts.back() - pts[pts.size()-2]);
+
+        std::vector<cv::Point> smoothPts;
+        smoothPts.reserve((pts.size() - 1) * stepsPerSegment + 1);
+
+        for (size_t i = 1; i < extended.size() - 2; ++i) {
+            cv::Point2f p0 = extended[i-1], p1 = extended[i], p2 = extended[i+1], p3 = extended[i+2];
+            for (int t_i = 0; t_i < (i == extended.size()-3 ? stepsPerSegment + 1 : stepsPerSegment); ++t_i) {
+                float t = static_cast<float>(t_i) / stepsPerSegment;
+                float t2 = t * t;
+                float t3 = t2 * t;
+                float x = 0.5f * ((2.0f * p1.x) + (-p0.x + p2.x) * t + (2.0f * p0.x - 5.0f * p1.x + 4.0f * p2.x - p3.x) * t2 + (-p0.x + 3.0f * p1.x - 3.0f * p2.x + p3.x) * t3);
+                float y = 0.5f * ((2.0f * p1.y) + (-p0.y + p2.y) * t + (2.0f * p0.y - 5.0f * p1.y + 4.0f * p2.y - p3.y) * t2 + (-p0.y + 3.0f * p1.y - 3.0f * p2.y + p3.y) * t3);
+                smoothPts.push_back(cv::Point(static_cast<int>(x), static_cast<int>(y)));
+            }
+        }
+        return smoothPts;
+    }
+
+    struct GdiPlusInit {
+        ULONG_PTR token;
+        GdiPlusInit() {
+            Gdiplus::GdiplusStartupInput input;
+            Gdiplus::GdiplusStartup(&token, &input, nullptr);
+        }
+        ~GdiPlusInit() { Gdiplus::GdiplusShutdown(token); }
+    } gdiInit;
+
+    cv::Size getGdiTextSize(const std::wstring& text, int fontSize) {
+        Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
+        Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        HDC hdc = GetDC(nullptr);
+        Gdiplus::Graphics graphics(hdc);
+        Gdiplus::RectF boundRect;
+        graphics.MeasureString(text.c_str(), -1, &font, Gdiplus::PointF(0, 0), &boundRect);
+        ReleaseDC(nullptr, hdc);
+        return cv::Size(static_cast<int>(boundRect.Width + 5), static_cast<int>(boundRect.Height + 5));
+    }
+
+    void renderTextToMat(cv::Mat& canvas, const std::wstring& text, cv::Point pt, const cv::Scalar& color, int fontSize) {
+        cv::Size sz = getGdiTextSize(text, fontSize);
+        if (sz.width <= 0 || sz.height <= 0) return;
+        
+        cv::Mat textMat(sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+        {
+            Gdiplus::Bitmap bitmap(sz.width, sz.height, textMat.step, PixelFormat32bppARGB, textMat.data);
+            Gdiplus::Graphics graphics(&bitmap);
+            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+            
+            Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
+            Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+            
+            Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(128, 0, 0, 0));
+            graphics.DrawString(text.c_str(), -1, &font, Gdiplus::PointF(2.0f, 2.0f), &shadowBrush);
+            
+            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, static_cast<BYTE>(color[2]), static_cast<BYTE>(color[1]), static_cast<BYTE>(color[0])));
+            graphics.DrawString(text.c_str(), -1, &font, Gdiplus::PointF(0.0f, 0.0f), &textBrush);
+        }
+        
+        for (int y = 0; y < sz.height; ++y) {
+            for (int x = 0; x < sz.width; ++x) {
+                if (pt.y - sz.height + y < 0 || pt.y - sz.height + y >= canvas.rows || pt.x + x < 0 || pt.x + x >= canvas.cols) continue;
+                cv::Vec4b& bg = canvas.at<cv::Vec4b>(pt.y - sz.height + y, pt.x + x);
+                cv::Vec4b fg = textMat.at<cv::Vec4b>(y, x);
+                float alpha = fg[3] / 255.0f;
+                bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
+                bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
+                bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
+                bg[3] = 255;
+            }
+        }
+    }
+}
+
 #include <algorithm>
 #include <cmath>
 #include <atomic>

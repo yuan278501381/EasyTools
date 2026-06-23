@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // CaptureOverlay.cpp — 截图区域选择覆盖层实现
 //
 // 交互流程:
@@ -1158,8 +1158,16 @@ void CaptureOverlay::updateHoverCursor(POINT point) {
             HitArea sel = hitTestSelectionBox(point);
             if (sel != HitArea::None) {
                 cur = cursorForArea(sel);
-            } else if (m_activeElement) {
-                cur = cursorForArea(m_activeElement->hitTestEx(toMarkupPoint(point)));
+            } else {
+                if (m_activeElement) {
+                    cur = cursorForArea(m_activeElement->hitTestEx(toMarkupPoint(point)));
+                }
+                if (!cur) {
+                    HitResult hit = m_markup.getElementAtEx(toMarkupPoint(point));
+                    if (hit.element) {
+                        cur = cursorForArea(hit.area);
+                    }
+                }
             }
         }
     }

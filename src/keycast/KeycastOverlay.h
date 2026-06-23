@@ -1,4 +1,4 @@
-#ifndef EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
+﻿#ifndef EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
 #define EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
 
 #include <windows.h>
@@ -40,6 +40,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBorder;
 
     std::string m_currentText;
+    std::string m_rawLastKey;
+    int m_repeatCount = 1;
     uint64_t m_lastPushTime = 0;
     
     // Animation states
