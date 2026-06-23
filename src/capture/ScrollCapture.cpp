@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // ScrollCapture.cpp — 长截图实现
 //
 // 拼接算法:
@@ -31,6 +31,7 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
     easy::core::TraceId::Scope scope;
     m_options = options;
     m_frames.clear();
+    m_currentStitched = cv::Mat();
     m_running = true;
 
     if (options.mode == ScrollMode::Auto) {
@@ -64,7 +65,7 @@ void ScrollCapture::stop() {
     LOG_INFO("长截图停止, 帧数={}, 开始拼接", m_frames.size());
 
     // 拼接
-    auto stitched = stitchFrames(m_frames, m_options.overlapPercent);
+    auto stitched = m_currentStitched.clone();
 
     ScrollCaptureResult result;
     result.success = !stitched.empty();
@@ -87,9 +88,16 @@ void ScrollCapture::captureCurrentFrame() {
 
     auto frame = captureRegion(m_options.captureRect);
     if (!frame.empty()) {
+        if (m_frames.empty()) {
+            m_currentStitched = frame.clone();
+        } else {
+            std::vector<cv::Mat> toStitch = {m_currentStitched, frame};
+            m_currentStitched = stitchFrames(toStitch, m_options.overlapPercent);
+        }
         m_frames.push_back(frame);
+
         if (m_progressCb) {
-            m_progressCb(static_cast<int>(m_frames.size()), m_options.maxFrames);
+            m_progressCb(m_currentStitched, static_cast<int>(m_frames.size()));
         }
     }
 }
@@ -114,10 +122,16 @@ void ScrollCapture::autoScrollLoop() {
             break;
         }
 
+        if (m_frames.empty()) {
+            m_currentStitched = frame.clone();
+        } else {
+            std::vector<cv::Mat> toStitch = {m_currentStitched, frame};
+            m_currentStitched = stitchFrames(toStitch, m_options.overlapPercent);
+        }
         m_frames.push_back(frame);
 
         if (m_progressCb) {
-            m_progressCb(static_cast<int>(m_frames.size()), m_options.maxFrames);
+            m_progressCb(m_currentStitched, static_cast<int>(m_frames.size()));
         }
 
         // 模拟鼠标滚轮滚动
@@ -144,7 +158,7 @@ void ScrollCapture::autoScrollLoop() {
 
     // 自动触发拼接
     if (!m_frames.empty()) {
-        auto stitched = stitchFrames(m_frames, m_options.overlapPercent);
+        auto stitched = m_currentStitched.clone();
         ScrollCaptureResult result;
         result.success = !stitched.empty();
         result.stitchedImage = stitched;

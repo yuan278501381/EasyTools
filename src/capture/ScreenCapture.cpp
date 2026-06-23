@@ -13,6 +13,7 @@
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 #include "ocr/OcrEngine.h"
+#include "ocr/OcrResultWindow.h"
 #include "capture/ScrollCapture.h"
 
 #include <opencv2/opencv.hpp>
@@ -66,6 +67,9 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
 
     overlay.setOcrCallback([this]([[maybe_unused]] const CaptureRegion& region, const cv::Mat& cropped) {
         if (cropped.empty()) return;
+        
+        easy::ocr::OcrResultWindow::instance().showResult("识别中... (Recognizing...)");
+
         // OCR(WinRT .get()) 放后台线程: 避免在主 STA 线程阻塞/冻结 UI; 全程 try/catch 兜底。
         std::string traceId = easy::core::TraceId::current();
         cv::Mat img = cropped;  // cv::Mat 引用计数, 拷贝廉价
@@ -78,13 +82,17 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
                 if (!fullText.empty()) {
                     easy::core::WinUtils::copyToClipboard(fullText);
                     LOG_INFO("OCR 提取完成，已复制到剪贴板, 行数={}", results.size());
+                    easy::ocr::OcrResultWindow::instance().showResult(fullText);
                 } else {
                     LOG_WARN("OCR 未提取到文字");
+                    easy::ocr::OcrResultWindow::instance().showResult("未识别到文字 (No text recognized)");
                 }
             } catch (const std::exception& e) {
                 LOG_ERROR("OCR(覆盖层) 异常: {}", e.what());
+                easy::ocr::OcrResultWindow::instance().showResult("识别失败 (Recognition failed)");
             } catch (...) {
                 LOG_ERROR("OCR(覆盖层) 未知异常");
+                easy::ocr::OcrResultWindow::instance().showResult("识别失败 (Unknown error)");
             }
         }).detach();
     });

@@ -1,4 +1,4 @@
-#include "KeycastOverlay.h"
+﻿#include "KeycastOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
@@ -109,8 +109,18 @@ bool KeycastOverlay::createResources() {
 
 void KeycastOverlay::pushKey(const std::string& keyStr) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_currentText = keyStr;
-    m_lastPushTime = GetTickCount64();
+    
+    uint64_t now = GetTickCount64();
+    if (m_rawLastKey == keyStr && (now - m_lastPushTime) < 2000) {
+        m_repeatCount++;
+        m_currentText = keyStr + " x" + std::to_string(m_repeatCount);
+    } else {
+        m_rawLastKey = keyStr;
+        m_repeatCount = 1;
+        m_currentText = keyStr;
+    }
+
+    m_lastPushTime = now;
     m_opacity = 0.0f; // start animation
     m_scale = 0.8f;
     m_animating = true;

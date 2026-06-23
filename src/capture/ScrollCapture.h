@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // ScrollCapture — 长截图（滚动截图 + 图像拼接）
 //
@@ -47,7 +47,7 @@ struct ScrollCaptureResult {
 };
 
 /// 进度回调
-using ScrollProgressCallback = std::function<void(int currentFrame, int estimatedTotal)>;
+using ScrollProgressCallback = std::function<void(const cv::Mat& currentStitched, int currentFrame)>;
 
 class ScrollCapture {
 public:
@@ -99,6 +99,7 @@ private:
     std::thread m_scrollThread;
     ScrollCaptureOptions m_options;
     std::vector<cv::Mat> m_frames;
+    cv::Mat m_currentStitched;
     ScrollProgressCallback m_progressCb;
     std::function<void(const ScrollCaptureResult&)> m_completionCb;
 };

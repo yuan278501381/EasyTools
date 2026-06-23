@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // ScreenCapture — 屏幕截图核心引擎
 //
@@ -68,6 +68,8 @@ using CaptureCallback = std::function<void(const CaptureResult& result)>;
 
 class ScreenCapture {
 public:
+    bool copyToClipboard(const cv::Mat& image);
+public:
     static ScreenCapture& instance();
 
     /// 初始化截图系统
@@ -106,7 +108,7 @@ private:
     std::vector<uint8_t> encodeImage(const cv::Mat& image, ImageFormat format, int quality);
 
     /// 将字节流复制到剪贴板
-    bool copyToClipboard(const cv::Mat& image);
+    
 
     /// 保存到文件
     std::string saveToFile(const std::vector<uint8_t>& data, const std::string& path,
