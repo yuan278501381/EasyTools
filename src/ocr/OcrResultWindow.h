@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <windows.h>
 #include <string>
 #include <d2d1.h>
@@ -53,6 +53,8 @@ private:
     
     bool m_hoverCopy = false;
     bool m_hoverClose = false;
+    float m_currentAlpha = 0.0f;
+    uint64_t m_showTime = 0;
     
     uint64_t m_copiedTime = 0;
 };

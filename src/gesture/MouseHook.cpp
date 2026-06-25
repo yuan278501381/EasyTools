@@ -94,6 +94,13 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             event.timestamp = std::chrono::steady_clock::now();
             event.foregroundWindow = GetForegroundWindow();
 
+            // 一次性采集修饰键状态（高位=1 表示按下）
+            uint8_t mods = 0;
+            if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+            if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+            if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+            event.modifiers = mods;
+
             bool shouldCapture = false;
 
             switch (wParam) {

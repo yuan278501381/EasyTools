@@ -126,6 +126,7 @@ private:
     std::atomic<bool> m_trailVisible{true};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时的前台窗口
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
+    uint8_t m_gestureModifiers = 0;       // 手势开始时的修饰键状态
     PauseChangedCallback m_pauseChangedCallback;
 
     // 轨迹可视化

@@ -271,6 +271,12 @@ private:
     RecordSelectionCallback m_recordCallback;
     std::function<void(const CaptureRegion& region, const cv::Mat& cropped)> m_ocrCallback;
 
+    // 历史回放
+    bool m_historyMode = false;
+    int m_historyIndex = 0;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> m_historyBitmap;
+    void updateHistoryBitmap();
+
     // D2D 渲染
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> m_renderTarget;

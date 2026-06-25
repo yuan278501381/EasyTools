@@ -10,6 +10,7 @@ import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UI
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { FileText } from 'lucide-react';
+import { HotkeyRecorder } from '../components/HotkeyRecorder';
 
 interface OcrSettings {
   engine: string;
@@ -47,7 +48,7 @@ export const OcrPage: FC = () => {
   }, []);
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>加载中...</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
 
   return (
@@ -55,11 +56,14 @@ export const OcrPage: FC = () => {
       <SettingGroup title={t('ocr.title')} icon={<FileText size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('ocr.shortcut')} description={t('ocr.shortcutDesc')}>
-            <kbd style={{
-              padding: '4px 10px', borderRadius: '6px',
-              background: 'var(--bg-elevated)', border: '1px solid var(--card-border)',
-              fontFamily: 'Consolas, monospace', fontSize: '0.85rem', color: 'var(--text-secondary)'
-            }}>Ctrl+Shift+O</kbd>
+            <HotkeyRecorder
+              id="ocr-shortcut"
+              value={settings.shortcut || 'Ctrl+Shift+O'}
+              onChange={(v) => {
+                updateSetting('shortcut', v);
+                bridgeRequest('hotkey.rebind', { name: 'OCR', hotkey: v });
+              }}
+            />
           </SettingRow>
           
           <SettingRow label={t('ocr.engine')} description={t('ocr.engineDesc')}>

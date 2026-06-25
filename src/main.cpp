@@ -40,6 +40,8 @@
 #include "core/crash/CrashHandler.h"
 #include "core/lua/LuaEngine.h"
 #include "core/plugin/PluginManager.h"
+#include "core/events/EventBus.h"
+#include "core/stats/PerformanceMonitor.h"
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
 #include "ui/SearchWindow.h"
@@ -94,8 +96,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     easy::core::TraceId::Scope mainScope;
     LOG_INFO("========================================");
-    LOG_INFO("EasyTools v0.1.0 启动");
+    LOG_INFO("EasyTools v1.0.0 启动");
     LOG_INFO("========================================");
+
+    // ── 5a. 性能监控启动 ─────────────────────────────────────────────
+    easy::core::PerformanceMonitor::instance().start();
 
     // ── 5. 配置管理器 ───────────────────────────────────────────────────
     easy::core::ConfigManager::instance().initialize(
@@ -170,9 +175,9 @@ void initializeSubsystems(HWND hwnd) {
     tray.onOpenSettings([]() { showSettingsWindow(); });
     tray.onExit([hwnd]() { PostMessageW(hwnd, WM_CLOSE, 0, 0); });
 
-    tray.onScreenshot([]() { easy::core::MessageBridge::instance().handleMessage(R"({"method":"capture.triggerScreenshot"})"); });
-    tray.onRecording([]() { easy::core::MessageBridge::instance().handleMessage(R"({"method":"capture.toggleRecording"})"); });
-    tray.onPauseGesture([]() { easy::core::MessageBridge::instance().handleMessage(R"({"method":"gesture.togglePause"})"); });
+    tray.onScreenshot([]() { easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{}); });
+    tray.onRecording([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{}); });
+    tray.onPauseGesture([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{}); });
 
     // 2. 统计模块
     easy::core::StatsManager::instance().initialize();
@@ -229,6 +234,8 @@ void shutdownSubsystems() {
     easy::core::KeyboardHook::instance().uninstall();
     easy::core::HotkeyManager::instance().shutdown();
     easy::core::StatsManager::instance().shutdown();
+    easy::core::PerformanceMonitor::instance().stop();
+    easy::core::EventBus::instance().clearAll();
     easy::tray::TrayIcon::instance().destroy();
     easy::core::Logger::shutdown();
 }

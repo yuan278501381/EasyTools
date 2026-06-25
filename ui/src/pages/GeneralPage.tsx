@@ -5,11 +5,12 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw } from 'lucide-react';
+import './GeneralPage.css';
 
 interface GeneralSettings {
   autoStart: boolean;
@@ -19,6 +20,11 @@ interface GeneralSettings {
   language: string;
   logLevel: string;
   theme: string;
+}
+
+interface HotkeyEntry {
+  name: string;
+  shortcut: string;
 }
 
 export const GeneralPage: FC = () => {
@@ -32,21 +38,25 @@ export const GeneralPage: FC = () => {
     theme: 'dark',
   });
   const [loading, setLoading] = useState(true);
+  const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
 
   const { t, i18n } = useTranslation();
 
   // 初始化获取设置
   useEffect(() => {
-    bridgeRequest<GeneralSettings>('general.getSettings')
-      .then(res => {
-        setSettings(prev => ({ ...prev, ...res }));
-        const lang = res.language;
-        if (lang && lang !== 'auto') {
-          i18n.changeLanguage(lang);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    Promise.all([
+      bridgeRequest<GeneralSettings>('general.getSettings'),
+      bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
+    ]).then(([res, hotkeyData]) => {
+      setSettings(prev => ({ ...prev, ...res }));
+      const lang = res.language;
+      if (lang && lang !== 'auto') {
+        i18n.changeLanguage(lang);
+      }
+      setHotkeys(Array.isArray(hotkeyData) ? hotkeyData : []);
+    })
+    .catch(console.error)
+    .finally(() => setLoading(false));
   }, [i18n]);
 
   // 保存单个设置项
@@ -73,8 +83,48 @@ export const GeneralPage: FC = () => {
     });
   }, [i18n, t]);
 
+  // ── 数据管理操作 ─────────────────────────────────────────────────────────
+  const handleExportConfig = async () => {
+    try {
+      await bridgeRequest('config.export');
+      toast.success(t('general.exportSuccess'));
+    } catch (e) {
+      toast.error(t('general.exportFailed'), { description: String(e) });
+    }
+  };
+
+  const handleImportConfig = async () => {
+    try {
+      await bridgeRequest('config.import');
+      toast.success(t('general.importSuccess'));
+    } catch (e) {
+      toast.error(t('general.importFailed'), { description: String(e) });
+    }
+  };
+
+  const handleResetConfig = async () => {
+    if (!window.confirm(t('general.resetConfirmMsg'))) return;
+    try {
+      await bridgeRequest('config.reset');
+      toast.success(t('general.resetSuccess'));
+      // 重新加载设置
+      const res = await bridgeRequest<GeneralSettings>('general.getSettings');
+      setSettings(prev => ({ ...prev, ...res }));
+    } catch (e) {
+      toast.error(t('general.resetFailed'), { description: String(e) });
+    }
+  };
+
+  // ── 快捷键名称映射 ──────────────────────────────────────────────────────
+  const hotkeyNameMap: Record<string, string> = {
+    capture: t('onboarding.shortcutCapture'),
+    recording: t('onboarding.shortcutRecord'),
+    ocr: t('onboarding.shortcutOcr'),
+    gesturePause: t('onboarding.shortcutGesturePause'),
+  };
+
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>加载中...</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
 
   return (
@@ -155,6 +205,50 @@ export const GeneralPage: FC = () => {
                 { value: 'error', label: 'Error' },
               ]}
             />
+          </SettingRow>
+        </Card>
+      </SettingGroup>
+
+      {/* ── 快捷键总览 ──────────────────────────────────────────── */}
+      <SettingGroup title={t('general.keyboardShortcuts')} icon={<Keyboard size={20} strokeWidth={2.5} />}>
+        <Card>
+          {hotkeys.length === 0 ? (
+            <div className="general-page__empty">{t('general.noShortcuts')}</div>
+          ) : (
+            <div className="general-page__hotkey-list">
+              {hotkeys.map((hk) => (
+                <div key={hk.name} className="general-page__hotkey-item">
+                  <span className="general-page__hotkey-name">
+                    {hotkeyNameMap[hk.name] ?? hk.name}
+                  </span>
+                  <kbd className="general-page__hotkey-kbd">{hk.shortcut}</kbd>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </SettingGroup>
+
+      {/* ── 数据管理 ────────────────────────────────────────────── */}
+      <SettingGroup title={t('general.dataManagement')} icon={<Database size={20} strokeWidth={2.5} />}>
+        <Card>
+          <SettingRow label={t('general.exportConfig')} description={t('general.exportConfigDesc')}>
+            <Button variant="ghost" onClick={handleExportConfig}>
+              <Download size={16} />
+              <span>{t('common.export')}</span>
+            </Button>
+          </SettingRow>
+          <SettingRow label={t('general.importConfig')} description={t('general.importConfigDesc')}>
+            <Button variant="ghost" onClick={handleImportConfig}>
+              <Upload size={16} />
+              <span>{t('common.import')}</span>
+            </Button>
+          </SettingRow>
+          <SettingRow label={t('general.resetConfig')} description={t('general.resetConfigDesc')}>
+            <Button variant="danger" onClick={handleResetConfig}>
+              <RotateCcw size={16} />
+              <span>{t('common.reset')}</span>
+            </Button>
           </SettingRow>
         </Card>
       </SettingGroup>

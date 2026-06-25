@@ -101,8 +101,8 @@ bool KeycastOverlay::createResources() {
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushText);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.5f), &m_brushBg);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f), &m_brushBorder);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.74f), &m_brushBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.16f), &m_brushBorder);
 
     return true;
 }
@@ -204,6 +204,10 @@ void KeycastOverlay::render() {
 
         m_brushBg->SetOpacity(currentOpacity);
         m_renderTarget->FillRoundedRectangle(&rrect, m_brushBg.Get());
+        if (m_brushBorder) {
+            m_brushBorder->SetOpacity(currentOpacity);
+            m_renderTarget->DrawRoundedRectangle(&rrect, m_brushBorder.Get(), 1.0f);
+        }
 
         m_brushBorder->SetOpacity(currentOpacity);
         m_renderTarget->DrawRoundedRectangle(&rrect, m_brushBorder.Get(), 2.0f);

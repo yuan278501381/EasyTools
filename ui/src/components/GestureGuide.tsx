@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import './GestureGuide.css';
 
 const GUIDES = [
-  { code: 'U', name: '向上', path: 'M 50 80 L 50 20' },
-  { code: 'D', name: '向下', path: 'M 50 20 L 50 80' },
-  { code: 'L', name: '向左', path: 'M 80 50 L 20 50' },
-  { code: 'R', name: '向右', path: 'M 20 50 L 80 50' },
-  { code: 'DR', name: '右下', path: 'M 30 30 L 70 70' },
-  { code: 'DL', name: '左下', path: 'M 70 30 L 30 70' },
-  { code: 'UR', name: '右上', path: 'M 30 70 L 70 30' },
-  { code: 'UL', name: '左上', path: 'M 70 70 L 30 30' },
-  { code: 'RD', name: '先右后下', path: 'M 30 30 L 70 30 L 70 70' },
+  { code: 'U', nameKey: 'gestureGuide.dirU', path: 'M 50 80 L 50 20' },
+  { code: 'D', nameKey: 'gestureGuide.dirD', path: 'M 50 20 L 50 80' },
+  { code: 'L', nameKey: 'gestureGuide.dirL', path: 'M 80 50 L 20 50' },
+  { code: 'R', nameKey: 'gestureGuide.dirR', path: 'M 20 50 L 80 50' },
+  { code: 'DR', nameKey: 'gestureGuide.dirDR', path: 'M 30 30 L 70 70' },
+  { code: 'DL', nameKey: 'gestureGuide.dirDL', path: 'M 70 30 L 30 70' },
+  { code: 'UR', nameKey: 'gestureGuide.dirUR', path: 'M 30 70 L 70 30' },
+  { code: 'UL', nameKey: 'gestureGuide.dirUL', path: 'M 70 70 L 30 30' },
+  { code: 'RD', nameKey: 'gestureGuide.dirRD', path: 'M 30 30 L 70 30 L 70 70' },
 ];
 
 export const GestureGuide: React.FC = () => {
+  const { t } = useTranslation();
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -28,11 +30,11 @@ export const GestureGuide: React.FC = () => {
   return (
     <div className="gesture-guide">
       <div className="gesture-guide__info">
-        <div className="gesture-guide__title">手势演示</div>
-        <div className="gesture-guide__desc">按住右键滑动以触发操作</div>
+        <div className="gesture-guide__title">{t('gestureGuide.title')}</div>
+        <div className="gesture-guide__desc">{t('gestureGuide.desc')}</div>
         <div className="gesture-guide__badge">
           <span>{guide.code}</span>
-          <span>{guide.name}</span>
+          <span>{t(guide.nameKey as any)}</span>
         </div>
       </div>
       <div className="gesture-guide__canvas">

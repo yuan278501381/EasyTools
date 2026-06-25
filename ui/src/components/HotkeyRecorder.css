@@ -1,0 +1,152 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * HotkeyRecorder.css — 交互式快捷键录入器样式
+ *
+ * 设计参考: macOS 系统偏好键盘快捷键风格
+ *   - 胶囊式按键展示
+ *   - 录入模式脉冲高亮
+ *   - 支持 dark / light 主题
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── 容器 ─────────────────────────────────────────────────────────────────── */
+.hotkey-recorder {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 180px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1.5px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    background var(--transition-fast);
+  user-select: none;
+  outline: none;
+}
+
+.hotkey-recorder:hover {
+  border-color: var(--primary-hover);
+}
+
+/* ── 录入模式 ─────────────────────────────────────────────────────────────── */
+.hotkey-recorder--recording {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-dim);
+  animation: hotkey-recorder-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes hotkey-recorder-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--primary-dim); }
+  50%      { box-shadow: 0 0 0 6px var(--primary-glow); }
+}
+
+/* ── 占位文字 ─────────────────────────────────────────────────────────────── */
+.hotkey-recorder__placeholder {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.hotkey-recorder--recording .hotkey-recorder__placeholder {
+  color: var(--primary);
+  animation: hotkey-placeholder-blink 1s ease-in-out infinite;
+}
+
+@keyframes hotkey-placeholder-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ── 按键胶囊区 ───────────────────────────────────────────────────────────── */
+.hotkey-recorder__keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ── 单个胶囊按键 ─────────────────────────────────────────────────────────── */
+.hotkey-recorder__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 10px;
+  min-width: 28px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.03em;
+  box-shadow: var(--shadow-sm);
+  animation: hotkey-key-pop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+@keyframes hotkey-key-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 修饰键 — 用主色调高亮 */
+.hotkey-recorder__key--modifier {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ── 加号分隔符 ───────────────────────────────────────────────────────────── */
+.hotkey-recorder__separator {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 1px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+
+/* ── 清除按钮 ─────────────────────────────────────────────────────────────── */
+.hotkey-recorder__clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--card-border);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+  padding: 0;
+  line-height: 1;
+}
+
+.hotkey-recorder:hover .hotkey-recorder__clear,
+.hotkey-recorder--recording .hotkey-recorder__clear {
+  opacity: 1;
+}
+
+.hotkey-recorder__clear:hover {
+  background: var(--danger);
+  color: #fff;
+  transform: translateY(-50%) scale(1.1);
+}

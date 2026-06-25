@@ -4,6 +4,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
+#include "core/events/EventBus.h"
 #include "capture/ScreenCapture.h"
 #include "capture/ScreenRecorder.h"
 #include "capture/RecordingIndicator.h"
@@ -88,6 +89,45 @@ public:
 
         
         auto& mb = easy::core::MessageBridge::instance();
+        auto& bus = easy::core::EventBus::instance();
+
+        // 订阅 EventBus 上的托盘/快捷键触发事件
+        bus.subscribe<easy::core::ActionTriggerScreenshotEvent>([](const easy::core::ActionTriggerScreenshotEvent&) {
+            easy::capture::CaptureOptions opts;
+            easy::capture::ScreenCapture::instance().startCapture(opts);
+        });
+
+        bus.subscribe<easy::core::ActionToggleRecordingEvent>([](const easy::core::ActionToggleRecordingEvent&) {
+            auto& recorder = easy::capture::ScreenRecorder::instance();
+            if (recorder.state() == easy::capture::RecordState::Idle) {
+                easy::capture::CaptureOptions opts;
+                auto& overlay = easy::capture::CaptureOverlay::instance();
+                overlay.setRecordCallback([&recorder](const easy::capture::CaptureRegion& region) {
+                    easy::capture::RecordOptions recOpts;
+                    recOpts.regionX = region.x;
+                    recOpts.regionY = region.y;
+                    recOpts.width = region.width;
+                    recOpts.height = region.height;
+                    recOpts.fullScreen = false;
+                    
+                    auto tempPath = easy::core::WinUtils::getAppDataDirectory() / L"temp";
+                    std::filesystem::create_directories(tempPath);
+                    auto file = tempPath / (L"record_" + std::to_wstring(GetTickCount64()) + L".mp4");
+                    recOpts.outputPath = easy::core::WinUtils::wstringToUtf8(file.wstring());
+
+                    recorder.setStateCallback([](easy::capture::RecordState state, const easy::capture::RecordStats& stats) {
+                        easy::capture::RecordingIndicator::instance().setPaused(state == easy::capture::RecordState::Paused);
+                    });
+                    recorder.startRecording(recOpts);
+                    easy::capture::RecordingIndicator::instance().show();
+                });
+                overlay.startSelection(opts, easy::capture::OverlayMode::RecordRegion);
+            } else if (recorder.state() == easy::capture::RecordState::Recording) {
+                recorder.pauseRecording();
+            } else if (recorder.state() == easy::capture::RecordState::Paused) {
+                recorder.resumeRecording();
+            }
+        });
         
         mb.registerHandler("capture.triggerScreenshot", [](const nlohmann::json&) -> nlohmann::json {
             easy::capture::CaptureOptions opts;

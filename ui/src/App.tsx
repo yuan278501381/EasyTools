@@ -20,6 +20,9 @@ import { OcrPage } from './pages/OcrPage';
 import { GeneralPage } from './pages/GeneralPage';
 import { AboutPage } from './pages/AboutPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
+import { HotCornerPage } from './pages/HotCornerPage';
+import { OnboardingModal } from './components/OnboardingModal';
+import { bridgeRequest } from './hooks/useBridge';
 import { Toaster } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import './App.css';
@@ -33,6 +36,25 @@ function App() {
     window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
   const [theme, setTheme] = useState<'dark' | 'light'>(getSystemTheme());
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // 检查是否需要显示首次引导
+  useEffect(() => {
+    bridgeRequest<boolean>('config.get', { key: '/app/onboardingCompleted' })
+      .then((completed) => {
+        if (!completed) setShowOnboarding(true);
+      })
+      .catch(() => {
+        // 首次或查询失败时显示引导
+        setShowOnboarding(true);
+      });
+  }, []);
+
+  const handleOnboardingComplete = useCallback(() => {
+    setShowOnboarding(false);
+    bridgeRequest('config.set', { key: '/app/onboardingCompleted', value: true })
+      .catch(console.error);
+  }, []);
 
   // 主题切换
   const handleToggleTheme = useCallback(() => {
@@ -60,6 +82,7 @@ function App() {
     switch (activeNav) {
       case 'stats':   return <KeyStatsPage />;
       case 'gesture': return <GesturePage />;
+      case 'hotcorner': return <HotCornerPage />;
       case 'capture': return <CapturePage />;
       case 'ocr':     return <OcrPage />;
       case 'general': return <GeneralPage />;
@@ -91,6 +114,7 @@ function App() {
           {renderPage()}
         </div>
       </main>
+      {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
     </div>
   );
 }

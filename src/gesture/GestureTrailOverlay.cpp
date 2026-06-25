@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // GestureTrailOverlay.cpp — 手势轨迹可视化覆盖层实现
 //
 // 核心原理:
@@ -70,6 +70,7 @@ void GestureTrailOverlay::beginTrail() {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
         m_resultText.clear();
+        m_pathCache.clear();
     }
 
     m_fading = false;
@@ -246,7 +247,7 @@ bool GestureTrailOverlay::createD2DResources() {
     float b = (m_style.lineColor & 0xFF) / 255.0f;
 
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), m_lineBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f), m_textBgBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.8f), m_textBgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), m_textBrush.GetAddressOf());
 
     // 笔触样式 (使线段更平滑，具有圆头)
@@ -300,18 +301,75 @@ void GestureTrailOverlay::render() {
     std::lock_guard lock(m_trailMutex);
 
     if (m_points.size() >= 2) {
-        // 绘制轨迹线段（渐变透明度）
-        for (size_t i = 1; i < m_points.size(); ++i) {
-            float progress = static_cast<float>(i) / static_cast<float>(m_points.size());
+        size_t numSegments = m_points.size() - 1;
+        if (m_pathCache.size() < numSegments) {
+            m_pathCache.resize(numSegments);
+        }
+
+        // 仅重建缺少或需要更新的最后两段（因为新点的加入会影响前一段的结束点）
+        for (size_t i = 0; i < numSegments; ++i) {
+            bool isLast = (i == numSegments - 1);
+            bool isSecondLast = (i + 1 == numSegments - 1);
+            
+            if (m_pathCache[i] == nullptr || isLast || isSecondLast) {
+                m_d2dFactory->CreatePathGeometry(m_pathCache[i].ReleaseAndGetAddressOf());
+                
+                ComPtr<ID2D1GeometrySink> sink;
+                m_pathCache[i]->Open(&sink);
+                
+                // 二次贝塞尔曲线平滑算法 (基于中点)
+                // 设 P_i 为点 i, 曲线从 M(P_{i-1}, P_i) 经过控制点 P_i, 到达 M(P_i, P_{i+1})
+                
+                D2D1_POINT_2F startPt, ctrlPt, endPt;
+                
+                // 转换坐标 (减去原点)
+                auto getPt = [&](size_t idx) -> D2D1_POINT_2F {
+                    return D2D1::Point2F(m_points[idx].x - m_originX, m_points[idx].y - m_originY);
+                };
+                
+                D2D1_POINT_2F p0 = getPt(i);
+                D2D1_POINT_2F p1 = getPt(i + 1);
+                
+                // 二次贝塞尔曲线平滑算法 (基于中点)
+                // 设每段 i 代表 P[i] 到 P[i+1] 的连接
+                // 为了保证 C1 连续，除首尾外，每段都从 M(P_{i-1}, P_i) 经过控制点 P_i 到达 M(P_i, P_{i+1})
+                // 但由于我们是以线段 i 为单位：控制点设为 P_{i+1}
+                // 起点: i==0 ? P_0 : M(P_i, P_{i+1})
+                // 终点: isLast ? P_{i+1} : M(P_{i+1}, P_{i+2})
+                
+                if (i == 0) {
+                    startPt = p0;
+                } else {
+                    startPt = D2D1::Point2F((p0.x + p1.x) / 2.0f, (p0.y + p1.y) / 2.0f);
+                }
+                
+                ctrlPt = p1;
+                
+                if (isLast) {
+                    endPt = p1;
+                } else {
+                    D2D1_POINT_2F p2 = getPt(i + 2);
+                    endPt = D2D1::Point2F((p1.x + p2.x) / 2.0f, (p1.y + p2.y) / 2.0f);
+                }
+
+                sink->BeginFigure(startPt, D2D1_FIGURE_BEGIN_HOLLOW);
+                sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(ctrlPt, endPt));
+                sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                sink->Close();
+            }
+        }
+
+        // 绘制所有贝塞尔段（渐变透明度）
+        for (size_t i = 0; i < numSegments; ++i) {
+            float progress = static_cast<float>(i) / static_cast<float>(numSegments);
             float alpha = m_style.startOpacity - progress * (m_style.startOpacity - m_style.endOpacity);
             alpha *= m_fadeAlpha;  // 淡出时整体乘以 fade alpha
 
             m_lineBrush->SetOpacity(alpha);
 
-            D2D1_POINT_2F p0 = D2D1::Point2F(m_points[i - 1].x - m_originX, m_points[i - 1].y - m_originY);
-            D2D1_POINT_2F p1 = D2D1::Point2F(m_points[i].x - m_originX, m_points[i].y - m_originY);
-
-            m_renderTarget->DrawLine(p0, p1, m_lineBrush.Get(), m_style.lineWidth, m_strokeStyle.Get());
+            if (m_pathCache[i]) {
+                m_renderTarget->DrawGeometry(m_pathCache[i].Get(), m_lineBrush.Get(), m_style.lineWidth, m_strokeStyle.Get());
+            }
         }
 
         // 绘制轨迹头部发光点

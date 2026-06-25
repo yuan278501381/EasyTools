@@ -1,4 +1,4 @@
-#include "OcrResultWindow.h"
+﻿#include "OcrResultWindow.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include <algorithm>
@@ -80,10 +80,10 @@ bool OcrResultWindow::createResources() {
         18.0f, L"zh-cn", &m_textFormat
     ))) return false;
 
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.85f), &m_brushBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.75f), &m_brushBg);
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.9f, 0.9f, 0.9f, 1.0f), &m_brushText);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.2f, 0.5f, 0.9f, 0.8f), &m_brushBtn);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.3f, 0.6f, 1.0f, 1.0f), &m_brushBtnHover);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), &m_brushBtn);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.22f), &m_brushBtnHover);
 
     return true;
 }
@@ -96,6 +96,8 @@ void OcrResultWindow::showResult(const std::string& text) {
     m_scrollY = 0;
     m_maxScroll = 0;
     m_copiedTime = 0;
+    m_showTime = GetTickCount64();
+    m_currentAlpha = 0.0f;
 
     std::wstring wtext = easy::core::WinUtils::utf8ToWstring(m_text);
     m_textLayout.Reset();
@@ -200,7 +202,7 @@ void OcrResultWindow::render() {
 
     POINT ptSrc = {0, 0};
     SIZE size = {width, height};
-    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, static_cast<BYTE>(m_currentAlpha), AC_SRC_ALPHA};
     UpdateLayeredWindow(m_hwnd, hdcScreen, nullptr, &size, hdcMemory, &ptSrc, 0, &blend, ULW_ALPHA);
 
     SelectObject(hdcMemory, hbmpOld);
@@ -259,11 +261,19 @@ LRESULT CALLBACK OcrResultWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         }
         return 0;
     case WM_TIMER:
-        if (wParam == 1 && self.m_copiedTime > 0) {
-            if (GetTickCount64() - self.m_copiedTime > 2000) {
+        if (wParam == 1) {
+            bool needsRender = false;
+            if (self.m_copiedTime > 0 && GetTickCount64() - self.m_copiedTime > 2000) {
                 self.m_copiedTime = 0;
-                self.render();
+                needsRender = true;
             }
+            if (self.m_currentAlpha < 255.0f) {
+                float dt = (GetTickCount64() - self.m_showTime) / 150.0f;
+                if (dt > 1.0f) dt = 1.0f;
+                self.m_currentAlpha = 255.0f * (1.0f - pow(1.0f - dt, 3.0f)); // cubic ease out
+                needsRender = true;
+            }
+            if (needsRender) self.render();
         }
         return 0;
     }

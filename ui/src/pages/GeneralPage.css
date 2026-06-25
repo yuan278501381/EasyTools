@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * GeneralPage.css — 通用设置页扩展样式
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── 快捷键总览 ───────────────────────────────────────────────────────────── */
+.general-page__hotkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.general-page__hotkey-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+
+.general-page__hotkey-item:hover {
+  background: var(--primary-dim);
+}
+
+.general-page__hotkey-name {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.general-page__hotkey-kbd {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  font-family: 'Consolas', 'Menlo', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  letter-spacing: 0.02em;
+  transition: all var(--transition-fast);
+}
+
+.general-page__hotkey-item:hover .general-page__hotkey-kbd {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 1px 6px rgba(139, 92, 246, 0.2);
+}
+
+/* ── 空状态 ───────────────────────────────────────────────────────────────── */
+.general-page__empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}

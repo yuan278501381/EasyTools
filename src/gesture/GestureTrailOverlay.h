@@ -110,6 +110,9 @@ private:
     std::vector<TrailPoint> m_points;
     std::string m_resultText;
 
+    // 缓存每段的贝塞尔曲线 PathGeometry 以提升性能
+    std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> m_pathCache;
+
     // Direct2D 资源
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;

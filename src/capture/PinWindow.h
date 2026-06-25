@@ -88,6 +88,20 @@ private:
     POINT m_dragOffset{};
     bool m_clickThrough = false;
     bool m_focused = false;  // 选中态（键盘焦点）：显示高亮边框，可按 Esc 隐藏
+    
+    // Hover Toolbar
+    bool m_isHovering = false;
+    float m_hoverAlpha = 0.0f;
+    uint64_t m_hoverTime = 0;
+    D2D1_RECT_F m_toolbarRect = {};
+    D2D1_RECT_F m_btnSaveRect = {};
+    D2D1_RECT_F m_btnCloseRect = {};
+    bool m_hoverSave = false;
+    bool m_hoverClose = false;
+    
+    void updateHoverAnimation();
+    void drawHoverToolbar();
+
     cv::Mat m_sourceImage;  // 原图副本，供"复制到剪贴板"
 
     // D2D

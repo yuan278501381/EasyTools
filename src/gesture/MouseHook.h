@@ -32,12 +32,18 @@ enum class MouseEventType {
     WheelDown
 };
 
+/// 修饰键位掩码
+static constexpr uint8_t MOUSE_MOD_CTRL  = 0x01;
+static constexpr uint8_t MOUSE_MOD_ALT   = 0x02;
+static constexpr uint8_t MOUSE_MOD_SHIFT = 0x04;
+
 /// 鼠标事件数据（从钩子回调中采集）
 struct MouseEvent {
     MouseEventType type;
     POINT position;                                               // 屏幕坐标
     std::chrono::steady_clock::time_point timestamp;              // 高精度时间戳
     HWND foregroundWindow = nullptr;                              // 事件发生时的前台窗口
+    uint8_t modifiers = 0;                                        // 修饰键状态 (MOUSE_MOD_CTRL | MOUSE_MOD_ALT | MOUSE_MOD_SHIFT)
 };
 
 /// 鼠标事件回调，返回 true 表示拦截此事件不传递给下层

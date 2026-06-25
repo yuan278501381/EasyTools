@@ -61,7 +61,7 @@ export const KeyStatsPage: FC = () => {
   }, []);
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading' as any, '加载数据中...')}</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
 
   return (
@@ -91,7 +91,7 @@ export const KeyStatsPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      <SettingGroup title={t('stats.heatmapTitle' as any, '按键热力图')} icon={<Flame size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('stats.heatmapTitle')} icon={<Flame size={20} strokeWidth={2.5} />}>
         <KeyboardHeatmap keyMap={todayStats.keyMap || {}} />
       </SettingGroup>
 
@@ -120,7 +120,7 @@ export const KeyStatsPage: FC = () => {
 
       <div style={{ textAlign: 'center', marginTop: '2rem' }}>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          历史累计按键总数: <Badge text={totalStats.totalKeystrokes.toLocaleString() + ' 次'} variant="primary" />
+          {t('stats.allTimeKeysSummary')}: <Badge text={totalStats.totalKeystrokes.toLocaleString() + ' ' + t('stats.times')} variant="primary" />
         </p>
       </div>
     </div>

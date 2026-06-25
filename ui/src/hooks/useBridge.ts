@@ -195,6 +195,7 @@ function getMockResponse(method: string): unknown {
       return {
         engine: 'windows', language: 'auto',
         autoOcr: false, copyResult: true,
+        shortcut: 'Ctrl+Shift+O',
       };
 
     case 'ocr.getStatus':
@@ -203,7 +204,33 @@ function getMockResponse(method: string): unknown {
     case 'ocr.recognizeImageFile':
       return { success: true, text: '(mock) 识别到的示例文字', copied: true };
 
-    // 所有 update 方法返回成功
+    case 'hotcorner.getSettings':
+      return {
+        enabled: false,
+        delay: 300,
+        corners: {
+          topLeft:     { commandIndex: -1 },
+          topRight:    { commandIndex: 2 },
+          bottomLeft:  { commandIndex: 5 },
+          bottomRight: { commandIndex: -1 },
+        },
+      };
+
+    case 'hotkey.getAll':
+      return [
+        { name: 'capture', shortcut: 'Ctrl+Shift+A' },
+        { name: 'recording', shortcut: 'Ctrl+Shift+R' },
+        { name: 'ocr', shortcut: 'Ctrl+Shift+O' },
+        { name: 'gesturePause', shortcut: 'Ctrl+Alt+Shift+W' },
+      ];
+
+    case 'config.get':
+      return false;
+
+    // 所有 update / action 方法返回成功
+    case 'config.export':
+    case 'config.import':
+    case 'config.reset':
     case 'capture.updateSettings':
     case 'recording.updateSettings':
     case 'general.updateSettings':
@@ -212,6 +239,8 @@ function getMockResponse(method: string): unknown {
     case 'gesture.updateScopeRules':
     case 'gesture.setPaused':
     case 'gesture.updateSettings':
+    case 'hotcorner.updateSettings':
+    case 'hotkey.rebind':
     case 'config.set':
       return { success: true };
 
