@@ -1,0 +1,247 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * HotCornerPage.css — 屏幕触发角可视化配置页样式
+ *
+ * 设计:
+ *   - 中央屏幕示意图 (圆角矩形 + 渐变背景)
+ *   - 四角卡片绝对定位 + 弹性悬停效果
+ *   - 深色渐变背景模拟屏幕
+ *   - 支持 dark / light 主题
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.hotcorner-page {
+  animation: fadeIn 0.3s ease;
+}
+
+/* ── 屏幕示意图容器 ───────────────────────────────────────────────────────── */
+.hotcorner-page__monitor-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--spacing-xl) 0;
+}
+
+.hotcorner-page__monitor {
+  position: relative;
+  width: 400px;
+  height: 250px;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg,
+      rgba(15, 15, 30, 0.95) 0%,
+      rgba(30, 25, 55, 0.9) 40%,
+      rgba(20, 20, 40, 0.95) 100%
+    );
+  border: 2px solid var(--card-border);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  overflow: visible;
+  transition: box-shadow var(--transition-normal);
+}
+
+/* 亮色主题下屏幕渐变 */
+[data-theme="light"] .hotcorner-page__monitor {
+  background:
+    linear-gradient(135deg,
+      rgba(220, 220, 240, 0.95) 0%,
+      rgba(200, 195, 225, 0.9) 40%,
+      rgba(210, 210, 230, 0.95) 100%
+    );
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 屏幕内标签 */
+.hotcorner-page__monitor-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  user-select: none;
+}
+
+[data-theme="light"] .hotcorner-page__monitor-label {
+  color: rgba(0, 0, 0, 0.15);
+}
+
+.hotcorner-page__monitor-label-icon {
+  opacity: 0.5;
+}
+
+.hotcorner-page__monitor-label-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── 四角卡片 ─────────────────────────────────────────────────────────────── */
+.hotcorner-page__corner {
+  position: absolute;
+  width: 140px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow var(--transition-normal),
+    border-color var(--transition-fast);
+  z-index: 2;
+}
+
+.hotcorner-page__corner:hover {
+  transform: scale(1.08);
+  border-color: var(--primary);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 0 0 2px var(--primary-dim);
+}
+
+.hotcorner-page__corner:active {
+  transform: scale(1.02);
+}
+
+/* 四角定位 */
+.hotcorner-page__corner--tl {
+  top: -18px;
+  left: -18px;
+}
+
+.hotcorner-page__corner--tr {
+  top: -18px;
+  right: -18px;
+}
+
+.hotcorner-page__corner--bl {
+  bottom: -18px;
+  left: -18px;
+}
+
+.hotcorner-page__corner--br {
+  bottom: -18px;
+  right: -18px;
+}
+
+/* 角落标签 */
+.hotcorner-page__corner-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+/* 角落动作名 */
+.hotcorner-page__corner-action {
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 角落未设置 */
+.hotcorner-page__corner-action--empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* 角落图标指示 */
+.hotcorner-page__corner-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.hotcorner-page__corner-indicator--empty {
+  background: var(--text-muted);
+  box-shadow: none;
+  opacity: 0.4;
+}
+
+/* ── 触发延迟滑块 ─────────────────────────────────────────────────────────── */
+.hotcorner-page__slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 220px;
+}
+
+.hotcorner-page__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--input-border);
+  outline: none;
+  transition: background var(--transition-fast);
+}
+
+.hotcorner-page__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.hotcorner-page__slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 10px var(--primary-glow);
+}
+
+.hotcorner-page__slider-value {
+  min-width: 50px;
+  text-align: right;
+  font-family: 'Consolas', 'Menlo', monospace;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ── 角落动作选择下拉（内联） ─────────────────────────────────────────────── */
+.hotcorner-page__corner-select {
+  margin-top: 6px;
+}
+
+.hotcorner-page__corner-select .uikit-select {
+  width: 100%;
+  font-size: 0.78rem;
+  padding: 4px 6px;
+  min-height: 28px;
+}
+
+/* ── 连接线装饰 (四角到屏幕边角) ──────────────────────────────────────────── */
+.hotcorner-page__connector {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.hotcorner-page__connector--tl { top: 0; left: 0; border-top: 2px solid var(--primary-dim); border-left: 2px solid var(--primary-dim); border-top-left-radius: var(--radius-sm); }
+.hotcorner-page__connector--tr { top: 0; right: 0; border-top: 2px solid var(--primary-dim); border-right: 2px solid var(--primary-dim); border-top-right-radius: var(--radius-sm); }
+.hotcorner-page__connector--bl { bottom: 0; left: 0; border-bottom: 2px solid var(--primary-dim); border-left: 2px solid var(--primary-dim); border-bottom-left-radius: var(--radius-sm); }
+.hotcorner-page__connector--br { bottom: 0; right: 0; border-bottom: 2px solid var(--primary-dim); border-right: 2px solid var(--primary-dim); border-bottom-right-radius: var(--radius-sm); }

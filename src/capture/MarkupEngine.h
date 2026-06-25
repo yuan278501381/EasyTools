@@ -3,7 +3,7 @@
 // MarkupEngine — 截图标注引擎
 //
 // 职责:
-//   1. 管理所有标注工具 (矩形/箭头/椭圆/画笔/高亮/马赛克/文本/放大镜/序号)
+//   1. 管理所有标注工具 (矩形/箭头/椭圆/画笔/高亮/马赛克/文本/放大镜/序号/聚光灯/水印/智能消除)
 //   2. 维护标注元素列表（支持撤销/重做）
 //   3. 使用 OpenCV 将标注渲染到截图上
 //   4. 自动序号递增管理
@@ -32,6 +32,9 @@ enum class MarkupTool {
     Text,        // 文本
     Magnifier,   // 放大镜
     Number,      // 序列号标记
+    Spotlight,   // 聚光灯（暗化选区外区域）
+    Watermark,   // 水印叠加
+    Inpaint,     // 智能消除（背景重建）
 };
 
 /// 颜色预设
@@ -89,6 +92,19 @@ struct MarkupElement {
     // 放大镜倍率
     float magnifierScale = 2.0f;
     int magnifierRadius = 60;
+
+    // 聚光灯参数
+    float spotlightDimAlpha = 0.6f;  // 暗化区域的不透明度
+    bool spotlightEllipse = true;     // true=椭圆区域, false=矩形区域
+
+    // 水印参数
+    std::string watermarkText;        // 水印文字
+    float watermarkOpacity = 0.15f;   // 水印透明度
+    float watermarkAngle = -30.0f;    // 旋转角度（度）
+    int watermarkSpacing = 120;       // 水印间距
+
+    // 智能消除（Inpaint）参数
+    int inpaintRadius = 5;            // 修复半径
 
     uint32_t id = 0; // 唯一标识
 
@@ -184,6 +200,15 @@ public:
 
     /// 添加放大镜
     void addMagnifier(cv::Point center, float scale = 2.0f, int radius = 60);
+
+    /// 添加聚光灯（暗化选区外区域，突出选区内容）
+    void addSpotlight(cv::Point p1, cv::Point p2, MarkupColor color, float dimAlpha = 0.6f, bool ellipse = true);
+
+    /// 添加水印叠加（在选区内重复绘制旋转水印文字）
+    void addWatermark(cv::Point p1, cv::Point p2, const std::string& text, float opacity = 0.15f, float angle = -30.0f);
+
+    /// 智能消除（利用 cv::inpaint 重建选区背景）
+    void applyInpaint(cv::Point p1, cv::Point p2, int radius = 5);
 
     /// 获取当前序列号
     int currentNumber() const { return m_nextNumber; }

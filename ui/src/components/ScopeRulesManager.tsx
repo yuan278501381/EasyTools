@@ -10,12 +10,14 @@ import { Card, Button, Badge, Toggle } from './UIKit';
 import { ScopeRuleModal } from './ScopeRuleModal';
 import { type ScopeRule, EFFECT_LABELS, MATCH_MODE_LABELS, ruleTarget } from './scopeModel';
 import { bridgeRequest } from '../hooks/useBridge';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   profileNames: string[];
 }
 
 export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
+  const { t } = useTranslation();
   const [rules, setRules] = useState<ScopeRule[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
@@ -53,14 +55,14 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
     persist(rules.map((x) => (x.id === r.id ? { ...x, enabled } : x)));
 
   const deleteOne = (r: ScopeRule) => {
-    if (!window.confirm(`删除规则 “${r.name}” 吗？`)) return;
+    if (!window.confirm(t('scope.deleteRuleConfirm', { name: r.name }))) return;
     persist(rules.filter((x) => x.id !== r.id));
     setSelected((s) => { const n = new Set(s); n.delete(r.id); return n; });
   };
 
   const deleteSelected = () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`删除选中的 ${selected.size} 条规则吗？`)) return;
+    if (!window.confirm(t('scope.deleteSelectedConfirm', { count: selected.size }))) return;
     persist(rules.filter((x) => !selected.has(x.id)));
     setSelected(new Set());
   };
@@ -78,20 +80,20 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
   return (
     <Card>
       <div className="scope-toolbar">
-        <span className="scope-toolbar__count">共 {rules.length} 条规则</span>
+        <span className="scope-toolbar__count">{t('scope.ruleCount', { count: rules.length })}</span>
         <div className="scope-toolbar__actions">
           {selected.size > 0 && (
             <Button size="sm" variant="danger" onClick={deleteSelected}>
-              删除选中 ({selected.size})
+              {t('scope.deleteSelected', { count: selected.size })}
             </Button>
           )}
-          <Button size="sm" variant="primary" onClick={openAdd}>＋ 添加规则</Button>
+          <Button size="sm" variant="primary" onClick={openAdd}>{t('scope.addRule')}</Button>
         </div>
       </div>
 
       {rules.length === 0 ? (
         <div className="scope-empty">
-          还没有作用域规则。默认在所有窗口中启用手势；添加规则可对特定进程/窗口启用、禁用或切换配置集。
+          {t('scope.emptyHint')}
         </div>
       ) : (
         <div className="scope-table">
@@ -101,13 +103,13 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
                 type="checkbox"
                 checked={selected.size === rules.length && rules.length > 0}
                 onChange={toggleSelectAll}
-                aria-label="全选"
+                aria-label={t('common.selectAll')}
               />
             </span>
-            <span className="scope-col scope-col--enabled">启用</span>
-            <span className="scope-col scope-col--name">名称</span>
-            <span className="scope-col scope-col--target">匹配目标</span>
-            <span className="scope-col scope-col--effect">效果</span>
+            <span className="scope-col scope-col--enabled">{t('scope.colEnabled')}</span>
+            <span className="scope-col scope-col--name">{t('scope.colName')}</span>
+            <span className="scope-col scope-col--target">{t('scope.colTarget')}</span>
+            <span className="scope-col scope-col--effect">{t('scope.colEffect')}</span>
             <span className="scope-col scope-col--actions" />
           </div>
 
@@ -120,7 +122,7 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
                     type="checkbox"
                     checked={selected.has(r.id)}
                     onChange={() => toggleSelect(r.id)}
-                    aria-label={`选择 ${r.name}`}
+                    aria-label={t('scope.selectRow', { name: r.name })}
                   />
                 </span>
                 <span className="scope-col scope-col--enabled">
@@ -142,10 +144,10 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
                   )}
                 </span>
                 <span className="scope-col scope-col--actions">
-                  <button className="gesture-icon-btn" title="编辑" onClick={() => openEdit(r)}>✎</button>
+                  <button className="gesture-icon-btn" title={t('common.edit')} onClick={() => openEdit(r)}>✎</button>
                   <button
                     className="gesture-icon-btn gesture-icon-btn--danger"
-                    title="删除"
+                    title={t('common.delete')}
                     onClick={() => deleteOne(r)}
                   >🗑</button>
                 </span>

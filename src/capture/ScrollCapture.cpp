@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // ScrollCapture.cpp — 长截图实现
 //
 // 拼接算法:
@@ -282,13 +282,38 @@ int ScrollCapture::findStitchOffset(const cv::Mat& upper, const cv::Mat& lower) 
     int searchHeight = std::min(lower.rows, templateHeight * 3);
     cv::Mat searchRegion = lower(cv::Rect(0, 0, lower.cols, searchHeight));
 
-    // 模板匹配
-    cv::Mat matchResult;
-    cv::matchTemplate(searchRegion, templateImg, matchResult, cv::TM_CCOEFF_NORMED);
+    // 图像金字塔加速匹配
+    double scale = 0.5;
+    cv::Mat smallTemplate, smallSearch, smallResult;
+    cv::resize(templateImg, smallTemplate, cv::Size(), scale, scale, cv::INTER_LINEAR);
+    cv::resize(searchRegion, smallSearch, cv::Size(), scale, scale, cv::INTER_LINEAR);
+
+    cv::matchTemplate(smallSearch, smallTemplate, smallResult, cv::TM_CCOEFF_NORMED);
+
+    double smallMaxVal;
+    cv::Point smallMaxLoc;
+    cv::minMaxLoc(smallResult, nullptr, &smallMaxVal, nullptr, &smallMaxLoc);
+
+    if (smallMaxVal < 0.7) {
+        LOG_WARN("缩小模板匹配置信度过低: {:.3f}", smallMaxVal);
+        return -1;
+    }
+
+    // 恢复粗略坐标
+    int roughY = static_cast<int>(smallMaxLoc.y / scale);
+    int fineSearchTop = std::max(0, roughY - 5);
+    int fineSearchBottom = std::min(searchRegion.rows, roughY + templateHeight + 5);
+
+    if (fineSearchBottom - fineSearchTop < templateHeight) return -1;
+
+    cv::Mat fineSearchRegion = searchRegion(cv::Rect(0, fineSearchTop, searchRegion.cols, fineSearchBottom - fineSearchTop));
+    
+    cv::Mat fineResult;
+    cv::matchTemplate(fineSearchRegion, templateImg, fineResult, cv::TM_CCOEFF_NORMED);
 
     double maxVal;
     cv::Point maxLoc;
-    cv::minMaxLoc(matchResult, nullptr, &maxVal, nullptr, &maxLoc);
+    cv::minMaxLoc(fineResult, nullptr, &maxVal, nullptr, &maxLoc);
 
     if (maxVal < 0.8) {
         LOG_WARN("模板匹配置信度过低: {:.3f}", maxVal);
@@ -296,7 +321,7 @@ int ScrollCapture::findStitchOffset(const cv::Mat& upper, const cv::Mat& lower) 
     }
 
     // 偏移 = 模板在下帧中的匹配位置 + 模板高度
-    int offset = maxLoc.y + templateHeight;
+    int offset = fineSearchTop + maxLoc.y + templateHeight;
     LOG_DEBUG("模板匹配: confidence={:.3f}, offset={}", maxVal, offset);
 
     return offset;

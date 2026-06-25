@@ -9,7 +9,9 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, type FC } from 'react';
-import { Modal, Field, Button, Select, TextInput, HotkeyInput } from './UIKit';
+import { Modal, Field, Button, Select, TextInput } from './UIKit';
+import { HotkeyRecorder } from './HotkeyRecorder';
+import { useTranslation } from 'react-i18next';
 import {
   type GestureMapping,
   ACTION_TYPE_OPTIONS,
@@ -32,6 +34,7 @@ interface Props {
 }
 
 export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, onClose }) => {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<GestureMapping>(() =>
     initial ? structuredClone(initial) : emptyMapping());
 
@@ -41,11 +44,11 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
   // ── 校验 ──────────────────────────────────────────────────────────────────
   let codeError = '';
   if (!code) {
-    codeError = '请填写手势编码';
+    codeError = t('gestureEditor.gestureCodeRequired');
   } else if (!GESTURE_CODE_PATTERN.test(code)) {
-    codeError = '编码只能由 U/D/L/R 组成, 多段用 “-” 分隔, 如 U-R';
+    codeError = t('gestureEditor.gestureCodeInvalid');
   } else if (!isEdit || code !== initial!.gestureCode) {
-    if (existingCodes.includes(code)) codeError = `编码 ${code} 已存在`;
+    if (existingCodes.includes(code)) codeError = t('gestureEditor.gestureCodeExists', { code });
   }
 
   // 前缀冲突 (非阻塞警告)
@@ -56,7 +59,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       )
     : [];
 
-  const nameError = draft.action.name.trim() ? '' : '请填写动作名称';
+  const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired');
   const canSave = !codeError && !nameError;
 
   const setAction = (patch: Partial<GestureMapping['action']>) =>
@@ -84,37 +87,37 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
   return (
     <Modal
       open
-      title={isEdit ? '编辑手势' : '新增手势'}
+      title={isEdit ? t('gestureEditor.titleEdit') : t('gestureEditor.titleAdd')}
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={handleSave} disabled={!canSave}>保存</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('common.save')}</Button>
         </>
       }
     >
       <Field
-        label="手势编码"
+        label={t('gestureEditor.gestureCode')}
         error={codeError}
-        hint={prefixConflicts.length ? `提示: 与 ${prefixConflicts.join(', ')} 存在前缀冲突, 可能影响识别` : '方向序列, 如 L、UR、U-R'}
+        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.join(', ') }) : t('gestureEditor.gestureCodeHint')}
       >
         <TextInput
           value={draft.gestureCode}
           onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
-          placeholder="例如 U-R"
+          placeholder={t('gestureEditor.gestureCodePlaceholder')}
         />
         <div className="gesture-code-preview">{codeToArrows(code)}</div>
       </Field>
 
-      <Field label="动作名称" error={nameError}>
+      <Field label={t('gestureEditor.actionName')} error={nameError}>
         <TextInput
           value={draft.action.name}
           onChange={(v) => setAction({ name: v })}
-          placeholder="例如 复制 / 后退"
+          placeholder={t('gestureEditor.actionNamePlaceholder')}
         />
       </Field>
 
-      <Field label="动作类型">
+      <Field label={t('gestureEditor.actionType')}>
         <Select
           value={String(draft.action.type)}
           options={ACTION_TYPE_OPTIONS}
@@ -123,8 +126,9 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       </Field>
 
       {draft.action.type === 0 && (
-        <Field label="快捷键" hint="点击输入框后按下组合键">
-          <HotkeyInput
+        <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
+          <HotkeyRecorder
+            id="gesture-hotkey-recorder"
             value={draft.action.keyStroke ?? ''}
             onChange={(v) => setAction({ keyStroke: v })}
           />
@@ -132,7 +136,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       )}
 
       {draft.action.type === 1 && (
-        <Field label="Lua 脚本" hint="可调用 easy.* API, 见 docs/api/lua-api.md">
+        <Field label={t('gestureEditor.luaScript')} hint={t('gestureEditor.luaScriptHint')}>
           <TextInput
             multiline
             value={draft.action.luaScript ?? ''}
@@ -143,7 +147,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       )}
 
       {draft.action.type === 2 && (
-        <Field label="内置命令">
+        <Field label={t('gestureEditor.builtinCommand')}>
           <Select
             value={String(draft.action.builtinCmd ?? 0)}
             options={BUILTIN_COMMANDS.map((label, i) => ({ value: String(i), label }))}
@@ -154,14 +158,14 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
 
       {draft.action.type === 3 && (
         <>
-          <Field label="程序路径">
+          <Field label={t('gestureEditor.programPath')}>
             <TextInput
               value={draft.action.programPath ?? ''}
               onChange={(v) => setAction({ programPath: v })}
               placeholder="C:\\Windows\\System32\\notepad.exe"
             />
           </Field>
-          <Field label="启动参数" hint="可选">
+          <Field label={t('gestureEditor.programArgs')} hint={t('gestureEditor.programArgsHint')}>
             <TextInput
               value={draft.action.programArgs ?? ''}
               onChange={(v) => setAction({ programArgs: v })}

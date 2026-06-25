@@ -1,0 +1,12 @@
+feat(ui): 完善手势设置与极客监控面板
+
+业务视角：
+- 在鼠标手势设置中新增了“轮盘菜单”数据展示区块，方便预览动作映射。
+- 在手势动作编辑弹窗中，针对快捷键类型采用体验更好的 HotkeyRecorder 录入组件，提升了设置手势快捷键的交互反馈和准确性。
+- 在关于页面引入了“极客模式”开关，开启后提供实时的性能监控仪表盘（内存、CPU、底层渲染延迟等）。
+- 完善了上述所有新增文案的 i18n 国际化支持。
+
+技术视角：
+- React 组件改造：将 GestureEditorModal 中的 HotkeyInput 平滑替换为基于浏览器事件监听防冲突的 HotkeyRecorder 录制组件，并兼容 props 传递。
+- IPC 通信集成：使用 bridgeRequest 分别接入 radialmenu.getItems 与 perf.getMetrics 接口完成数据的全生命周期管理，使用轮询定时器（1s）实现状态保活并在组件卸载时进行销毁以防内存泄漏。
+- 遵循 TypeScript 与 i18next 严格类型校验，采用强制类型断言（as any）解决动态 Key 推导，代码规范通过 CI/CD 编译检测。

@@ -1,11 +1,11 @@
-﻿cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.25)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EasyTools — 高性能桌面效率工具 (Microkernel Architecture)
 # ─────────────────────────────────────────────────────────────────────────────
 
 project(EasyTools
-    VERSION 0.1.0
+    VERSION 1.0.0
     DESCRIPTION "High-performance desktop productivity toolkit"
     LANGUAGES CXX
 )

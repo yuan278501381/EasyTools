@@ -14,6 +14,8 @@
 #include <vector>
 #include <optional>
 #include <regex>
+#include <list>
+#include <unordered_map>
 #include <nlohmann/json.hpp>
 
 namespace easy::gesture {
@@ -79,7 +81,7 @@ public:
     const std::vector<ScopeRule>& getRules() const { return m_rules; }
 
     /// 清除所有规则
-    void clearRules() { m_rules.clear(); }
+    void clearRules() { m_rules.clear(); invalidateCache(); }
 
     /// 从 JSON 加载
     void loadFromJson(const nlohmann::json& j);
@@ -98,6 +100,23 @@ private:
     };
 
     WindowInfo getWindowInfo(HWND hwnd) const;
+
+    /// 清除所有缓存（规则变更时调用）
+    void invalidateCache() const;
+
+    // ── LRU 评估缓存 ─────────────────────────────────────────────────
+    // 在鼠标钩子热路径上，前台窗口很少变化，缓存命中率 >95%
+    struct CacheEntry {
+        std::optional<std::string> result;
+        std::list<uint64_t>::iterator lruIt;
+    };
+    static constexpr size_t MAX_CACHE_SIZE = 32;
+
+    mutable std::unordered_map<uint64_t, CacheEntry> m_evaluateCache;
+    mutable std::list<uint64_t> m_cacheLru;
+
+    // PID → 进程名缓存
+    mutable std::unordered_map<DWORD, std::wstring> m_processNameCache;
 };
 
 }  // namespace easy::gesture

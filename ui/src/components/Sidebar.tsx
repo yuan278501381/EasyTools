@@ -9,10 +9,10 @@
 
 import { type ReactNode, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap } from 'lucide-react';
+import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp } from 'lucide-react';
 import './Sidebar.css';
 
-export type NavId = 'stats' | 'gesture' | 'capture' | 'ocr' | 'general' | 'about';
+export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
@@ -23,6 +23,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'stats',   icon: <BarChart3 size={20} strokeWidth={2.2} />, labelKey: 'nav.stats' },
   { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture' },
+  { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner' },
   { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr' },
   { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
@@ -40,7 +41,7 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
   const { t } = useTranslation();
 
   return (
-    <aside className="sidebar" role="navigation" aria-label="主导航">
+    <aside className="sidebar" role="navigation" aria-label={t('sidebar.mainNav')}>
       {/* ── Logo ──────────────────────────────────────────────────── */}
       <div className="sidebar__logo">
         <span className="sidebar__logo-icon">
@@ -71,12 +72,12 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
         <button
           className="sidebar__theme-toggle"
           onClick={onToggleTheme}
-          title={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
+          title={theme === 'dark' ? t('sidebar.themeToggleLight') : t('sidebar.themeToggleDark')}
           id="theme-toggle"
         >
           {theme === 'dark' ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
         </button>
-        <span className="sidebar__version">v0.1.0</span>
+        <span className="sidebar__version">v1.0.0</span>
       </div>
     </aside>
   );

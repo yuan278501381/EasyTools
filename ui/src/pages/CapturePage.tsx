@@ -9,6 +9,7 @@ import { Card, Toggle, SettingRow, SettingGroup, TextInput, Select, Button } fro
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { Camera, Video } from 'lucide-react';
+import { HotkeyRecorder } from '../components/HotkeyRecorder';
 
 interface CaptureSettings {
   format: string;
@@ -74,11 +75,14 @@ export const CapturePage: FC = () => {
       <SettingGroup title={t('capture.title')} icon={<Camera size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
-            <kbd style={{
-              padding: '4px 10px', borderRadius: '6px',
-              background: 'var(--bg-elevated)', border: '1px solid var(--card-border)',
-              fontFamily: 'Consolas, monospace', fontSize: '0.85rem', color: 'var(--text-secondary)'
-            }}>Ctrl+Shift+A</kbd>
+            <HotkeyRecorder
+              id="capture-shortcut"
+              value={capture.shortcut || 'Ctrl+Shift+A'}
+              onChange={(v) => {
+                updateCapture('shortcut', v);
+                bridgeRequest('hotkey.rebind', { name: 'Screenshot', hotkey: v });
+              }}
+            />
           </SettingRow>
           <Toggle
             id="capture-copy-clipboard"
@@ -115,73 +119,75 @@ export const CapturePage: FC = () => {
               value={capture.format}
               onChange={(v) => updateCapture('format', v)}
               options={[
-                { value: 'png', label: 'PNG (无损)' },
-                { value: 'jpg', label: 'JPEG (压缩)' },
-                { value: 'webp', label: 'WebP (高效)' },
+                { value: 'png', label: t('capture.formatPng') },
+                { value: 'jpg', label: t('capture.formatJpg') },
+                { value: 'webp', label: t('capture.formatWebp') },
               ]}
             />
           </SettingRow>
           <Toggle
             id="capture-crosshair"
-            label="显示十字准星"
-            description="截图时显示十字辅助线"
+            label={t('capture.showCrosshair')}
+            description={t('capture.showCrosshairDesc')}
             checked={capture.showCrosshair}
             onChange={(v) => updateCapture('showCrosshair', v)}
           />
           <Toggle
             id="capture-detect-window"
-            label="自动检测窗口"
-            description="悬停时自动高亮窗口边界，点击可直接截取窗口"
+            label={t('capture.autoDetectWindow')}
+            description={t('capture.autoDetectWindowDesc')}
             checked={capture.autoDetectWindow}
             onChange={(v) => updateCapture('autoDetectWindow', v)}
           />
         </Card>
       </SettingGroup>
 
-      <SettingGroup title="录屏设置" icon={<Video size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('recording.title')} icon={<Video size={20} strokeWidth={2.5} />}>
         <Card>
-          <SettingRow label="录屏快捷键" description="开始/停止录屏的全局快捷键">
-            <kbd style={{
-              padding: '4px 10px', borderRadius: '6px',
-              background: 'var(--bg-elevated)', border: '1px solid var(--card-border)',
-              fontFamily: 'Consolas, monospace', fontSize: '0.85rem', color: 'var(--text-secondary)'
-            }}>Ctrl+Shift+R</kbd>
+          <SettingRow label={t('recording.shortcut')} description={t('recording.shortcutDesc')}>
+            <HotkeyRecorder
+              id="recording-shortcut"
+              value={'Ctrl+Shift+R'}
+              onChange={(v) => {
+                bridgeRequest('hotkey.rebind', { name: 'Recording', hotkey: v });
+              }}
+            />
           </SettingRow>
-          <SettingRow label="录制格式" description="录屏输出的视频格式">
+          <SettingRow label={t('recording.format')} description={t('recording.formatDesc')}>
             <Select
               id="record-format"
               value={recording.format}
               onChange={(v) => updateRecording('format', v)}
               options={[
-                { value: 'mp4_h264', label: 'MP4 (H.264)' },
-                { value: 'mp4_h265', label: 'MP4 (H.265/HEVC)' },
-                { value: 'gif', label: 'GIF (动图)' },
-                { value: 'webm_vp9', label: 'WebM (VP9)' },
+                { value: 'mp4_h264', label: t('recording.formatMp4H264') },
+                { value: 'mp4_h265', label: t('recording.formatMp4H265') },
+                { value: 'gif', label: t('recording.formatGif') },
+                { value: 'webm_vp9', label: t('recording.formatWebmVp9') },
               ]}
             />
           </SettingRow>
-          <SettingRow label="帧率" description="录屏的帧率设置">
+          <SettingRow label={t('recording.fps')} description={t('recording.fpsDesc')}>
             <Select
               id="record-fps"
               value={String(recording.fps)}
               onChange={(v) => updateRecording('fps', parseInt(v))}
               options={[
-                { value: '15', label: '15 fps (省空间)' },
-                { value: '30', label: '30 fps (推荐)' },
-                { value: '60', label: '60 fps (流畅)' },
+                { value: '15', label: t('recording.fps15') },
+                { value: '30', label: t('recording.fps30') },
+                { value: '60', label: t('recording.fps60') },
               ]}
             />
           </SettingRow>
-          <SettingRow label="码率" description="视频码率 (Mbps)">
+          <SettingRow label={t('recording.bitrate')} description={t('recording.bitrateDesc')}>
             <Select
               id="record-bitrate"
               value={String(recording.bitrate)}
               onChange={(v) => updateRecording('bitrate', parseInt(v))}
               options={[
-                { value: '4', label: '4 Mbps (轻量)' },
-                { value: '8', label: '8 Mbps (推荐)' },
-                { value: '16', label: '16 Mbps (高清)' },
-                { value: '32', label: '32 Mbps (极清)' },
+                { value: '4', label: t('recording.bitrate4') },
+                { value: '8', label: t('recording.bitrate8') },
+                { value: '16', label: t('recording.bitrate16') },
+                { value: '32', label: t('recording.bitrate32') },
               ]}
             />
           </SettingRow>

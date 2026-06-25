@@ -20,8 +20,13 @@ import {
 } from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
-import { MousePointer2, Hand, Edit3, Trash2, Target } from 'lucide-react';
+import { MousePointer2, Hand, Edit3, Trash2, Target, Compass } from 'lucide-react';
 import './GesturePage.css';
+
+interface RadialMenuItem {
+  label: string;
+  command: string;
+}
 
 interface GestureState {
   enabled: boolean;
@@ -36,11 +41,11 @@ const ACTION_TYPE_LABELS: Record<number, string> = Object.fromEntries(
 
 const PROFILE_NAME = 'default';
 
-/** 取动作的“详情”文本 (按类型显示快捷键 / 命令 / 脚本 / 程序)。 */
+/** 取动作的"详情"文本 (按类型显示快捷键 / 命令 / 脚本 / 程序)。 */
 function actionDetail(action: GestureMapping['action']): string {
   switch (action.type) {
     case 0: return action.keyStroke ?? '';
-    case 1: return '脚本';
+    case 1: return '';
     case 2: return BUILTIN_COMMANDS[action.builtinCmd ?? 0] ?? '';
     case 3: return action.programPath ?? '';
     default: return '';
@@ -54,6 +59,7 @@ export const GesturePage: FC = () => {
   const [mappings, setMappings] = useState<GestureMapping[]>([]);
   const [profileNames, setProfileNames] = useState<string[]>([PROFILE_NAME]);
   const [loading, setLoading] = useState(true);
+  const [radialItems, setRadialItems] = useState<RadialMenuItem[]>([]);
   const { t } = useTranslation();
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -67,9 +73,10 @@ export const GesturePage: FC = () => {
   useEffect(() => {
     async function loadData() {
       try {
-        const [state, profiles] = await Promise.all([
+        const [state, profiles, radialRes] = await Promise.all([
           bridgeRequest<GestureState>('gesture.getState'),
           bridgeRequest<Array<{ name: string; mappings: GestureMapping[] }>>('gesture.getProfiles'),
+          bridgeRequest<{ items: RadialMenuItem[] }>('radialmenu.getItems'),
         ]);
         setEnabled(state.enabled);
         setTriggerButton(state.triggerButton ?? 'right');
@@ -77,6 +84,7 @@ export const GesturePage: FC = () => {
         if (profiles?.length) setProfileNames(profiles.map((p) => p.name));
         const defaultProfile = profiles?.find((p) => p.name === PROFILE_NAME);
         if (defaultProfile) setMappings(defaultProfile.mappings);
+        if (radialRes?.items) setRadialItems(radialRes.items);
       } catch (err) {
         console.error('Failed to load gesture config:', err);
       } finally {
@@ -147,7 +155,7 @@ export const GesturePage: FC = () => {
   };
 
   const handleDelete = (m: GestureMapping) => {
-    if (!window.confirm(`确定删除手势 “${m.action.name}” (${m.gestureCode}) 吗？`)) return;
+    if (!window.confirm(t('gesture.deleteConfirm', { name: m.action.name, code: m.gestureCode }))) return;
     persist(mappings.filter((x) => x.gestureCode !== m.gestureCode));
   };
 
@@ -155,7 +163,7 @@ export const GesturePage: FC = () => {
     return (
       <div className="page-loading">
         <div className="page-loading__spinner" />
-        <span>加载中...</span>
+        <span>{t('common.loading')}</span>
       </div>
     );
   }
@@ -167,7 +175,7 @@ export const GesturePage: FC = () => {
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
-            <span className="gesture-status__text">{enabled ? '手势正在运行' : '手势已暂停'}</span>
+            <span className="gesture-status__text">{enabled ? t('gesture.statusRunning') : t('gesture.statusPaused')}</span>
             <kbd className="gesture-status__hotkey">Ctrl+Alt+Shift+W</kbd>
           </div>
           <Toggle
@@ -233,7 +241,7 @@ export const GesturePage: FC = () => {
                 <span className="gesture-table__col gesture-table__col--action">{m.action.name}</span>
                 <span className="gesture-table__col gesture-table__col--type">
                   <Badge
-                    text={ACTION_TYPE_LABELS[m.action.type] ?? '未知'}
+                    text={ACTION_TYPE_LABELS[m.action.type] ?? t('common.unknown')}
                     variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
                   />
                 </span>
@@ -242,15 +250,36 @@ export const GesturePage: FC = () => {
                 </span>
                 <span className="gesture-table__col gesture-table__col--actions">
                   <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className="gesture-icon-btn" title="编辑" onClick={() => openEdit(m)}><Edit3 size={16} /></button>
+                    <button className="gesture-icon-btn" title={t('common.edit')} onClick={() => openEdit(m)}><Edit3 size={16} /></button>
                     <button 
                       className="gesture-icon-btn" 
-                      title="删除" 
+                      title={t('common.delete')} 
                       onClick={() => handleDelete(m)}
                       style={{ color: 'var(--error, #ef4444)' }}
                     ><Trash2 size={16} /></button>
                   </div>
                 </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </SettingGroup>
+
+      {/* ── 轮盘菜单 ──────────────────────────────────────────────── */}
+      <SettingGroup title={t('gesture.radialMenu' as any, '轮盘菜单设置')} icon={<Compass size={20} strokeWidth={2.5} />}>
+        <Card>
+          <div className="gesture-table">
+            <div className="gesture-table__header">
+              <span className="gesture-table__col">{t('common.name' as any, '名称')}</span>
+              <span className="gesture-table__col">{t('gesture.colAction' as any, '动作')}</span>
+            </div>
+            {radialItems.length === 0 && (
+              <div className="gesture-empty">{t('common.empty' as any, '暂无数据')}</div>
+            )}
+            {radialItems.map((item, i) => (
+              <div key={i} className="gesture-table__row">
+                <span className="gesture-table__col">{item.label}</span>
+                <span className="gesture-table__col"><code>{item.command}</code></span>
               </div>
             ))}
           </div>

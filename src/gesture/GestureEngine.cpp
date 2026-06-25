@@ -194,6 +194,7 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
     m_gestureStartWindow = event.foregroundWindow;
+    m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_state = GestureState::Tracking;
 
     // 开始轨迹可视化
@@ -203,7 +204,8 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
         trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
     }
 
-    LOG_INFO("手势追踪开始: pos=({},{}), trailVisible={}", event.position.x, event.position.y, m_trailVisible.load());
+    LOG_INFO("手势追踪开始: pos=({},{}), modifiers=0x{:02X}, trailVisible={}",
+             event.position.x, event.position.y, m_gestureModifiers, m_trailVisible.load());
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
@@ -241,8 +243,16 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         return;
     }
 
-    LOG_INFO("手势识别成功: code={}, arrows={}, 点数={}, 距离={:.0f}px",
-             result->code, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
+    // 生成带修饰键前缀的手势编码 (如 "Ctrl+L"、"Alt+D-R"、"Ctrl+Shift+U")
+    std::string modPrefix;
+    if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
+    if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
+    if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
+    std::string fullCode = modPrefix + result->code;  // 带修饰键的完整编码
+    std::string bareCode = result->code;               // 无修饰键的纯方向编码
+
+    LOG_INFO("手势识别成功: code={}, fullCode={}, arrows={}, 点数={}, 距离={:.0f}px",
+             bareCode, fullCode, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
 
     // 查找适用的 Profile
     GestureProfile* profile = resolveProfile(m_gestureStartWindow);
@@ -255,20 +265,32 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         return;
     }
 
-    // 查找动作
-    auto action = profile->findAction(result->code);
+    // 查找动作: 先精确匹配带修饰键的编码，再 fallback 到无修饰键编码
+    std::optional<GestureAction> action;
+    std::string matchedCode = fullCode;
 
-    // 如果当前 Profile 没找到，尝试 fallback 到默认 Profile
-    if (!action && profile->name() != "default") {
-        action = m_profiles["default"].findAction(result->code);
+    if (!modPrefix.empty()) {
+        action = profile->findAction(fullCode);
+        if (!action && profile->name() != "default") {
+            action = m_profiles["default"].findAction(fullCode);
+        }
+    }
+
+    // 带修饰键未匹配时，fallback 到纯方向编码
+    if (!action) {
+        matchedCode = bareCode;
+        action = profile->findAction(bareCode);
+        if (!action && profile->name() != "default") {
+            action = m_profiles["default"].findAction(bareCode);
+        }
     }
 
     if (action) {
-        LOG_INFO("执行手势动作: gesture={}, action={}, profile={}",
-                 result->toArrowString(), action->name, profile->name());
+        LOG_INFO("执行手势动作: gesture={}, matchedCode={}, action={}, profile={}",
+                 result->toArrowString(), matchedCode, action->name, profile->name());
 
-        // 显示轨迹结果
-        std::string resultLabel = result->toArrowString() + " " + action->name;
+        // 显示轨迹结果（带修饰键前缀时显示在箭头前面）
+        std::string resultLabel = modPrefix + result->toArrowString() + " " + action->name;
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().endTrail(resultLabel);
         }
@@ -296,7 +318,7 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         }).detach();
     } else {
         // 有意义的手势但未绑定动作 → 按手势工具惯例直接消费 (不弹菜单)
-        LOG_DEBUG("未找到手势映射: code={}", result->code);
+        LOG_DEBUG("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().hide();
         }

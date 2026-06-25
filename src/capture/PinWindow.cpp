@@ -149,9 +149,97 @@ PinWindow::~PinWindow() {
 
 void PinWindow::applyLayeredOpacity() {
     if (!m_hwnd) return;
-    // 穿透态用更低不透明度作为"幽灵"视觉提示
-    float eff = m_opacity * (m_clickThrough ? 0.55f : 1.0f);
-    SetLayeredWindowAttributes(m_hwnd, 0, static_cast<BYTE>(eff * 255), LWA_ALPHA);
+    BYTE alpha = static_cast<BYTE>(std::clamp(m_opacity * 255.0f, 10.0f, 255.0f));
+    SetLayeredWindowAttributes(m_hwnd, 0, alpha, LWA_ALPHA);
+}
+
+void PinWindow::updateHoverAnimation() {
+    bool needsRender = false;
+    float dt = (GetTickCount64() - m_hoverTime) / 150.0f;
+    if (dt > 1.0f) dt = 1.0f;
+    
+    float targetAlpha = m_isHovering ? 1.0f : 0.0f;
+    float startAlpha = m_isHovering ? 0.0f : 1.0f;
+    
+    float newAlpha = m_isHovering ? 
+        startAlpha + (targetAlpha - startAlpha) * (1.0f - pow(1.0f - dt, 3.0f)) : 
+        startAlpha + (targetAlpha - startAlpha) * dt; // linear fade out
+        
+    if (abs(m_hoverAlpha - newAlpha) > 0.01f) {
+        m_hoverAlpha = newAlpha;
+        needsRender = true;
+    }
+    
+    if (dt >= 1.0f) {
+        m_hoverAlpha = targetAlpha;
+        KillTimer(m_hwnd, 1);
+        needsRender = true;
+    }
+    
+    if (needsRender) {
+        render();
+    }
+}
+
+void PinWindow::drawHoverToolbar() {
+    if (!m_renderTarget) return;
+    auto size = m_renderTarget->GetSize();
+    
+    // Position toolbar at top right
+    float tbWidth = 80.0f;
+    float tbHeight = 32.0f;
+    float tbPadding = 8.0f;
+    float tx = size.width - tbWidth - tbPadding;
+    float ty = tbPadding;
+    
+    // If window is too small, put it top left
+    if (tx < 0) tx = tbPadding;
+    
+    m_toolbarRect = D2D1::RectF(tx, ty, tx + tbWidth, ty + tbHeight);
+    
+    // Draw Glass background
+    ComPtr<ID2D1SolidColorBrush> bgBrush, borderBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.75f * m_hoverAlpha), bgBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f * m_hoverAlpha), borderBrush.GetAddressOf());
+    
+    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(m_toolbarRect, 6.0f, 6.0f);
+    if (bgBrush) m_renderTarget->FillRoundedRectangle(&rrect, bgBrush.Get());
+    if (borderBrush) m_renderTarget->DrawRoundedRectangle(&rrect, borderBrush.Get(), 1.0f);
+    
+    // Layout buttons
+    float btnW = 32.0f;
+    float btnH = 24.0f;
+    float by = ty + (tbHeight - btnH) / 2.0f;
+    
+    m_btnSaveRect = D2D1::RectF(tx + 4.0f, by, tx + 4.0f + btnW, by + btnH);
+    m_btnCloseRect = D2D1::RectF(tx + tbWidth - 4.0f - btnW, by, tx + tbWidth - 4.0f, by + btnH);
+    
+    ComPtr<ID2D1SolidColorBrush> btnHoverBrush, textBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f * m_hoverAlpha), btnHoverBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f * m_hoverAlpha), textBrush.GetAddressOf());
+    
+    if (m_hoverSave && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnSaveRect, 4.0f, 4.0f), btnHoverBrush.Get());
+    if (m_hoverClose && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCloseRect, 4.0f, 4.0f), btnHoverBrush.Get());
+    
+    // Draw icons (using simple text for now)
+    // You could use DirectWrite here, but for simplicity we can just draw lines for save and close
+    // Save icon (down arrow + line)
+    float sx = m_btnSaveRect.left + btnW/2;
+    float sy = m_btnSaveRect.top + btnH/2;
+    if (textBrush) {
+        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3, sy), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3, sy), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5, sy + 6), D2D1::Point2F(sx + 5, sy + 6), textBrush.Get(), 1.5f);
+    }
+    
+    // Close icon (X)
+    float cx = m_btnCloseRect.left + btnW/2;
+    float cy = m_btnCloseRect.top + btnH/2;
+    if (textBrush) {
+        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4, cy - 4), D2D1::Point2F(cx + 4, cy + 4), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4, cy + 4), D2D1::Point2F(cx + 4, cy - 4), textBrush.Get(), 1.5f);
+    }
 }
 
 void PinWindow::setOpacity(float opacity) {
@@ -489,6 +577,10 @@ void PinWindow::render() {
     m_renderTarget->DrawBitmap(m_bitmap.Get(),
                                D2D1::RectF(0, 0, size.width, size.height));
 
+    if (m_hoverAlpha > 0.01f) {
+        drawHoverToolbar();
+    }
+
     // 边框：选中态用紫色强调 2px 内描边，否则 1px 灰色
     ComPtr<ID2D1SolidColorBrush> borderBrush;
     if (m_focused) {
@@ -512,6 +604,17 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     switch (msg) {
         case WM_LBUTTONDOWN: {
             if (!self) break;
+            if (self->m_hoverAlpha > 0.0f) {
+                if (self->m_hoverSave) {
+                    // TODO: Save to file (or we could just copy to clipboard for now, which is default right click)
+                    copyImageToClipboard(self->m_sourceImage);
+                    return 0;
+                }
+                if (self->m_hoverClose) {
+                    self->close();
+                    return 0;
+                }
+            }
             SetForegroundWindow(hwnd);  // 选中此贴图（取得键盘焦点，使其能响应 Esc）
             self->m_isDragging = true;
             self->m_dragOffset = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -539,13 +642,53 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
 
         case WM_MOUSEMOVE: {
-            if (self && self->m_isDragging) {
+            if (!self) break;
+            if (!self->m_isHovering) {
+                self->m_isHovering = true;
+                self->m_hoverTime = GetTickCount64();
+                SetTimer(hwnd, 1, 16, nullptr);
+                
+                TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, HOVER_DEFAULT };
+                TrackMouseEvent(&tme);
+            }
+            
+            int x = LOWORD(lParam);
+            int y = HIWORD(lParam);
+            bool hoverSave = (x >= self->m_btnSaveRect.left && x <= self->m_btnSaveRect.right &&
+                              y >= self->m_btnSaveRect.top && y <= self->m_btnSaveRect.bottom);
+            bool hoverClose = (x >= self->m_btnCloseRect.left && x <= self->m_btnCloseRect.right &&
+                               y >= self->m_btnCloseRect.top && y <= self->m_btnCloseRect.bottom);
+            
+            if (hoverSave != self->m_hoverSave || hoverClose != self->m_hoverClose) {
+                self->m_hoverSave = hoverSave;
+                self->m_hoverClose = hoverClose;
+                self->render();
+            }
+
+            if (self->m_isDragging) {
                 POINT cursor;
                 GetCursorPos(&cursor);
                 SetWindowPos(hwnd, nullptr,
                              cursor.x - self->m_dragOffset.x,
                              cursor.y - self->m_dragOffset.y,
                              0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            if (!self) break;
+            self->m_isHovering = false;
+            self->m_hoverTime = GetTickCount64();
+            self->m_hoverSave = false;
+            self->m_hoverClose = false;
+            SetTimer(hwnd, 1, 16, nullptr);
+            return 0;
+        }
+
+        case WM_TIMER: {
+            if (self && wParam == 1) {
+                self->updateHoverAnimation();
             }
             return 0;
         }

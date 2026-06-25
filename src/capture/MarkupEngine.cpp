@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // MarkupEngine.cpp — 截图标注引擎实现
 //
 // 所有标注元素使用 OpenCV 绘制:
@@ -11,6 +11,9 @@
 //   - 文本: cv::putText
 //   - 序号: 圆形背景 + 数字
 //   - 放大镜: ROI 放大 + 圆形裁剪
+//   - 聚光灯: 半透明黑色遮罩 + 选区孔洞
+//   - 水印: 旋转文字平铺 + alpha 混合
+//   - 智能消除: cv::inpaint (TELEA) 背景重建
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/MarkupEngine.h"
@@ -23,6 +26,7 @@
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
 #include <opencv2/imgproc.hpp>
+#include <opencv2/photo.hpp>
 #include <cmath>
 
 namespace {
@@ -124,7 +128,10 @@ cv::Rect MarkupElement::getBoundingBox() const {
     switch (tool) {
         case MarkupTool::Rectangle:
         case MarkupTool::Highlight:
-        case MarkupTool::Mosaic: {
+        case MarkupTool::Mosaic:
+        case MarkupTool::Spotlight:
+        case MarkupTool::Watermark:
+        case MarkupTool::Inpaint: {
             int x1 = std::min(startPt.x, endPt.x);
             int y1 = std::min(startPt.y, endPt.y);
             int x2 = std::max(startPt.x, endPt.x);
@@ -451,6 +458,43 @@ void MarkupEngine::addMagnifier(cv::Point center, float scale, int radius) {
     addElement(std::move(elem));
 }
 
+void MarkupEngine::addSpotlight(cv::Point p1, cv::Point p2, MarkupColor color, float dimAlpha, bool ellipse) {
+    auto elem = std::make_unique<MarkupElement>();
+    elem->tool = MarkupTool::Spotlight;
+    elem->startPt = p1;
+    elem->endPt = p2;
+    elem->color = color;
+    elem->spotlightDimAlpha = dimAlpha;
+    elem->spotlightEllipse = ellipse;
+    addElement(std::move(elem));
+    LOG_DEBUG("标注引擎: 添加聚光灯 ({},{})→({},{}) dimAlpha={:.2f} ellipse={}",
+              p1.x, p1.y, p2.x, p2.y, dimAlpha, ellipse);
+}
+
+void MarkupEngine::addWatermark(cv::Point p1, cv::Point p2, const std::string& text, float opacity, float angle) {
+    auto elem = std::make_unique<MarkupElement>();
+    elem->tool = MarkupTool::Watermark;
+    elem->startPt = p1;
+    elem->endPt = p2;
+    elem->watermarkText = text;
+    elem->watermarkOpacity = opacity;
+    elem->watermarkAngle = angle;
+    addElement(std::move(elem));
+    LOG_DEBUG("标注引擎: 添加水印 ({},{})→({},{}) text='{}' opacity={:.2f} angle={:.1f}",
+              p1.x, p1.y, p2.x, p2.y, text, opacity, angle);
+}
+
+void MarkupEngine::applyInpaint(cv::Point p1, cv::Point p2, int radius) {
+    auto elem = std::make_unique<MarkupElement>();
+    elem->tool = MarkupTool::Inpaint;
+    elem->startPt = p1;
+    elem->endPt = p2;
+    elem->inpaintRadius = radius;
+    addElement(std::move(elem));
+    LOG_DEBUG("标注引擎: 添加智能消除 ({},{})→({},{}) radius={}",
+              p1.x, p1.y, p2.x, p2.y, radius);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 渲染
 // ─────────────────────────────────────────────────────────────────────────────
@@ -619,6 +663,144 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
                                      cv::Point(element.startPt.x, element.startPt.y + ch), 
                                      cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
                 }
+            }
+            break;
+        }
+
+        case MarkupTool::Spotlight: {
+            // 聚光灯：暗化选区外区域，选区内保持原始亮度
+            LOG_DEBUG("标注引擎: 渲染聚光灯 dimAlpha={:.2f} ellipse={}",
+                      element.spotlightDimAlpha, element.spotlightEllipse);
+
+            // 创建全画布暗化遮罩（黑色 + dimAlpha 不透明度）
+            cv::Mat overlay = canvas.clone();
+            cv::Mat darkLayer(canvas.size(), canvas.type(), cv::Scalar(0, 0, 0, 255));
+
+            // 在选区位置留出透明孔洞 —— 用原始画布内容覆盖遮罩对应区域
+            int x1 = std::min(element.startPt.x, element.endPt.x);
+            int y1 = std::min(element.startPt.y, element.endPt.y);
+            int x2 = std::max(element.startPt.x, element.endPt.x);
+            int y2 = std::max(element.startPt.y, element.endPt.y);
+            x1 = std::max(0, x1); y1 = std::max(0, y1);
+            x2 = std::min(canvas.cols, x2); y2 = std::min(canvas.rows, y2);
+
+            if (x2 > x1 && y2 > y1) {
+                if (element.spotlightEllipse) {
+                    // 椭圆孔洞：创建掩码然后将原始像素复制到暗层
+                    cv::Point center((x1 + x2) / 2, (y1 + y2) / 2);
+                    cv::Size axes((x2 - x1) / 2, (y2 - y1) / 2);
+                    cv::Mat mask = cv::Mat::zeros(canvas.size(), CV_8UC1);
+                    cv::ellipse(mask, center, axes, 0, 0, 360, cv::Scalar(255), cv::FILLED, cv::LINE_AA);
+                    canvas.copyTo(darkLayer, mask);
+                } else {
+                    // 矩形孔洞：直接复制 ROI
+                    cv::Rect roi(x1, y1, x2 - x1, y2 - y1);
+                    canvas(roi).copyTo(darkLayer(roi));
+                }
+            }
+
+            // 暗化混合：canvas = darkLayer * dimAlpha + canvas * (1 - dimAlpha)
+            double alpha = static_cast<double>(element.spotlightDimAlpha);
+            cv::addWeighted(darkLayer, alpha, canvas, 1.0 - alpha, 0, canvas);
+            break;
+        }
+
+        case MarkupTool::Watermark: {
+            // 水印：在选区范围内以指定角度和间距重复绘制半透明文字
+            LOG_DEBUG("标注引擎: 渲染水印 text='{}' opacity={:.2f} angle={:.1f} spacing={}",
+                      element.watermarkText, element.watermarkOpacity, element.watermarkAngle, element.watermarkSpacing);
+
+            if (element.watermarkText.empty()) break;
+
+            int x1 = std::min(element.startPt.x, element.endPt.x);
+            int y1 = std::min(element.startPt.y, element.endPt.y);
+            int x2 = std::max(element.startPt.x, element.endPt.x);
+            int y2 = std::max(element.startPt.y, element.endPt.y);
+            x1 = std::max(0, x1); y1 = std::max(0, y1);
+            x2 = std::min(canvas.cols, x2); y2 = std::min(canvas.rows, y2);
+            if (x2 <= x1 || y2 <= y1) break;
+
+            int roiW = x2 - x1, roiH = y2 - y1;
+
+            // 测量单个水印文字尺寸
+            int baseline = 0;
+            double fontScale = 0.6;
+            cv::Size textSz = cv::getTextSize(element.watermarkText, cv::FONT_HERSHEY_SIMPLEX,
+                                               fontScale, 1, &baseline);
+
+            // 在一块足够大的画布上绘制旋转平铺水印
+            // 对角线长度保证旋转后仍能覆盖整个 ROI
+            int diag = static_cast<int>(std::sqrt(roiW * roiW + roiH * roiH)) + textSz.width;
+            cv::Mat wmCanvas(diag * 2, diag * 2, canvas.type(), cv::Scalar(0, 0, 0, 0));
+
+            int spacing = std::max(element.watermarkSpacing, textSz.width + 20);
+            int vSpacing = textSz.height + spacing / 2;
+            cv::Scalar wmColor(200, 200, 200); // 浅灰色水印
+
+            for (int y = 0; y < wmCanvas.rows; y += vSpacing) {
+                for (int x = 0; x < wmCanvas.cols; x += spacing) {
+                    cv::putText(wmCanvas, element.watermarkText, cv::Point(x, y + textSz.height),
+                                cv::FONT_HERSHEY_SIMPLEX, fontScale, wmColor, 1, cv::LINE_AA);
+                }
+            }
+
+            // 旋转水印画布
+            cv::Point2f wmCenter(static_cast<float>(wmCanvas.cols) / 2.0f, static_cast<float>(wmCanvas.rows) / 2.0f);
+            cv::Mat rotMat = cv::getRotationMatrix2D(wmCenter, element.watermarkAngle, 1.0);
+            cv::Mat wmRotated;
+            cv::warpAffine(wmCanvas, wmRotated, rotMat, wmCanvas.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+
+            // 从旋转后画布的中心裁剪出 ROI 大小的区域
+            int cropX = wmRotated.cols / 2 - roiW / 2;
+            int cropY = wmRotated.rows / 2 - roiH / 2;
+            cropX = std::max(0, std::min(cropX, wmRotated.cols - roiW));
+            cropY = std::max(0, std::min(cropY, wmRotated.rows - roiH));
+            cv::Mat wmCrop = wmRotated(cv::Rect(cropX, cropY, roiW, roiH));
+
+            // Alpha 混合叠加到画布的 ROI 区域
+            cv::Rect dstRoi(x1, y1, roiW, roiH);
+            cv::Mat canvasRoi = canvas(dstRoi);
+            double wmAlpha = static_cast<double>(element.watermarkOpacity);
+            cv::addWeighted(wmCrop, wmAlpha, canvasRoi, 1.0, 0, canvasRoi);
+            break;
+        }
+
+        case MarkupTool::Inpaint: {
+            // 智能消除：创建选区掩码并调用 cv::inpaint 重建背景
+            LOG_DEBUG("标注引擎: 渲染智能消除 radius={}", element.inpaintRadius);
+
+            int x1 = std::min(element.startPt.x, element.endPt.x);
+            int y1 = std::min(element.startPt.y, element.endPt.y);
+            int x2 = std::max(element.startPt.x, element.endPt.x);
+            int y2 = std::max(element.startPt.y, element.endPt.y);
+            x1 = std::max(0, x1); y1 = std::max(0, y1);
+            x2 = std::min(canvas.cols, x2); y2 = std::min(canvas.rows, y2);
+            if (x2 <= x1 || y2 <= y1) break;
+
+            // 构建全图掩码：选区内白色（需要修复），其余黑色
+            cv::Mat mask = cv::Mat::zeros(canvas.size(), CV_8UC1);
+            cv::rectangle(mask, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(255), cv::FILLED);
+
+            // cv::inpaint 需要 3 通道 BGR 输入
+            cv::Mat bgr;
+            if (canvas.channels() == 4) {
+                cv::cvtColor(canvas, bgr, cv::COLOR_BGRA2BGR);
+            } else {
+                bgr = canvas;
+            }
+
+            cv::Mat result;
+            cv::inpaint(bgr, mask, result, element.inpaintRadius, cv::INPAINT_TELEA);
+
+            // 将修复结果写回画布的选区区域
+            if (canvas.channels() == 4) {
+                cv::Mat result4;
+                cv::cvtColor(result, result4, cv::COLOR_BGR2BGRA);
+                cv::Rect roi(x1, y1, x2 - x1, y2 - y1);
+                result4(roi).copyTo(canvas(roi));
+            } else {
+                cv::Rect roi(x1, y1, x2 - x1, y2 - y1);
+                result(roi).copyTo(canvas(roi));
             }
             break;
         }

@@ -15,6 +15,7 @@
 #include "ocr/OcrEngine.h"
 #include "ocr/OcrResultWindow.h"
 #include "capture/ScrollCapture.h"
+#include "capture/CaptureHistory.h"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -61,6 +62,9 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
 
         result.success = true;
         LOG_INFO("截图完成: {}x{}", result.imageWidth, result.imageHeight);
+
+        // 将截图保存到历史
+        CaptureHistory::instance().push(markedImage, region, result.filePath);
 
         if (m_callback) m_callback(result);
     });

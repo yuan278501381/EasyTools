@@ -8,6 +8,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
 #include "core/stats/StatsManager.h"
+#include "core/stats/PerformanceMonitor.h"
 
 namespace easy::core {
 
@@ -108,8 +109,88 @@ void MessageBridge::registerBuiltinHandlers() {
         return {{"success", true}};
     });
 
-    LOG_INFO("内置核心 IPC 处理器注册完成");
+    // ── 性能监控 ─────────────────────────────────────────────────────────
+    registerHandler("perf.getMetrics", [](const json&) -> json {
+        return PerformanceMonitor::instance().getMetrics().toJson();
+    });
+    registerHandler("perf.getHistory", [](const json& params) -> json {
+        int count = params.value("count", 30);
+        auto history = PerformanceMonitor::instance().getHistory(count);
+        json arr = json::array();
+        for (const auto& m : history) {
+            arr.push_back(m.toJson());
+        }
+        return arr;
+    });
+
+    // ── 配置管理（导入/导出/重置）────────────────────────────────────────
+    registerHandler("config.export", [](const json&) -> json {
+        auto path = WinUtils::getConfigDirectory() / "config_export.json";
+        bool ok = ConfigManager::instance().exportTo(path);
+        return {{"success", ok}, {"path", path.string()}};
+    });
+    registerHandler("config.import", [](const json& params) -> json {
+        std::string path = params.value("path", "");
+        if (path.empty()) {
+            return {{"success", false}, {"error", "path is required"}};
+        }
+        bool ok = ConfigManager::instance().importFrom(path);
+        return {{"success", ok}};
+    });
+    registerHandler("config.reset", [](const json&) -> json {
+        auto configPath = WinUtils::getConfigDirectory() / "config.json";
+        // 备份当前配置，然后清空
+        ConfigManager::instance().exportTo(
+            WinUtils::getConfigDirectory() / "config_backup.json");
+        ConfigManager::instance().fromJsonString("{}");
+        LOG_INFO("配置已重置为默认值");
+        return {{"success", true}};
+    });
+
+    // ── 快捷键管理 ───────────────────────────────────────────────────────
+    registerHandler("hotkey.getAll", [](const json&) -> json {
+        // 由 HotkeyManager 实现，但 core 层不依赖 hotkey 模块
+        // 通过 ConfigManager 读取快捷键配置
+        auto& config = ConfigManager::instance();
+        json hotkeys = json::array();
+        if (config.has("/hotkeys")) {
+            try {
+                hotkeys = config.get<json>("/hotkeys");
+            } catch (...) {}
+        }
+        return hotkeys;
+    });
+
+    // ── 应用系统信息 ─────────────────────────────────────────────────────
+    registerHandler("app.getSystemInfo", [](const json&) -> json {
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        
+        MEMORYSTATUSEX memInfo;
+        memInfo.dwLength = sizeof(memInfo);
+        GlobalMemoryStatusEx(&memInfo);
+
+        std::string arch = "x64";
+        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) {
+            arch = "ARM64";
+        } else if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL) {
+            arch = "x86";
+        }
+
+        OSVERSIONINFOEXW osvi{};
+        osvi.dwOSVersionInfoSize = sizeof(osvi);
+
+        return {
+            {"version", "1.0.0"},
+            {"cpuArch", arch},
+            {"cpuCores", si.dwNumberOfProcessors},
+            {"totalMemoryGB", memInfo.ullTotalPhys / (1024.0 * 1024.0 * 1024.0)},
+            {"dpiScale", WinUtils::getDpiScale()},
+            {"language", WinUtils::isSystemLanguageChinese() ? "zh-CN" : "en-US"}
+        };
+    });
+
+    LOG_INFO("内置核心 IPC 处理器注册完成（含性能监控、配置管理、系统信息）");
 }
 
 }  // namespace easy::core
-
