@@ -86,6 +86,12 @@ private:
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};
 
+    // ── 防御性编程：超时熔断自愈 (Circuit Breaker) ──
+    std::atomic<bool> m_circuitBreakerTripped{false};
+    std::chrono::steady_clock::time_point m_circuitBreakerTime;
+    static constexpr int CIRCUIT_BREAKER_TIMEOUT_MS = 100;     // 触发熔断的执行耗时阈值 (100ms)
+    static constexpr int CIRCUIT_BREAKER_COOLDOWN_MS = 3000;   // 熔断冷却恢复时间 (3秒)
+
     // 线程安全事件队列
     std::mutex m_queueMutex;
     std::queue<MouseEvent> m_eventQueue;

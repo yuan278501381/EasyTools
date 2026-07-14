@@ -1,0 +1,86 @@
+#pragma once
+#ifndef EASYTOOLS_CAPTURE_CAPTURE_STATE_H
+#define EASYTOOLS_CAPTURE_CAPTURE_STATE_H
+
+#include "capture/ScreenCapture.h"
+#include "capture/MarkupEngine.h"
+
+#include <windows.h>
+#include <d2d1.h>
+#include <string>
+#include <vector>
+#include <atomic>
+#include <functional>
+#include <opencv2/core.hpp>
+
+namespace easy::capture {
+
+enum class OverlayMode { Screenshot, RecordRegion };
+enum class OverlayState { Idle, Selecting, Selected, Marking };
+enum class ToolbarCommand { SelectTool, SelectColor, Undo, Redo, Clear, ExtractText, PinWindow, ScrollCapture, Confirm, Cancel };
+
+struct ToolbarButton {
+    D2D1_RECT_F rect{};
+    ToolbarCommand command = ToolbarCommand::SelectTool;
+    MarkupTool tool = MarkupTool::Rectangle;
+    MarkupColor color = MarkupColor::Red();
+    std::wstring label;
+};
+
+using SelectionCallback = std::function<void(const CaptureRegion& region, const cv::Mat& markedImage)>;
+using RecordSelectionCallback = std::function<void(const CaptureRegion& region)>;
+
+class CaptureState {
+public:
+    std::atomic<OverlayState> state{OverlayState::Idle};
+    OverlayMode mode = OverlayMode::Screenshot;
+    CaptureOptions options;
+
+    POINT dragStart{};
+    POINT dragEnd{};
+    POINT currentCursor{};
+    bool dragging = false;
+    RECT detectedWindow{};
+    POINT lastMousePos{};
+
+    cv::Mat frozenScreen;
+
+    MarkupEngine markup;
+    MarkupTool currentTool = MarkupTool::Rectangle;
+    MarkupColor currentColor = MarkupColor::Red();
+    bool markupBaseReady = false;
+    bool isMarking = false;
+    POINT markupStart{};
+    POINT markupEnd{};
+    std::vector<cv::Point> penPoints;
+    std::vector<ToolbarButton> toolbarButtons;
+    inline void rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) { toolbarButtons.clear(); }
+
+    MarkupElement* activeElement = nullptr;
+    HitArea dragHandle = HitArea::None;
+    bool isManipulating = false;
+
+    bool isAdjustingSelection = false;
+    HitArea selAdjustHandle = HitArea::None;
+    POINT selAdjustLast{};
+
+    int dynamicMagnifierRadius = 60;
+    float dynamicMagnifierScale = 2.0f;
+
+    DWORD loupeToastUntil = 0;
+    DWORD showTimestamp = 0;
+    bool isFadingOut = false;
+    float dpiScale = 1.0f;
+    bool colorFormatHex = false;
+    DWORD fadeOutStart = 0;
+
+    SelectionCallback callback;
+    RecordSelectionCallback recordCallback;
+    std::function<void(const CaptureRegion& region, const cv::Mat& cropped)> ocrCallback;
+
+    bool historyMode = false;
+    int historyIndex = 0;
+};
+
+} // namespace easy::capture
+#endif // EASYTOOLS_CAPTURE_CAPTURE_STATE_H

@@ -1,0 +1,82 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TrayApp.css — 托盘菜单样式
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --tray-bg: rgba(25, 25, 35, 0.65);
+  --tray-hover: rgba(139, 92, 246, 0.2);
+  --tray-text: #f8f8fc;
+  --tray-border: rgba(255, 255, 255, 0.1);
+  --tray-radius: 12px;
+}
+
+[data-theme="light"] {
+  --tray-bg: rgba(255, 255, 255, 0.7);
+  --tray-hover: rgba(124, 58, 237, 0.15);
+  --tray-text: #111118;
+  --tray-border: rgba(0, 0, 0, 0.1);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* 防止出现滚动条 */
+  background: transparent !important;
+}
+
+#root {
+  padding: 8px; /* 留出阴影空间 */
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.tray-menu {
+  display: flex;
+  flex-direction: column;
+  background: var(--tray-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--tray-border);
+  border-radius: var(--tray-radius);
+  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  animation: trayPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: bottom center;
+}
+
+@keyframes trayPop {
+  0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.tray-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--tray-text);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tray-menu__item:hover {
+  background: var(--tray-hover);
+}
+
+.tray-menu__item--danger:hover {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+.tray-menu__divider {
+  height: 1px;
+  background: var(--tray-border);
+  margin: 4px 8px;
+}

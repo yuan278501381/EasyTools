@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/ScreenCapture.h"
+#include "core/events/EventBus.h"
 #include "capture/CaptureOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
@@ -48,6 +49,7 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
         // 复制到剪贴板
         if (m_activeOptions.copyToClipboard && !markedImage.empty()) {
             copyToClipboard(markedImage);
+            easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"截图已复制到剪贴板"});
         }
 
         if (m_activeOptions.saveToFile && !markedImage.empty()) {
@@ -441,3 +443,4 @@ std::string ScreenCapture::formatExtension(ImageFormat format) {
 }
 
 }  // namespace easy::capture
+

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 
@@ -288,9 +288,49 @@ if (Test-Path $DeployDir) {
 Rename-Item -Path $StagingDir -NewName "deploy_dist"
 Write-Log "新版本秒级切换上线完成。" "SUCCESS"
 
+# ------------------------------------------------------------------------------
+# 7. 生成 Windows 安装程序 (Inno Setup)
+# ------------------------------------------------------------------------------
+Write-Log "检查是否可以生成安装程序 (Inno Setup)..."
+$InnoSetupDirs = @(
+    "C:\Program Files (x86)\Inno Setup 6",
+    "C:\Program Files\Inno Setup 6",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6"
+)
+$ISCC = $null
+foreach ($dir in $InnoSetupDirs) {
+    if (Test-Path "$dir\ISCC.exe") {
+        $ISCC = "$dir\ISCC.exe"
+        break
+    }
+}
+
+if ($ISCC) {
+    Write-Log "找到 Inno Setup 编译器: $ISCC"
+    $InstallerScript = Join-Path $ScriptDir "installer.iss"
+    $OutputInstallerDir = Join-Path $ScriptDir "Output"
+    
+    if (Test-Path $InstallerScript) {
+        Write-Log "正在编译安装包 (EasyTools-Setup.exe)..."
+        & $ISCC $InstallerScript
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "安装包已成功生成到: $OutputInstallerDir" "SUCCESS"
+        } else {
+            Write-Log "安装包编译失败！" "WARN"
+        }
+    } else {
+        Write-Log "未找到安装脚本 $InstallerScript" "WARN"
+    }
+} else {
+    Write-Log "未找到 Inno Setup 编译器，跳过安装包生成步骤。" "WARN"
+}
+
 Write-Log "======================================================="
 Write-Log "EasyTools 一键原子部署成功！" "SUCCESS"
 Write-Log "您的纯净发布版位于: $DeployDir"
+if (Test-Path (Join-Path $ScriptDir "Output\EasyTools-Setup.exe")) {
+    Write-Log "您的安装包位于: $(Join-Path $ScriptDir "Output\EasyTools-Setup.exe")"
+}
 Write-Log "全链路 TraceID: $TraceID (详见 deploy_logs)"
 Write-Log "直接双击运行 deploy_dist/EasyTools.exe 即可启动工具。"
 Write-Log "======================================================="

@@ -45,7 +45,9 @@
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
 #include "ui/SearchWindow.h"
+#include "ui/TrayWindow.h"
 #include "ui/KeycastOverlay.h"
+#include "ui/ToastOverlay.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
@@ -58,6 +60,7 @@ HWND createMessageWindow(HINSTANCE hInstance);
 void initializeSubsystems(HWND hwnd);
 void shutdownSubsystems();
 void showSettingsWindow();
+void preloadSettingsWindow(HINSTANCE hInstance);
 
 // ── 全局状态 ─────────────────────────────────────────────────────────────────
 static HANDLE g_singleInstanceMutex = nullptr;
@@ -212,6 +215,27 @@ void initializeSubsystems(HWND hwnd) {
     // 注册核心基础 IPC 处理器
     easy::core::MessageBridge::instance().registerBuiltinHandlers();
 
+    // 注册托盘菜单 IPC 处理函数
+    easy::core::MessageBridge::instance().registerHandler("tray.action", [hwnd](const nlohmann::json& params) -> nlohmann::json {
+        std::string action = params.value("action", "");
+        
+        // 执行前先隐藏托盘菜单
+        easy::ui::TrayWindow::instance().hide();
+
+        if (action == "openSettings") {
+            showSettingsWindow();
+        } else if (action == "screenshot") {
+            easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{});
+        } else if (action == "recording") {
+            easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{});
+        } else if (action == "pauseGesture") {
+            easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{});
+        } else if (action == "exit") {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+        return {{"success", true}};
+    });
+
     // 4. 键盘钩子（用于按键显示等）
     easy::core::KeyboardHook::instance().install();
 
@@ -225,12 +249,24 @@ void initializeSubsystems(HWND hwnd) {
 
     // 6. UI Overlay 初始化
     easy::ui::KeycastOverlay::instance().initialize(GetModuleHandleW(nullptr));
+    easy::ui::ToastOverlay::instance().initialize(GetModuleHandleW(nullptr));
+
+    easy::core::EventBus::instance().subscribe<easy::core::ShowToastEvent>(
+        [](const easy::core::ShowToastEvent& ev) {
+            easy::ui::ToastOverlay::instance().showToast(easy::core::WinUtils::wstringToUtf8(ev.message));
+        }
+    );
+
+    // 7. 设置窗口静默预热 (极速冷启动优化)
+    preloadSettingsWindow(GetModuleHandleW(nullptr));
 }
 
 void shutdownSubsystems() {
     easy::core::PluginManager::instance().shutdownPlugins();
     easy::ui::KeycastOverlay::instance().shutdown();
+    easy::ui::ToastOverlay::instance().shutdown();
     easy::ui::SearchWindow::instance().destroy();
+    easy::ui::TrayWindow::instance().destroy();
     easy::core::KeyboardHook::instance().uninstall();
     easy::core::HotkeyManager::instance().shutdown();
     easy::core::StatsManager::instance().shutdown();
@@ -248,6 +284,16 @@ void showSettingsWindow() {
     config.devServerUrl = "http://localhost:5173";
     settingsWnd.setConfig(config);
     settingsWnd.show(GetModuleHandleW(nullptr));
+}
+
+void preloadSettingsWindow(HINSTANCE hInstance) {
+    auto& settingsWnd = easy::ui::SettingsWindow::instance();
+    easy::ui::SettingsWindowConfig config;
+    config.width = 900;
+    config.height = 700;
+    config.devServerUrl = "http://localhost:5173";
+    settingsWnd.setConfig(config);
+    settingsWnd.preload(hInstance);
 }
 
 LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {

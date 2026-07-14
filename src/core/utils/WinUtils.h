@@ -9,6 +9,7 @@
 #include "core/utils/Export.h"
 
 #include <windows.h>
+#include <wincrypt.h>
 #include <shlobj.h>
 #include <string>
 #include <filesystem>
@@ -127,6 +128,21 @@ public:
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
         return wstringToUtf8(processNameFromPid(pid));
+    }
+
+    /// Base64 编码
+    static std::string base64Encode(const std::vector<uint8_t>& data) {
+        if (data.empty()) return "";
+        DWORD len = 0;
+        CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &len);
+        if (len == 0) return "";
+        std::string result(len, '\0');
+        CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, result.data(), &len);
+        // 去除尾部的 null 字符
+        if (!result.empty() && result.back() == '\0') {
+            result.pop_back();
+        }
+        return result;
     }
 
     /// 字符串转小写

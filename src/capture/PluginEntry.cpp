@@ -10,6 +10,8 @@
 #include "capture/RecordingIndicator.h"
 #include "capture/PinWindow.h"
 #include "capture/CaptureOverlay.h"
+#include "capture/CaptureHistory.h"
+#include <opencv2/imgcodecs.hpp>
 #include "ocr/OcrEngine.h"
 #include <thread>
 #include <filesystem>
@@ -32,11 +34,11 @@ static void onCaptureCompletedForOcr(const easy::capture::CaptureResult& result)
             std::filesystem::remove(path, ec);
 
             if (text.empty()) {
-                easy::core::MessageBridge::instance().pushEvent("notification.show", {{"title", "EasyTools OCR"}, {"message", "未识别到文字。"}, {"type", "info"}});
+                easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"未识别到文字"});
                 return;
             }
             easy::core::WinUtils::copyToClipboard(text);
-            easy::core::MessageBridge::instance().pushEvent("notification.show", {{"title", "EasyTools OCR"}, {"message", "文字已识别并复制到剪贴板。"}, {"type", "info"}});
+            easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"OCR 识别完成，已复制到剪贴板"});
         } catch (const std::exception& e) {
             LOG_ERROR("OCR 后台线程异常: {}", e.what());
         } catch (...) {
@@ -49,7 +51,7 @@ static void onCaptureCompletedForOcr(const easy::capture::CaptureResult& result)
 static void triggerOcrCapture() {
     auto& ocr = easy::ocr::OcrEngine::instance();
     if (!ocr.isAvailable()) {
-        easy::core::MessageBridge::instance().pushEvent("notification.show", {{"title", "EasyTools OCR"}, {"message", "No OCR Language Pack found."}, {"type", "warning"}});
+        easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"未找到 OCR 语言包"});
         return;
     }
     LOG_INFO("OCR Capture Triggered");
@@ -271,6 +273,28 @@ public:
                 }
             } catch(...) {}
             return {{"success", false}};
+        });
+
+        mb.registerHandler("history.getAll", [](const nlohmann::json&) -> nlohmann::json {
+            std::string jsonStr = easy::capture::CaptureHistory::instance().toMetadataJson();
+            return nlohmann::json::parse(jsonStr);
+        });
+
+        mb.registerHandler("history.getThumbnail", [](const nlohmann::json& params) -> nlohmann::json {
+            int index = params.value("index", -1);
+            if (index < 0) return {{"success", false}};
+            const auto* entry = easy::capture::CaptureHistory::instance().get(index);
+            if (!entry || entry->thumbnail.empty()) return {{"success", false}};
+            
+            std::vector<uint8_t> buffer;
+            cv::imencode(".png", entry->thumbnail, buffer);
+            std::string base64 = easy::core::WinUtils::base64Encode(buffer);
+            return {{"success", true}, {"base64", base64}};
+        });
+
+        mb.registerHandler("history.clear", [](const nlohmann::json&) -> nlohmann::json {
+            easy::capture::CaptureHistory::instance().clear();
+            return {{"success", true}};
         });
 
         return true;

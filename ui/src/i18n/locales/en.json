@@ -20,6 +20,7 @@
   "nav": {
     "capture": "Screen Capture",
     "ocr": "Text OCR",
+    "history": "Capture History",
     "gesture": "Mouse Gesture",
     "hotcorner": "Hot Corners",
     "stats": "Statistics",
@@ -102,6 +103,13 @@
     "formatPng": "PNG (Lossless)",
     "formatJpg": "JPEG (Compressed)",
     "formatWebp": "WebP (Efficient)"
+  },
+  "history": {
+    "title": "Capture History",
+    "subtitle": "View recent screenshots and recordings",
+    "clearAll": "Clear All",
+    "empty": "No capture history found.",
+    "confirmClear": "Are you sure you want to clear all history?"
   },
   "recording": {
     "title": "Recording Settings",

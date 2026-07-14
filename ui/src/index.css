@@ -5,8 +5,6 @@
  * 主色调: 紫色(violet) + 暗色背景
  * ───────────────────────────────────────────────────────────────────────────── */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 /* ── CSS 变量 (暗色主题 = 默认) ──────────────────────────────────────────── */
 :root {
   /* 主色调: 鲜活的紫色系 */
@@ -21,8 +19,8 @@
   --danger: #f87171;
   --info: #60a5fa;
 
-  /* 背景层级 (毛玻璃化暗色背景) */
-  --bg-base: #0a0a0f;
+  /* 背景层级 (支持 Fluent Mica 材质穿透) */
+  --bg-base: transparent;
   --bg-surface: rgba(20, 20, 30, 0.6);
   --bg-elevated: rgba(30, 30, 45, 0.8);
   --bg-overlay: rgba(0, 0, 0, 0.7);
