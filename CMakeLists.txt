@@ -83,7 +83,7 @@ target_compile_definitions(EasyCore PRIVATE EASYCORE_EXPORTS)
 target_include_directories(EasyCore PUBLIC ${CMAKE_SOURCE_DIR}/src ${LUA_INCLUDE_DIR})
 target_link_libraries(EasyCore PUBLIC
     spdlog::spdlog nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} fmt::fmt
-    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp
+    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp crypt32
 )
 
 # ── 2. Plugin_Gesture (动态库) ────────────────────────────────────────────────

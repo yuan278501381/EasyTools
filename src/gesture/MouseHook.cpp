@@ -78,6 +78,20 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
     static thread_local bool s_reentry = false;
 
     if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed) && !s_reentry) {
+        // ── 看门狗：检查是否处于熔断冷却期 ──
+        if (self.m_circuitBreakerTripped.load(std::memory_order_relaxed)) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - self.m_circuitBreakerTime).count();
+            if (elapsed > CIRCUIT_BREAKER_COOLDOWN_MS) {
+                // 冷却期满，自愈恢复
+                LOG_INFO("鼠标钩子熔断冷却期满，自动尝试恢复工作状态");
+                self.m_circuitBreakerTripped.store(false, std::memory_order_relaxed);
+            } else {
+                // 仍处于熔断状态，直接放行系统输入，拒绝处理
+                return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+            }
+        }
+
         s_reentry = true;
         struct ReentryGuard { ~ReentryGuard() { s_reentry = false; } } reentryGuard;
         try {
@@ -175,6 +189,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
 }
 
 bool MouseHook::processEvent(const MouseEvent& event) {
+    // 尝试直接回调（同步模式，支持拦截）
     // 复制回调后立即释放锁, 绝不在持有 m_callbackMutex 时执行回调:
     // 回调可能合成输入(SendInput)并同步重入本钩子, 持锁执行会递归锁 → 死锁异常。
     MouseEventCallback cb;
@@ -182,8 +197,25 @@ bool MouseHook::processEvent(const MouseEvent& event) {
         std::lock_guard lock(m_callbackMutex);
         cb = m_callback;
     }
+
     if (cb) {
-        return cb(event);
+        auto start_time = std::chrono::steady_clock::now();
+        
+        bool intercepted = cb(event);
+        
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        
+        if (duration > 20) {
+            LOG_WARN("鼠标钩子回调执行耗时过长: {} ms (建议优化以避免系统卡顿)", duration);
+        }
+        if (duration > CIRCUIT_BREAKER_TIMEOUT_MS) {
+            LOG_CRITICAL("【熔断告警】鼠标钩子回调耗时 {} ms (阈值 {} ms)，触发全局熔断机制保护系统！", duration, CIRCUIT_BREAKER_TIMEOUT_MS);
+            m_circuitBreakerTripped.store(true, std::memory_order_relaxed);
+            m_circuitBreakerTime = std::chrono::steady_clock::now();
+        }
+        
+        return intercepted;
     }
 
     // 入队模式（异步处理不支持拦截）

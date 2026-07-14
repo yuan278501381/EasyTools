@@ -19,6 +19,7 @@ import { CapturePage } from './pages/CapturePage';
 import { OcrPage } from './pages/OcrPage';
 import { GeneralPage } from './pages/GeneralPage';
 import { AboutPage } from './pages/AboutPage';
+import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
 import { OnboardingModal } from './components/OnboardingModal';
@@ -80,14 +81,15 @@ function App() {
   // 渲染当前页面
   const renderPage = () => {
     switch (activeNav) {
-      case 'stats':   return <KeyStatsPage />;
-      case 'gesture': return <GesturePage />;
+      case 'stats':     return <KeyStatsPage />;
+      case 'gesture':   return <GesturePage />;
       case 'hotcorner': return <HotCornerPage />;
-      case 'capture': return <CapturePage />;
-      case 'ocr':     return <OcrPage />;
-      case 'general': return <GeneralPage />;
-      case 'about':   return <AboutPage />;
-      default:        return <KeyStatsPage />;
+      case 'capture':   return <CapturePage />;
+      case 'ocr':       return <OcrPage />;
+      case 'history':   return <HistoryPage />;
+      case 'general':   return <GeneralPage />;
+      case 'about':     return <AboutPage />;
+      default:          return <KeyStatsPage />;
     }
   };
 

@@ -9,10 +9,10 @@
 
 import { type ReactNode, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp } from 'lucide-react';
+import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp, History } from 'lucide-react';
 import './Sidebar.css';
 
-export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'general' | 'about';
+export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'history' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture' },
   { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner' },
   { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture' },
+  { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr' },
   { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
   { id: 'about',   icon: <Info size={20} strokeWidth={2.2} />, labelKey: 'nav.about' },

@@ -20,6 +20,7 @@
   "nav": {
     "capture": "截屏工具",
     "ocr": "文本识别",
+    "history": "截图历史",
     "gesture": "鼠标手势",
     "hotcorner": "触发角",
     "stats": "统计数据",
@@ -102,6 +103,13 @@
     "formatPng": "PNG (无损)",
     "formatJpg": "JPEG (压缩)",
     "formatWebp": "WebP (高效)"
+  },
+  "history": {
+    "title": "截图历史",
+    "subtitle": "查看最近的截图和录屏记录",
+    "clearAll": "清空记录",
+    "empty": "暂无历史记录。",
+    "confirmClear": "确定要清空所有历史记录吗？"
   },
   "recording": {
     "title": "录屏设置",

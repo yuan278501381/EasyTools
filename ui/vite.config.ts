@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { viteSingleFile } from 'vite-plugin-singlefile'
 import fs from 'fs'
 import path from 'path'
 
@@ -26,7 +27,7 @@ function writeDevServerUrl(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), writeDevServerUrl()],
+  plugins: [react(), viteSingleFile(), writeDevServerUrl()],
   server: {
     host: '0.0.0.0', // 监听 0.0.0.0 以在终端展示物料局域网 IP
     strictPort: false // 允许端口被占用时动态递增选择新端口

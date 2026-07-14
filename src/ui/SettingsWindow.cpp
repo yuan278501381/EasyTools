@@ -22,6 +22,19 @@
 
 #include <filesystem>
 #include <fstream>
+#include <dwmapi.h>
+#include <algorithm>
+
+#pragma comment(lib, "dwmapi.lib")
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#define DWMSBT_MAINWINDOW 2 // Mica
+#define DWMSBT_TRANSIENTWINDOW 3 // Acrylic
+#endif
 
 using namespace Microsoft::WRL;
 
@@ -42,6 +55,15 @@ void SettingsWindow::show(HINSTANCE hInstance) {
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
         m_visible = true;
+        
+        // 强制刷新 WebView2 尺寸和可见性（防御性编程）
+        if (m_controller) {
+            m_controller->put_IsVisible(TRUE);
+            RECT bounds;
+            GetClientRect(m_hwnd, &bounds);
+            m_controller->put_Bounds(bounds);
+        }
+        
         LOG_INFO("设置窗口已激活（复用已有窗口）");
         return;
     }
@@ -59,10 +81,29 @@ void SettingsWindow::show(HINSTANCE hInstance) {
     LOG_INFO("设置窗口已创建并显示");
 }
 
+void SettingsWindow::preload(HINSTANCE hInstance) {
+    easy::core::TraceId::Scope scope;
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        return; // 已创建
+    }
+
+    if (createWindow(hInstance)) {
+        initializeWebView2(); // 初始化 WebView2，但不调用 ShowWindow，实现静默预热
+        LOG_INFO("设置窗口后台静默预热完成");
+    } else {
+        LOG_ERROR("设置窗口后台静默预热失败");
+    }
+}
+
 void SettingsWindow::hide() {
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
+        
+        if (m_controller) {
+            m_controller->put_IsVisible(FALSE);
+        }
+        
         LOG_DEBUG("设置窗口已隐藏");
     }
 }
@@ -100,7 +141,7 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     wc.lpfnWndProc = windowProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = CreateSolidBrush(RGB(20, 20, 30)); // 默认暗色背景，防止 Mica 失效时白屏
     wc.lpszClassName = SETTINGS_WINDOW_CLASS;
     wc.hIcon = LoadIconW(hInstance, IDI_APPLICATION);
 
@@ -131,6 +172,12 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         return false;
     }
 
+    // 启用 Windows 11 Fluent Mica 材质 & 沉浸式暗黑模式
+    BOOL useDarkMode = TRUE;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
+    DWORD backdropType = DWMSBT_MAINWINDOW; // Mica 材质
+    DwmSetWindowAttribute(m_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
+
     // 设置 DPI 感知的最小窗口尺寸
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
@@ -149,10 +196,13 @@ void SettingsWindow::initializeWebView2() {
 
     LOG_DEBUG("WebView2 用户数据目录: {}", easy::core::WinUtils::wstringToUtf8(userDataPath));
 
+    auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+    options->put_AdditionalBrowserArguments(L"--enable-features=OverlayScrollbar --allow-file-access-from-files");
+
     HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
         nullptr,                    // 使用 Evergreen Runtime（不指定浏览器路径）
         userDataPath.c_str(),       // 用户数据目录
-        nullptr,                    // 环境选项（使用默认）
+        options.Get(),              // 环境选项
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(result) || !env) {
@@ -198,7 +248,13 @@ void SettingsWindow::onWebView2Ready() {
     easy::core::TraceId::Scope scope;
     LOG_INFO("WebView2 控件就绪");
 
-    // ── 调整控件尺寸以填满窗口 ───────────────────────────────────────────
+    // ── 调整控件尺寸以填满窗口并确保可见 ─────────────────────────────────
+    if (m_visible.load()) {
+        m_controller->put_IsVisible(TRUE);
+    } else {
+        m_controller->put_IsVisible(FALSE);
+    }
+    
     RECT bounds;
     GetClientRect(m_hwnd, &bounds);
     m_controller->put_Bounds(bounds);
@@ -218,6 +274,13 @@ void SettingsWindow::onWebView2Ready() {
 #else
         settings->put_AreDevToolsEnabled(FALSE);
 #endif
+    }
+
+    // ── 设置 WebView2 透明背景，使得底层 Mica 材质透出 ──────────────────
+    ComPtr<ICoreWebView2Controller2> controller2;
+    if (SUCCEEDED(m_controller.As(&controller2))) {
+        COREWEBVIEW2_COLOR color = { 0, 0, 0, 0 }; // 完全透明
+        controller2->put_DefaultBackgroundColor(color);
     }
 
     // ── 注册 JS → C++ 消息监听 ─────────────────────────────────────────
@@ -265,27 +328,28 @@ void SettingsWindow::onWebView2Ready() {
         }
     );
 
-    // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
-    // 关键: Vite 产物是 ES Module(<script type=module>), 在 file:// 下会被 CORS 拦截 → 白屏。
-    // 把 ui 文件夹映射成一个正常的 https 源(虚拟主机), ES Module 即可正常加载。
-    auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
-    std::error_code ec;
-    if (std::filesystem::exists(uiFolder, ec)) {
-        ComPtr<ICoreWebView2_3> webView3;
-        if (SUCCEEDED(m_webView->QueryInterface(IID_PPV_ARGS(&webView3))) && webView3) {
-            webView3->SetVirtualHostNameToFolderMapping(
-                L"easytools.local", uiFolder.c_str(),
-                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-            LOG_INFO("虚拟主机映射已设置: https://easytools.local/ -> {}",
-                     easy::core::WinUtils::wstringToUtf8(uiFolder));
-        } else {
-            LOG_WARN("无法获取 ICoreWebView2_3, 虚拟主机映射不可用 (将回退 file://, 可能白屏)");
-        }
-    }
-
     // ── 加载前端 UI ─────────────────────────────────────────────────────
     std::string entryUrl = getUIEntryUrl();
     std::wstring wUrl = easy::core::WinUtils::utf8ToWstring(entryUrl);
+    
+    // 监听导航失败事件，记录详细错误，方便诊断白屏
+    EventRegistrationToken token;
+    m_webView->add_NavigationCompleted(
+        Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            [this, entryUrl](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                BOOL success;
+                args->get_IsSuccess(&success);
+                if (success) {
+                    LOG_INFO("WebView2 导航成功: {}", entryUrl);
+                } else {
+                    COREWEBVIEW2_WEB_ERROR_STATUS status;
+                    args->get_WebErrorStatus(&status);
+                    LOG_ERROR("WebView2 导航失败, status={}", static_cast<int>(status));
+                }
+                return S_OK;
+            }
+        ).Get(), &token);
+
     m_webView->Navigate(wUrl.c_str());
 
     m_webViewReady = true;
@@ -296,10 +360,12 @@ std::string SettingsWindow::getUIEntryUrl() const {
     auto exeDir = easy::core::WinUtils::getExeDirectory();
     auto indexPath = exeDir / L"ui" / L"index.html";
 
-    // 1. 优先使用本地打包文件: 经虚拟主机映射以 https 源加载 (生产模式)
+    // 1. 优先使用本地单文件打包 (生产模式) - 绝对的 file:/// 路径加载，完美离线免疫代理
     std::error_code ec;
     if (std::filesystem::exists(indexPath, ec)) {
-        return "https://easytools.local/index.html";
+        std::string pathStr = easy::core::WinUtils::wstringToUtf8(indexPath.wstring());
+        std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+        return "file:///" + pathStr;
     }
 
     // 2. 如果本地不存在，说明是在 C++ 开发模式下运行。尝试读取 Vite 动态端口文件
@@ -355,6 +421,11 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 RECT bounds;
                 GetClientRect(hwnd, &bounds);
                 self->m_controller->put_Bounds(bounds);
+                
+                // 确保尺寸变化时如果窗口可见，组件也可见
+                if (IsWindowVisible(hwnd)) {
+                    self->m_controller->put_IsVisible(TRUE);
+                }
             }
             return 0;
         }

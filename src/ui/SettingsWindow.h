@@ -45,6 +45,9 @@ public:
     /// 创建并显示设置窗口
     void show(HINSTANCE hInstance);
 
+    /// 后台静默创建并预热 WebView2 环境，不显示窗口（实现极速冷启动）
+    void preload(HINSTANCE hInstance);
+
     /// 隐藏窗口（不销毁，下次 show 时直接显示）
     void hide();
 

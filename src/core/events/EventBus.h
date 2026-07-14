@@ -112,7 +112,12 @@ struct ActionToggleRecordingEvent {};
 /// 触发手势暂停切换事件
 struct ActionToggleGesturePauseEvent {};
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────// 显示全局 Toast 的事件
+struct ShowToastEvent {
+    std::wstring message;
+};
+
+// =========================================================================
 // EventBus 实现
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -146,7 +151,7 @@ public:
         };
 
         subscribers.push_back({id, std::move(wrappedHandler)});
-        m_idToType[id] = typeId;
+        m_idToType.insert_or_assign(id, typeId);
 
         LOG_TRACE("EventBus: 订阅事件 [{}], subId={}", typeid(TEvent).name(), id);
         return id;

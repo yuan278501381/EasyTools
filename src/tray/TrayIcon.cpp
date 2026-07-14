@@ -5,6 +5,7 @@
 #include "tray/TrayIcon.h"
 #include "core/logger/Logger.h"
 #include "core/config/ConfigManager.h"
+#include "ui/TrayWindow.h"
 
 namespace easy::tray {
 
@@ -118,39 +119,11 @@ void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
 }
 
 void TrayIcon::showContextMenu() {
-    HMENU hMenu = CreatePopupMenu();
-    if (!hMenu) return;
-
-    bool isEn = isEnglishLocale();
-
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::OpenSettings), isEn ? L"⚙ Settings(&S)" : L"⚙ 设置(&S)");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Screenshot), isEn ? L"📷 Capture(&C)" : L"📷 截图(&C)");
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Recording), isEn ? L"🎬 Record(&R)" : L"🎬 录屏(&R)");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-
-    // 暂停手势 — 带勾选状态
-    AppendMenuW(hMenu, MF_STRING | (m_gesturePaused ? MF_CHECKED : MF_UNCHECKED),
-                static_cast<UINT>(TrayMenuId::PauseGesture), isEn ? L"⏸ Pause Gesture(&P)" : L"⏸ 暂停手势(&P)");
-
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, static_cast<UINT>(TrayMenuId::Exit), isEn ? L"Exit(&X)" : L"退出(&X)");
-
-    // 必须先 SetForegroundWindow 再 TrackPopupMenu，否则菜单无法正确关闭
-    SetForegroundWindow(m_hwnd);
-
     POINT pt;
     GetCursorPos(&pt);
-    UINT cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, m_hwnd, nullptr);
 
-    DestroyMenu(hMenu);
-    PostMessage(m_hwnd, WM_NULL, 0, 0);  // 确保菜单正确关闭
-
-    if (cmd > 0) {
-        auto menuId = static_cast<TrayMenuId>(cmd);
-
-        fireCallback(menuId);
-    }
+    // 调用现代的 WebView2 托盘窗口
+    easy::ui::TrayWindow::instance().show(GetModuleHandleW(nullptr), pt.x, pt.y);
 }
 
 void TrayIcon::fireCallback(TrayMenuId id) {
