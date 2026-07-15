@@ -6,8 +6,6 @@
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   user-select: none;
   overflow-x: auto; /* In case it's too wide */
 }
@@ -77,8 +75,6 @@
   left: 50%;
   transform: translateX(-50%) translateY(8px) scale(0.95);
   background: var(--key-tooltip-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   color: var(--key-tooltip-text);
   padding: 6px 10px;
   border-radius: 6px;

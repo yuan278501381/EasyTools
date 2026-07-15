@@ -3,8 +3,8 @@
 // MouseHook — 低级鼠标钩子
 //
 // 使用 WH_MOUSE_LL 全局钩子拦截鼠标事件。
-// 钩子回调仅做坐标采集和入队，不做任何重计算。
-// 通过线程安全队列将数据传递给 GestureRecognizer 工作线程。
+// 为了决定是否吞掉触发键，识别状态机必须同步运行；所有渲染、动作执行和
+// 输入补发等昂贵操作都必须推迟到钩子回调返回后。
 // ─────────────────────────────────────────────────────────────────────────────
 
 #ifndef EASYTOOLS_GESTURE_MOUSEHOOK_H
@@ -66,6 +66,9 @@ public:
     /// 设置事件回调（由 GestureEngine 设置）
     void setEventCallback(MouseEventCallback callback);
 
+    /// 设置唯一会进入手势管道的触发键。非触发键保持系统原生热路径。
+    void setTriggerButton(MouseEventType downEvent);
+
     /// 获取事件队列中的待处理事件（批量获取，减少锁竞争）
     std::vector<MouseEvent> drainEvents(size_t maxCount = 64);
 
@@ -85,6 +88,9 @@ private:
 
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};
+    std::atomic<bool> m_triggerButtonDown{false};
+    std::atomic<MouseEventType> m_configuredTriggerDown{MouseEventType::RightDown};
+    std::atomic<MouseEventType> m_activeTriggerDown{MouseEventType::RightDown};
 
     // ── 防御性编程：超时熔断自愈 (Circuit Breaker) ──
     std::atomic<bool> m_circuitBreakerTripped{false};

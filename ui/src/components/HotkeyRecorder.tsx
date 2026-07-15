@@ -112,7 +112,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       }
     };
 
-    const handleKeyUp = (_e: KeyboardEvent) => {
+    const handleKeyUp = () => {
       // 当有挂起的组合键时，在松开任意键后确认
       if (pendingRef.current) {
         confirmRecording(pendingRef.current);
@@ -173,8 +173,8 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
     );
   };
 
-  const defaultPlaceholder = placeholder ?? t('capture.pressToBind' as any);
-  const recordingPlaceholder = t('hotkey.pressKeys' as any, '按下快捷键...');
+  const defaultPlaceholder = placeholder ?? t('capture.pressToBind');
+  const recordingPlaceholder = t('hotkey.pressKeys');
 
   return (
     <div

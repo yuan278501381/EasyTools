@@ -19,6 +19,8 @@
 #include <functional>
 #include <vector>
 #include <cstdint>
+#include <atomic>
+#include <thread>
 
 // OpenCV 前向声明
 namespace cv { class Mat; }
@@ -51,6 +53,8 @@ struct CaptureOptions {
     bool saveToFile = false;           // 保存到文件
     std::string savePath;              // 保存路径（空则自动生成）
     bool autoNumber = false;           // 标注时自动编号
+    bool showCrosshair = true;         // 选区前显示十字准星/取色放大镜
+    bool autoDetectWindow = true;      // 光标悬停时检测并吸附窗口
 };
 
 /// 截图结果
@@ -94,7 +98,7 @@ public:
     void setCallback(CaptureCallback callback) { m_callback = std::move(callback); }
 
     /// 是否正在截图
-    bool isCapturing() const { return m_capturing; }
+    bool isCapturing() const { return m_capturing.load(); }
 
 private:
     ScreenCapture() = default;
@@ -121,9 +125,11 @@ private:
     static std::string formatExtension(ImageFormat format);
 
     CaptureCallback m_callback;
-    bool m_capturing = false;
+    std::atomic<bool> m_capturing{false};
     HINSTANCE m_hInstance = nullptr;
     CaptureOptions m_activeOptions;
+    std::jthread m_ocrWorker;
+    std::atomic<bool> m_ocrRunning{false};
 };
 
 }  // namespace easy::capture

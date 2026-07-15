@@ -1,0 +1,44 @@
+.activity-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.activity-chart__grid {
+  stroke: var(--card-border);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.activity-chart__axis {
+  fill: var(--text-muted);
+  font-size: 12px;
+}
+
+.activity-chart__line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.activity-chart__point {
+  fill: var(--primary);
+  stroke: var(--bg-elevated);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.activity-chart__hit {
+  fill: transparent;
+  cursor: default;
+}
+
+.activity-chart__hit:hover + .activity-chart__point {
+  r: 6px;
+}

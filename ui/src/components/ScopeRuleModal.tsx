@@ -8,10 +8,11 @@ import { useState, type FC } from 'react';
 import { Modal, Field, Button, Select, TextInput } from './UIKit';
 import {
   type ScopeRule,
-  MATCH_MODE_OPTIONS,
-  EFFECT_OPTIONS,
+  MATCH_MODE_KEYS,
+  EFFECT_KEYS,
   emptyRule,
 } from './scopeModel';
+import { useTranslation } from 'react-i18next';
 
 type TargetKind = 'process' | 'class';
 
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClose }) => {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<ScopeRule>(() => (initial ? structuredClone(initial) : emptyRule()));
   const [targetKind, setTargetKind] = useState<TargetKind>(
     initial && initial.windowClass && !initial.processName ? 'class' : 'process',
@@ -37,8 +39,8 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
     set(targetKind === 'process' ? { processName: v, windowClass: '' }
                                  : { windowClass: v, processName: '' });
 
-  const nameError = draft.name.trim() ? '' : '请填写规则名称';
-  const targetError = targetValue.trim() ? '' : '请填写匹配的进程名或窗口类名';
+  const nameError = draft.name.trim() ? '' : t('scope.nameRequired');
+  const targetError = targetValue.trim() ? '' : t('scope.targetRequired');
   const canSave = !nameError && !targetError;
 
   const handleSave = () => {
@@ -56,34 +58,34 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
   return (
     <Modal
       open
-      title={isEdit ? '编辑作用域规则' : '新增作用域规则'}
+      title={isEdit ? t('scope.editRule') : t('scope.newRule')}
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={handleSave} disabled={!canSave}>保存</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('common.save')}</Button>
         </>
       }
     >
-      <Field label="规则名称" error={nameError}>
-        <TextInput value={draft.name} onChange={(v) => set({ name: v })} placeholder="例如 Chrome 浏览器" />
+      <Field label={t('scope.ruleName')} error={nameError}>
+        <TextInput value={draft.name} onChange={(v) => set({ name: v })} placeholder={t('scope.ruleNamePlaceholder')} />
       </Field>
 
-      <Field label="匹配目标">
+      <Field label={t('scope.matchTarget')}>
         <Select
           value={targetKind}
           options={[
-            { value: 'process', label: '按进程名' },
-            { value: 'class', label: '按窗口类名' },
+            { value: 'process', label: t('scope.byProcess') },
+            { value: 'class', label: t('scope.byClass') },
           ]}
           onChange={(v) => setTargetKind(v as TargetKind)}
         />
       </Field>
 
       <Field
-        label={targetKind === 'process' ? '进程名' : '窗口类名'}
+        label={targetKind === 'process' ? t('scope.processName') : t('scope.windowClass')}
         error={targetError}
-        hint={targetKind === 'process' ? '如 chrome.exe，可配合通配符 *.exe' : '如 Chrome_WidgetWin_1'}
+        hint={targetKind === 'process' ? t('scope.processHint') : t('scope.classHint')}
       >
         <TextInput
           value={targetValue}
@@ -92,24 +94,24 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
         />
       </Field>
 
-      <Field label="匹配方式">
+      <Field label={t('scope.matchMode')}>
         <Select
           value={String(draft.matchMode)}
-          options={MATCH_MODE_OPTIONS}
+          options={MATCH_MODE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
           onChange={(v) => set({ matchMode: Number(v) })}
         />
       </Field>
 
-      <Field label="作用效果">
+      <Field label={t('scope.effect')}>
         <Select
           value={String(draft.effect)}
-          options={EFFECT_OPTIONS}
+          options={EFFECT_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
           onChange={(v) => set({ effect: Number(v) })}
         />
       </Field>
 
       {draft.effect === 2 && (
-        <Field label="使用的配置集" hint="匹配窗口时切换到该手势配置集">
+        <Field label={t('scope.profile')} hint={t('scope.profileHint')}>
           <Select
             value={draft.profileName || (profileNames[0] ?? '')}
             options={profileNames.map((n) => ({ value: n, label: n }))}

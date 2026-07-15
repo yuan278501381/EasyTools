@@ -12,18 +12,24 @@ CaptureOverlay& CaptureOverlay::instance() {
 }
 
 bool CaptureOverlay::initialize(HINSTANCE hInstance) {
-    if (m_hwnd) return true;
     m_hInstance = hInstance;
-    return createOverlayWindow(hInstance);
+    // 覆盖层是整个虚拟桌面大小。启动时创建一个隐藏的 layered D2D 窗口，
+    // 在部分显卡/驱动上即使不可见也会持续触发表面合成，占满一个 CPU 核。
+    // 这里只保存模块句柄，真正截图时再创建，用完立即释放。
+    return m_hInstance != nullptr;
 }
 
 void CaptureOverlay::shutdown() {
-    realCancel();
+    const bool wasActive = m_state.state.load() != OverlayState::Idle;
+    m_state.state = OverlayState::Idle;
+    ReleaseCapture();
     if (m_hwnd) {
         m_renderer.shutdown();
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    m_state.frozenScreen.release();
+    if (wasActive && m_closedCallback) m_closedCallback();
 }
 
 bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
@@ -51,7 +57,12 @@ bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
     // 默认全透明，事件穿透（直到开始截图）
     SetLayeredWindowAttributes(m_hwnd, 0, 0, LWA_ALPHA);
     
-    m_renderer.initialize(m_hwnd, m_state);
+    if (!m_renderer.initialize(m_hwnd, m_state)) {
+        LOG_ERROR("截图覆盖层 Direct2D 初始化失败");
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+        return false;
+    }
     
     m_input.initialize(m_hwnd, m_state, m_renderer, 
         [this](){ this->realCancel(); },
@@ -63,6 +74,14 @@ bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
 
 void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode mode) {
     easy::core::TraceId::Scope scope;
+    if (!m_hwnd && (!m_hInstance || !createOverlayWindow(m_hInstance))) {
+        LOG_ERROR("无法启动截图: 覆盖层窗口初始化失败");
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"截图界面初始化失败，请重试"});
+        if (m_closedCallback) m_closedCallback();
+        return;
+    }
+
     m_state.options = options;
     m_state.mode = mode;
     m_state.state = OverlayState::Selecting;
@@ -79,7 +98,14 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_state.isFadingOut = false;
     m_state.fadeOutStart = 0;
 
-    freezeScreen();
+    if (!freezeScreen() || !m_renderer.updateScreenBitmap(m_state.frozenScreen)) {
+        LOG_ERROR("无法启动截图: 桌面底图捕获或上传失败");
+        m_state.state = OverlayState::Idle;
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"无法捕获屏幕，请重试"});
+        if (m_closedCallback) m_closedCallback();
+        return;
+    }
     
     m_renderer.invalidate();
     
@@ -95,34 +121,63 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     SetFocus(m_hwnd);
 }
 
-void CaptureOverlay::freezeScreen() {
+bool CaptureOverlay::freezeScreen() {
     int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
     int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
     int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
+    if (w <= 0 || h <= 0) {
+        LOG_ERROR("无效的虚拟屏幕尺寸: {}x{}", w, h);
+        return false;
+    }
+
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) {
+        LOG_ERROR("GetDC(nullptr) 失败, error={}", GetLastError());
+        return false;
+    }
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HBITMAP hBitmap = CreateCompatibleBitmap(hdcScreen, w, h);
-    SelectObject(hdcMem, hBitmap);
-    BitBlt(hdcMem, 0, 0, w, h, hdcScreen, x, y, SRCCOPY);
+    if (!hdcMem) {
+        LOG_ERROR("CreateCompatibleDC 失败, error={}", GetLastError());
+        ReleaseDC(nullptr, hdcScreen);
+        return false;
+    }
 
-    BITMAPINFOHEADER bi;
-    bi.biSize = sizeof(BITMAPINFOHEADER);
-    bi.biWidth = w;
-    bi.biHeight = -h;
-    bi.biPlanes = 1;
-    bi.biBitCount = 32;
-    bi.biCompression = BI_RGB;
-    bi.biSizeImage = 0;
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = w;
+    bitmapInfo.bmiHeader.biHeight = -h;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    HBITMAP bitmap = CreateDIBSection(
+        hdcScreen, &bitmapInfo, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    if (!bitmap || !pixels) {
+        LOG_ERROR("CreateDIBSection 失败, error={}", GetLastError());
+        if (bitmap) DeleteObject(bitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(nullptr, hdcScreen);
+        return false;
+    }
 
-    m_state.frozenScreen.create(h, w, CV_8UC4);
-    GetDIBits(hdcMem, hBitmap, 0, h, m_state.frozenScreen.data, (BITMAPINFO*)&bi, DIB_RGB_COLORS);
-    cv::cvtColor(m_state.frozenScreen, m_state.frozenScreen, cv::COLOR_BGRA2BGR);
+    HGDIOBJ previous = SelectObject(hdcMem, bitmap);
+    const BOOL copied = BitBlt(
+        hdcMem, 0, 0, w, h, hdcScreen, x, y, SRCCOPY | CAPTUREBLT);
+    if (copied) {
+        const cv::Mat bgra(h, w, CV_8UC4, pixels, static_cast<size_t>(w) * 4);
+        cv::cvtColor(bgra, m_state.frozenScreen, cv::COLOR_BGRA2BGR);
+    } else {
+        LOG_ERROR("截图覆盖层 BitBlt 失败, error={}", GetLastError());
+        m_state.frozenScreen.release();
+    }
 
-    DeleteObject(hBitmap);
+    SelectObject(hdcMem, previous);
+    DeleteObject(bitmap);
     DeleteDC(hdcMem);
     ReleaseDC(nullptr, hdcScreen);
+    return copied && !m_state.frozenScreen.empty();
 }
 
 void CaptureOverlay::cancel() {
@@ -133,10 +188,20 @@ void CaptureOverlay::cancel() {
 }
 
 void CaptureOverlay::realCancel() {
+    const bool wasActive = m_state.state.load() != OverlayState::Idle;
     m_state.state = OverlayState::Idle;
-    ShowWindow(m_hwnd, SW_HIDE);
-    SetLayeredWindowAttributes(m_hwnd, 0, 0, LWA_ALPHA);
     ReleaseCapture();
+
+    // 不保留隐藏的全屏 D2D layered window。实测该窗口在部分 Windows/DWM
+    // 组合上会在隐藏后继续消耗接近一个 CPU 核，按次重建的代价远低于常驻耗电。
+    if (m_hwnd) {
+        ShowWindow(m_hwnd, SW_HIDE);
+        m_renderer.shutdown();
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+    }
+    m_state.frozenScreen.release();
+    if (wasActive && m_closedCallback) m_closedCallback();
 }
 
 void CaptureOverlay::confirmSelection() {
@@ -155,7 +220,7 @@ void CaptureOverlay::confirmSelection() {
     int h = y2 - y1;
 
     if (w <= 0 || h <= 0) {
-        cancel();
+        realCancel();
         return;
     }
 
@@ -182,7 +247,8 @@ void CaptureOverlay::confirmSelection() {
     auto rcb = m_state.recordCallback;
     auto mode = m_state.mode;
 
-    cancel();
+    // 必须在开始录屏或交付截图前同步隐藏覆盖层；否则覆盖层会进入首帧并持续遮挡桌面。
+    realCancel();
 
     if (mode == OverlayMode::RecordRegion) {
         if (rcb) rcb(region);

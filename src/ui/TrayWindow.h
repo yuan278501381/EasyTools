@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <atomic>
+#include <cstdint>
 #include <wrl/client.h>
 #include <WebView2.h>
 
@@ -43,6 +44,7 @@ private:
     HWND m_hwnd = nullptr;
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
+    std::atomic<uint64_t> m_generation{0};
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;

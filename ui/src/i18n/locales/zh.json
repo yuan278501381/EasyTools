@@ -15,7 +15,13 @@
     "import": "导入",
     "unknown": "未知",
     "script": "脚本",
-    "selectAll": "全选"
+    "selectAll": "全选",
+    "name": "名称",
+    "empty": "暂无数据",
+    "close": "关闭",
+    "saving": "保存中...",
+    "moveUp": "上移",
+    "moveDown": "下移"
   },
   "nav": {
     "capture": "截屏工具",
@@ -32,6 +38,7 @@
     "gesture": "配置手势动作映射和作用域规则",
     "hotcorner": "屏幕四角触发快捷动作",
     "capture": "截图、贴图、长截图和屏幕录制设置",
+    "history": "浏览并重新打开最近截图",
     "ocr": "文字识别引擎和语言配置",
     "general": "启动、语言、日志等通用配置",
     "about": "版本信息和技术栈"
@@ -55,6 +62,7 @@
     "langEn": "English",
     "theme": "外观主题",
     "themeDesc": "切换深色或浅色主题界面",
+    "themeSystem": "跟随系统",
     "themeLight": "浅色主题",
     "themeDark": "深色主题",
     "advanced": "高级选项",
@@ -63,6 +71,7 @@
     "toastSaveSuccess": "设置已自动保存",
     "toastSaveDesc": "已更新: {{key}}",
     "toastSaveFailed": "保存失败",
+    "loadFailed": "无法加载设置",
     "dataManagement": "数据管理",
     "exportConfig": "导出配置",
     "exportConfigDesc": "将当前所有设置导出为文件，用于备份或迁移",
@@ -79,8 +88,12 @@
     "resetSuccess": "已恢复默认设置",
     "resetFailed": "重置失败",
     "keyboardShortcuts": "快捷键总览",
-    "keyboardShortcutsDesc": "查看所有已注册的全局快捷键",
-    "noShortcuts": "暂无已注册的快捷键"
+    "keyboardShortcutsDesc": "点击快捷键后按下新的组合键即可重新绑定",
+    "noShortcuts": "暂无已注册的快捷键",
+    "shortcutPinToggle": "切换光标下贴图穿透",
+    "shortcutPinPaste": "将剪贴板内容贴图",
+    "shortcutPinHideAll": "隐藏或显示全部贴图",
+    "shortcutPinArrange": "自动排列全部贴图"
   },
   "capture": {
     "title": "截屏工具设置",
@@ -102,14 +115,24 @@
     "autoDetectWindowDesc": "悬停时自动高亮窗口边界，点击可直接截取窗口",
     "formatPng": "PNG (无损)",
     "formatJpg": "JPEG (压缩)",
-    "formatWebp": "WebP (高效)"
+    "formatWebp": "WebP (高效)",
+    "formatBmp": "BMP (未压缩)",
+    "quality": "图片质量",
+    "qualityDesc": "JPEG 与 WebP 文件的压缩质量",
+    "loadFailed": "无法加载截图设置",
+    "saveFailed": "无法保存此设置",
+    "browseFailed": "无法打开文件夹选择器"
   },
   "history": {
     "title": "截图历史",
-    "subtitle": "查看最近的截图和录屏记录",
+    "subtitle": "查看并重新打开最近的截图",
     "clearAll": "清空记录",
     "empty": "暂无历史记录。",
-    "confirmClear": "确定要清空所有历史记录吗？"
+    "confirmClear": "确定要清空所有历史记录吗？",
+    "loadFailed": "无法加载截图历史",
+    "clearFailed": "无法清空截图历史",
+    "openFailed": "无法打开此截图",
+    "thumbnailAlt": "截图预览"
   },
   "recording": {
     "title": "录屏设置",
@@ -131,7 +154,9 @@
     "bitrate4": "4 Mbps (轻量)",
     "bitrate8": "8 Mbps (推荐)",
     "bitrate16": "16 Mbps (高清)",
-    "bitrate32": "32 Mbps (极清)"
+    "bitrate32": "32 Mbps (极清)",
+    "saveDir": "录屏保存目录",
+    "saveDirDesc": "选择录屏完成后的保存位置"
   },
   "ocr": {
     "title": "文本识别设置",
@@ -142,9 +167,12 @@
     "showResultWindow": "显示结果窗口",
     "showResultWindowDesc": "识别完成后弹窗显示提取的文本以供编辑",
     "engine": "识别引擎",
-    "engineDesc": "选择用于文本识别的底层引擎",
-    "engineTesseract": "Tesseract (本地, 快速)",
-    "engineWindowsOCR": "Windows OCR (本地, 高精度)"
+    "engineDesc": "使用本机已安装的 Windows 语言包进行完全离线识别",
+    "engineWindowsOCR": "Windows OCR（离线）",
+    "available": "已就绪",
+    "unavailable": "需要安装语言包",
+    "loadFailed": "无法加载 OCR 设置",
+    "saveFailed": "无法保存此 OCR 设置"
   },
   "gesture": {
     "title": "鼠标手势设置",
@@ -171,10 +199,40 @@
     "scopeRules": "作用域规则",
     "showTrail": "显示手势轨迹",
     "showTrailDesc": "在绘制手势时显示可视轨迹",
+    "trailColor": "轨迹颜色",
+    "trailColorDesc": "设置手势轨迹的显示颜色",
+    "trailWidth": "轨迹宽度",
+    "trailWidthDesc": "设置手势轨迹的像素宽度",
+    "recognition": "识别设置",
     "statusRunning": "手势正在运行",
     "statusPaused": "手势已暂停",
     "deleteConfirm": "确定删除手势 \"{{name}}\" ({{code}}) 吗？",
-    "radialMenu": "轮盘菜单设置"
+    "radialMenu": "轮盘菜单设置",
+    "radialHint": "最多 8 项；顺序即轮盘中的顺时针排列顺序。",
+    "radialDefaultLabel": "动作 {{count}}",
+    "radialLabelPlaceholder": "菜单名称",
+    "radialLabelRequired": "轮盘菜单名称不能为空",
+    "radialSaved": "轮盘菜单已保存",
+    "loadFailed": "无法加载手势设置",
+    "saveFailed": "无法保存手势设置"
+  },
+  "hotcorner": {
+    "title": "屏幕触发角",
+    "enabled": "启用触发角",
+    "enabledDesc": "鼠标在屏幕角落停留后执行指定动作",
+    "corners": "角落动作",
+    "screenHint": "将鼠标移到角落即可触发对应动作",
+    "cornerTL": "左上角",
+    "cornerTR": "右上角",
+    "cornerBL": "左下角",
+    "cornerBR": "右下角",
+    "noAction": "无动作",
+    "unknown": "未知动作",
+    "advanced": "触发时机",
+    "delay": "触发延迟",
+    "delayDesc": "鼠标需要在角落停留多久才触发动作",
+    "loadFailed": "无法加载触发角设置",
+    "saveFailed": "无法保存触发角设置"
   },
   "gestureEditor": {
     "titleEdit": "编辑手势",
@@ -197,7 +255,34 @@
     "builtinCommand": "内置命令",
     "programPath": "程序路径",
     "programArgs": "启动参数",
-    "programArgsHint": "可选"
+    "programArgsHint": "可选",
+    "actionTypes": {
+      "hotkey": "快捷键",
+      "lua": "Lua 脚本",
+      "builtin": "内置命令",
+      "program": "运行程序"
+    },
+    "builtin": {
+      "closeWindow": "关闭窗口",
+      "closeTab": "关闭标签页",
+      "maximize": "最大化或还原窗口",
+      "minimize": "最小化窗口",
+      "restore": "还原窗口",
+      "showDesktop": "显示桌面",
+      "switchDesktop": "切换虚拟桌面",
+      "taskView": "任务视图",
+      "lockScreen": "锁屏",
+      "pauseGestures": "暂停手势",
+      "screenshot": "截图",
+      "record": "开始或暂停录屏",
+      "restoreTab": "恢复关闭的标签页",
+      "topmost": "切换窗口置顶",
+      "transparency": "切换窗口透明度",
+      "webSearch": "网页搜索选中文本",
+      "search": "切换文件搜索框",
+      "radialMenu": "显示轮盘菜单",
+      "pasteAsPin": "将剪贴板内容贴图"
+    }
   },
   "gestureGuide": {
     "title": "手势演示",
@@ -223,7 +308,36 @@
     "colEffect": "效果",
     "deleteRuleConfirm": "删除规则 \"{{name}}\" 吗？",
     "deleteSelectedConfirm": "删除选中的 {{count}} 条规则吗？",
-    "selectRow": "选择 {{name}}"
+    "selectRow": "选择 {{name}}",
+    "loadFailed": "无法加载作用域规则",
+    "saveFailed": "无法保存作用域规则",
+    "editRule": "编辑作用域规则",
+    "newRule": "新增作用域规则",
+    "ruleName": "规则名称",
+    "ruleNamePlaceholder": "例如 Chrome 浏览器",
+    "nameRequired": "请填写规则名称",
+    "targetRequired": "请填写匹配的进程名或窗口类名",
+    "matchTarget": "匹配目标",
+    "byProcess": "按进程名",
+    "byClass": "按窗口类名",
+    "processName": "进程名",
+    "windowClass": "窗口类名",
+    "processHint": "例如 chrome.exe；支持 *.exe 等通配符",
+    "classHint": "例如 Chrome_WidgetWin_1",
+    "matchMode": "匹配方式",
+    "matchExact": "精确匹配",
+    "matchWildcard": "通配符（* 和 ?）",
+    "matchRegex": "正则表达式",
+    "effect": "作用效果",
+    "effectEnable": "启用手势",
+    "effectDisable": "禁用手势",
+    "effectProfile": "使用配置集",
+    "profile": "手势配置集",
+    "profileHint": "匹配窗口时切换到该手势配置集",
+    "targetProcess": "进程",
+    "targetClass": "类名",
+    "targetNone": "未设置",
+    "noTarget": "未设置匹配条件"
   },
   "stats": {
     "title": "数据统计大盘",
@@ -249,6 +363,14 @@
     "license": "开源协议",
     "components": "开源组件",
     "checkUpdate": "检查更新",
+    "checkingUpdate": "正在检查…",
+    "upToDate": "EasyTools 已是最新版本",
+    "updateAvailable": "EasyTools {{version}} 已发布",
+    "updateFailed": "暂时无法检查更新",
+    "updateCheckBusy": "更新检查正在进行中",
+    "noPublishedRelease": "目前还没有已发布的版本",
+    "openRelease": "打开发布页面",
+    "openReleaseFailed": "无法打开发布页面",
     "techStack": "技术栈",
     "subtitle": "桌面效率工具",
     "depPurpose": {
@@ -260,7 +382,7 @@
       "luaSol2": "脚本扩展",
       "opencv": "图像处理/拼接",
       "ffmpeg": "视频编码/录屏",
-      "paddleOcr": "文字识别"
+      "windowsOcr": "使用 Windows 语言包的离线文字识别"
     },
     "geekMode": "极客模式：性能监控面板",
     "enablePerfMonitor": "开启性能监控",
@@ -302,5 +424,28 @@
     "next": "下一步",
     "prev": "上一步",
     "skip": "跳过"
+  },
+  "hotkey": {
+    "pressKeys": "请按下组合键...",
+    "bindFailed": "无法应用此快捷键"
+  },
+  "search": {
+    "title": "快速文件搜索",
+    "placeholder": "搜索文件或拼音首字母...",
+    "serviceUnavailable": "文件索引服务暂不可用，请修复或重新安装 EasyTools 以恢复极速搜索。",
+    "noResults": "没有匹配的文件",
+    "open": "打开",
+    "pinImage": "贴出图片",
+    "close": "关闭",
+    "openFailed": "无法打开此结果",
+    "pinFailed": "无法贴出此图片"
+  },
+  "tray": {
+    "settings": "设置",
+    "capture": "截图",
+    "recording": "录屏",
+    "resumeGesture": "恢复手势",
+    "pauseGesture": "暂停手势",
+    "exit": "退出"
   }
 }

@@ -1,150 +1,193 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { File, Folder, Search, ServerOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { bridgeRequest } from './hooks/useBridge';
+import { useAppearance } from './hooks/useAppearance';
 import './SearchApp.css';
 
+interface SearchResult {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+interface SearchResponse {
+  results: SearchResult[];
+  available: boolean;
+  error?: string;
+}
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp)$/i;
+
 export default function SearchApp() {
-    const [query, setQuery] = useState('');
-    const [results, setResults] = useState<string[]>([]);
-    const [selectedIndex, setSelectedIndex] = useState(0);
-    const inputRef = useRef<HTMLInputElement>(null);
+  useAppearance();
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [serviceAvailable, setServiceAvailable] = useState(true);
+  const [actionError, setActionError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const requestSequence = useRef(0);
 
-    useEffect(() => {
-        inputRef.current?.focus();
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
-        const handleMessage = (msg: any) => {
-            if (msg.results) {
-                setResults(msg.results);
-                setSelectedIndex(0);
-            }
-        };
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
 
-        // Connect to C++ message bridge
-        if ((window as any).easyToolsBridge) {
-            (window as any).easyToolsBridge.onMessage = handleMessage;
-        }
+    const sequence = ++requestSequence.current;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await bridgeRequest<SearchResponse>('search.query', { query: trimmed });
+        if (sequence !== requestSequence.current) return;
+        setResults(Array.isArray(response.results) ? response.results : []);
+        setSelectedIndex(0);
+        setServiceAvailable(response.available !== false);
+      } catch {
+        if (sequence !== requestSequence.current) return;
+        setResults([]);
+        setServiceAvailable(false);
+      } finally {
+        if (sequence === requestSequence.current) setLoading(false);
+      }
+    }, 120);
 
-        return () => {
-            if ((window as any).easyToolsBridge) {
-                (window as any).easyToolsBridge.onMessage = null;
-            }
-        };
-    }, []);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
-    useEffect(() => {
-        if (!query.trim()) {
-            setResults([]);
-            return;
-        }
+  const updateQuery = (value: string) => {
+    setQuery(value);
+    setActionError('');
+    if (!value.trim()) {
+      requestSequence.current++;
+      setResults([]);
+      setSelectedIndex(0);
+      setLoading(false);
+    }
+  };
 
-        // Send query to C++ Plugin_Search
-        if ((window as any).chrome?.webview) {
-            (window as any).chrome.webview.postMessage(JSON.stringify({
-                method: "search.query",
-                query: query
-            }));
-        } else {
-            // Mock data for browser testing
-            setResults(['React.js', 'Redux.ts', 'NodeJS.exe', 'EasyTools.exe', 'README.md'].filter(i => i.toLowerCase().includes(query.toLowerCase())));
-        }
-    }, [query]);
+  const hide = useCallback(() => {
+    void bridgeRequest('search.hide').catch(() => undefined);
+  }, []);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setSelectedIndex(i => Math.min(i + 1, results.length - 1));
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setSelectedIndex(i => Math.max(i - 1, 0));
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (results.length > 0) {
-                const selectedFile = results[selectedIndex];
-                if ((window as any).chrome?.webview) {
-                    (window as any).chrome.webview.postMessage(JSON.stringify({
-                        method: "search.openFile",
-                        filepath: selectedFile
-                    }));
-                    (window as any).chrome.webview.postMessage(JSON.stringify({
-                        method: "search.hide"
-                    }));
-                }
-            }
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            if ((window as any).chrome?.webview) {
-                (window as any).chrome.webview.postMessage(JSON.stringify({
-                    method: "search.hide"
-                }));
-            }
-        } else if (e.key === 'p' && e.ctrlKey) {
-            e.preventDefault();
-            if (results.length > 0) {
-                const selectedFile = results[selectedIndex];
-                if ((window as any).chrome?.webview) {
-                    (window as any).chrome.webview.postMessage(JSON.stringify({
-                        method: "capture.pinImageFile",
-                        path: selectedFile
-                    }));
-                    (window as any).chrome.webview.postMessage(JSON.stringify({
-                        method: "search.hide"
-                    }));
-                }
-            }
-        }
-    };
+  const openResult = useCallback(async (result: SearchResult | undefined) => {
+    if (!result) return;
+    setActionError('');
+    try {
+      const response = await bridgeRequest<{ success: boolean }>('search.openFile', {
+        filepath: result.path,
+      });
+      if (response.success) hide();
+      else setActionError(t('search.openFailed'));
+    } catch {
+      setActionError(t('search.openFailed'));
+    }
+  }, [hide, t]);
 
-    return (
-        <div className="search-app">
-            <div className="search-container">
-                <div className="search-input-wrapper">
-                    <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="11" cy="11" r="8" />
-                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                    <input 
-                        ref={inputRef}
-                        className="search-input" 
-                        placeholder="搜索文件或拼音首字母..."
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                    />
-                </div>
-                {results.length > 0 && (
-                    <ul className="search-results">
-                        {results.map((res, idx) => (
-                            <li 
-                                key={idx} 
-                                className={`search-result-item ${idx === selectedIndex ? 'selected' : ''}`}
-                                onMouseEnter={() => setSelectedIndex(idx)}
-                                onDoubleClick={() => {
-                                    if ((window as any).chrome?.webview) {
-                                        (window as any).chrome.webview.postMessage(JSON.stringify({
-                                            method: "search.openFile",
-                                            filepath: res
-                                        }));
-                                        (window as any).chrome.webview.postMessage(JSON.stringify({
-                                            method: "search.hide"
-                                        }));
-                                    }
-                                }}
-                            >
-                                <svg className="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-                                    <polyline points="13 2 13 9 20 9"></polyline>
-                                </svg>
-                                <span className="file-name">{res}</span>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                {results.length > 0 && (
-                    <div className="search-footer">
-                        <span className="search-hint"><kbd>Enter</kbd> 打开文件</span>
-                        <span className="search-hint"><kbd>Ctrl+P</kbd> 悬浮贴图</span>
-                        <span className="search-hint"><kbd>Esc</kbd> 退出</span>
-                    </div>
-                )}
-            </div>
+  const pinResult = useCallback(async (result: SearchResult | undefined) => {
+    if (!result || result.isDirectory || !IMAGE_EXTENSIONS.test(result.path)) return;
+    setActionError('');
+    try {
+      const response = await bridgeRequest<{ success: boolean }>('capture.pinImageFile', {
+        path: result.path,
+      });
+      if (response.success) hide();
+      else setActionError(t('search.pinFailed'));
+    } catch {
+      setActionError(t('search.pinFailed'));
+    }
+  }, [hide, t]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.min(index + 1, Math.max(results.length - 1, 0)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      void openResult(results[selectedIndex]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      hide();
+    } else if (event.key.toLowerCase() === 'p' && event.ctrlKey) {
+      event.preventDefault();
+      void pinResult(results[selectedIndex]);
+    }
+  };
+
+  return (
+    <main className="search-app">
+      <section className="search-container" aria-label={t('search.title')}>
+        <div className="search-input-wrapper">
+          <Search className="search-icon" size={22} aria-hidden="true" />
+          <input
+            ref={inputRef}
+            className="search-input"
+            placeholder={t('search.placeholder')}
+            value={query}
+            onChange={(event) => updateQuery(event.target.value)}
+            onKeyDown={handleKeyDown}
+            role="combobox"
+            aria-expanded={results.length > 0}
+            aria-controls="search-results"
+            aria-activedescendant={results[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
+            spellCheck={false}
+          />
+          {loading && <span className="search-loading" aria-label={t('common.loading')} />}
         </div>
-    );
+
+        {!serviceAvailable && (
+          <div className="search-status" role="status">
+            <ServerOff size={18} aria-hidden="true" />
+            <span>{t('search.serviceUnavailable')}</span>
+          </div>
+        )}
+
+        {actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
+
+        {serviceAvailable && query.trim() && !loading && results.length === 0 && (
+          <div className="search-status" role="status">{t('search.noResults')}</div>
+        )}
+
+        {results.length > 0 && (
+          <ul id="search-results" className="search-results" role="listbox">
+            {results.map((result, index) => (
+              <li
+                id={`search-result-${index}`}
+                key={result.path}
+                className={`search-result-item ${index === selectedIndex ? 'selected' : ''}`}
+                role="option"
+                aria-selected={index === selectedIndex}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setSelectedIndex(index)}
+                onDoubleClick={() => void openResult(result)}
+              >
+                {result.isDirectory
+                  ? <Folder className="file-icon" size={20} aria-hidden="true" />
+                  : <File className="file-icon" size={20} aria-hidden="true" />}
+                <span className="file-info">
+                  <span className="file-name">{result.name}</span>
+                  <span className="file-path">{result.path}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <footer className="search-footer">
+          <span className="search-hint"><kbd>Enter</kbd> {t('search.open')}</span>
+          <span className="search-hint"><kbd>Ctrl+P</kbd> {t('search.pinImage')}</span>
+          <span className="search-hint"><kbd>Esc</kbd> {t('search.close')}</span>
+        </footer>
+      </section>
+    </main>
+  );
 }

@@ -19,6 +19,7 @@
 #include <mutex>
 #include <string>
 #include <chrono>
+#include <optional>
 
 namespace easy::capture {
 
@@ -48,7 +49,7 @@ public:
 
     /// 获取指定索引的历史记录（0 = 最新）
     /// @return 指针（可能为 null）
-    const HistoryEntry* get(int index) const;
+    std::optional<HistoryEntry> get(int index) const;
 
     /// 当前历史记录数量
     int count() const;
@@ -60,7 +61,7 @@ public:
     void setMaxSize(int maxSize);
 
     /// 获取最大历史记录数
-    int maxSize() const { return m_maxSize; }
+    int maxSize() const;
 
     /// 获取所有条目的元数据（不含图像数据，用于 IPC 列表展示）
     /// 返回 JSON 数组: [{index, timestamp, width, height, filePath}, ...]
@@ -73,6 +74,8 @@ private:
 
     std::deque<HistoryEntry> m_entries;
     int m_maxSize = 20;
+    size_t m_totalBytes = 0;
+    static constexpr size_t MAX_MEMORY_BYTES = 128ull * 1024ull * 1024ull;
     mutable std::mutex m_mutex;
 };
 

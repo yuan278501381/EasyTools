@@ -21,6 +21,12 @@
 
 namespace easy::capture {
 
+/// GDI+ must be started and stopped explicitly while the capture DLL is fully
+/// loaded. Starting it from a DLL global constructor makes GdiplusShutdown run
+/// under the Windows loader lock and can deadlock on its background thread.
+bool initializeMarkupTextRenderer();
+void shutdownMarkupTextRenderer();
+
 /// 标注工具类型
 enum class MarkupTool {
     Rectangle,   // 矩形

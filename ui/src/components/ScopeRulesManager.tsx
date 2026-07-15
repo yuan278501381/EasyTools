@@ -8,9 +8,11 @@
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Button, Badge, Toggle } from './UIKit';
 import { ScopeRuleModal } from './ScopeRuleModal';
-import { type ScopeRule, EFFECT_LABELS, MATCH_MODE_LABELS, ruleTarget } from './scopeModel';
+import { type ScopeRule, EFFECT_KEYS, MATCH_MODE_KEYS, ruleTarget } from './scopeModel';
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { Edit3, Trash2 } from 'lucide-react';
 
 interface Props {
   profileNames: string[];
@@ -26,19 +28,24 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
   useEffect(() => {
     bridgeRequest<ScopeRule[]>('gesture.getScopeRules')
       .then((data) => setRules(Array.isArray(data) ? data : []))
-      .catch((err) => console.error('Failed to load scope rules:', err));
-  }, []);
+      .catch((err) => {
+        console.error('Failed to load scope rules:', err);
+        toast.error(t('scope.loadFailed'));
+      });
+  }, [t]);
 
   const persist = useCallback(async (next: ScopeRule[]) => {
     const prev = rules;
     setRules(next);
     try {
-      await bridgeRequest('gesture.updateScopeRules', { rules: next });
+      const result = await bridgeRequest<{ success: boolean; error?: string }>('gesture.updateScopeRules', { rules: next });
+      if (!result.success) throw new Error(result.error || t('scope.saveFailed'));
     } catch (err) {
       console.error('Failed to save scope rules:', err);
       setRules(prev); // 回滚
+      toast.error(t('scope.saveFailed'), { description: String(err) });
     }
-  }, [rules]);
+  }, [rules, t]);
 
   const openAdd = () => { setEditing(null); setEditorOpen(true); };
   const openEdit = (r: ScopeRule) => { setEditing(r); setEditorOpen(true); };
@@ -115,6 +122,9 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
 
           {rules.map((r) => {
             const target = ruleTarget(r);
+            const targetLabel = target.kind === 'process'
+              ? t('scope.targetProcess')
+              : target.kind === 'class' ? t('scope.targetClass') : t('scope.targetNone');
             return (
               <div key={r.id} className="scope-row">
                 <span className="scope-col scope-col--check">
@@ -130,13 +140,13 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
                 </span>
                 <span className="scope-col scope-col--name">{r.name}</span>
                 <span className="scope-col scope-col--target">
-                  <Badge text={target.kind} variant="muted" />
-                  <code className="scope-target-value">{target.value}</code>
-                  <span className="scope-matchmode">{MATCH_MODE_LABELS[r.matchMode]}</span>
+                  <Badge text={targetLabel} variant="muted" />
+                  <code className="scope-target-value">{target.value || t('scope.noTarget')}</code>
+                  <span className="scope-matchmode">{MATCH_MODE_KEYS[r.matchMode] ? t(MATCH_MODE_KEYS[r.matchMode]) : '?'}</span>
                 </span>
                 <span className="scope-col scope-col--effect">
                   <Badge
-                    text={EFFECT_LABELS[r.effect] ?? '?'}
+                    text={EFFECT_KEYS[r.effect] ? t(EFFECT_KEYS[r.effect]) : '?'}
                     variant={r.effect === 0 ? 'success' : r.effect === 1 ? 'danger' : 'primary'}
                   />
                   {r.effect === 2 && r.profileName && (
@@ -144,12 +154,12 @@ export const ScopeRulesManager: FC<Props> = ({ profileNames }) => {
                   )}
                 </span>
                 <span className="scope-col scope-col--actions">
-                  <button className="gesture-icon-btn" title={t('common.edit')} onClick={() => openEdit(r)}>✎</button>
+                  <button className="gesture-icon-btn" title={t('common.edit')} onClick={() => openEdit(r)}><Edit3 size={16} /></button>
                   <button
                     className="gesture-icon-btn gesture-icon-btn--danger"
                     title={t('common.delete')}
                     onClick={() => deleteOne(r)}
-                  >🗑</button>
+                  ><Trash2 size={16} /></button>
                 </span>
               </div>
             );

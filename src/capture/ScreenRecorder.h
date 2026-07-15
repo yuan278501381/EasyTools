@@ -19,6 +19,8 @@
 #include <thread>
 #include <functional>
 #include <cstdint>
+#include <mutex>
+#include <vector>
 
 namespace easy::capture {
 
@@ -46,7 +48,6 @@ struct RecordOptions {
     int regionX = 0;                    // 录制区域
     int regionY = 0;
     bool fullScreen = true;             // 全屏录制
-    bool includeAudio = false;          // 是否录制音频（预留）
     std::string outputPath;             // 输出文件路径
     int bitrateMbps = 8;               // 视频码率 (Mbps)
 };
@@ -87,10 +88,10 @@ public:
     RecordState state() const { return m_state.load(); }
 
     /// 录制统计
-    RecordStats stats() const { return m_stats; }
+    RecordStats stats() const;
 
     /// 设置状态回调
-    void setStateCallback(RecordStateCallback callback) { m_stateCallback = std::move(callback); }
+    void setStateCallback(RecordStateCallback callback);
 
 private:
     ScreenRecorder() = default;
@@ -108,6 +109,12 @@ private:
 
     /// 捕获一帧并编码
     bool captureAndEncodeFrame();
+    bool initializeCaptureResources();
+    void cleanupCaptureResources();
+    bool writeAvailablePackets();
+
+    void finalizeEncoder();
+    void notifyState(RecordState state);
 
     /// 生成输出文件路径
     std::string generateOutputPath(RecordFormat format) const;
@@ -128,7 +135,21 @@ private:
     void* m_stream = nullptr;      // AVStream*
     void* m_frame = nullptr;       // AVFrame*
     void* m_swsCtx = nullptr;      // SwsContext*
+    void* m_packet = nullptr;      // AVPacket*
+    bool m_headerWritten = false;
     int64_t m_frameIndex = 0;
+
+    // Reused GDI capture resources. Creating a DC, bitmap, and multi-megabyte
+    // pixel vector for every frame caused avoidable latency and allocation churn.
+    HDC m_screenDc = nullptr;
+    HDC m_memoryDc = nullptr;
+    HBITMAP m_captureBitmap = nullptr;
+    HGDIOBJ m_previousBitmap = nullptr;
+    void* m_captureBits = nullptr;
+    int m_captureStride = 0;
+    mutable std::mutex m_statsMutex;
+    mutable std::mutex m_callbackMutex;
+    std::mutex m_controlMutex;
 };
 
 }  // namespace easy::capture

@@ -33,7 +33,14 @@ DailyStats DailyStats::fromJson(const nlohmann::json& j) {
     stats.scrolls = j.value("scrolls", 0ULL);
     if (j.contains("keyMap") && j["keyMap"].is_object()) {
         for (auto& [k, v] : j["keyMap"].items()) {
-            stats.keyMap[std::stoi(k)] = v.get<uint64_t>();
+            try {
+                const int key = std::stoi(k);
+                if (key >= 0 && key <= 255 && v.is_number_unsigned()) {
+                    stats.keyMap[key] = v.get<uint64_t>();
+                }
+            } catch (...) {
+                // Skip corrupt individual entries while preserving the day.
+            }
         }
     }
     return stats;
@@ -55,25 +62,40 @@ std::string StatsManager::getCurrentDateStr() const {
 }
 
 void StatsManager::initialize() {
-    std::lock_guard lock(m_mutex);
-    if (m_initialized) return;
-
-    m_currentDate = getCurrentDateStr();
-    loadFromFile();
-    m_initialized = true;
+    {
+        std::lock_guard lock(m_mutex);
+        if (m_initialized) return;
+        m_currentDate = getCurrentDateStr();
+        loadFromFile();
+        m_lastSaveTick = GetTickCount64();
+        m_initialized = true;
+    }
+    m_flushRunning = true;
+    m_flushThread = std::thread([this]() { flushLoop(); });
     LOG_INFO("按键统计管理器初始化成功, 日期={}", m_currentDate);
 }
 
 void StatsManager::shutdown() {
-    std::lock_guard lock(m_mutex);
     if (!m_initialized) return;
-    saveToFile();
+    m_flushRunning = false;
+    m_flushCv.notify_all();
+    if (m_flushThread.joinable()) m_flushThread.join();
+    flushPending(true);
     m_initialized = false;
     LOG_INFO("按键统计管理器已关闭");
 }
 
 void StatsManager::loadFromFile() {
-    auto path = WinUtils::getExeDirectory() / L"data" / L"stats.json";
+    const auto dir = WinUtils::getAppDataDirectory() / L"stats";
+    std::filesystem::create_directories(dir);
+    const auto path = dir / L"stats.json";
+    const auto legacyPath = WinUtils::getExeDirectory() / L"data" / L"stats.json";
+    if (!std::filesystem::exists(path) && std::filesystem::exists(legacyPath)) {
+        std::error_code ec;
+        std::filesystem::copy_file(legacyPath, path,
+                                   std::filesystem::copy_options::skip_existing, ec);
+        if (ec) LOG_WARN("迁移旧统计文件失败: {}", ec.message());
+    }
     if (!std::filesystem::exists(path)) {
         m_historyData = nlohmann::json::object();
         return;
@@ -81,6 +103,7 @@ void StatsManager::loadFromFile() {
     try {
         std::ifstream ifs(path);
         m_historyData = nlohmann::json::parse(ifs);
+        if (!m_historyData.is_object()) throw std::runtime_error("统计文件根节点不是对象");
         if (m_historyData.contains(m_currentDate)) {
             m_todayStats = DailyStats::fromJson(m_historyData[m_currentDate]);
         }
@@ -91,15 +114,23 @@ void StatsManager::loadFromFile() {
 }
 
 void StatsManager::saveToFile() {
-    auto dir = WinUtils::getExeDirectory() / L"data";
+    auto dir = WinUtils::getAppDataDirectory() / L"stats";
     std::filesystem::create_directories(dir);
     auto path = dir / L"stats.json";
+    auto tempPath = dir / L"stats.json.tmp";
     
     m_historyData[m_currentDate] = m_todayStats.toJson();
     
     try {
-        std::ofstream ofs(path);
-        ofs << m_historyData.dump(4); // 格式化输出
+        std::ofstream ofs(tempPath, std::ios::binary | std::ios::trunc);
+        ofs << m_historyData.dump(2);
+        ofs.flush();
+        if (!ofs) throw std::runtime_error("写入统计临时文件失败");
+        ofs.close();
+        if (!MoveFileExW(tempPath.c_str(), path.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            throw std::runtime_error("替换统计文件失败, error=" + std::to_string(GetLastError()));
+        }
     } catch (const std::exception& e) {
         LOG_ERROR("保存统计数据失败: {}", e.what());
     }
@@ -121,50 +152,37 @@ void StatsManager::checkDateRollover() {
 
 // 节流保存
 void StatsManager::recordKey(int virtualKey) {
-    std::lock_guard lock(m_mutex);
-    checkDateRollover();
-    m_todayStats.totalKeys++;
-    m_todayStats.keyMap[virtualKey]++;
-}
-
-void StatsManager::recordLeftClick() {
-    std::lock_guard lock(m_mutex);
-    checkDateRollover();
-    m_todayStats.leftClicks++;
-}
-
-void StatsManager::recordRightClick() {
-    std::lock_guard lock(m_mutex);
-    checkDateRollover();
-    m_todayStats.rightClicks++;
-}
-
-void StatsManager::recordScroll() {
-    std::lock_guard lock(m_mutex);
-    checkDateRollover();
-    m_todayStats.scrolls++;
-}
-
-void StatsManager::recordMouseDistance(double pixels) {
-    std::lock_guard lock(m_mutex);
-    checkDateRollover();
-    m_todayStats.mouseDistance += pixels;
-    
-    // 每累加一定距离或操作后自动保存，这里做个简单节流
-    uint64_t currentTick = GetTickCount64();
-    if (currentTick - m_lastSaveTick > 60000) { // 至少一分钟存一次
-        saveToFile();
-        m_lastSaveTick = currentTick;
+    m_pendingTotalKeys.fetch_add(1, std::memory_order_relaxed);
+    if (virtualKey >= 0 && virtualKey < static_cast<int>(m_pendingKeys.size())) {
+        m_pendingKeys[static_cast<size_t>(virtualKey)].fetch_add(1, std::memory_order_relaxed);
     }
 }
 
+void StatsManager::recordLeftClick() {
+    m_pendingLeftClicks.fetch_add(1, std::memory_order_relaxed);
+}
+
+void StatsManager::recordRightClick() {
+    m_pendingRightClicks.fetch_add(1, std::memory_order_relaxed);
+}
+
+void StatsManager::recordScroll() {
+    m_pendingScrolls.fetch_add(1, std::memory_order_relaxed);
+}
+
+void StatsManager::recordMouseDistance(double pixels) {
+    if (pixels > 0.0) m_pendingMouseDistance.fetch_add(pixels, std::memory_order_relaxed);
+}
+
 DailyStats StatsManager::getTodayStats() {
+    flushPending(false);
     std::lock_guard lock(m_mutex);
     checkDateRollover();
     return m_todayStats;
 }
 
 nlohmann::json StatsManager::getHistory(int days) {
+    flushPending(false);
     std::lock_guard lock(m_mutex);
     checkDateRollover();
     
@@ -195,6 +213,7 @@ nlohmann::json StatsManager::getHistory(int days) {
 }
 
 nlohmann::json StatsManager::getTotalStats() {
+    flushPending(false);
     std::lock_guard lock(m_mutex);
     checkDateRollover();
     
@@ -212,9 +231,44 @@ nlohmann::json StatsManager::getTotalStats() {
 }
 
 void StatsManager::clearToday() {
+    flushPending(false);
     std::lock_guard lock(m_mutex);
     m_todayStats = DailyStats();
     saveToFile();
+}
+
+void StatsManager::flushPending(bool forceSave) {
+    std::lock_guard lock(m_mutex);
+    if (!m_initialized) return;
+    checkDateRollover();
+
+    m_todayStats.totalKeys += m_pendingTotalKeys.exchange(0, std::memory_order_relaxed);
+    m_todayStats.leftClicks += m_pendingLeftClicks.exchange(0, std::memory_order_relaxed);
+    m_todayStats.rightClicks += m_pendingRightClicks.exchange(0, std::memory_order_relaxed);
+    m_todayStats.scrolls += m_pendingScrolls.exchange(0, std::memory_order_relaxed);
+    m_todayStats.mouseDistance += m_pendingMouseDistance.exchange(0.0, std::memory_order_relaxed);
+    for (size_t key = 0; key < m_pendingKeys.size(); ++key) {
+        const uint64_t count = m_pendingKeys[key].exchange(0, std::memory_order_relaxed);
+        if (count > 0) m_todayStats.keyMap[static_cast<int>(key)] += count;
+    }
+
+    const uint64_t now = GetTickCount64();
+    if (forceSave || now - m_lastSaveTick >= 60000) {
+        saveToFile();
+        m_lastSaveTick = now;
+    }
+}
+
+void StatsManager::flushLoop() {
+    std::unique_lock waitLock(m_flushWaitMutex);
+    while (m_flushRunning.load(std::memory_order_acquire)) {
+        m_flushCv.wait_for(waitLock, std::chrono::seconds(1),
+                          [this]() { return !m_flushRunning.load(std::memory_order_acquire); });
+        if (!m_flushRunning.load(std::memory_order_acquire)) break;
+        waitLock.unlock();
+        flushPending(false);
+        waitLock.lock();
+    }
 }
 
 } // namespace easy::core

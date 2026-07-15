@@ -1,11 +1,12 @@
 #include "ui/SearchWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "ui/WebViewEnvironmentManager.h"
 #include <WebView2.h>
-#include <WebView2EnvironmentOptions.h>
 #include <wrl/event.h>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 #include "core/utils/WinUtils.h"
 
 using namespace Microsoft::WRL;
@@ -13,6 +14,23 @@ using namespace Microsoft::WRL;
 namespace easy::ui {
 
 static constexpr const wchar_t* SEARCH_WINDOW_CLASS = L"EasyTools_SearchWindow";
+static constexpr UINT WM_SEARCH_VERIFY_DEACTIVATED = WM_APP + 42;
+
+namespace {
+
+RECT activeMonitorWorkArea() {
+    POINT point{};
+    GetCursorPos(&point);
+    RECT workArea{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    const HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+    if (monitor && GetMonitorInfoW(monitor, &monitorInfo)) {
+        workArea = monitorInfo.rcWork;
+    }
+    return workArea;
+}
+
+}  // namespace
 
 SearchWindow& SearchWindow::instance() {
     static SearchWindow inst;
@@ -50,6 +68,7 @@ bool SearchWindow::isVisible() const {
 }
 
 void SearchWindow::destroy() {
+    ++m_generation;
     if (m_controller) {
         m_controller->Close();
         m_controller = nullptr;
@@ -57,9 +76,9 @@ void SearchWindow::destroy() {
     m_webView = nullptr;
     m_environment = nullptr;
 
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
-        m_hwnd = nullptr;
+    const HWND hwnd = std::exchange(m_hwnd, nullptr);
+    if (hwnd && IsWindow(hwnd)) {
+        DestroyWindow(hwnd);
     }
     m_visible = false;
     m_webViewReady = false;
@@ -77,10 +96,9 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
 
     int width = 800;
     int height = 600;
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int x = (screenW - width) / 2;
-    int y = (screenH - height) / 2;
+    const RECT workArea = activeMonitorWorkArea();
+    int x = workArea.left + (workArea.right - workArea.left - width) / 2;
+    int y = workArea.top + (workArea.bottom - workArea.top - height) / 2;
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
@@ -100,30 +118,36 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
 }
 
 void SearchWindow::initializeWebView2() {
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::filesystem::path userDataFolder = std::filesystem::path(exePath).parent_path() / L"webview2_data_search";
-
-    auto options = Make<CoreWebView2EnvironmentOptions>();
-    // Transparent background
-    options->put_AdditionalBrowserArguments(L"--force-dark-mode");
-
-    CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, userDataFolder.c_str(), options.Get(),
-        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-            [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+    const uint64_t generation = ++m_generation;
+    WebViewEnvironmentManager::instance().acquire(
+            [this, generation](HRESULT result, ICoreWebView2Environment* env) {
                 if (FAILED(result) || !env) {
-                    LOG_ERROR("SearchWindow: Create Env failed.");
-                    return E_FAIL;
+                    LOG_ERROR("SearchWindow: shared environment unavailable.");
+                    return;
+                }
+                if (generation != m_generation.load() || !m_hwnd || !IsWindow(m_hwnd)) {
+                    return;
                 }
                 m_environment = env;
-                m_environment->CreateCoreWebView2Controller(
+                const HRESULT controllerResult = m_environment->CreateCoreWebView2Controller(
                     m_hwnd,
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                        [this](HRESULT res, ICoreWebView2Controller* controller) -> HRESULT {
+                        [this, generation](HRESULT res, ICoreWebView2Controller* controller) -> HRESULT {
                             if (FAILED(res) || !controller) return E_FAIL;
+                            if (generation != m_generation.load() || !m_hwnd || !IsWindow(m_hwnd)) {
+                                controller->Close();
+                                return E_ABORT;
+                            }
                             m_controller = controller;
                             m_controller->get_CoreWebView2(&m_webView);
+
+                            Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
+                            m_webView->get_Settings(&settings);
+                            if (settings) {
+                                settings->put_AreDefaultContextMenusEnabled(FALSE);
+                                settings->put_IsStatusBarEnabled(FALSE);
+                                settings->put_AreDevToolsEnabled(FALSE);
+                            }
                             
                             // Enable transparency
                             Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2;
@@ -144,7 +168,7 @@ void SearchWindow::initializeWebView2() {
                                 if (SUCCEEDED(m_webView->QueryInterface(IID_PPV_ARGS(&webView3))) && webView3) {
                                     webView3->SetVirtualHostNameToFolderMapping(
                                         L"easytools.local", uiFolder.c_str(),
-                                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
                                 }
                             }
 
@@ -181,17 +205,23 @@ void SearchWindow::initializeWebView2() {
 
                             m_webView->add_WebMessageReceived(
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                                    [this](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                                        PWSTR messageRaw;
-                                        if (SUCCEEDED(args->TryGetWebMessageAsString(&messageRaw))) {
-                                            std::wstring wmsg(messageRaw);
-                                            CoTaskMemFree(messageRaw);
-                                            
-                                            int size = WideCharToMultiByte(CP_UTF8, 0, wmsg.c_str(), -1, nullptr, 0, nullptr, nullptr);
-                                            std::string jsonStr(size, 0);
-                                            WideCharToMultiByte(CP_UTF8, 0, wmsg.c_str(), -1, &jsonStr[0], size, nullptr, nullptr);
-                                            
-                                            easy::core::MessageBridge::instance().handleMessage(jsonStr.c_str());
+                                    [this, generation](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                        try {
+                                            if (generation != m_generation.load()) return S_OK;
+                                            PWSTR messageRaw = nullptr;
+                                            if (SUCCEEDED(args->TryGetWebMessageAsString(&messageRaw)) && messageRaw) {
+                                                const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
+                                                CoTaskMemFree(messageRaw);
+                                                const std::string response =
+                                                    easy::core::MessageBridge::instance().handleMessage(request);
+                                                const std::wstring wideResponse =
+                                                    easy::core::WinUtils::utf8ToWstring(response);
+                                                sender->PostWebMessageAsString(wideResponse.c_str());
+                                            }
+                                        } catch (const std::exception& e) {
+                                            LOG_ERROR("SearchWindow bridge error: {}", e.what());
+                                        } catch (...) {
+                                            LOG_ERROR("SearchWindow bridge unknown error");
                                         }
                                         return S_OK;
                                     }
@@ -201,9 +231,11 @@ void SearchWindow::initializeWebView2() {
                             return S_OK;
                         }
                     ).Get());
-                return S_OK;
-            }
-        ).Get());
+                if (FAILED(controllerResult)) {
+                    LOG_ERROR("SearchWindow: Create controller request failed, hr=0x{:08X}",
+                              static_cast<unsigned>(controllerResult));
+                }
+            });
 }
 
 LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -216,10 +248,20 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 inst.m_controller->put_Bounds(bounds);
             }
             break;
-        case WM_KILLFOCUS:
-            inst.hide();
+        case WM_ACTIVATE:
+            if (LOWORD(wParam) == WA_INACTIVE) {
+                PostMessageW(hwnd, WM_SEARCH_VERIFY_DEACTIVATED, 0, 0);
+            }
             break;
+        case WM_SEARCH_VERIFY_DEACTIVATED: {
+            const HWND foreground = GetForegroundWindow();
+            if (foreground != hwnd && (!foreground || !IsChild(hwnd, foreground))) {
+                inst.hide();
+            }
+            break;
+        }
         case WM_DESTROY:
+            if (inst.m_hwnd == hwnd) inst.m_hwnd = nullptr;
             inst.destroy();
             break;
     }

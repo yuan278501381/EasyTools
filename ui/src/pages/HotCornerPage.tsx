@@ -13,8 +13,9 @@ import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { MonitorUp } from 'lucide-react';
-import { BUILTIN_COMMANDS } from '../components/gestureModel';
+import { BUILTIN_COMMAND_KEYS } from '../components/gestureModel';
 import './HotCornerPage.css';
 
 /* ── 类型定义 ─────────────────────────────────────────────────────────────── */
@@ -22,7 +23,7 @@ import './HotCornerPage.css';
 type CornerPosition = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
 interface CornerAction {
-  /** -1 = 未设置, 0..N = BUILTIN_COMMANDS 索引 */
+  /** -1 = 未设置, 0..N = 内置命令索引 */
   commandIndex: number;
 }
 
@@ -32,7 +33,12 @@ interface HotCornerSettings {
   corners: Record<CornerPosition, CornerAction>;
 }
 
-const CORNER_POSITIONS: { key: CornerPosition; cssClass: string; labelKey: string }[] = [
+interface OperationResult {
+  success: boolean;
+  error?: string;
+}
+
+const CORNER_POSITIONS: { key: CornerPosition; cssClass: string; labelKey: 'hotcorner.cornerTL' | 'hotcorner.cornerTR' | 'hotcorner.cornerBL' | 'hotcorner.cornerBR' }[] = [
   { key: 'topLeft',     cssClass: 'tl', labelKey: 'hotcorner.cornerTL' },
   { key: 'topRight',    cssClass: 'tr', labelKey: 'hotcorner.cornerTR' },
   { key: 'bottomLeft',  cssClass: 'bl', labelKey: 'hotcorner.cornerBL' },
@@ -58,20 +64,40 @@ export const HotCornerPage: FC = () => {
   const [loading, setLoading] = useState(true);
 
   // ── 加载设置 ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    bridgeRequest<HotCornerSettings>('hotcorner.getSettings').then(data => {
-      setSettings(prev => ({ ...prev, ...data }));
-      setLoading(false);
-    });
+  const reload = useCallback(async () => {
+    const data = await bridgeRequest<HotCornerSettings>('hotcorner.getSettings');
+    setSettings(prev => ({ ...prev, ...data }));
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    bridgeRequest<HotCornerSettings>('hotcorner.getSettings')
+      .then(data => { if (active) setSettings(prev => ({ ...prev, ...data })); })
+      .catch(error => {
+        console.error('Failed to load hot-corner settings:', error);
+        if (active) toast.error(t('hotcorner.loadFailed'));
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [t]);
+
+  const persistPatch = useCallback(async (patch: Record<string, unknown>) => {
+    try {
+      const result = await bridgeRequest<OperationResult>('hotcorner.updateSettings', patch);
+      if (!result.success) throw new Error(result.error || t('hotcorner.saveFailed'));
+    } catch (error) {
+      toast.error(t('hotcorner.saveFailed'), { description: String(error) });
+      try { await reload(); } catch { /* keep the page usable */ }
+    }
+  }, [reload, t]);
 
   // ── 更新设置 ────────────────────────────────────────────────────────────
   const updateSetting = useCallback(<K extends keyof HotCornerSettings>(
     key: K, value: HotCornerSettings[K],
   ) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-    bridgeRequest('hotcorner.updateSettings', { [key]: value });
-  }, []);
+    void persistPatch({ [key]: value });
+  }, [persistPatch]);
 
   const updateCorner = useCallback((position: CornerPosition, commandIndex: number) => {
     setSettings(prev => {
@@ -82,30 +108,30 @@ export const HotCornerPage: FC = () => {
           [position]: { commandIndex },
         },
       };
-      bridgeRequest('hotcorner.updateSettings', { corners: next.corners });
+      void persistPatch({ corners: next.corners });
       return next;
     });
-  }, []);
+  }, [persistPatch]);
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading' as any, '加载中...')}</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
 
   // ── 构建动作选项列表 ───────────────────────────────────────────────────
   const actionOptions = [
-    { value: '-1', label: t('hotcorner.noAction' as any, '无动作') },
-    ...BUILTIN_COMMANDS.map((label, i) => ({ value: String(i), label })),
+    { value: '-1', label: t('hotcorner.noAction') },
+    ...BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) })),
   ];
 
   return (
     <div className="hotcorner-page">
       {/* ── 全局开关 ──────────────────────────────────────────────────── */}
-      <SettingGroup title={t('hotcorner.title' as any)} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('hotcorner.title')} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
         <Card>
           <Toggle
             id="hotcorner-enabled"
-            label={t('hotcorner.enabled' as any)}
-            description={t('hotcorner.enabledDesc' as any)}
+            label={t('hotcorner.enabled')}
+            description={t('hotcorner.enabledDesc')}
             checked={settings.enabled}
             onChange={(v) => updateSetting('enabled', v)}
           />
@@ -113,7 +139,7 @@ export const HotCornerPage: FC = () => {
       </SettingGroup>
 
       {/* ── 屏幕示意图 ────────────────────────────────────────────────── */}
-      <SettingGroup title={t('hotcorner.corners' as any, '触发角配置')} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('hotcorner.corners')} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
         <Card>
           <div className="hotcorner-page__monitor-wrapper">
             <div className="hotcorner-page__monitor">
@@ -121,7 +147,7 @@ export const HotCornerPage: FC = () => {
               <div className="hotcorner-page__monitor-label">
                 <MonitorUp size={32} className="hotcorner-page__monitor-label-icon" />
                 <span className="hotcorner-page__monitor-label-text">
-                  {t('hotcorner.screenHint' as any, '将鼠标移到角落触发动作')}
+                  {t('hotcorner.screenHint')}
                 </span>
               </div>
 
@@ -136,8 +162,10 @@ export const HotCornerPage: FC = () => {
                 const action = settings.corners[key];
                 const hasAction = action.commandIndex >= 0;
                 const actionName = hasAction
-                  ? BUILTIN_COMMANDS[action.commandIndex] ?? t('hotcorner.unknown' as any, '未知')
-                  : t('hotcorner.noAction' as any, '无动作');
+                  ? (BUILTIN_COMMAND_KEYS[action.commandIndex]
+                      ? t(BUILTIN_COMMAND_KEYS[action.commandIndex])
+                      : t('hotcorner.unknown'))
+                  : t('hotcorner.noAction');
 
                 return (
                   <div
@@ -145,7 +173,7 @@ export const HotCornerPage: FC = () => {
                     className={`hotcorner-page__corner hotcorner-page__corner--${cssClass}`}
                   >
                     <div className="hotcorner-page__corner-label">
-                      {t(labelKey as any)}
+                      {t(labelKey)}
                     </div>
                     <div className={`hotcorner-page__corner-action ${!hasAction ? 'hotcorner-page__corner-action--empty' : ''}`}>
                       <span
@@ -170,11 +198,11 @@ export const HotCornerPage: FC = () => {
       </SettingGroup>
 
       {/* ── 触发延迟 ──────────────────────────────────────────────────── */}
-      <SettingGroup title={t('hotcorner.advanced' as any, '高级选项')} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('hotcorner.advanced')} icon={<MonitorUp size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow
-            label={t('hotcorner.delay' as any)}
-            description={t('hotcorner.delayDesc' as any)}
+            label={t('hotcorner.delay')}
+            description={t('hotcorner.delayDesc')}
           >
             <div className="hotcorner-page__slider-wrapper">
               <input
@@ -184,7 +212,9 @@ export const HotCornerPage: FC = () => {
                 max={1000}
                 step={50}
                 value={settings.delay}
-                onChange={(e) => updateSetting('delay', parseInt(e.target.value))}
+                onChange={(e) => setSettings(prev => ({ ...prev, delay: parseInt(e.target.value) }))}
+                onPointerUp={() => void persistPatch({ delay: settings.delay })}
+                onKeyUp={() => void persistPatch({ delay: settings.delay })}
               />
               <span className="hotcorner-page__slider-value">{settings.delay}ms</span>
             </div>

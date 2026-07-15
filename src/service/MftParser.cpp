@@ -3,8 +3,19 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <iostream>
+#include <cwctype>
 
 #define BUF_LEN 65536
+
+namespace {
+
+std::wstring normalize(std::wstring value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    return value;
+}
+
+}  // namespace
 
 MftParser::MftParser() : m_DriveLetter('C'), m_hVolume(INVALID_HANDLE_VALUE) {
 }
@@ -50,13 +61,20 @@ void MftParser::UsnListenerLoop() {
             continue;
         }
 
+        if (bytesReturned <= sizeof(USN)) {
+            Sleep(50);
+            continue;
+        }
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
         USN* pUsn = (USN*)buffer;
         PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
 
         if (dwRetBytes > 0) {
             std::unique_lock lock(m_MapMutex);
-            while (dwRetBytes > 0) {
+            bool changed = false;
+            while (dwRetBytes >= sizeof(USN_RECORD_V2) &&
+                   pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
+                   pRecord->RecordLength <= dwRetBytes) {
                 if (pRecord->Reason & USN_REASON_FILE_CREATE || pRecord->Reason & USN_REASON_RENAME_NEW_NAME) {
                     std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
                     record->fileReferenceNumber = pRecord->FileReferenceNumber;
@@ -64,17 +82,20 @@ void MftParser::UsnListenerLoop() {
                     record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     int nameLen = pRecord->FileNameLength / 2;
                     record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
-                    record->pinyinInitials = PinyinEngine::GetInitials(record->fileName);
+                    record->normalizedName = normalize(record->fileName);
+                    record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
                     
                     m_FileMap[record->fileReferenceNumber] = std::move(record);
+                    changed = true;
                 } 
                 else if (pRecord->Reason & USN_REASON_FILE_DELETE) {
-                    m_FileMap.erase(pRecord->FileReferenceNumber);
+                    changed = m_FileMap.erase(pRecord->FileReferenceNumber) > 0 || changed;
                 }
 
                 dwRetBytes -= pRecord->RecordLength;
                 pRecord = (PUSN_RECORD_V2)((PBYTE)pRecord + pRecord->RecordLength);
             }
+            if (changed) m_IndexGeneration.fetch_add(1, std::memory_order_release);
         }
         rujd.StartUsn = *pUsn;
         Sleep(50); // Prevent 100% CPU on fast changes
@@ -138,12 +159,15 @@ void MftParser::EnumerateFiles() {
     int count = 0;
 
     while (DeviceIoControl(m_hVolume, FSCTL_ENUM_USN_DATA, &med, sizeof(med), buffer, BUF_LEN, &bytesReturned, NULL)) {
+        if (bytesReturned <= sizeof(USN)) break;
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
         USN* pUsn = (USN*)buffer;
         PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
         
         std::unique_lock lock(m_MapMutex);
-        while (dwRetBytes > 0) {
+        while (dwRetBytes >= sizeof(USN_RECORD_V2) &&
+               pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
+               pRecord->RecordLength <= dwRetBytes) {
             std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
             record->fileReferenceNumber = pRecord->FileReferenceNumber;
             record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
@@ -151,7 +175,8 @@ void MftParser::EnumerateFiles() {
             
             int nameLen = pRecord->FileNameLength / 2;
             record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
-            record->pinyinInitials = PinyinEngine::GetInitials(record->fileName);
+            record->normalizedName = normalize(record->fileName);
+            record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
 
             m_FileMap[record->fileReferenceNumber] = std::move(record);
             count++;
@@ -161,17 +186,16 @@ void MftParser::EnumerateFiles() {
         }
         med.StartFileReferenceNumber = *pUsn;
     }
+    m_IndexGeneration.fetch_add(1, std::memory_order_release);
     spdlog::info("MFT enumeration completed. Indexed {} files.", count);
 }
 
-std::vector<FileRecord*> MftParser::Search(const std::wstring& query, int limit) {
+std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit) {
     std::shared_lock lock(m_MapMutex);
-    std::vector<FileRecord*> results;
-    
-    // Naive linear search for demonstration; will upgrade to Trie/Pinyin
-    // converting query to lowercase for basic matching
-    std::wstring lowerQuery = query;
-    std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::towlower);
+    std::vector<SearchResult> results;
+    if (query.empty() || limit <= 0) return results;
+    limit = std::min(limit, 200);
+    const std::wstring lowerQuery = normalize(query);
 
     // If query is pure ASCII letters, it might be a pinyin search
     bool isPinyinSearch = true;
@@ -182,19 +206,96 @@ std::vector<FileRecord*> MftParser::Search(const std::wstring& query, int limit)
         }
     }
 
-    for (const auto& pair : m_FileMap) {
-        if (results.size() >= limit) break;
-        
-        std::wstring lowerName = pair.second->fileName;
-        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::towlower);
+    auto matches = [&](const FileRecord& record) {
+        return record.normalizedName.find(lowerQuery) != std::wstring::npos ||
+               (isPinyinSearch && record.pinyinInitials.find(lowerQuery) != std::wstring::npos);
+    };
 
-        if (lowerName.find(lowerQuery) != std::wstring::npos) {
-            results.push_back(pair.second.get());
-        } else if (isPinyinSearch) {
-            if (pair.second->pinyinInitials.find(lowerQuery) != std::wstring::npos) {
-                results.push_back(pair.second.get());
-            }
+    std::lock_guard cacheLock(m_SearchCacheMutex);
+    const uint64_t generation = m_IndexGeneration.load(std::memory_order_acquire);
+    std::vector<DWORDLONG> candidates;
+    const bool canRefineCache = generation == m_CachedGeneration &&
+        !m_CachedQuery.empty() && lowerQuery.starts_with(m_CachedQuery);
+    if (canRefineCache) {
+        candidates.reserve(m_CachedCandidates.size());
+        for (const auto id : m_CachedCandidates) {
+            const auto it = m_FileMap.find(id);
+            if (it != m_FileMap.end() && matches(*it->second)) candidates.push_back(id);
+        }
+    } else {
+        candidates.reserve(std::min<size_t>(m_FileMap.size(), 65536));
+        for (const auto& [id, record] : m_FileMap) {
+            if (matches(*record)) candidates.push_back(id);
         }
     }
+
+    struct RankedCandidate {
+        DWORDLONG id;
+        const FileRecord* record;
+        int rank;
+    };
+    std::vector<RankedCandidate> ranked;
+    ranked.reserve(candidates.size());
+    for (const auto id : candidates) {
+        const auto it = m_FileMap.find(id);
+        if (it == m_FileMap.end()) continue;
+        const auto& record = *it->second;
+        int rank = 4;
+        if (record.normalizedName == lowerQuery) rank = 0;
+        else if (record.normalizedName.starts_with(lowerQuery)) rank = 1;
+        else if (record.normalizedName.find(lowerQuery) != std::wstring::npos) rank = 2;
+        else if (record.pinyinInitials.starts_with(lowerQuery)) rank = 3;
+        ranked.push_back({id, &record, rank});
+    }
+    const auto compareRank = [](const auto& a, const auto& b) {
+        if (a.rank != b.rank) return a.rank < b.rank;
+        if (a.record->normalizedName.size() != b.record->normalizedName.size())
+            return a.record->normalizedName.size() < b.record->normalizedName.size();
+        return a.record->normalizedName < b.record->normalizedName;
+    };
+    const size_t resultCount = std::min(ranked.size(), static_cast<size_t>(limit));
+    if (resultCount < ranked.size()) {
+        std::partial_sort(ranked.begin(), ranked.begin() + resultCount, ranked.end(), compareRank);
+    } else {
+        std::sort(ranked.begin(), ranked.end(), compareRank);
+    }
+
+    // Keep the exact matching set for the next keystroke. Moving avoids a
+    // second potentially multi-megabyte copy for broad one-character queries.
+    m_CachedQuery = lowerQuery;
+    m_CachedCandidates = std::move(candidates);
+    m_CachedGeneration = generation;
+
+    results.reserve(resultCount);
+    for (size_t i = 0; i < resultCount; ++i) {
+        const auto& candidate = ranked[i];
+        results.push_back({candidate.record->fileName, buildFullPath(candidate.id),
+                           candidate.record->isDirectory});
+    }
     return results;
+}
+
+std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
+    std::vector<std::wstring> parts;
+    DWORDLONG current = fileReferenceNumber;
+    // 防御损坏或循环的父引用；NTFS 正常路径远低于此深度。
+    for (size_t depth = 0; depth < 512; ++depth) {
+        const auto it = m_FileMap.find(current);
+        if (it == m_FileMap.end()) break;
+        const auto& record = *it->second;
+        if (!record.fileName.empty() && record.fileName != L".") {
+            parts.push_back(record.fileName);
+        }
+        if (record.parentFileReferenceNumber == current) break;
+        current = record.parentFileReferenceNumber;
+    }
+
+    std::wstring path;
+    path += static_cast<wchar_t>(m_DriveLetter);
+    path += L":\\";
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+        if (!path.empty() && path.back() != L'\\') path += L'\\';
+        path += *it;
+    }
+    return path;
 }

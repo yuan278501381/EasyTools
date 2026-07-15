@@ -16,6 +16,7 @@
 #include <regex>
 #include <list>
 #include <unordered_map>
+#include <mutex>
 #include <nlohmann/json.hpp>
 
 namespace easy::gesture {
@@ -78,10 +79,10 @@ public:
     void removeRules(const std::vector<std::string>& ruleIds);
 
     /// 获取所有规则
-    const std::vector<ScopeRule>& getRules() const { return m_rules; }
+    std::vector<ScopeRule> getRules() const;
 
     /// 清除所有规则
-    void clearRules() { m_rules.clear(); invalidateCache(); }
+    void clearRules();
 
     /// 从 JSON 加载
     void loadFromJson(const nlohmann::json& j);
@@ -117,6 +118,7 @@ private:
 
     // PID → 进程名缓存
     mutable std::unordered_map<DWORD, std::wstring> m_processNameCache;
+    mutable std::mutex m_mutex;
 };
 
 }  // namespace easy::gesture

@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
 
 namespace easy::core {
@@ -17,8 +18,7 @@ public:
     bool install();
     void uninstall();
 
-    void setKeycastCallback(std::function<void(const std::string&)> cb) { m_keycastCallback = std::move(cb); }
-    const std::function<void(const std::string&)>& getKeycastCallback() const { return m_keycastCallback; }
+    void setKeycastCallback(std::function<void(const std::string&)> cb);
 
 private:
     KeyboardHook() = default;
@@ -29,6 +29,7 @@ private:
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};
     std::function<void(const std::string&)> m_keycastCallback;
+    mutable std::mutex m_callbackMutex;
 };
 
 } // namespace easy::core

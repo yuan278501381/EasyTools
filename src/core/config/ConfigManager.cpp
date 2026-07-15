@@ -16,23 +16,49 @@ ConfigManager& ConfigManager::instance() {
     return inst;
 }
 
-void ConfigManager::initialize(const std::filesystem::path& configDir, const std::string& filename) {
+bool ConfigManager::initialize(const std::filesystem::path& configDir, const std::string& filename) {
     TraceId::Scope scope;
 
-    std::filesystem::create_directories(configDir);
+    if (m_watchRunning.load()) {
+        shutdown();
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(configDir, ec);
+    if (ec) {
+        LOG_ERROR("无法创建配置目录: path={}, error={}", configDir.string(), ec.message());
+        return false;
+    }
     m_configFilePath = configDir / filename;
 
     LOG_INFO("配置管理器初始化, 配置文件路径={}", m_configFilePath.string());
 
-    load();
+    if (!load()) return false;
 
     // 启动文件监控线程
     m_watchStopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!m_watchStopEvent) {
+        LOG_ERROR("无法创建配置监控停止事件: error={}", GetLastError());
+        return false;
+    }
     m_watchRunning = true;
-    m_watchThread = std::thread([this]() { watchFileChanges(); });
+    try {
+        m_watchThread = std::thread([this]() { watchFileChanges(); });
+    } catch (const std::exception& e) {
+        m_watchRunning = false;
+        CloseHandle(m_watchStopEvent);
+        m_watchStopEvent = nullptr;
+        LOG_ERROR("无法启动配置监控线程: {}", e.what());
+        return false;
+    }
+    return true;
 }
 
 void ConfigManager::shutdown() {
+    if (!m_watchRunning.load() && !m_watchThread.joinable()) {
+        return;
+    }
+
     LOG_INFO("配置管理器正在关闭...");
 
     // 停止文件监控
@@ -48,43 +74,158 @@ void ConfigManager::shutdown() {
         m_watchStopEvent = nullptr;
     }
 
-    save();
+    if (!save()) LOG_ERROR("配置管理器关闭时保存失败");
 }
 
-void ConfigManager::load() {
-    std::lock_guard lock(m_mutex);
-
-    if (!std::filesystem::exists(m_configFilePath)) {
-        LOG_INFO("配置文件不存在, 将使用默认配置并创建文件: {}", m_configFilePath.string());
-        m_config = json::object();
-        save();
-        return;
-    }
-
+bool ConfigManager::load(bool* changed) {
+    std::lock_guard ioLock(m_ioMutex);
+    json loaded = json::object();
+    bool shouldCreate = false;
     try {
+        if (!std::filesystem::exists(m_configFilePath)) {
+            LOG_INFO("配置文件不存在, 将使用默认配置并创建文件: {}", m_configFilePath.string());
+            shouldCreate = true;
+        }
+
         std::ifstream file(m_configFilePath);
         if (file.is_open()) {
-            m_config = json::parse(file, nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/true);
-            LOG_INFO("配置文件加载成功, 键数量={}", m_config.size());
+            loaded = json::parse(file, nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/true);
+            if (!loaded.is_object()) {
+                throw std::runtime_error("配置根节点必须是 JSON 对象");
+            }
+            LOG_INFO("配置文件加载成功, 键数量={}", loaded.size());
         }
-    } catch (const json::parse_error& e) {
-        LOG_ERROR("配置文件解析失败: {}, 将使用默认配置", e.what());
-        m_config = json::object();
+    } catch (const std::exception& e) {
+        bool hasValidConfig = false;
+        {
+            std::lock_guard lock(m_mutex);
+            hasValidConfig = m_config.is_object();
+        }
+        if (hasValidConfig) {
+            LOG_ERROR("配置文件解析失败: {}, 保留最后一次有效配置", e.what());
+            return false;
+        }
+        LOG_ERROR("配置文件解析失败: {}, 首次启动使用默认配置", e.what());
+        if (std::filesystem::exists(m_configFilePath)) {
+            FILETIME now{};
+            GetSystemTimeAsFileTime(&now);
+            ULARGE_INTEGER stamp{};
+            stamp.LowPart = now.dwLowDateTime;
+            stamp.HighPart = now.dwHighDateTime;
+            auto backupPath = m_configFilePath;
+            backupPath += L".corrupt." + std::to_wstring(stamp.QuadPart);
+            std::error_code backupError;
+            std::filesystem::copy_file(m_configFilePath, backupPath,
+                                       std::filesystem::copy_options::none, backupError);
+            if (backupError) {
+                LOG_ERROR("损坏配置备份失败: {}", backupError.message());
+            } else {
+                LOG_WARN("损坏配置已保留到: {}", backupPath.string());
+            }
+        }
+        shouldCreate = true;
     }
+
+    if (shouldCreate && !writeSnapshotLocked(loaded)) return false;
+    {
+        std::lock_guard lock(m_mutex);
+        if (changed) *changed = m_config != loaded;
+        m_config = std::move(loaded);
+    }
+    return true;
 }
 
-void ConfigManager::save() const {
+bool ConfigManager::save() const {
+    std::lock_guard ioLock(m_ioMutex);
+    json snapshot;
+    {
+        std::lock_guard lock(m_mutex);
+        snapshot = m_config;
+    }
+    return writeSnapshotLocked(snapshot);
+}
+
+bool ConfigManager::writeSnapshotLocked(const json& snapshot) const {
     try {
-        std::ofstream file(m_configFilePath);
+        auto tempPath = m_configFilePath;
+        tempPath += L".tmp";
+        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
         if (file.is_open()) {
-            file << m_config.dump(2);
+            file << snapshot.dump(2);
+            file.flush();
+            if (!file.good()) {
+                throw std::runtime_error("写入临时配置文件失败");
+            }
+            file.close();
+
+            if (!MoveFileExW(tempPath.c_str(), m_configFilePath.c_str(),
+                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                const DWORD error = GetLastError();
+                std::error_code ec;
+                std::filesystem::remove(tempPath, ec);
+                throw std::runtime_error("替换配置文件失败, error=" + std::to_string(error));
+            }
             LOG_TRACE("配置已保存到文件: {}", m_configFilePath.string());
+            return true;
         } else {
-            LOG_ERROR("无法打开配置文件进行写入: {}", m_configFilePath.string());
+            LOG_ERROR("无法打开临时配置文件进行写入: {}", tempPath.string());
         }
     } catch (const std::exception& e) {
         LOG_ERROR("配置保存失败: {}", e.what());
     }
+    return false;
+}
+
+bool ConfigManager::setJsonValue(const std::string& key, json value) {
+    json next;
+    {
+        std::lock_guard ioLock(m_ioMutex);
+        {
+            std::lock_guard lock(m_mutex);
+            next = m_config;
+        }
+        try {
+            next[json::json_pointer(key)] = std::move(value);
+        } catch (const std::exception& e) {
+            LOG_WARN("设置配置项失败: key={}, error={}", key, e.what());
+            return false;
+        }
+        if (!writeSnapshotLocked(next)) return false;
+        {
+            std::lock_guard lock(m_mutex);
+            m_config = std::move(next);
+        }
+    }
+    notifyChange(key);
+    return true;
+}
+
+bool ConfigManager::mergePatch(const json& patch, const std::string& notificationKey) {
+    if (!patch.is_object()) {
+        LOG_WARN("配置合并失败: patch 根节点不是对象");
+        return false;
+    }
+    json next;
+    {
+        std::lock_guard ioLock(m_ioMutex);
+        {
+            std::lock_guard lock(m_mutex);
+            next = m_config;
+        }
+        try {
+            next.merge_patch(patch);
+        } catch (const std::exception& e) {
+            LOG_WARN("配置合并失败: {}", e.what());
+            return false;
+        }
+        if (!writeSnapshotLocked(next)) return false;
+        {
+            std::lock_guard lock(m_mutex);
+            m_config = std::move(next);
+        }
+    }
+    notifyChange(notificationKey);
+    return true;
 }
 
 bool ConfigManager::has(const std::string& key) const {
@@ -97,14 +238,20 @@ bool ConfigManager::has(const std::string& key) const {
     }
 }
 
-void ConfigManager::remove(const std::string& key) {
+bool ConfigManager::remove(const std::string& key) {
+    bool changed = false;
+    json next;
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard ioLock(m_ioMutex);
+        {
+            std::lock_guard lock(m_mutex);
+            next = m_config;
+        }
         try {
             // nlohmann::json 不直接支持 erase with pointer，需要手动导航
             // 这里简化处理：使用 JSON Patch
             auto ptr = json::json_pointer(key);
-            if (m_config.contains(ptr)) {
+            if (next.contains(ptr)) {
                 // 从路径中提取父路径和键名
                 auto keyStr = key;
                 auto lastSlash = keyStr.rfind('/');
@@ -112,19 +259,27 @@ void ConfigManager::remove(const std::string& key) {
                     auto parentPath = keyStr.substr(0, lastSlash);
                     auto childKey = keyStr.substr(lastSlash + 1);
                     auto parentPtr = json::json_pointer(parentPath);
-                    m_config.at(parentPtr).erase(childKey);
+                    next.at(parentPtr).erase(childKey);
+                    changed = true;
                 } else if (lastSlash == 0) {
                     // 根级别的 key
                     auto childKey = keyStr.substr(1);
-                    m_config.erase(childKey);
+                    changed = next.erase(childKey) > 0;
                 }
             }
         } catch (const std::exception& e) {
             LOG_WARN("删除配置项失败: key={}, error={}", key, e.what());
+            return false;
+        }
+        if (!changed) return true;
+        if (!writeSnapshotLocked(next)) return false;
+        {
+            std::lock_guard lock(m_mutex);
+            m_config = std::move(next);
         }
     }
-    save();
     notifyChange(key);
+    return true;
 }
 
 std::string ConfigManager::toJsonString(int indent) const {
@@ -132,37 +287,58 @@ std::string ConfigManager::toJsonString(int indent) const {
     return m_config.dump(indent);
 }
 
-void ConfigManager::fromJsonString(const std::string& jsonStr) {
+bool ConfigManager::fromJsonString(const std::string& jsonStr) {
     TraceId::Scope scope;
+    try {
+        auto incoming = json::parse(jsonStr);
+        if (!incoming.is_object()) {
+            throw std::invalid_argument("配置根节点必须是 JSON 对象");
+        }
+        const bool ok = mergePatch(incoming);
+        if (ok) LOG_INFO("配置已从 JSON 字符串批量更新");
+        return ok;
+    } catch (const std::exception& e) {
+        LOG_ERROR("JSON 字符串解析失败: {}", e.what());
+        return false;
+    }
+}
+
+bool ConfigManager::reset() {
     {
-        std::lock_guard lock(m_mutex);
-        try {
-            auto incoming = json::parse(jsonStr);
-            m_config.merge_patch(incoming);  // RFC 7396 合并
-            LOG_INFO("配置已从 JSON 字符串批量更新");
-        } catch (const json::parse_error& e) {
-            LOG_ERROR("JSON 字符串解析失败: {}", e.what());
-            return;
+        std::lock_guard ioLock(m_ioMutex);
+        const json empty = json::object();
+        if (!writeSnapshotLocked(empty)) return false;
+        {
+            std::lock_guard lock(m_mutex);
+            m_config = empty;
         }
     }
-    save();
-    notifyChange("*");  // 通知全量变更
+    notifyChange("*");
+    LOG_INFO("配置已重置");
+    return true;
 }
 
 size_t ConfigManager::onChange(ConfigChangeCallback callback) {
     size_t id = m_nextCallbackId.fetch_add(1);
+    std::lock_guard lock(m_mutex);
     m_callbacks.emplace_back(id, std::move(callback));
     return id;
 }
 
 void ConfigManager::removeOnChange(size_t callbackId) {
+    std::lock_guard lock(m_mutex);
     std::erase_if(m_callbacks, [callbackId](const auto& pair) {
         return pair.first == callbackId;
     });
 }
 
 void ConfigManager::notifyChange(const std::string& key) {
-    for (const auto& [id, callback] : m_callbacks) {
+    std::vector<std::pair<size_t, ConfigChangeCallback>> callbacks;
+    {
+        std::lock_guard lock(m_mutex);
+        callbacks = m_callbacks;
+    }
+    for (const auto& [id, callback] : callbacks) {
         try {
             callback(key);
         } catch (const std::exception& e) {
@@ -174,13 +350,31 @@ void ConfigManager::notifyChange(const std::string& key) {
 bool ConfigManager::exportTo(const std::filesystem::path& filePath) const {
     TraceId::Scope scope;
     try {
-        std::lock_guard lock(m_mutex);
-        std::ofstream file(filePath);
-        if (file.is_open()) {
-            file << m_config.dump(2);
-            LOG_INFO("配置已导出到: {}", filePath.string());
-            return true;
+        json snapshot;
+        {
+            std::lock_guard lock(m_mutex);
+            snapshot = m_config;
         }
+        auto tempPath = filePath;
+        tempPath += L".tmp";
+        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            LOG_ERROR("无法打开配置导出临时文件: {}", tempPath.string());
+            return false;
+        }
+        file << snapshot.dump(2);
+        file.flush();
+        if (!file.good()) throw std::runtime_error("写入配置导出文件失败");
+        file.close();
+        if (!MoveFileExW(tempPath.c_str(), filePath.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            const DWORD error = GetLastError();
+            std::error_code removeError;
+            std::filesystem::remove(tempPath, removeError);
+            throw std::runtime_error("替换配置导出文件失败, error=" + std::to_string(error));
+        }
+        LOG_INFO("配置已导出到: {}", filePath.string());
+        return true;
     } catch (const std::exception& e) {
         LOG_ERROR("配置导出失败: {}", e.what());
     }
@@ -193,12 +387,10 @@ bool ConfigManager::importFrom(const std::filesystem::path& filePath) {
         std::ifstream file(filePath);
         if (file.is_open()) {
             auto incoming = json::parse(file);
-            {
-                std::lock_guard lock(m_mutex);
-                m_config.merge_patch(incoming);
+            if (!incoming.is_object()) {
+                throw std::runtime_error("导入配置根节点必须是 JSON 对象");
             }
-            save();
-            notifyChange("*");
+            if (!mergePatch(incoming)) return false;
             LOG_INFO("配置已从文件导入(合并模式): {}", filePath.string());
             return true;
         }
@@ -231,6 +423,11 @@ void ConfigManager::watchFileChanges() {
 
     OVERLAPPED overlapped{};
     overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!overlapped.hEvent) {
+        LOG_WARN("无法创建配置文件监控事件: error={}", GetLastError());
+        CloseHandle(hDir);
+        return;
+    }
 
     alignas(DWORD) char buffer[4096];
     HANDLE waitHandles[] = {overlapped.hEvent, m_watchStopEvent};
@@ -243,32 +440,45 @@ void ConfigManager::watchFileChanges() {
             hDir,
             buffer, sizeof(buffer),
             FALSE,  // 不监控子目录
-            FILE_NOTIFY_CHANGE_LAST_WRITE,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_SIZE |
+                FILE_NOTIFY_CHANGE_LAST_WRITE,
             &bytesReturned,
             &overlapped,
             nullptr
         );
 
-        if (!result) break;
+        if (!result && GetLastError() != ERROR_IO_PENDING) {
+            LOG_WARN("读取配置目录变更失败: error={}", GetLastError());
+            break;
+        }
 
         DWORD waitResult = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
 
         if (waitResult == WAIT_OBJECT_0) {
             // 文件变更事件
             if (GetOverlappedResult(hDir, &overlapped, &bytesReturned, FALSE) && bytesReturned > 0) {
+                bool configChanged = false;
                 auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer);
-                std::wstring changedFile(info->FileName, info->FileNameLength / sizeof(wchar_t));
+                while (info) {
+                    std::wstring changedFile(info->FileName,
+                                             info->FileNameLength / sizeof(wchar_t));
+                    if (_wcsicmp(changedFile.c_str(), fileName.c_str()) == 0) configChanged = true;
+                    if (info->NextEntryOffset == 0) break;
+                    info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
+                        reinterpret_cast<BYTE*>(info) + info->NextEntryOffset);
+                }
 
-                if (changedFile == fileName) {
-                    // 防抖：等待 200ms 后再加载（避免文件写入过程中的中间状态）
-                    Sleep(200);
+                if (configChanged) {
+                    // 可中断防抖：避免编辑器的多步替换产生中间状态，同时保证关闭迅速。
+                    if (WaitForSingleObject(m_watchStopEvent, 150) == WAIT_OBJECT_0) break;
                     LOG_INFO("检测到配置文件变更, 正在热加载...");
-                    load();
-                    notifyChange("*");
+                    bool changed = false;
+                    if (load(&changed) && changed) notifyChange("*");
                 }
             }
         } else {
             // 收到停止信号
+            CancelIoEx(hDir, &overlapped);
             break;
         }
     }
@@ -279,7 +489,7 @@ void ConfigManager::watchFileChanges() {
 }
 
 ConfigManager::~ConfigManager() {
-    if (m_watchRunning) {
+    if (m_watchRunning || m_watchThread.joinable()) {
         shutdown();
     }
 }

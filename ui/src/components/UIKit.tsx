@@ -2,7 +2,8 @@
  * 通用 UI 组件 — Card / Toggle / SettingGroup
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { type FC, type ReactNode, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback } from 'react';
+import { type FC, type ReactNode, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback, useId, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import './UIKit.css';
 
 /* ── Card ─────────────────────────────────────────────────────────────────── */
@@ -209,6 +210,7 @@ interface HotkeyInputProps {
 }
 
 export const HotkeyInput: FC<HotkeyInputProps> = ({ id, value, onChange, placeholder }) => {
+  const { t } = useTranslation();
   const onKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const k = e.key;
@@ -230,7 +232,7 @@ export const HotkeyInput: FC<HotkeyInputProps> = ({ id, value, onChange, placeho
       type="text"
       className="uikit-input uikit-input--hotkey"
       value={value}
-      placeholder={placeholder ?? '点击后按下快捷键…'}
+      placeholder={placeholder ?? t('hotkey.pressKeys')}
       readOnly
       onKeyDown={onKeyDown}
     />
@@ -266,20 +268,51 @@ interface ModalProps {
 }
 
 export const Modal: FC<ModalProps> = ({ open, title, onClose, children, footer }) => {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const modalRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onEsc);
-    return () => window.removeEventListener('keydown', onEsc);
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const frame = requestAnimationFrame(() => {
+      modalRef.current?.querySelector<HTMLElement>(focusableSelector)?.focus();
+    });
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'Tab' && modalRef.current) {
+        const focusable = Array.from(modalRef.current.querySelectorAll<HTMLElement>(focusableSelector));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
   return (
     <div className="uikit-modal__overlay" onClick={onClose}>
-      <div className="uikit-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        className="uikit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="uikit-modal__header">
-          <h3 className="uikit-modal__title">{title}</h3>
-          <button className="uikit-modal__close" onClick={onClose} aria-label="关闭">×</button>
+          <h3 id={titleId} className="uikit-modal__title">{title}</h3>
+          <button className="uikit-modal__close" onClick={onClose} aria-label={t('common.close')}>×</button>
         </div>
         <div className="uikit-modal__body">{children}</div>
         {footer && <div className="uikit-modal__footer">{footer}</div>}

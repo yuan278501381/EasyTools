@@ -8,19 +8,20 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button, TextInput } from '../components/UIKit';
 import { GestureEditorModal } from '../components/GestureEditorModal';
 import { ScopeRulesManager } from '../components/ScopeRulesManager';
 import { GestureGuide } from '../components/GestureGuide';
 import {
   codeToArrows,
-  ACTION_TYPE_OPTIONS,
-  BUILTIN_COMMANDS,
+  ACTION_TYPE_KEYS,
+  BUILTIN_COMMAND_KEYS,
   type GestureMapping,
 } from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
-import { MousePointer2, Hand, Edit3, Trash2, Target, Compass } from 'lucide-react';
+import { toast } from 'sonner';
+import { MousePointer2, Hand, Edit3, Trash2, Target, Compass, ArrowUp, ArrowDown } from 'lucide-react';
 import './GesturePage.css';
 
 interface RadialMenuItem {
@@ -35,22 +36,17 @@ interface GestureState {
   trailVisible: boolean;
 }
 
-const ACTION_TYPE_LABELS: Record<number, string> = Object.fromEntries(
-  ACTION_TYPE_OPTIONS.map((o) => [Number(o.value), o.label]),
-);
+interface OperationResult {
+  success: boolean;
+  error?: string;
+}
+
+interface HotkeyEntry {
+  name: string;
+  shortcut: string;
+}
 
 const PROFILE_NAME = 'default';
-
-/** 取动作的"详情"文本 (按类型显示快捷键 / 命令 / 脚本 / 程序)。 */
-function actionDetail(action: GestureMapping['action']): string {
-  switch (action.type) {
-    case 0: return action.keyStroke ?? '';
-    case 1: return '';
-    case 2: return BUILTIN_COMMANDS[action.builtinCmd ?? 0] ?? '';
-    case 3: return action.programPath ?? '';
-    default: return '';
-  }
-}
 
 export const GesturePage: FC = () => {
   const [enabled, setEnabled] = useState(true);
@@ -60,7 +56,23 @@ export const GesturePage: FC = () => {
   const [profileNames, setProfileNames] = useState<string[]>([PROFILE_NAME]);
   const [loading, setLoading] = useState(true);
   const [radialItems, setRadialItems] = useState<RadialMenuItem[]>([]);
+  const [radialDirty, setRadialDirty] = useState(false);
+  const [radialSaving, setRadialSaving] = useState(false);
+  const [pauseHotkey, setPauseHotkey] = useState('Ctrl+Alt+Shift+W');
   const { t } = useTranslation();
+
+  const actionDetail = (action: GestureMapping['action']): string => {
+    switch (action.type) {
+      case 0: return action.keyStroke ?? '';
+      case 1: return '';
+      case 2: {
+        const key = BUILTIN_COMMAND_KEYS[action.builtinCmd ?? 0];
+        return key ? t(key) : '';
+      }
+      case 3: return action.programPath ?? '';
+      default: return '';
+    }
+  };
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<GestureMapping | null>(null);
@@ -73,10 +85,11 @@ export const GesturePage: FC = () => {
   useEffect(() => {
     async function loadData() {
       try {
-        const [state, profiles, radialRes] = await Promise.all([
+        const [state, profiles, radialRes, hotkeys] = await Promise.all([
           bridgeRequest<GestureState>('gesture.getState'),
           bridgeRequest<Array<{ name: string; mappings: GestureMapping[] }>>('gesture.getProfiles'),
           bridgeRequest<{ items: RadialMenuItem[] }>('radialmenu.getItems'),
+          bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
         ]);
         setEnabled(state.enabled);
         setTriggerButton(state.triggerButton ?? 'right');
@@ -85,44 +98,56 @@ export const GesturePage: FC = () => {
         const defaultProfile = profiles?.find((p) => p.name === PROFILE_NAME);
         if (defaultProfile) setMappings(defaultProfile.mappings);
         if (radialRes?.items) setRadialItems(radialRes.items);
+        const pauseBinding = hotkeys.find((entry) => entry.name === 'Pause Gestures');
+        if (pauseBinding?.shortcut) setPauseHotkey(pauseBinding.shortcut);
       } catch (err) {
         console.error('Failed to load gesture config:', err);
+        toast.error(t('gesture.loadFailed'));
       } finally {
         setLoading(false);
       }
     }
     loadData();
-  }, []);
+  }, [t]);
 
   // ── 持久化整张映射表 ────────────────────────────────────────────────────────
   const persist = useCallback(async (next: GestureMapping[]) => {
     const prev = mappings;
     setMappings(next);
     try {
-      await bridgeRequest('gesture.updateProfile', { name: PROFILE_NAME, mappings: next });
+      const result = await bridgeRequest<OperationResult>('gesture.updateProfile', {
+        name: PROFILE_NAME,
+        mappings: next,
+      });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
     } catch (err) {
       console.error('Failed to save gesture profile:', err);
       setMappings(prev); // 回滚
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
     }
-  }, [mappings]);
+  }, [mappings, t]);
 
   const handleToggleEnabled = async (checked: boolean) => {
     setEnabled(checked);
     try {
-      await bridgeRequest('gesture.setPaused', { paused: !checked });
+      const result = await bridgeRequest<OperationResult>('gesture.setPaused', { paused: !checked });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
     } catch (err) {
       setEnabled(!checked);
       console.error('Failed to update gesture enabled state:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
     }
   };
 
   const handleToggleTrail = async (checked: boolean) => {
     setTrailVisible(checked);
     try {
-      await bridgeRequest('gesture.updateSettings', { trailVisible: checked });
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailVisible: checked });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
     } catch (err) {
       setTrailVisible(!checked);
       console.error('Failed to update gesture trail state:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -130,10 +155,70 @@ export const GesturePage: FC = () => {
     const previous = triggerButton;
     setTriggerButton(value);
     try {
-      await bridgeRequest('gesture.updateSettings', { triggerButton: value });
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { triggerButton: value });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
     } catch (err) {
       setTriggerButton(previous);
       console.error('Failed to update gesture trigger button:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const radialCommandIndex = (command: string): number => {
+    const legacy: Record<string, number> = { capture: 10, search: 16, lock: 8, pin: 18, record: 11 };
+    if (command in legacy) return legacy[command];
+    const parsed = Number(command);
+    return Number.isInteger(parsed) && parsed >= 0 && parsed < BUILTIN_COMMAND_KEYS.length ? parsed : 10;
+  };
+
+  const updateRadialItem = (index: number, patch: Partial<RadialMenuItem>) => {
+    setRadialItems(items => items.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, ...patch } : item));
+    setRadialDirty(true);
+  };
+
+  const moveRadialItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= radialItems.length) return;
+    setRadialItems(items => {
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    setRadialDirty(true);
+  };
+
+  const removeRadialItem = (index: number) => {
+    setRadialItems(items => items.filter((_, itemIndex) => itemIndex !== index));
+    setRadialDirty(true);
+  };
+
+  const addRadialItem = () => {
+    if (radialItems.length >= 8) return;
+    setRadialItems(items => [...items, {
+      label: t('gesture.radialDefaultLabel', { count: items.length + 1 }),
+      command: '10',
+    }]);
+    setRadialDirty(true);
+  };
+
+  const saveRadialItems = async () => {
+    const normalized = radialItems.map(item => ({ ...item, label: item.label.trim() }));
+    if (normalized.some(item => !item.label)) {
+      toast.error(t('gesture.radialLabelRequired'));
+      return;
+    }
+    setRadialSaving(true);
+    try {
+      const result = await bridgeRequest<OperationResult>('radialmenu.updateItems', { items: normalized });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      setRadialItems(normalized);
+      setRadialDirty(false);
+      toast.success(t('gesture.radialSaved'));
+    } catch (error) {
+      toast.error(t('gesture.saveFailed'), { description: String(error) });
+    } finally {
+      setRadialSaving(false);
     }
   };
 
@@ -176,7 +261,7 @@ export const GesturePage: FC = () => {
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
             <span className="gesture-status__text">{enabled ? t('gesture.statusRunning') : t('gesture.statusPaused')}</span>
-            <kbd className="gesture-status__hotkey">Ctrl+Alt+Shift+W</kbd>
+            <kbd className="gesture-status__hotkey">{pauseHotkey}</kbd>
           </div>
           <Toggle
             id="gesture-enabled"
@@ -241,7 +326,7 @@ export const GesturePage: FC = () => {
                 <span className="gesture-table__col gesture-table__col--action">{m.action.name}</span>
                 <span className="gesture-table__col gesture-table__col--type">
                   <Badge
-                    text={ACTION_TYPE_LABELS[m.action.type] ?? t('common.unknown')}
+                    text={ACTION_TYPE_KEYS[m.action.type] ? t(ACTION_TYPE_KEYS[m.action.type]) : t('common.unknown')}
                     variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
                   />
                 </span>
@@ -266,20 +351,46 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── 轮盘菜单 ──────────────────────────────────────────────── */}
-      <SettingGroup title={t('gesture.radialMenu' as any, '轮盘菜单设置')} icon={<Compass size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('gesture.radialMenu')} icon={<Compass size={20} strokeWidth={2.5} />}>
         <Card>
-          <div className="gesture-table">
-            <div className="gesture-table__header">
-              <span className="gesture-table__col">{t('common.name' as any, '名称')}</span>
-              <span className="gesture-table__col">{t('gesture.colAction' as any, '动作')}</span>
+          <div className="gesture-radial-toolbar">
+            <span>{t('gesture.radialHint')}</span>
+            <div className="gesture-radial-toolbar__actions">
+              <Button size="sm" variant="ghost" onClick={addRadialItem} disabled={radialItems.length >= 8}>
+                {t('common.add')}
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => void saveRadialItems()} disabled={!radialDirty || radialSaving}>
+                {radialSaving ? t('common.saving') : t('common.save')}
+              </Button>
             </div>
+          </div>
+          <div className="gesture-radial-list">
             {radialItems.length === 0 && (
-              <div className="gesture-empty">{t('common.empty' as any, '暂无数据')}</div>
+              <div className="gesture-empty">{t('common.empty')}</div>
             )}
             {radialItems.map((item, i) => (
-              <div key={i} className="gesture-table__row">
-                <span className="gesture-table__col">{item.label}</span>
-                <span className="gesture-table__col"><code>{item.command}</code></span>
+              <div key={i} className="gesture-radial-row">
+                <span className="gesture-radial-index">{i + 1}</span>
+                <TextInput
+                  id={`radial-label-${i}`}
+                  value={item.label}
+                  onChange={(label) => updateRadialItem(i, { label })}
+                  placeholder={t('gesture.radialLabelPlaceholder')}
+                />
+                <Select
+                  id={`radial-command-${i}`}
+                  value={String(radialCommandIndex(item.command))}
+                  onChange={(command) => updateRadialItem(i, { command })}
+                  options={BUILTIN_COMMAND_KEYS.map((key, commandIndex) => ({
+                    value: String(commandIndex),
+                    label: t(key),
+                  }))}
+                />
+                <div className="gesture-radial-actions">
+                  <button className="gesture-icon-btn" disabled={i === 0} title={t('common.moveUp')} onClick={() => moveRadialItem(i, -1)}><ArrowUp size={15} /></button>
+                  <button className="gesture-icon-btn" disabled={i === radialItems.length - 1} title={t('common.moveDown')} onClick={() => moveRadialItem(i, 1)}><ArrowDown size={15} /></button>
+                  <button className="gesture-icon-btn gesture-icon-btn--danger" title={t('common.delete')} onClick={() => removeRadialItem(i)}><Trash2 size={15} /></button>
+                </div>
               </div>
             ))}
           </div>

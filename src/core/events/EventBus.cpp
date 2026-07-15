@@ -24,9 +24,17 @@ void EventBus::unsubscribe(SubscriptionId id) {
 }
 
 void EventBus::clearAll() {
-    std::lock_guard lock(m_mutex);
-    m_subscribers.clear();
-    m_idToType.clear();
+    // Subscriber destructors can own RAII subscriptions which call back into
+    // EventBus::unsubscribe(). Destroy them after releasing m_mutex.
+    decltype(m_subscribers) subscribers;
+    decltype(m_idToType) idToType;
+    {
+        std::lock_guard lock(m_mutex);
+        subscribers.swap(m_subscribers);
+        idToType.swap(m_idToType);
+    }
+    subscribers.clear();
+    idToType.clear();
     LOG_INFO("EventBus: 清除所有订阅");
 }
 

@@ -24,9 +24,12 @@
 
 #include <windows.h>
 #include <objbase.h>
+#include <shellapi.h>
 
 #include <atomic>
 #include <filesystem>
+#include <string>
+#include <string_view>
 #include <thread>
 
 #include "core/logger/Logger.h"
@@ -41,21 +44,27 @@
 #include "core/lua/LuaEngine.h"
 #include "core/plugin/PluginManager.h"
 #include "core/events/EventBus.h"
+#include "core/events/MainThreadDispatcher.h"
 #include "core/stats/PerformanceMonitor.h"
+#include "core/update/UpdateChecker.h"
+#include "EasyToolsVersion.h"
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
 #include "ui/SearchWindow.h"
 #include "ui/TrayWindow.h"
-#include "ui/KeycastOverlay.h"
 #include "ui/ToastOverlay.h"
+#include "ui/WebViewEnvironmentManager.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
+static constexpr const wchar_t* WINDOW_TITLE      = L"EasyToolsMessageWindow";
 static constexpr const wchar_t* MUTEX_NAME        = L"Global\\EasyTools_SingleInstance_Mutex";
+static constexpr UINT WM_EASYTOOLS_SHOW_SETTINGS  = WM_APP + 101;
 
 // ── 前向声明 ─────────────────────────────────────────────────────────────────
 LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 bool checkSingleInstance();
+bool hasCommandLineFlag(std::wstring_view flag);
 HWND createMessageWindow(HINSTANCE hInstance);
 void initializeSubsystems(HWND hwnd);
 void shutdownSubsystems();
@@ -75,7 +84,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     // ── 1. 单实例检测 ────────────────────────────────────────────────────
     if (!checkSingleInstance()) {
-        MessageBoxW(nullptr, L"EasyTools 已在运行中。", L"EasyTools", MB_OK | MB_ICONINFORMATION);
         return 0;
     }
 
@@ -83,6 +91,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         MessageBoxW(nullptr, L"COM 初始化失败", L"EasyTools 错误", MB_OK | MB_ICONERROR);
+        CloseHandle(g_singleInstanceMutex);
+        g_singleInstanceMutex = nullptr;
         return 1;
     }
 
@@ -99,35 +109,56 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     easy::core::TraceId::Scope mainScope;
     LOG_INFO("========================================");
-    LOG_INFO("EasyTools v1.0.0 启动");
+    LOG_INFO("EasyTools v{} 启动", easy::version::String);
     LOG_INFO("========================================");
 
     // ── 5a. 性能监控启动 ─────────────────────────────────────────────
     easy::core::PerformanceMonitor::instance().start();
 
     // ── 5. 配置管理器 ───────────────────────────────────────────────────
-    easy::core::ConfigManager::instance().initialize(
-        easy::core::WinUtils::getConfigDirectory()
-    );
+    if (!easy::core::ConfigManager::instance().initialize(
+            easy::core::WinUtils::getConfigDirectory())) {
+        LOG_ERROR("配置管理器初始化失败，应用无法安全启动");
+        easy::core::PerformanceMonitor::instance().stop();
+        easy::core::Logger::shutdown();
+        CoUninitialize();
+        CloseHandle(g_singleInstanceMutex);
+        g_singleInstanceMutex = nullptr;
+        return 1;
+    }
 
     // ── 6. 创建隐藏消息窗口 ─────────────────────────────────────────────
     HWND hwndMessage = createMessageWindow(hInstance);
     if (!hwndMessage) {
         LOG_ERROR("无法创建消息窗口");
+        easy::core::ConfigManager::instance().shutdown();
+        easy::core::PerformanceMonitor::instance().stop();
+        easy::core::Logger::shutdown();
+        CoUninitialize();
+        CloseHandle(g_singleInstanceMutex);
+        g_singleInstanceMutex = nullptr;
         return 1;
     }
+    easy::core::MainThreadDispatcher::instance().initialize(hwndMessage);
 
     // ── 7. 初始化其他子系统 ──────────────────────────────────────────────
     initializeSubsystems(hwndMessage);
 
+    // 用户主动启动时直接呈现设置；开机自启动使用 --silent 静默驻留托盘。
+    if (!hasCommandLineFlag(L"--silent")) {
+        showSettingsWindow();
+    }
+
     LOG_INFO("程序启动完成，进入消息循环");
 
     // ── 8. 消息循环 ──────────────────────────────────────────────────────
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
+    MSG msg{};
+    int messageResult = 0;
+    while ((messageResult = GetMessageW(&msg, nullptr, 0, 0)) > 0) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    if (messageResult == -1) LOG_ERROR("消息循环失败, error={}", GetLastError());
 
     // ── 9. 清理与退出 ────────────────────────────────────────────────────
     LOG_INFO("收到退出消息，准备清理");
@@ -138,7 +169,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     }
 
     CoUninitialize();
-    return static_cast<int>(msg.wParam);
+    return messageResult == -1 ? 1 : static_cast<int>(msg.wParam);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,10 +178,40 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
 bool checkSingleInstance() {
     g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+    if (!g_singleInstanceMutex) {
+        MessageBoxW(nullptr, L"无法创建单实例锁，EasyTools 未启动。", L"EasyTools 错误",
+                    MB_OK | MB_ICONERROR);
+        return false;
+    }
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(g_singleInstanceMutex);
+        g_singleInstanceMutex = nullptr;
+        if (HWND existing = FindWindowW(WINDOW_CLASS_NAME, WINDOW_TITLE)) {
+            PostMessageW(existing, WM_EASYTOOLS_SHOW_SETTINGS, 0, 0);
+        } else {
+            MessageBoxW(nullptr, L"EasyTools 已在运行中。", L"EasyTools",
+                        MB_OK | MB_ICONINFORMATION);
+        }
         return false;
     }
     return true;
+}
+
+bool hasCommandLineFlag(std::wstring_view flag) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+
+    bool found = false;
+    const std::wstring target(flag);
+    for (int i = 1; i < argc; ++i) {
+        if (_wcsicmp(argv[i], target.c_str()) == 0) {
+            found = true;
+            break;
+        }
+    }
+    LocalFree(argv);
+    return found;
 }
 
 HWND createMessageWindow(HINSTANCE hInstance) {
@@ -163,7 +224,7 @@ HWND createMessageWindow(HINSTANCE hInstance) {
     return CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         WINDOW_CLASS_NAME,
-        L"EasyToolsMessageWindow",
+        WINDOW_TITLE,
         WS_POPUP,
         0, 0, 0, 0,
         nullptr, nullptr, hInstance, nullptr
@@ -187,7 +248,11 @@ void initializeSubsystems(HWND hwnd) {
 
     // 3. 全局快捷键注册
     easy::core::HotkeyManager::instance().initialize(hwnd);
-    easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", {easy::core::ModKey::Alt, VK_SPACE}, []() {
+    const easy::core::HotkeyDef searchFallback{easy::core::ModKey::Alt, VK_SPACE};
+    const auto searchHotkey = easy::core::HotkeyDef::fromString(
+        easy::core::ConfigManager::instance().get<std::string>(
+            "/hotkeys/Toggle Search", searchFallback.toString())).value_or(searchFallback);
+    easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, []() {
         auto& searchWnd = easy::ui::SearchWindow::instance();
         if (searchWnd.isVisible()) {
             searchWnd.hide();
@@ -232,6 +297,8 @@ void initializeSubsystems(HWND hwnd) {
             easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{});
         } else if (action == "exit") {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        } else {
+            return {{"success", false}, {"error", "unknown tray action"}};
         }
         return {{"success", true}};
     });
@@ -248,31 +315,39 @@ void initializeSubsystems(HWND hwnd) {
     pm.initializePlugins();
 
     // 6. UI Overlay 初始化
-    easy::ui::KeycastOverlay::instance().initialize(GetModuleHandleW(nullptr));
     easy::ui::ToastOverlay::instance().initialize(GetModuleHandleW(nullptr));
 
     easy::core::EventBus::instance().subscribe<easy::core::ShowToastEvent>(
         [](const easy::core::ShowToastEvent& ev) {
-            easy::ui::ToastOverlay::instance().showToast(easy::core::WinUtils::wstringToUtf8(ev.message));
+            const auto message = ev.message;
+            easy::core::MainThreadDispatcher::instance().post([message]() {
+                easy::ui::ToastOverlay::instance().showToast(
+                    easy::core::WinUtils::wstringToUtf8(message));
+            });
         }
     );
 
     // 7. 设置窗口静默预热 (极速冷启动优化)
     preloadSettingsWindow(GetModuleHandleW(nullptr));
+
+    // 8. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
+    easy::core::UpdateChecker::instance().checkAsync(false);
 }
 
 void shutdownSubsystems() {
+    easy::core::UpdateChecker::instance().shutdown();
     easy::core::PluginManager::instance().shutdownPlugins();
-    easy::ui::KeycastOverlay::instance().shutdown();
+    easy::ui::SettingsWindow::instance().destroy();
     easy::ui::ToastOverlay::instance().shutdown();
     easy::ui::SearchWindow::instance().destroy();
     easy::ui::TrayWindow::instance().destroy();
+    easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
-    easy::core::HotkeyManager::instance().shutdown();
     easy::core::StatsManager::instance().shutdown();
     easy::core::PerformanceMonitor::instance().stop();
-    easy::core::EventBus::instance().clearAll();
     easy::tray::TrayIcon::instance().destroy();
+    easy::core::MainThreadDispatcher::instance().shutdown();
+    easy::core::ConfigManager::instance().shutdown();
     easy::core::Logger::shutdown();
 }
 
@@ -297,6 +372,10 @@ void preloadSettingsWindow(HINSTANCE hInstance) {
 }
 
 LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == easy::core::MainThreadDispatcher::MessageId) {
+        easy::core::MainThreadDispatcher::instance().drain();
+        return 0;
+    }
     if (msg == (WM_USER + 100)) {
         easy::tray::TrayIcon::instance().handleMessage(wParam, lParam);
         return 0;
@@ -304,6 +383,11 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
     if (msg == WM_HOTKEY) {
         easy::core::HotkeyManager::instance().handleHotkeyMessage(wParam);
+        return 0;
+    }
+
+    if (msg == WM_EASYTOOLS_SHOW_SETTINGS) {
+        showSettingsWindow();
         return 0;
     }
 

@@ -54,6 +54,15 @@ void MouseHook::setEventCallback(MouseEventCallback callback) {
     m_callback = std::move(callback);
 }
 
+void MouseHook::setTriggerButton(MouseEventType downEvent) {
+    if (downEvent != MouseEventType::RightDown &&
+        downEvent != MouseEventType::MiddleDown) {
+        LOG_WARN("忽略无效的鼠标手势触发键配置: {}", static_cast<int>(downEvent));
+        return;
+    }
+    m_configuredTriggerDown.store(downEvent, std::memory_order_release);
+}
+
 std::vector<MouseEvent> MouseHook::drainEvents(size_t maxCount) {
     std::lock_guard lock(m_queueMutex);
     std::vector<MouseEvent> events;
@@ -77,7 +86,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
     // 多一道线程级防护更稳妥(覆盖任何同步重入路径)。
     static thread_local bool s_reentry = false;
 
-    if (nCode >= 0 && !self.m_paused.load(std::memory_order_relaxed) && !s_reentry) {
+    if (nCode >= 0 && !s_reentry) {
         // ── 看门狗：检查是否处于熔断冷却期 ──
         if (self.m_circuitBreakerTripped.load(std::memory_order_relaxed)) {
             auto now = std::chrono::steady_clock::now();
@@ -106,21 +115,18 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             MouseEvent event{};
             event.position = data->pt;
             event.timestamp = std::chrono::steady_clock::now();
-            event.foregroundWindow = GetForegroundWindow();
-
-            // 一次性采集修饰键状态（高位=1 表示按下）
-            uint8_t mods = 0;
-            if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
-            if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
-            if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
-            event.modifiers = mods;
 
             bool shouldCapture = false;
+            const bool gestureEnabled = !self.m_paused.load(std::memory_order_relaxed);
 
             switch (wParam) {
                 case WM_MOUSEMOVE: {
                     event.type = MouseEventType::Move;
-                    shouldCapture = true;  // Move 事件总是采集（由上层过滤）
+                    // Idle mouse moves are the dominant system-wide hot path.
+                    // Only enter the gesture engine while a possible trigger
+                    // button is held; statistics remain lock-free below.
+                    shouldCapture = gestureEnabled &&
+                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
                     
                     // 计算欧几里得距离并累加
                     static POINT lastPt = { -1, -1 };
@@ -137,34 +143,57 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                 }
                 case WM_RBUTTONDOWN:
                     event.type = MouseEventType::RightDown;
-                    shouldCapture = true;
+                    if (gestureEnabled &&
+                        !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
+                        self.m_configuredTriggerDown.load(std::memory_order_relaxed) == event.type) {
+                        self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
+                        self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        shouldCapture = true;
+                    }
                     easy::core::StatsManager::instance().recordRightClick();
                     break;
                 case WM_RBUTTONUP:
                     event.type = MouseEventType::RightUp;
-                    shouldCapture = true;
+                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
+                        self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::RightDown) {
+                        shouldCapture = gestureEnabled;
+                        self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
+                    }
                     break;
                 case WM_MBUTTONDOWN:
                     event.type = MouseEventType::MiddleDown;
-                    shouldCapture = true;
+                    if (gestureEnabled &&
+                        !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
+                        self.m_configuredTriggerDown.load(std::memory_order_relaxed) == event.type) {
+                        self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
+                        self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        shouldCapture = true;
+                    }
                     break;
                 case WM_MBUTTONUP:
                     event.type = MouseEventType::MiddleUp;
-                    shouldCapture = true;
+                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
+                        self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) {
+                        shouldCapture = gestureEnabled;
+                        self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
+                    }
                     break;
                 case WM_LBUTTONDOWN:
                     event.type = MouseEventType::LeftDown;
-                    shouldCapture = true;
+                    shouldCapture = gestureEnabled &&
+                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
                     easy::core::StatsManager::instance().recordLeftClick();
                     break;
                 case WM_LBUTTONUP:
                     event.type = MouseEventType::LeftUp;
-                    shouldCapture = true;
+                    shouldCapture = gestureEnabled &&
+                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
                     break;
                 case WM_MOUSEWHEEL: {
                     short delta = HIWORD(data->mouseData);
                     event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
-                    shouldCapture = true;
+                    shouldCapture = gestureEnabled &&
+                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
                     easy::core::StatsManager::instance().recordScroll();
                     break;
                 }
@@ -173,6 +202,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             }
 
             if (shouldCapture) {
+                event.foregroundWindow = GetForegroundWindow();
+                uint8_t mods = 0;
+                if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+                if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+                if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+                event.modifiers = mods;
                 if (self.processEvent(event)) {
                     return 1; // 拦截事件，不传递给系统和其他应用
                 }

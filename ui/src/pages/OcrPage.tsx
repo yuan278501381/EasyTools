@@ -6,46 +6,69 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Select } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Badge } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { FileText } from 'lucide-react';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { toast } from 'sonner';
 
 interface OcrSettings {
   engine: string;
   language: string;
-  autoOcr: boolean;
   copyResult: boolean;
-  shortcut: string;
-  copyToClipboard: boolean;
   showResultWindow: boolean;
 }
+
+interface OperationResult { success: boolean; error?: string; shortcut?: string }
+interface HotkeyEntry { name: string; shortcut: string }
 
 export const OcrPage: FC = () => {
   const [settings, setSettings] = useState<OcrSettings>({
     engine: 'windows',
     language: 'auto',
-    autoOcr: false,
     copyResult: true,
-    shortcut: 'Ctrl+Shift+O',
-    copyToClipboard: true,
     showResultWindow: true,
   });
   const [loading, setLoading] = useState(true);
+  const [available, setAvailable] = useState(false);
+  const [shortcut, setShortcut] = useState('Ctrl+Shift+O');
   const { t } = useTranslation();
 
   useEffect(() => {
-    bridgeRequest<OcrSettings>('ocr.getSettings').then(data => {
+    Promise.all([
+      bridgeRequest<OcrSettings>('ocr.getSettings'),
+      bridgeRequest<{ available: boolean }>('ocr.getStatus'),
+      bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
+    ]).then(([data, status, hotkeys]) => {
       setSettings(prev => ({ ...prev, ...data }));
-      setLoading(false);
-    });
-  }, []);
+      setAvailable(status.available);
+      setShortcut(hotkeys.find(item => item.name === 'OCR')?.shortcut || 'Ctrl+Shift+O');
+    }).catch((error) => {
+      console.error(error);
+      toast.error(t('ocr.loadFailed'));
+    }).finally(() => setLoading(false));
+  }, [t]);
 
   const updateSetting = useCallback((key: keyof OcrSettings, value: unknown) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-    bridgeRequest('ocr.updateSettings', { [key]: value });
-  }, []);
+    bridgeRequest<OperationResult>('ocr.updateSettings', { [key]: value })
+      .then(result => { if (!result.success) throw new Error(result.error || 'update failed'); })
+      .catch(async (error) => {
+        toast.error(t('ocr.saveFailed'), { description: String(error) });
+        try { setSettings(await bridgeRequest<OcrSettings>('ocr.getSettings')); } catch { /* keep usable */ }
+      });
+  }, [t]);
+
+  const rebindShortcut = async (value: string) => {
+    try {
+      const result = await bridgeRequest<OperationResult>('hotkey.rebind', { name: 'OCR', hotkey: value });
+      if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
+      setShortcut(result.shortcut || value);
+    } catch (error) {
+      toast.error(t('hotkey.bindFailed'), { description: String(error) });
+    }
+  };
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
@@ -58,32 +81,27 @@ export const OcrPage: FC = () => {
           <SettingRow label={t('ocr.shortcut')} description={t('ocr.shortcutDesc')}>
             <HotkeyRecorder
               id="ocr-shortcut"
-              value={settings.shortcut || 'Ctrl+Shift+O'}
-              onChange={(v) => {
-                updateSetting('shortcut', v);
-                bridgeRequest('hotkey.rebind', { name: 'OCR', hotkey: v });
-              }}
+              value={shortcut}
+              onChange={(v) => void rebindShortcut(v)}
             />
           </SettingRow>
           
           <SettingRow label={t('ocr.engine')} description={t('ocr.engineDesc')}>
-            <Select
-              id="engine"
-              value={settings.engine}
-              onChange={(v) => updateSetting('engine', v)}
-              options={[
-                { value: 'tesseract', label: t('ocr.engineTesseract') },
-                { value: 'windows', label: t('ocr.engineWindowsOCR') },
-              ]}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>{t('ocr.engineWindowsOCR')}</span>
+              <Badge
+                text={available ? t('ocr.available') : t('ocr.unavailable')}
+                variant={available ? 'success' : 'muted'}
+              />
+            </div>
           </SettingRow>
 
           <Toggle
-            id="copyToClipboard"
+            id="copyResult"
             label={t('ocr.copyToClipboard')}
             description={t('ocr.copyToClipboardDesc')}
-            checked={settings.copyToClipboard}
-            onChange={(v) => updateSetting('copyToClipboard', v)}
+            checked={settings.copyResult}
+            onChange={(v) => updateSetting('copyResult', v)}
           />
 
           <Toggle

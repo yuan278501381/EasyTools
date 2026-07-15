@@ -8,6 +8,7 @@
 
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 namespace easy::core {
 
@@ -21,14 +22,20 @@ std::string HotkeyDef::toString() const {
     if (mods & MOD_SHIFT)   result += "Shift+";
     if (mods & MOD_WIN)     result += "Win+";
 
-    // 虚拟键码 → 名称
-    UINT scanCode = MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC);
-    wchar_t keyName[64] = {};
-    if (GetKeyNameTextW(static_cast<LONG>(scanCode) << 16, keyName, 64) > 0) {
-        // wchar → UTF-8
-        char utf8[128] = {};
-        WideCharToMultiByte(CP_UTF8, 0, keyName, -1, utf8, 128, nullptr, nullptr);
-        result += utf8;
+    static const std::unordered_map<UINT, std::string> specialKeys = {
+        {VK_SPACE, "Space"}, {VK_RETURN, "Enter"}, {VK_ESCAPE, "Escape"},
+        {VK_TAB, "Tab"}, {VK_DELETE, "Delete"}, {VK_INSERT, "Insert"},
+        {VK_HOME, "Home"}, {VK_END, "End"}, {VK_PRIOR, "PageUp"},
+        {VK_NEXT, "PageDown"}, {VK_UP, "Up"}, {VK_DOWN, "Down"},
+        {VK_LEFT, "Left"}, {VK_RIGHT, "Right"}, {VK_SNAPSHOT, "PrintScreen"},
+    };
+    if (virtualKey >= VK_F1 && virtualKey <= VK_F24) {
+        result += "F" + std::to_string(virtualKey - VK_F1 + 1);
+    } else if ((virtualKey >= 'A' && virtualKey <= 'Z') ||
+               (virtualKey >= '0' && virtualKey <= '9')) {
+        result += static_cast<char>(virtualKey);
+    } else if (const auto it = specialKeys.find(virtualKey); it != specialKeys.end()) {
+        result += it->second;
     } else {
         result += "0x" + std::format("{:02X}", virtualKey);
     }
@@ -38,30 +45,37 @@ std::string HotkeyDef::toString() const {
 
 std::optional<HotkeyDef> HotkeyDef::fromString(const std::string& str) {
     HotkeyDef def;
-    std::string remaining = str;
+    if (str.empty()) return std::nullopt;
+    std::vector<std::string> tokens;
+    size_t start = 0;
+    while (start <= str.size()) {
+        const size_t end = str.find('+', start);
+        tokens.push_back(str.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    if (tokens.empty() || tokens.back().empty()) return std::nullopt;
 
-    // 解析修饰键
-    auto consumePrefix = [&](const std::string& prefix, ModKey mod) {
-        auto pos = remaining.find(prefix);
-        if (pos != std::string::npos) {
-            remaining.erase(pos, prefix.size());
-            def.modifiers = def.modifiers | mod;
-        }
-    };
-
-    consumePrefix("Ctrl+", ModKey::Ctrl);
-    consumePrefix("Alt+", ModKey::Alt);
-    consumePrefix("Shift+", ModKey::Shift);
-    consumePrefix("Win+", ModKey::Win);
-
-    // 剩余部分是键名
-    if (remaining.empty()) return std::nullopt;
+    for (size_t i = 0; i + 1 < tokens.size(); ++i) {
+        std::string token = tokens[i];
+        std::transform(token.begin(), token.end(), token.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (token == "ctrl" || token == "control") def.modifiers = def.modifiers | ModKey::Ctrl;
+        else if (token == "alt") def.modifiers = def.modifiers | ModKey::Alt;
+        else if (token == "shift") def.modifiers = def.modifiers | ModKey::Shift;
+        else if (token == "win" || token == "meta") def.modifiers = def.modifiers | ModKey::Win;
+        else return std::nullopt;
+    }
+    std::string remaining = tokens.back();
 
     // 特殊键映射
     static const std::unordered_map<std::string, UINT> specialKeys = {
         {"F1", VK_F1}, {"F2", VK_F2}, {"F3", VK_F3}, {"F4", VK_F4},
         {"F5", VK_F5}, {"F6", VK_F6}, {"F7", VK_F7}, {"F8", VK_F8},
         {"F9", VK_F9}, {"F10", VK_F10}, {"F11", VK_F11}, {"F12", VK_F12},
+        {"F13", VK_F13}, {"F14", VK_F14}, {"F15", VK_F15}, {"F16", VK_F16},
+        {"F17", VK_F17}, {"F18", VK_F18}, {"F19", VK_F19}, {"F20", VK_F20},
+        {"F21", VK_F21}, {"F22", VK_F22}, {"F23", VK_F23}, {"F24", VK_F24},
         {"Space", VK_SPACE}, {"Enter", VK_RETURN}, {"Escape", VK_ESCAPE},
         {"Tab", VK_TAB}, {"Delete", VK_DELETE}, {"Insert", VK_INSERT},
         {"Home", VK_HOME}, {"End", VK_END}, {"PageUp", VK_PRIOR}, {"PageDown", VK_NEXT},
@@ -69,11 +83,22 @@ std::optional<HotkeyDef> HotkeyDef::fromString(const std::string& str) {
         {"PrintScreen", VK_SNAPSHOT},
     };
 
+    if (remaining.size() == 1) {
+        remaining[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(remaining[0])));
+    }
     auto it = specialKeys.find(remaining);
     if (it != specialKeys.end()) {
         def.virtualKey = it->second;
     } else if (remaining.size() == 1 && std::isalnum(static_cast<unsigned char>(remaining[0]))) {
         def.virtualKey = static_cast<UINT>(std::toupper(static_cast<unsigned char>(remaining[0])));
+    } else if (remaining.starts_with("0x")) {
+        try {
+            const auto value = std::stoul(remaining.substr(2), nullptr, 16);
+            if (value == 0 || value > 0xFF) return std::nullopt;
+            def.virtualKey = static_cast<UINT>(value);
+        } catch (...) {
+            return std::nullopt;
+        }
     } else {
         return std::nullopt;
     }

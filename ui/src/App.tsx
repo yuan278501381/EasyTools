@@ -30,14 +30,39 @@ import './App.css';
 
 // 页面组件导入
 
+type Theme = 'dark' | 'light';
+type ThemePreference = Theme | 'system';
+
+const NAV_TITLE_KEYS: Record<NavId, 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.ocr' | 'nav.history' | 'nav.settings' | 'nav.about'> = {
+  stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
+  ocr: 'nav.ocr', history: 'nav.history', general: 'nav.settings', about: 'nav.about',
+};
+const NAV_SUBTITLE_KEYS: Record<NavId, 'navSubtitle.stats' | 'navSubtitle.gesture' | 'navSubtitle.hotcorner' | 'navSubtitle.capture' | 'navSubtitle.ocr' | 'navSubtitle.history' | 'navSubtitle.general' | 'navSubtitle.about'> = {
+  stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
+  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', general: 'navSubtitle.general', about: 'navSubtitle.about',
+};
+
 function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>('stats');
-  const getSystemTheme = () => 
+  const getSystemTheme = (): Theme =>
     window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
-  const [theme, setTheme] = useState<'dark' | 'light'>(getSystemTheme());
+  const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme());
+  const [themePreference, setThemePreference] = useState<ThemePreference>('system');
+  const theme: Theme = themePreference === 'system' ? systemTheme : themePreference;
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    bridgeRequest<{ theme?: string; language?: string }>('general.getSettings')
+      .then((settings) => {
+        if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
+          setThemePreference(settings.theme);
+        }
+        if (settings.language && settings.language !== 'auto') void i18n.changeLanguage(settings.language);
+      })
+      .catch(console.error);
+  }, [i18n]);
 
   // 检查是否需要显示首次引导
   useEffect(() => {
@@ -59,24 +84,40 @@ function App() {
 
   // 主题切换
   const handleToggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      return next;
-    });
-  }, []);
+    const previous = themePreference;
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setThemePreference(next);
+    bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: next })
+      .then((result) => {
+        if (!result.success) setThemePreference(previous);
+      })
+      .catch(() => setThemePreference(previous));
+  }, [theme, themePreference]);
 
-  // 监听系统主题变化并初始设置
+  // 监听系统主题变化；只在“跟随系统”时影响最终主题。
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (e: MediaQueryListEvent) => {
-      setTheme(e.matches ? 'dark' : 'light');
+      setSystemTheme(e.matches ? 'dark' : 'light');
     };
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handlePreference = (event: Event) => {
+      const preference = (event as CustomEvent<ThemePreference>).detail;
+      if (preference === 'system' || preference === 'dark' || preference === 'light') {
+        setThemePreference(preference);
+      }
+    };
+    window.addEventListener('easytools:theme-changed', handlePreference);
+    return () => window.removeEventListener('easytools:theme-changed', handlePreference);
+  }, []);
 
   // 渲染当前页面
   const renderPage = () => {
@@ -106,8 +147,8 @@ function App() {
         {/* ── 页面头部 ────────────────────────────────────── */}
         <header className="app__header">
           <div className="app__header-text">
-            <h1 className="app__header-title">{t(`nav.${activeNav === 'general' ? 'settings' : activeNav}` as any)}</h1>
-            <p className="app__header-subtitle">{t(`navSubtitle.${activeNav}` as any)}</p>
+            <h1 className="app__header-title">{t(NAV_TITLE_KEYS[activeNav])}</h1>
+            <p className="app__header-subtitle">{t(NAV_SUBTITLE_KEYS[activeNav])}</p>
           </div>
         </header>
 

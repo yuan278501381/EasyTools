@@ -3,11 +3,14 @@
 
 #include "core/utils/Export.h"
 
+#include <array>
 #include <mutex>
+#include <condition_variable>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <atomic>
+#include <thread>
 #include <nlohmann/json.hpp>
 
 namespace easy::core {
@@ -52,6 +55,8 @@ private:
     void loadFromFile();
     void saveToFile();
     void checkDateRollover(); // 检查是否跨天并清空内存或保存上一天
+    void flushPending(bool forceSave);
+    void flushLoop();
 
     std::mutex m_mutex;
     std::string m_currentDate;
@@ -62,6 +67,18 @@ private:
     
     std::atomic<bool> m_initialized{false};
     uint64_t m_lastSaveTick = 0;
+
+    // 系统低级钩子只做无锁原子累加；合并、跨日和磁盘 I/O 由后台线程处理。
+    std::array<std::atomic<uint64_t>, 256> m_pendingKeys{};
+    std::atomic<uint64_t> m_pendingTotalKeys{0};
+    std::atomic<uint64_t> m_pendingLeftClicks{0};
+    std::atomic<uint64_t> m_pendingRightClicks{0};
+    std::atomic<uint64_t> m_pendingScrolls{0};
+    std::atomic<double> m_pendingMouseDistance{0.0};
+    std::atomic<bool> m_flushRunning{false};
+    std::thread m_flushThread;
+    std::mutex m_flushWaitMutex;
+    std::condition_variable m_flushCv;
 };
 
 } // namespace easy::core

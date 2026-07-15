@@ -8,14 +8,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/PinWindow.h"
+#include "core/events/EventBus.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <vector>
+#include <shobjidl.h>
 #include <windowsx.h>
 
 namespace easy::capture {
@@ -312,6 +318,89 @@ static bool copyImageToClipboard(const cv::Mat& image) {
     return true;
 }
 
+static bool savePinnedImage(HWND owner, const cv::Mat& image) {
+    if (image.empty()) return false;
+
+    ComPtr<IFileSaveDialog> dialog;
+    HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(dialog.GetAddressOf()));
+    if (FAILED(hr)) {
+        LOG_ERROR("贴图保存对话框创建失败: hr=0x{:08X}", static_cast<unsigned>(hr));
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"无法打开保存对话框"});
+        return false;
+    }
+
+    const COMDLG_FILTERSPEC filters[] = {
+        {L"PNG 图片 (*.png)", L"*.png"},
+        {L"JPEG 图片 (*.jpg;*.jpeg)", L"*.jpg;*.jpeg"},
+        {L"WebP 图片 (*.webp)", L"*.webp"},
+        {L"BMP 图片 (*.bmp)", L"*.bmp"},
+    };
+    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    dialog->SetDefaultExtension(L"png");
+
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    wchar_t defaultName[80]{};
+    swprintf_s(defaultName, L"EasyTools_%04u%02u%02u_%02u%02u%02u.png",
+               now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
+    dialog->SetFileName(defaultName);
+
+    hr = dialog->Show(owner);
+    if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return false;
+    if (FAILED(hr)) {
+        LOG_ERROR("贴图保存对话框失败: hr=0x{:08X}", static_cast<unsigned>(hr));
+        return false;
+    }
+
+    ComPtr<IShellItem> item;
+    if (FAILED(dialog->GetResult(item.GetAddressOf()))) return false;
+    PWSTR rawPath = nullptr;
+    if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &rawPath)) || !rawPath) return false;
+    std::filesystem::path path(rawPath);
+    CoTaskMemFree(rawPath);
+
+    std::wstring ext = path.extension().wstring();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    if (ext.empty()) {
+        path += L".png";
+        ext = L".png";
+    }
+    if (ext == L".jpeg") ext = L".jpg";
+    const std::string encodeExt = easy::core::WinUtils::wstringToUtf8(ext);
+    const bool supported = encodeExt == ".png" || encodeExt == ".jpg" ||
+                           encodeExt == ".webp" || encodeExt == ".bmp";
+    if (!supported) {
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"不支持该图片格式"});
+        return false;
+    }
+
+    try {
+        std::vector<uchar> encoded;
+        std::vector<int> params;
+        if (encodeExt == ".jpg") params = {cv::IMWRITE_JPEG_QUALITY, 95};
+        else if (encodeExt == ".webp") params = {cv::IMWRITE_WEBP_QUALITY, 95};
+        if (!cv::imencode(encodeExt, image, encoded, params)) return false;
+
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(encoded.data()),
+                   static_cast<std::streamsize>(encoded.size()));
+        if (!file) throw std::runtime_error("write failed");
+        LOG_INFO("贴图已保存: {}", easy::core::WinUtils::wstringToUtf8(path.wstring()));
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"贴图已保存"});
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("贴图保存失败: {}", e.what());
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"贴图保存失败"});
+        return false;
+    }
+}
+
 void PinWindow::setScale(float scale) {
     m_scale = std::clamp(scale, 0.25f, 4.0f);
     if (m_hwnd) {
@@ -606,8 +695,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             if (!self) break;
             if (self->m_hoverAlpha > 0.0f) {
                 if (self->m_hoverSave) {
-                    // TODO: Save to file (or we could just copy to clipboard for now, which is default right click)
-                    copyImageToClipboard(self->m_sourceImage);
+                    savePinnedImage(hwnd, self->m_sourceImage);
                     return 0;
                 }
                 if (self->m_hoverClose) {
@@ -722,6 +810,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             HMENU menu = CreatePopupMenu();
             bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
             AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板" : L"Copy to Clipboard");
+            AppendMenuW(menu, MF_STRING, 10, isZh ? L"保存图片..." : L"Save Image...");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%" : L"Opacity 100%");
             AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%" : L"Opacity 75%");
@@ -744,6 +833,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 
             switch (cmd) {
                 case 1: copyImageToClipboard(self->m_sourceImage); break;  // 修复：原先 cmd 1 未处理
+                case 10: savePinnedImage(hwnd, self->m_sourceImage); break;
                 case 2: self->setOpacity(1.0f); break;
                 case 3: self->setOpacity(0.75f); break;
                 case 4: self->setOpacity(0.5f); break;

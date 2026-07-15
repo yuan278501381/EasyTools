@@ -59,6 +59,9 @@ public:
     /// 停止（手动停止或自动检测完成）
     void stop();
 
+    /// 应用退出时取消并回收，不触发完成回调。
+    void shutdown();
+
     /// 手动模式下，用户按键触发截取当前帧
     void captureCurrentFrame();
 
@@ -95,11 +98,18 @@ private:
     /// 找两帧之间的最佳拼接线（特征匹配）
     int findStitchOffset(const cv::Mat& upper, const cv::Mat& lower) const;
 
+    void appendFrame(const cv::Mat& frame);
+    cv::Mat buildStitchedImage() const;
+    void deliverCompletion(const std::string& error = {});
+
     std::atomic<bool> m_running{false};
     std::thread m_scrollThread;
     ScrollCaptureOptions m_options;
-    std::vector<cv::Mat> m_frames;
-    cv::Mat m_currentStitched;
+    std::vector<cv::Mat> m_segments;
+    cv::Mat m_lastFrame;
+    int m_frameCount = 0;
+    std::atomic<bool> m_completionDelivered{false};
+    std::atomic<bool> m_suppressCompletion{false};
     ScrollProgressCallback m_progressCb;
     std::function<void(const ScrollCaptureResult&)> m_completionCb;
 };

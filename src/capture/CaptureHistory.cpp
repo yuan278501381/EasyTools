@@ -62,10 +62,16 @@ void CaptureHistory::push(const cv::Mat& image, const CaptureRegion& region,
 
     {
         std::lock_guard lock(m_mutex);
+        m_totalBytes += entry.image.total() * entry.image.elemSize();
+        m_totalBytes += entry.thumbnail.total() * entry.thumbnail.elemSize();
         m_entries.push_front(std::move(entry));
 
-        // 超过上限时移除最旧的
-        while (static_cast<int>(m_entries.size()) > m_maxSize) {
+        // 同时限制条目数和内存；4K 截图不能无限挤占常驻内存。
+        while (m_entries.size() > 1 &&
+               (static_cast<int>(m_entries.size()) > m_maxSize || m_totalBytes > MAX_MEMORY_BYTES)) {
+            const auto& oldest = m_entries.back();
+            m_totalBytes -= oldest.image.total() * oldest.image.elemSize();
+            m_totalBytes -= oldest.thumbnail.total() * oldest.thumbnail.elemSize();
             m_entries.pop_back();
         }
     }
@@ -74,12 +80,12 @@ void CaptureHistory::push(const cv::Mat& image, const CaptureRegion& region,
              image.cols, image.rows, count());
 }
 
-const HistoryEntry* CaptureHistory::get(int index) const {
+std::optional<HistoryEntry> CaptureHistory::get(int index) const {
     std::lock_guard lock(m_mutex);
     if (index < 0 || index >= static_cast<int>(m_entries.size())) {
-        return nullptr;
+        return std::nullopt;
     }
-    return &m_entries[index];
+    return m_entries[index];
 }
 
 int CaptureHistory::count() const {
@@ -90,6 +96,7 @@ int CaptureHistory::count() const {
 void CaptureHistory::clear() {
     std::lock_guard lock(m_mutex);
     m_entries.clear();
+    m_totalBytes = 0;
     LOG_INFO("CaptureHistory: 已清空所有历史记录");
 }
 
@@ -97,9 +104,17 @@ void CaptureHistory::setMaxSize(int maxSize) {
     std::lock_guard lock(m_mutex);
     m_maxSize = std::max(1, maxSize);
     while (static_cast<int>(m_entries.size()) > m_maxSize) {
+        const auto& oldest = m_entries.back();
+        m_totalBytes -= oldest.image.total() * oldest.image.elemSize();
+        m_totalBytes -= oldest.thumbnail.total() * oldest.thumbnail.elemSize();
         m_entries.pop_back();
     }
     LOG_INFO("CaptureHistory: 设置最大历史数={}", m_maxSize);
+}
+
+int CaptureHistory::maxSize() const {
+    std::lock_guard lock(m_mutex);
+    return m_maxSize;
 }
 
 std::string CaptureHistory::toMetadataJson() const {

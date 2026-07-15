@@ -48,7 +48,7 @@ struct PerfMetrics {
 
 /// 延迟计时器（RAII 风格）
 /// 用法: { PerfTimer timer("screenshot"); /* 被测代码 */ }
-class PerfTimer {
+class EASYCORE_API PerfTimer {
 public:
     explicit PerfTimer(const std::string& label);
     ~PerfTimer();
@@ -62,6 +62,7 @@ public:
 private:
     std::string m_label;
     std::chrono::steady_clock::time_point m_start;
+    double m_elapsedMs = 0.0;
     bool m_stopped = false;
 };
 

@@ -14,16 +14,19 @@
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/events/MainThreadDispatcher.h"
+#include "core/config/ConfigManager.h"
+#include "ui/WebViewEnvironmentManager.h"
 
 // WebView2 SDK 头文件
 #include <WebView2.h>
-#include <WebView2EnvironmentOptions.h>
 #include <wrl/event.h>
 
 #include <filesystem>
 #include <fstream>
 #include <dwmapi.h>
 #include <algorithm>
+#include <utility>
 
 #pragma comment(lib, "dwmapi.lib")
 
@@ -113,6 +116,8 @@ bool SettingsWindow::isVisible() const {
 }
 
 void SettingsWindow::destroy() {
+    ++m_generation;
+    easy::core::MessageBridge::instance().setEventPusher({});
     if (m_controller) {
         m_controller->Close();
         m_controller = nullptr;
@@ -120,9 +125,9 @@ void SettingsWindow::destroy() {
     m_webView = nullptr;
     m_environment = nullptr;
 
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
-        m_hwnd = nullptr;
+    const HWND hwnd = std::exchange(m_hwnd, nullptr);
+    if (hwnd && IsWindow(hwnd)) {
+        DestroyWindow(hwnd);
     }
     m_visible = false;
     m_webViewReady = false;
@@ -190,56 +195,46 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void SettingsWindow::initializeWebView2() {
-    // 用户数据目录
-    auto userDataDir = easy::core::WinUtils::getAppDataDirectory() / L"webview2_data";
-    std::wstring userDataPath = userDataDir.wstring();
+    const uint64_t generation = ++m_generation;
+    WebViewEnvironmentManager::instance().acquire(
+        [this, generation](HRESULT result, ICoreWebView2Environment* environment) {
+            // destroy() invalidates the generation before closing WebView2.
+            // An E_ABORT callback after that is expected cancellation, not a
+            // startup failure worth alarming the user or polluting telemetry.
+            if (generation != m_generation.load() || !m_hwnd || !IsWindow(m_hwnd)) {
+                return;
+            }
+            if (FAILED(result) || !environment) {
+                LOG_ERROR("WebView2 环境获取失败, hr=0x{:08X}", static_cast<unsigned>(result));
+                return;
+            }
 
-    LOG_DEBUG("WebView2 用户数据目录: {}", easy::core::WinUtils::wstringToUtf8(userDataPath));
-
-    auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
-    options->put_AdditionalBrowserArguments(L"--enable-features=OverlayScrollbar --allow-file-access-from-files");
-
-    HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-        nullptr,                    // 使用 Evergreen Runtime（不指定浏览器路径）
-        userDataPath.c_str(),       // 用户数据目录
-        options.Get(),              // 环境选项
-        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-            [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-                if (FAILED(result) || !env) {
-                    LOG_ERROR("WebView2 环境创建失败, hr=0x{:08X}", static_cast<unsigned>(result));
-                    return result;
-                }
-
-                m_environment = env;
-                LOG_DEBUG("WebView2 环境创建成功");
-
-                // 创建 WebView2 控件
-                env->CreateCoreWebView2Controller(
-                    m_hwnd,
-                    Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                        [this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                            if (FAILED(result) || !controller) {
-                                LOG_ERROR("WebView2 控件创建失败, hr=0x{:08X}", static_cast<unsigned>(result));
-                                return result;
-                            }
-
-                            m_controller = controller;
-                            controller->get_CoreWebView2(&m_webView);
-
-                            onWebView2Ready();
+            m_environment = environment;
+            const HRESULT controllerResult = environment->CreateCoreWebView2Controller(
+                m_hwnd,
+                Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                    [this, generation](HRESULT readyResult,
+                                       ICoreWebView2Controller* controller) -> HRESULT {
+                        if (generation != m_generation.load() || !m_hwnd || !IsWindow(m_hwnd)) {
+                            if (controller) controller->Close();
+                            LOG_DEBUG("WebView2 控件创建已因窗口销毁而取消");
                             return S_OK;
                         }
-                    ).Get()
-                );
-
-                return S_OK;
+                        if (FAILED(readyResult) || !controller) {
+                            LOG_ERROR("WebView2 控件创建失败, hr=0x{:08X}",
+                                      static_cast<unsigned>(readyResult));
+                            return readyResult;
+                        }
+                        m_controller = controller;
+                        controller->get_CoreWebView2(&m_webView);
+                        onWebView2Ready();
+                        return S_OK;
+                    }).Get());
+            if (FAILED(controllerResult)) {
+                LOG_ERROR("WebView2 控件创建请求失败, hr=0x{:08X}",
+                          static_cast<unsigned>(controllerResult));
             }
-        ).Get()
-    );
-
-    if (FAILED(hr)) {
-        LOG_ERROR("CreateCoreWebView2EnvironmentWithOptions 失败, hr=0x{:08X}", static_cast<unsigned>(hr));
-    }
+        });
 }
 
 void SettingsWindow::onWebView2Ready() {
@@ -268,12 +263,26 @@ void SettingsWindow::onWebView2Ready() {
         settings->put_AreDefaultScriptDialogsEnabled(TRUE);
         settings->put_IsWebMessageEnabled(TRUE);
         settings->put_IsStatusBarEnabled(FALSE);
+        settings->put_AreDefaultContextMenusEnabled(FALSE);
 
 #ifdef _DEBUG
         settings->put_AreDevToolsEnabled(m_config.devToolsEnabled ? TRUE : FALSE);
 #else
         settings->put_AreDevToolsEnabled(FALSE);
 #endif
+    }
+
+    // Serve packaged UI from a constrained virtual HTTPS origin instead of
+    // granting broad file:// access to the browser process.
+    const auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
+    std::error_code mappingError;
+    if (std::filesystem::exists(uiFolder, mappingError)) {
+        ComPtr<ICoreWebView2_3> webView3;
+        if (SUCCEEDED(m_webView.As(&webView3)) && webView3) {
+            webView3->SetVirtualHostNameToFolderMapping(
+                L"easytools.local", uiFolder.c_str(),
+                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+        }
     }
 
     // ── 设置 WebView2 透明背景，使得底层 Mica 材质透出 ──────────────────
@@ -313,18 +322,16 @@ void SettingsWindow::onWebView2Ready() {
     );
 
     // ── 设置事件推送器（C++ → JS）───────────────────────────────────────
-    auto webViewWeak = m_webView;  // 弱引用避免循环引用
     easy::core::MessageBridge::instance().setEventPusher(
-        [webViewWeak](const std::string& eventName, const nlohmann::json& data) {
-            if (!webViewWeak) return;
-
-            nlohmann::json envelope = {
-                {"type", "event"},
-                {"event", eventName},
-                {"data", data}
-            };
-            std::wstring msg = easy::core::WinUtils::utf8ToWstring(envelope.dump());
-            webViewWeak->PostWebMessageAsString(msg.c_str());
+        [this](const std::string& eventName, const nlohmann::json& data) {
+            easy::core::MainThreadDispatcher::instance().post([this, eventName, data]() {
+                if (!m_webView || !m_webViewReady) return;
+                const nlohmann::json envelope = {
+                    {"type", "event"}, {"event", eventName}, {"data", data}
+                };
+                const auto msg = easy::core::WinUtils::utf8ToWstring(envelope.dump());
+                m_webView->PostWebMessageAsString(msg.c_str());
+            });
         }
     );
 
@@ -336,7 +343,7 @@ void SettingsWindow::onWebView2Ready() {
     EventRegistrationToken token;
     m_webView->add_NavigationCompleted(
         Callback<ICoreWebView2NavigationCompletedEventHandler>(
-            [this, entryUrl](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+            [this, entryUrl](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
                 BOOL success;
                 args->get_IsSuccess(&success);
                 if (success) {
@@ -360,12 +367,10 @@ std::string SettingsWindow::getUIEntryUrl() const {
     auto exeDir = easy::core::WinUtils::getExeDirectory();
     auto indexPath = exeDir / L"ui" / L"index.html";
 
-    // 1. 优先使用本地单文件打包 (生产模式) - 绝对的 file:/// 路径加载，完美离线免疫代理
+    // 1. 优先使用本地单文件包，通过受限虚拟 HTTPS 源离线加载。
     std::error_code ec;
     if (std::filesystem::exists(indexPath, ec)) {
-        std::string pathStr = easy::core::WinUtils::wstringToUtf8(indexPath.wstring());
-        std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
-        return "file:///" + pathStr;
+        return "https://easytools.local/index.html";
     }
 
     // 2. 如果本地不存在，说明是在 C++ 开发模式下运行。尝试读取 Vite 动态端口文件
@@ -392,6 +397,10 @@ std::string SettingsWindow::getUIEntryUrl() const {
 }
 
 void SettingsWindow::navigateTo(const std::string& path) {
+    if (!easy::core::MainThreadDispatcher::instance().isOwnerThread()) {
+        easy::core::MainThreadDispatcher::instance().post([this, path]() { navigateTo(path); });
+        return;
+    }
     if (!m_webView || !m_webViewReady) return;
 
     // 通过 JS 路由导航
@@ -401,6 +410,11 @@ void SettingsWindow::navigateTo(const std::string& path) {
 }
 
 void SettingsWindow::pushEventToFrontend(const std::string& eventName, const std::string& dataJson) {
+    if (!easy::core::MainThreadDispatcher::instance().isOwnerThread()) {
+        easy::core::MainThreadDispatcher::instance().post(
+            [this, eventName, dataJson]() { pushEventToFrontend(eventName, dataJson); });
+        return;
+    }
     if (!m_webView || !m_webViewReady) return;
 
     std::string envelope = R"({"type":"event","event":")" + eventName + R"(","data":)" + dataJson + "}";
@@ -431,10 +445,10 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
 
         case WM_CLOSE: {
-            // 关闭设置窗口 = 隐藏到托盘（不退出程序）
-            if (self) {
-                self->hide();
-            }
+            if (!easy::core::ConfigManager::instance().get<bool>(
+                    "/general/minimizeToTray", true)) {
+                PostQuitMessage(0);
+            } else if (self) self->hide();
             return 0;  // 不调用 DestroyWindow
         }
 

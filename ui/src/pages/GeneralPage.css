@@ -28,6 +28,14 @@
   color: var(--text-primary);
 }
 
+.general-page__hotkey-control {
+  width: min(250px, 48%);
+}
+
+.general-page__hotkey-control .hotkey-recorder {
+  width: 100%;
+}
+
 .general-page__hotkey-kbd {
   display: inline-block;
   padding: 4px 10px;

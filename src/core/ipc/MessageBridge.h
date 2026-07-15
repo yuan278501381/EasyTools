@@ -15,6 +15,7 @@
 
 #include <string>
 #include <functional>
+#include <shared_mutex>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 
@@ -50,6 +51,10 @@ public:
     /// 设置事件推送器（由 WebView2 初始化时调用）
     void setEventPusher(EventPusher pusher);
 
+    /// 清空全部处理器和事件推送器。插件 DLL 卸载前必须调用，避免遗留
+    /// std::function 的析构代码指向已经卸载的模块。
+    void clearHandlers();
+
     /// 向前端推送事件
     void pushEvent(const std::string& eventName, const json& data = {});
 
@@ -63,6 +68,7 @@ private:
 
     std::unordered_map<std::string, MessageHandler> m_handlers;
     EventPusher m_eventPusher;
+    mutable std::shared_mutex m_mutex;
 };
 
 }  // namespace easy::core

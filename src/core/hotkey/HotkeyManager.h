@@ -39,7 +39,7 @@ inline ModKey operator|(ModKey a, ModKey b) {
 }
 
 /// 快捷键定义
-struct HotkeyDef {
+struct EASYCORE_API HotkeyDef {
     ModKey modifiers = ModKey::None;
     UINT virtualKey  = 0;            // VK_xxx 虚拟键码
 

@@ -20,7 +20,7 @@ jobs:
     name: Build EasyTools (Windows x64)
     runs-on: windows-latest
     
-    # 世界级项目安全要求：为构建溯源证明授予必要权限
+    # 构建来源证明所需的最小权限。
     permissions:
       id-token: write
       contents: read
@@ -54,7 +54,7 @@ jobs:
           cache-dependency-path: 'ui/package-lock.json'
 
       - name: 配置 Vcpkg 二进制缓存 (Setup Vcpkg Cache)
-        # 世界级工程必备：利用 GitHub Actions 的原生缓存来缓存 OpenCV/FFmpeg 等耗时巨大的 C++ 库
+        # 缓存 OpenCV/FFmpeg 等耗时较长的 C++ 依赖。
         uses: actions/cache@v4
         with:
           path: |
@@ -65,6 +65,10 @@ jobs:
           key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-
+
+      - name: 安装 Inno Setup (Install Inno Setup)
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
 
       - name: 执行一键幂等部署流水线 (Run Deployment Script)
         shell: pwsh
@@ -77,12 +81,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EasyTools-Release-x64
-          path: deploy_dist/
+          path: |
+            deploy_dist/
+            Output/EasyTools-Setup.exe
           if-no-files-found: error
           retention-days: 7
 
       - name: 生成安全构建溯源证明 (Attest Build Provenance)
-        # 为生成的产物签发带有加密防伪校验的 SBOM / SLSA 来源证明
+        # 为生成的便携版产物签发 SLSA 构建来源证明（不是 SBOM）。
         uses: actions/attest-build-provenance@v4.1.0
         with:
           subject-path: 'deploy_dist/**'

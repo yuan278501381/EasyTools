@@ -21,6 +21,7 @@ public:
     void cancel();
 
     void setCallback(SelectionCallback callback) { m_state.callback = std::move(callback); }
+    void setClosedCallback(std::function<void()> callback) { m_closedCallback = std::move(callback); }
     void setRecordCallback(RecordSelectionCallback callback) { m_state.recordCallback = std::move(callback); }
     void setOcrCallback(std::function<void(const CaptureRegion& region, const cv::Mat& cropped)> callback) { m_state.ocrCallback = std::move(callback); }
 
@@ -41,10 +42,11 @@ private:
     CaptureState m_state;
     CaptureRenderer m_renderer;
     CaptureInput m_input;
+    std::function<void()> m_closedCallback;
 
     void realCancel();
     void confirmSelection();
-    void freezeScreen();
+    bool freezeScreen();
 };
 
 } // namespace easy::capture

@@ -64,10 +64,25 @@ body {
   font-weight: 500;
   transition: all 0.15s ease;
   user-select: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
 }
 
 .tray-menu__item:hover {
   background: var(--tray-hover);
+}
+
+.tray-menu__item:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: -2px;
+}
+
+.tray-menu__item:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .tray-menu__item--danger:hover {
