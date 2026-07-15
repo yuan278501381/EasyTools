@@ -110,14 +110,18 @@ void HotCornerEngine::workerThread() {
                     if (!cmd.empty()) {
                         LOG_INFO("HotCornerEngine: 触发角生效角={}, 执行命令='{}'", static_cast<int>(currentCorner), cmd);
                         
-                        // 通过内部事件总线/命令派发器执行
-                        if (cmd == "capture") {
-                            BuiltinCommandDispatcher::instance().execute(BuiltinCommand::TakeScreenshot);
-                        } else if (cmd == "search") {
-                            BuiltinCommandDispatcher::instance().execute(BuiltinCommand::ToggleSearch);
-                        } else {
-                            // 其他通用 IPC 消息
-                            easy::core::MessageBridge::instance().handleMessage(cmd);
+                        // 新配置保存 BuiltinCommand 的数值索引；兼容早期 capture/search 字符串。
+                        if (cmd == "capture") cmd = std::to_string(static_cast<int>(BuiltinCommand::TakeScreenshot));
+                        if (cmd == "search") cmd = std::to_string(static_cast<int>(BuiltinCommand::ToggleSearch));
+                        try {
+                            const int index = std::stoi(cmd);
+                            if (index >= static_cast<int>(BuiltinCommand::CloseWindow) &&
+                                index <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
+                                BuiltinCommandDispatcher::instance().execute(
+                                    static_cast<BuiltinCommand>(index));
+                            }
+                        } catch (const std::exception& e) {
+                            LOG_WARN("HotCornerEngine: 忽略无效动作 '{}': {}", cmd, e.what());
                         }
 
                         triggered = true;

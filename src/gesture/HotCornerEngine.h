@@ -50,6 +50,7 @@ public:
 
     /// 设置触发延迟（毫秒）
     void setTriggerDelay(int ms) { m_triggerDelayMs.store(ms); }
+    int triggerDelay() const { return m_triggerDelayMs.load(); }
 
 private:
     HotCornerEngine() = default;

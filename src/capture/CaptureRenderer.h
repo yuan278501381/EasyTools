@@ -17,9 +17,13 @@ public:
     void shutdown();
     
     void render(CaptureState& state);
-    void invalidate() { m_needsRender = true; }
+    void invalidate() {
+        m_needsRender = true;
+        if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
     bool needsRender() const { return m_needsRender; }
     void clearNeedsRender() { m_needsRender = false; }
+    bool updateScreenBitmap(const cv::Mat& image);
     
     void markMarkupDirty() { m_markupCacheDirty = true; m_needsRender = true; }
     void updateHistoryBitmap(CaptureState& state);

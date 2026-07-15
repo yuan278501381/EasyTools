@@ -3,6 +3,10 @@
 # ==============================================================================
 build/
 deploy_dist/
+deploy_dist_backup/
+deploy_dist_staging_*/
+deploy_logs/
+Output/
 out/
 bin/
 obj/
@@ -54,6 +58,7 @@ ui/.env.*.local
 !.vscode/tasks.json
 !.vscode/launch.json
 .idea/
+.codex/
 *.suo
 *.swp
 *.swo

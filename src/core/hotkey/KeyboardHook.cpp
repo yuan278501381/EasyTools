@@ -43,6 +43,11 @@ void KeyboardHook::uninstall() {
     }
 }
 
+void KeyboardHook::setKeycastCallback(std::function<void(const std::string&)> cb) {
+    std::lock_guard lock(m_callbackMutex);
+    m_keycastCallback = std::move(cb);
+}
+
 LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     auto& self = KeyboardHook::instance();
 
@@ -57,7 +62,12 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                     StatsManager::instance().recordKey(data->vkCode);
 
                     // --- 广义组合键回显逻辑 ---
-                    if (self.m_keycastCallback) {
+                    std::function<void(const std::string&)> keycastCallback;
+                    {
+                        std::lock_guard lock(self.m_callbackMutex);
+                        keycastCallback = self.m_keycastCallback;
+                    }
+                    if (keycastCallback) {
                         static std::vector<std::string> currentSequence;
                         static uint64_t lastKeyTick = 0;
                         static std::mutex sequenceMutex;
@@ -107,7 +117,7 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                                 display += currentSequence[i];
                             }
                             
-                            self.m_keycastCallback(display);
+                            keycastCallback(display);
                         }
                     }
                 }

@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/RecordingIndicator.h"
+#include "capture/ScreenRecorder.h"
 #include "core/logger/Logger.h"
 
 #include <format>
@@ -29,13 +30,13 @@ RecordingIndicator& RecordingIndicator::instance() {
 }
 
 bool RecordingIndicator::initialize(HINSTANCE hInstance) {
-    if (!createWindow(hInstance)) return false;
-    if (!createRenderResources()) return false;
-    LOG_DEBUG("录制指示器初始化成功");
-    return true;
+    // 与截图覆盖层一样按需创建，避免隐藏的 layered D2D 窗口参与桌面合成。
+    m_hInstance = hInstance;
+    return m_hInstance != nullptr;
 }
 
 void RecordingIndicator::shutdown() {
+    if (m_hwnd) KillTimer(m_hwnd, RENDER_TIMER_ID);
     releaseRenderResources();
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
@@ -44,7 +45,18 @@ void RecordingIndicator::shutdown() {
 }
 
 void RecordingIndicator::show() {
-    if (!m_hwnd) return;
+    if (!m_hwnd) {
+        if (!m_hInstance || !createWindow(m_hInstance) || !createRenderResources()) {
+            LOG_ERROR("录制指示器按需初始化失败");
+            releaseRenderResources();
+            if (m_hwnd) {
+                DestroyWindow(m_hwnd);
+                m_hwnd = nullptr;
+            }
+            return;
+        }
+        LOG_DEBUG("录制指示器按需初始化成功");
+    }
 
     // 屏幕顶部居中
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -61,6 +73,9 @@ void RecordingIndicator::hide() {
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         ShowWindow(m_hwnd, SW_HIDE);
+        releaseRenderResources();
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
     }
     LOG_DEBUG("录制指示器已隐藏");
 }
@@ -299,6 +314,9 @@ LRESULT CALLBACK RecordingIndicator::indicatorWndProc(HWND hwnd, UINT msg, WPARA
 
         case WM_TIMER: {
             if (self && wParam == RENDER_TIMER_ID) {
+                const auto stats = ScreenRecorder::instance().stats();
+                self->m_duration = stats.durationSec;
+                self->m_frames = stats.frameCount;
                 self->render();  // 刷新闪烁
             }
             return 0;

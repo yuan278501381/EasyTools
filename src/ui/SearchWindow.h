@@ -3,6 +3,7 @@
 #include <wrl/client.h>
 #include <string>
 #include <atomic>
+#include <cstdint>
 
 struct ICoreWebView2;
 struct ICoreWebView2Controller;
@@ -35,6 +36,7 @@ private:
 
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;
+    std::atomic<uint64_t> m_generation{0};
 };
 
 } // namespace easy::ui

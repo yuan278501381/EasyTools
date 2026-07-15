@@ -17,19 +17,26 @@ export interface GestureMapping {
   };
 }
 
-export const ACTION_TYPE_OPTIONS = [
-  { value: '0', label: '快捷键' },
-  { value: '1', label: 'Lua 脚本' },
-  { value: '2', label: '内置命令' },
-  { value: '3', label: '运行程序' },
-];
+export const ACTION_TYPE_KEYS = [
+  'gestureEditor.actionTypes.hotkey',
+  'gestureEditor.actionTypes.lua',
+  'gestureEditor.actionTypes.builtin',
+  'gestureEditor.actionTypes.program',
+] as const;
 
 // 顺序必须与 C++ BuiltinCommand 枚举一致 (gesture/GestureAction.h)
-export const BUILTIN_COMMANDS = [
-  '关闭窗口', '关闭标签页', '最大化窗口', '最小化窗口', '还原窗口',
-  '显示桌面', '切换虚拟桌面', '任务视图', '锁屏', '暂停手势',
-  '截图', '开始录屏', '恢复关闭的标签页', '窗口置顶切换',
-];
+export const BUILTIN_COMMAND_KEYS = [
+  'gestureEditor.builtin.closeWindow', 'gestureEditor.builtin.closeTab',
+  'gestureEditor.builtin.maximize', 'gestureEditor.builtin.minimize',
+  'gestureEditor.builtin.restore', 'gestureEditor.builtin.showDesktop',
+  'gestureEditor.builtin.switchDesktop', 'gestureEditor.builtin.taskView',
+  'gestureEditor.builtin.lockScreen', 'gestureEditor.builtin.pauseGestures',
+  'gestureEditor.builtin.screenshot', 'gestureEditor.builtin.record',
+  'gestureEditor.builtin.restoreTab', 'gestureEditor.builtin.topmost',
+  'gestureEditor.builtin.transparency', 'gestureEditor.builtin.webSearch',
+  'gestureEditor.builtin.search', 'gestureEditor.builtin.radialMenu',
+  'gestureEditor.builtin.pasteAsPin',
+] as const;
 
 export const CODE_TO_ARROWS: Record<string, string> = {
   L: '←', R: '→', U: '↑', D: '↓', UL: '↖', UR: '↗', DL: '↙', DR: '↘',

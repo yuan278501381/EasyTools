@@ -28,6 +28,8 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/photo.hpp>
 #include <cmath>
+#include <limits>
+#include <mutex>
 
 namespace {
     std::vector<cv::Point> generateSmoothSpline(const std::vector<cv::Point>& pts, int stepsPerSegment = 10) {
@@ -55,14 +57,8 @@ namespace {
         return smoothPts;
     }
 
-    struct GdiPlusInit {
-        ULONG_PTR token;
-        GdiPlusInit() {
-            Gdiplus::GdiplusStartupInput input;
-            Gdiplus::GdiplusStartup(&token, &input, nullptr);
-        }
-        ~GdiPlusInit() { Gdiplus::GdiplusShutdown(token); }
-    } gdiInit;
+    std::mutex g_gdiPlusMutex;
+    ULONG_PTR g_gdiPlusToken = 0;
 
     cv::Size getGdiTextSize(const std::wstring& text, int fontSize) {
         Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
@@ -80,8 +76,10 @@ namespace {
         if (sz.width <= 0 || sz.height <= 0) return;
         
         cv::Mat textMat(sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+        if (textMat.step > static_cast<size_t>(std::numeric_limits<INT>::max())) return;
         {
-            Gdiplus::Bitmap bitmap(sz.width, sz.height, textMat.step, PixelFormat32bppARGB, textMat.data);
+            Gdiplus::Bitmap bitmap(sz.width, sz.height, static_cast<INT>(textMat.step),
+                                   PixelFormat32bppARGB, textMat.data);
             Gdiplus::Graphics graphics(&bitmap);
             graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
             graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
@@ -117,6 +115,37 @@ namespace {
 #include <chrono>
 
 namespace easy::capture {
+
+bool initializeMarkupTextRenderer() {
+    std::lock_guard lock(g_gdiPlusMutex);
+    if (g_gdiPlusToken != 0) return true;
+
+    Gdiplus::GdiplusStartupInput input;
+    ULONG_PTR token = 0;
+    const auto status = Gdiplus::GdiplusStartup(&token, &input, nullptr);
+    if (status != Gdiplus::Ok) {
+        LOG_ERROR("GDI+ 文本渲染器初始化失败, status={}", static_cast<int>(status));
+        return false;
+    }
+    g_gdiPlusToken = token;
+    LOG_DEBUG("GDI+ 文本渲染器已初始化");
+    return true;
+}
+
+void shutdownMarkupTextRenderer() {
+    ULONG_PTR token = 0;
+    {
+        std::lock_guard lock(g_gdiPlusMutex);
+        token = g_gdiPlusToken;
+        g_gdiPlusToken = 0;
+    }
+    if (token != 0) {
+        // Deliberately before FreeLibrary and without the mutex: GDI+ waits for
+        // its helper thread during shutdown.
+        Gdiplus::GdiplusShutdown(token);
+        LOG_DEBUG("GDI+ 文本渲染器已关闭");
+    }
+}
 
 static std::atomic<uint32_t> g_elementIdCounter{1};
 

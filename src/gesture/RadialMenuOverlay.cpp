@@ -4,6 +4,7 @@
 #include "core/ipc/MessageBridge.h"
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -292,15 +293,37 @@ int RadialMenuOverlay::hitTest(POINT pt) {
 
 void RadialMenuOverlay::executeAction(int index) {
     if (index >= 0 && index < static_cast<int>(m_items.size())) {
-        std::string cmd = m_items[index].command;
+        const std::string cmd = m_items[index].command;
         LOG_INFO("RadialMenu: Execute command '{}'", cmd);
-        
-        if (cmd == "capture") {
-            BuiltinCommandDispatcher::instance().execute(BuiltinCommand::TakeScreenshot);
-        } else if (cmd == "search") {
-            BuiltinCommandDispatcher::instance().execute(BuiltinCommand::ToggleSearch);
-        } else {
+
+        // 兼容早期的可读字符串，并以数值索引作为当前稳定格式。
+        static const std::unordered_map<std::string, BuiltinCommand> legacyCommands = {
+            {"capture", BuiltinCommand::TakeScreenshot},
+            {"search", BuiltinCommand::ToggleSearch},
+            {"lock", BuiltinCommand::LockScreen},
+            {"pin", BuiltinCommand::PasteAsPin},
+            {"record", BuiltinCommand::StartRecording},
+        };
+        if (const auto legacy = legacyCommands.find(cmd); legacy != legacyCommands.end()) {
+            BuiltinCommandDispatcher::instance().execute(legacy->second);
+            return;
+        }
+        try {
+            size_t consumed = 0;
+            const int commandIndex = std::stoi(cmd, &consumed);
+            if (consumed == cmd.size() && commandIndex >= 0 &&
+                commandIndex <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
+                BuiltinCommandDispatcher::instance().execute(
+                    static_cast<BuiltinCommand>(commandIndex));
+                return;
+            }
+        } catch (...) {}
+
+        // 仅为旧配置保留结构化 IPC 消息兼容；普通文本不再交给 JSON 解析器。
+        if (!cmd.empty() && cmd.front() == '{') {
             easy::core::MessageBridge::instance().handleMessage(cmd);
+        } else {
+            LOG_WARN("RadialMenu: 忽略未知命令 '{}'", cmd);
         }
     }
 }

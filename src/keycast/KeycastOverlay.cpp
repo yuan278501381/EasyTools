@@ -2,6 +2,7 @@
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
+#include <algorithm>
 #include <vector>
 #include <cmath>
 
@@ -10,6 +11,13 @@
 #pragma comment(lib, "msimg32.lib")
 
 namespace easy::keycast {
+
+namespace {
+constexpr UINT_PTR ANIMATION_TIMER_ID = 1;
+constexpr UINT START_ANIMATION_MESSAGE = WM_APP + 1;
+constexpr int OVERLAY_WIDTH = 800;
+constexpr int OVERLAY_HEIGHT = 180;
+}
 
 KeycastOverlay& KeycastOverlay::instance() {
     static KeycastOverlay inst;
@@ -29,12 +37,14 @@ bool KeycastOverlay::init() {
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
+    const int x = (screenW - OVERLAY_WIDTH) / 2;
+    const int y = std::max(0, screenH - OVERLAY_HEIGHT - 48);
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         wcex.lpszClassName,
         L"EasyTools Keycast",
         WS_POPUP,
-        0, 0, screenW, screenH,
+        x, y, OVERLAY_WIDTH, OVERLAY_HEIGHT,
         nullptr, nullptr, wcex.hInstance, nullptr
     );
 
@@ -48,19 +58,14 @@ bool KeycastOverlay::init() {
         return false;
     }
 
-    // Set up animation timer (~60fps)
-    SetTimer(m_hwnd, 1, 16, nullptr);
-    
-    // initially hidden but visible to OS
-    UpdateLayeredWindow(m_hwnd, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, ULW_ALPHA);
-    ShowWindow(m_hwnd, SW_SHOWNA);
-    
+    // 空闲时完全隐藏且不设定时器；只有实际显示按键的 1.8 秒内才渲染。
+    ShowWindow(m_hwnd, SW_HIDE);
     return true;
 }
 
 void KeycastOverlay::cleanup() {
     if (m_hwnd) {
-        KillTimer(m_hwnd, 1);
+        KillTimer(m_hwnd, ANIMATION_TIMER_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
@@ -108,22 +113,24 @@ bool KeycastOverlay::createResources() {
 }
 
 void KeycastOverlay::pushKey(const std::string& keyStr) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    uint64_t now = GetTickCount64();
-    if (m_rawLastKey == keyStr && (now - m_lastPushTime) < 2000) {
-        m_repeatCount++;
-        m_currentText = keyStr + " x" + std::to_string(m_repeatCount);
-    } else {
-        m_rawLastKey = keyStr;
-        m_repeatCount = 1;
-        m_currentText = keyStr;
-    }
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const uint64_t now = GetTickCount64();
+        if (m_rawLastKey == keyStr && (now - m_lastPushTime) < 2000) {
+            m_repeatCount++;
+            m_currentText = keyStr + " x" + std::to_string(m_repeatCount);
+        } else {
+            m_rawLastKey = keyStr;
+            m_repeatCount = 1;
+            m_currentText = keyStr;
+        }
 
-    m_lastPushTime = now;
-    m_opacity = 0.0f; // start animation
-    m_scale = 0.8f;
-    m_animating = true;
+        m_lastPushTime = now;
+        m_opacity = 0.0f;
+        m_scale = 0.8f;
+        m_animating = true;
+    }
+    PostMessageW(m_hwnd, START_ANIMATION_MESSAGE, 0, 0);
 }
 
 void KeycastOverlay::render() {
@@ -188,7 +195,7 @@ void KeycastOverlay::render() {
         float boxH = metrics.height + paddingY * 2;
 
         float centerX = width / 2.0f;
-        float centerY = height - 150.0f; // Bottom center
+        float centerY = height / 2.0f;
 
         // Set transform for elastic scale
         D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F::Scale(
@@ -236,36 +243,53 @@ void KeycastOverlay::render() {
 }
 
 LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_TIMER && wParam == 1) {
+    if (msg == START_ANIMATION_MESSAGE) {
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        SetTimer(hwnd, ANIMATION_TIMER_ID, 16, nullptr);
+        KeycastOverlay::instance().render();
+        return 0;
+    }
+    if (msg == WM_TIMER && wParam == ANIMATION_TIMER_ID) {
         auto& self = KeycastOverlay::instance();
-        if (self.m_animating) {
+        bool finished = false;
+        bool shouldRender = false;
+        {
             std::lock_guard<std::mutex> lock(self.m_mutex);
-            uint64_t now = GetTickCount64();
-            uint64_t elapsed = now - self.m_lastPushTime;
-
-            if (elapsed < 150) {
-                // Intro: elastic scale and fade in
-                float t = elapsed / 150.0f;
-                self.m_opacity = t;
-                // Simple elastic easing out
-                float p = 0.3f;
-                self.m_scale = powf(2.0f, -10.0f * t) * sinf((t - p / 4.0f) * (2.0f * 3.14159f) / p) + 1.0f;
-            } else if (elapsed < 1500) {
-                // Hold
-                self.m_opacity = 1.0f;
-                self.m_scale = 1.0f;
-            } else if (elapsed < 1800) {
-                // Fade out
-                float t = (elapsed - 1500) / 300.0f;
-                self.m_opacity = 1.0f - t;
-                self.m_scale = 1.0f + (0.1f * t); // slightly expand
+            if (!self.m_animating) {
+                finished = true;
             } else {
-                self.m_opacity = 0.0f;
-                self.m_animating = false;
-                self.m_currentText.clear();
+                const uint64_t now = GetTickCount64();
+                const uint64_t elapsed = now - self.m_lastPushTime;
+
+                if (elapsed < 150) {
+                    const float t = elapsed / 150.0f;
+                    self.m_opacity = t;
+                    const float p = 0.3f;
+                    self.m_scale = powf(2.0f, -10.0f * t) * sinf((t - p / 4.0f) * (2.0f * 3.14159f) / p) + 1.0f;
+                    shouldRender = true;
+                } else if (elapsed < 1500) {
+                    self.m_opacity = 1.0f;
+                    self.m_scale = 1.0f;
+                    shouldRender = true;
+                } else if (elapsed < 1800) {
+                    const float t = (elapsed - 1500) / 300.0f;
+                    self.m_opacity = 1.0f - t;
+                    self.m_scale = 1.0f + (0.1f * t);
+                    shouldRender = true;
+                } else {
+                    self.m_opacity = 0.0f;
+                    self.m_animating = false;
+                    self.m_currentText.clear();
+                    finished = true;
+                }
             }
         }
-        self.render();
+        if (finished) {
+            KillTimer(hwnd, ANIMATION_TIMER_ID);
+            ShowWindow(hwnd, SW_HIDE);
+        } else if (shouldRender) {
+            self.render();
+        }
         return 0;
     }
     return DefWindowProc(hwnd, msg, wParam, lParam);

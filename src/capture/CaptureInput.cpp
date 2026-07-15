@@ -370,7 +370,7 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
             // 关闭覆盖层
             if(m_cancelCb) m_cancelCb();
 
-            // 启动长截图 (TODO: 可以把结果通过回调传出，或者这里暂时让 ScrollCapture 把自己跑完并在内部提示)
+            // 启动长截图；完成结果由 ScreenCapture 统一保存、复制并写入历史。
             ScrollCaptureOptions opts;
             opts.captureRect = capRect;
             opts.mode = ScrollMode::Auto;
@@ -694,13 +694,17 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 m_renderer->invalidate();
             } else {
                 if ((int)m_state->state.load() == (int)OverlayState::Selecting && !m_state->dragging) {
-                    // 未拖拽时检测光标下的窗口
-                    POINT screenPt = m_state->currentCursor;
-                    int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                    int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                    screenPt.x += offX;
-                    screenPt.y += offY;
-                    m_state->detectedWindow = detectWindowUnderCursor(screenPt);
+                    if (m_state->options.autoDetectWindow) {
+                        // 未拖拽时检测光标下的窗口
+                        POINT screenPt = m_state->currentCursor;
+                        int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                        int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                        screenPt.x += offX;
+                        screenPt.y += offY;
+                        m_state->detectedWindow = detectWindowUnderCursor(screenPt);
+                    } else {
+                        m_state->detectedWindow = {};
+                    }
                 }
                 m_renderer->invalidate();        // 十字准星/动态放大镜跟随光标
             }
@@ -1020,7 +1024,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }
                 if (m_renderer->needsRender()) {
                     m_renderer->clearNeedsRender();
-                    m_renderer->invalidate();
+                    InvalidateRect(hwnd, nullptr, FALSE);
                 }
             }
             return 0;

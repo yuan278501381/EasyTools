@@ -1,91 +1,97 @@
-# EasyTools 🚀
+# EasyTools
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![C++20](https://img.shields.io/badge/C++-20-blue.svg)
-![React](https://img.shields.io/badge/React-18-61dafb.svg)
+![React](https://img.shields.io/badge/React-19-61dafb.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-lightgrey.svg)
 ![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)
 
-**EasyTools** 是一款基于 C++20 与现代 Web 技术（React + Vite）打造的**世界级 Windows 桌面增强效率工具**。它将底层高性能操作与极致的 UI 体验完美融合，致力于在极简的操作流中为用户提供极其强大的生产力辅助。
+EasyTools 是一款面向高频日常使用的 Windows 桌面效率工具。原生 C++20
+负责全局输入、截图录屏、索引与窗口生命周期；React 19 + WebView2 提供
+设置、搜索和托盘界面。项目当前版本为 1.0.0。
 
----
+## 功能
 
-## ✨ 核心特性 (Features)
+- 鼠标手势：可编辑映射、应用作用域、轨迹、暂停快捷键和执行失败反馈。
+- 热角与轮盘菜单：四角动作、自定义轮盘项、排序与持久化。
+- 截图与贴图：多显示器选区、窗口吸附、标注、历史、剪贴板和贴图管理。
+- 长截图与录屏：滚动拼接；H.264、H.265、VP9、GIF 编码与区域录制。
+- 离线 OCR：使用 Windows.Media.Ocr，支持结果窗口和剪贴板输出。
+- 快速搜索：后台 NTFS/MFT 索引服务、安全命名管道、缓存和多卷查询。
+- 按键回显与统计：可开关的回显层、热力图、历史与汇总。
+- 通用能力：中英文、亮色/暗色/跟随系统、快捷键重绑定、配置导入导出、
+  自动更新检查、日志和崩溃转储。
 
-### 🖱️ 智能鼠标手势 (Smart Mouse Gestures)
-- **底层拦截机制**：采用 `WH_MOUSE_LL` 钩子并在关键节点实行精准拦截，真正做到防误触、防干扰。
-- **动态应用黑白名单**：您可以为特定游戏或软件（如 Photoshop 等）配置黑名单，在这些软件内将自动熔断手势触发，原生消息零延迟透传。
-- **Lua 脚本引擎驱动**：每一条手势动作（如启动程序、执行快捷键）均由极速的 Lua 引擎动态解析执行，具备无限扩展潜力。
+默认快捷键可在“通用设置”中查看和修改。首次安装会注册机器级文件搜索
+服务，因此安装程序需要管理员权限；用户配置和开机自启动由应用按当前用户
+管理。
 
-### ✂️ 高性能桌面贴图 (PinWindow)
-- **内存级零延迟渲染**：采用 `Direct2D` 搭配 `WS_EX_LAYERED` 透明无边框窗口实现。
-- **任意停靠与悬浮**：截取屏幕任意区域，即可将其永久钉在桌面最顶层。支持透明度调节与穿透模式，非常适合写代码时对比参考图。
+## 架构
 
-### 📜 智能滚屏长截图 (Scroll Capture)
-- **OpenCV 视觉融合缝合**：抛弃了传统的像素强行拼接，底层引入 `cv::matchTemplate` 算法，在滚动时自动计算特征点和重叠区域。
-- **动态到底识别**：即使遇到浮动导航栏或弹窗，也能智能规避并计算出完美的超长网页/文档截图。
+```text
+EasyTools.exe
+├── EasyCore.dll                 配置、IPC、事件、日志、热键、统计、更新
+├── plugins/
+│   ├── Plugin_Gesture.dll       手势、热角、轮盘菜单
+│   ├── Plugin_Capture.dll       截图、标注、贴图、录屏、OCR
+│   ├── Plugin_Search.dll        搜索客户端与 UI 接口
+│   └── Plugin_Keycast.dll       按键回显
+├── EasyTools_Service.exe        NTFS/MFT 文件索引服务
+└── ui/index.html                单文件 React 生产资源
+```
 
-### 🔤 极速 OCR 文本提取 (Screen OCR)
-- 框选屏幕上的任意区域，系统即可在后台静默完成 OCR 识别，并将文本秒送至剪贴板，彻底告别对着图片手动打字的痛苦。
+设置、搜索和托盘窗口复用同一个 WebView2 Environment，避免重复浏览器进程和
+配置目录。插件关闭时先停止线程、清理外部回调，再卸载 DLL；配置写入采用临时
+文件替换和回滚，文件监控可区分自身写入与外部修改。
 
----
+## 构建、测试与发布
 
-## 🏗️ 架构与技术栈 (Architecture)
+环境要求：Windows 10/11 x64、MSVC C++ 工具链、PowerShell、Node.js 24，
+以及可用的 vcpkg。Inno Setup 6 为安装包构建依赖；未安装时仍可生成便携版。
 
-本工程采用了前沿的 **B/S 混合架构**（即底层 C++ 服务端 + WebView2 前端容器）：
+在仓库根目录执行：
 
-- **底层核心 (Backend)**: 纯正 `C++20` 编写。利用 Win32 API 控制系统级窗口，使用 Direct2D 处理高性能绘图。
-- **渲染容器 (Bridge)**: 微软原生的 `Edge WebView2`，实现了极低的内存占用和现代浏览器特性支持。
-- **用户界面 (Frontend)**: `React` + `TypeScript` + `Vite` 构建的丝滑前端设置页面，数据经由自研的 IPC (进程间通信) 桥与 C++ 实时双向绑定。
-- **脚本与算法层**: `Lua` (借助 sol2) 处理灵活的业务逻辑配置，`OpenCV` 处理图像拼接，`FFmpeg` 预留视频录制接口。
-
----
-
-## 🛠️ 构建与部署 (Build & Deploy)
-
-本项目采用**工业级幂等构建流水线**，已彻底摆脱了复杂的本地环境依赖痛点。无论是在本地还是云端，仅需一键即可出包。
-
-### 依赖管理器
-- 前端：`npm` (Node.js 24)
-- 后端：`Vcpkg` (Manifest 模式，无缝拉取 `opencv4`, `ffmpeg`, `spdlog`, `fmt`, `sol2`, `lua`, `nlohmann-json`)
-
-### 自动云端构建 (GitHub Actions CI/CD)
-本项目已接入 GitHub Actions。只要您向 `main` 分支推送代码，云端将自动：
-1. 启动 `windows-latest` 机器。
-2. 利用 Action Cache 极速命中 Vcpkg 预编译缓存（OpenCV等重型库秒级恢复）。
-3. 执行自动化打包并发布为 `.zip` 产物。
-4. **SLSA Provenance**：为生成的产物签发加密数字溯源防伪证明。
-
-### 本地一键编译
-如果您希望在本地编译，只需打开 PowerShell 7+，进入项目根目录：
 ```powershell
 .\deploy.ps1 -Configuration Release
 ```
-脚本将自动完成 npm 前端打包、下载 WebView2 SDK、CMake 配置、Vcpkg 依赖拉取以及最终的 MSVC 编译。您甚至不需要在本地全局安装 CMake 或下载任何 SDK！
 
----
+发布脚本会依次执行：
 
-## 📂 目录结构 (Repository Structure)
+1. `npm ci`、ESLint、i18n 键校验、TypeScript 与 Vite 生产构建；
+2. 固定版本的 WebView2 SDK 检查、CMake 配置和 MSVC Release 构建；
+3. CTest；任何测试失败都会中止发布；
+4. 产物完整性校验和 `deploy_dist` 原子替换；
+5. 若存在 Inno Setup，生成 `Output/EasyTools-Setup.exe`。
 
-```text
-easyTools/
-├── .github/workflows/    # 世界级云端自动化 CI/CD 配置
-├── src/                  # C++ 核心源码
-│   ├── capture/          # 截图、长截图与贴图核心逻辑
-│   ├── core/             # IPC 通信、日志 (spdlog)、全局配置 (ConfigManager)
-│   ├── gesture/          # 鼠标底层钩子与引擎 (GestureEngine)
-│   ├── ocr/              # 屏幕文本提取模块
-│   └── tray/             # 系统托盘与主进程生命周期管理
-├── ui/                   # 现代 React 前端页面源码
-├── deploy.ps1            # 核心工业级幂等打包部署脚本
-├── vcpkg.json            # Vcpkg 依赖清单
-└── CMakeLists.txt        # 现代 CMake 工程配置
+前端单独检查：
+
+```powershell
+Set-Location ui
+npm ci
+npm run lint
+npm run i18n-check
+npm run build
 ```
 
----
+原生测试位于 `tests/unit/test_main.cpp`，由 CTest 注册为 `EasyTools.Unit`。
+GitHub Actions 使用相同发布脚本，上传便携版和安装程序，并为便携版生成
+SLSA 构建来源证明。
 
-## 📝 许可证 (License)
+## 目录
 
-本项目基于 [MIT License](LICENSE) 开源。
+```text
+src/core/       核心基础设施、更新与主线程调度
+src/gesture/    手势、作用域、热角与轮盘菜单
+src/capture/    截图、标注、贴图、长截图和录屏
+src/ocr/        Windows OCR 与结果窗口
+src/search/     搜索插件客户端
+src/service/    NTFS/MFT 索引服务
+src/keycast/    按键回显插件
+src/ui/         WebView2 原生窗口宿主
+ui/             React/TypeScript 前端
+tests/          自动化测试
+```
 
-*打造属于未来的极简桌面效率工作流。*
+## 许可证
+
+[MIT](LICENSE)

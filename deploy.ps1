@@ -10,6 +10,7 @@ EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 #>
 
 param (
+    [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
     [string]$Configuration = "Release",
     [string]$VcpkgRoot = "C:\vcpkg"
 )
@@ -17,6 +18,13 @@ param (
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
+
+$CMakeText = Get-Content (Join-Path $ScriptDir "CMakeLists.txt") -Raw
+if ($CMakeText -notmatch '(?s)project\s*\(\s*EasyTools\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+    throw "无法从 CMakeLists.txt 读取 EasyTools 版本号"
+}
+$ProjectVersion = $Matches[1]
+$WebView2Version = "1.0.4022.49"
 
 $TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
 $LogDir = Join-Path $ScriptDir "deploy_logs"
@@ -50,19 +58,22 @@ Write-Log "检查前端环境 (ui/)..."
 if (Test-Path "ui/package.json") {
     Push-Location ui
     try {
-        # 检查是否需要安装 node_modules
-        if (-not (Test-Path "node_modules")) {
-            Write-Log "执行 npm install..."
-            npm install
-        } else {
-            Write-Log "前端依赖已存在，跳过 npm install (如果需要强制更新请手动删除 node_modules)"
+        $UiPackage = Get-Content "package.json" -Raw | ConvertFrom-Json
+        if ($UiPackage.version -ne $ProjectVersion) {
+            throw "前端版本 $($UiPackage.version) 与项目版本 $ProjectVersion 不一致"
         }
 
-        # 始终确保打包产物最新
-        Write-Log "执行 npm run build..."
-        npm run build
-        if ($LASTEXITCODE -ne 0) {
-            throw "npm run build 失败，退出码: $LASTEXITCODE"
+        # npm ci 严格按照 lockfile 构建，避免开发机 node_modules 掩盖依赖漂移。
+        Write-Log "执行 npm ci (锁定依赖)..."
+        npm ci --prefer-offline --no-audit
+        if ($LASTEXITCODE -ne 0) { throw "npm ci 失败，退出码: $LASTEXITCODE" }
+
+        foreach ($Command in @("lint", "i18n-check", "build")) {
+            Write-Log "执行 npm run $Command..."
+            npm run $Command
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm run $Command 失败，退出码: $LASTEXITCODE"
+            }
         }
         Write-Log "前端构建完成。" "SUCCESS"
     } catch {
@@ -103,9 +114,9 @@ if (-not (Test-Path $PackagesDir)) {
     New-Item -ItemType Directory -Path $PackagesDir | Out-Null
 }
 
-$WebView2Dirs = Get-ChildItem -Path $PackagesDir -Filter "Microsoft.Web.WebView2.*" -Directory
-if ($WebView2Dirs.Count -eq 0) {
-    Write-Log "未发现 WebView2 SDK，开始通过 nuget.exe 下载..." "WARN"
+$WebView2TargetDir = Join-Path $PackagesDir "Microsoft.Web.WebView2.$WebView2Version"
+if (-not (Test-Path (Join-Path $WebView2TargetDir "build\native\include\WebView2.h"))) {
+    Write-Log "未发现固定版本 WebView2 SDK $WebView2Version，开始通过 nuget.exe 下载..." "WARN"
     
     $NugetExe = Join-Path $PackagesDir "nuget.exe"
     if (-not (Test-Path $NugetExe)) {
@@ -113,7 +124,11 @@ if ($WebView2Dirs.Count -eq 0) {
         Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $NugetExe
     }
 
-    Start-Process -FilePath $NugetExe -ArgumentList "install Microsoft.Web.WebView2 -OutputDirectory `"$PackagesDir`"" -Wait -NoNewWindow
+    & $NugetExe install Microsoft.Web.WebView2 -Version $WebView2Version `
+        -OutputDirectory $PackagesDir -NonInteractive
+    if ($LASTEXITCODE -ne 0) {
+        throw "WebView2 SDK 下载失败，退出码: $LASTEXITCODE"
+    }
     Write-Log "WebView2 SDK 下载完成。" "SUCCESS"
 } else {
     Write-Log "WebView2 SDK 已存在，跳过下载。"
@@ -150,9 +165,12 @@ if (-not (Test-Path $BuildDir)) {
 }
 
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows"
+if ($LASTEXITCODE -ne 0) {
+    throw "CMake 配置失败！退出码: $LASTEXITCODE"
+}
 
 Write-Log "执行 CMake Build ($Configuration)..."
-cmake --build build --config $Configuration
+cmake --build build --config $Configuration --parallel
 
 if ($LASTEXITCODE -ne 0) {
     throw "C++ 编译失败！退出码: $LASTEXITCODE"
@@ -162,20 +180,12 @@ Write-Log "C++ 编译完成。" "SUCCESS"
 # ------------------------------------------------------------------------------
 # 4.5 运行单元测试 (失败则中断流水线)
 # ------------------------------------------------------------------------------
-$TestExe = Join-Path $BuildDir "bin\$Configuration\EasyToolsTests.exe"
-if (-not (Test-Path $TestExe)) {
-    $TestExe = Join-Path $BuildDir "bin\EasyToolsTests.exe"
+Write-Log "运行 CTest 测试套件..."
+ctest --test-dir $BuildDir -C $Configuration --output-on-failure
+if ($LASTEXITCODE -ne 0) {
+    throw "测试失败！退出码: $LASTEXITCODE"
 }
-if (Test-Path $TestExe) {
-    Write-Log "运行单元测试..."
-    & $TestExe
-    if ($LASTEXITCODE -ne 0) {
-        throw "单元测试失败！退出码: $LASTEXITCODE"
-    }
-    Write-Log "单元测试通过。" "SUCCESS"
-} else {
-    Write-Log "未找到单元测试可执行文件 ($TestExe)，跳过。" "WARN"
-}
+Write-Log "测试套件通过。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
 # 5. 打包输出物 (Deploy)
@@ -199,9 +209,16 @@ if (-not (Test-Path $ExePath)) {
 if (Test-Path $ExePath) {
     Copy-Item $ExePath -Destination $StagingDir
     Write-Log "已复制可执行文件: EasyTools.exe"
+
+    $ExeDir = Split-Path $ExePath -Parent
+    $ServicePath = Join-Path $ExeDir "EasyTools_Service.exe"
+    if (-not (Test-Path $ServicePath)) {
+        throw "找不到编译后的 EasyTools_Service.exe"
+    }
+    Copy-Item $ServicePath -Destination $StagingDir
+    Write-Log "已复制文件索引服务: EasyTools_Service.exe"
     
     # 复制所有同一目录下的 DLL 文件 (vcpkg 的依赖如 spdlog.dll 等)
-    $ExeDir = Split-Path $ExePath -Parent
     $DllFiles = Join-Path $ExeDir "*.dll"
     if (Test-Path $DllFiles) {
         Copy-Item $DllFiles -Destination $StagingDir
@@ -222,10 +239,60 @@ if (Test-Path $ExePath) {
     throw "找不到编译后的 EasyTools.exe"
 }
 
+# MSVC 动态运行库。EasyTools 与 vcpkg x64-windows 依赖均使用动态 CRT；
+# 便携包不能假设目标机器预装了 Visual C++ Redistributable。优先使用当前
+# DevShell 精确对应的 Redist 目录，CI 中再通过 vswhere 定位同一工具链。
+$VcRuntimeNames = @(
+    "msvcp140.dll", "msvcp140_atomic_wait.dll",
+    "vcruntime140.dll", "vcruntime140_1.dll"
+)
+$VcCrtDir = $null
+$VcRedistRoots = @()
+if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
+    $VcRedistRoots += $env:VCToolsRedistDir
+}
+
+$RedistVsPath = $vsPath
+if (-not $RedistVsPath) {
+    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $RedistVsPath = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
+    }
+}
+if ($RedistVsPath) {
+    $MsVcRedistRoot = Join-Path $RedistVsPath "VC\Redist\MSVC"
+    if (Test-Path $MsVcRedistRoot) {
+        $VcRedistRoots += Get-ChildItem $MsVcRedistRoot -Directory |
+            Sort-Object Name -Descending | ForEach-Object { $_.FullName }
+    }
+}
+
+foreach ($Root in $VcRedistRoots | Select-Object -Unique) {
+    $X64Root = Join-Path $Root "x64"
+    if (-not (Test-Path $X64Root)) { continue }
+    $Candidate = Get-ChildItem $X64Root -Directory -Filter "Microsoft.VC*.CRT" |
+        Sort-Object Name -Descending | Select-Object -First 1
+    if ($Candidate) {
+        $MissingRuntime = @($VcRuntimeNames | Where-Object {
+            -not (Test-Path (Join-Path $Candidate.FullName $_))
+        })
+        if ($MissingRuntime.Count -eq 0) {
+            $VcCrtDir = $Candidate.FullName
+            break
+        }
+    }
+}
+if (-not $VcCrtDir) {
+    throw "找不到与 MSVC 工具链匹配的 x64 Visual C++ Runtime 可再发行文件"
+}
+Copy-Item (Join-Path $VcCrtDir "*.dll") -Destination $StagingDir
+Write-Log "已复制 Visual C++ Runtime: $VcCrtDir"
+
 # WebView2Loader.dll
-$WebView2TargetDir = Get-ChildItem -Path $PackagesDir -Filter "Microsoft.Web.WebView2.*" -Directory | Select-Object -First 1
-if ($WebView2TargetDir) {
-    $LoaderPath = Join-Path $WebView2TargetDir.FullName "build\native\x64\WebView2Loader.dll"
+$WebView2PackageDir = Get-Item $WebView2TargetDir -ErrorAction SilentlyContinue
+if ($WebView2PackageDir) {
+    $LoaderPath = Join-Path $WebView2PackageDir.FullName "build\native\x64\WebView2Loader.dll"
     if (Test-Path $LoaderPath) {
         Copy-Item $LoaderPath -Destination $StagingDir
         Write-Log "已复制 WebView2Loader.dll"
@@ -243,6 +310,18 @@ if (Test-Path "ui/dist") {
     New-Item -ItemType Directory -Path $UiDeployDir | Out-Null
     Copy-Item "ui/dist\*" -Destination $UiDeployDir -Recurse
     Write-Log "已复制前端产物 (ui/)"
+}
+if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination $StagingDir }
+
+$RequiredArtifacts = @(
+    "EasyTools.exe", "EasyTools_Service.exe", "EasyCore.dll",
+    "ui\index.html", "plugins\Plugin_Gesture.dll", "plugins\Plugin_Capture.dll",
+    "plugins\Plugin_Keycast.dll", "plugins\Plugin_Search.dll"
+) + $VcRuntimeNames
+foreach ($Artifact in $RequiredArtifacts) {
+    if (-not (Test-Path (Join-Path $StagingDir $Artifact))) {
+        throw "发布产物不完整，缺少: $Artifact"
+    }
 }
 
 # ------------------------------------------------------------------------------
@@ -285,7 +364,14 @@ if (Test-Path $DeployDir) {
     Write-Log "旧版本已安全备份到: deploy_dist_backup"
 }
 
-Rename-Item -Path $StagingDir -NewName "deploy_dist"
+try {
+    Rename-Item -Path $StagingDir -NewName "deploy_dist"
+} catch {
+    if ((Test-Path $BackupDir) -and -not (Test-Path $DeployDir)) {
+        Rename-Item -Path $BackupDir -NewName "deploy_dist"
+    }
+    throw
+}
 Write-Log "新版本秒级切换上线完成。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
@@ -312,11 +398,11 @@ if ($ISCC) {
     
     if (Test-Path $InstallerScript) {
         Write-Log "正在编译安装包 (EasyTools-Setup.exe)..."
-        & $ISCC $InstallerScript
+        & $ISCC "/DEasyToolsVersion=$ProjectVersion" $InstallerScript
         if ($LASTEXITCODE -eq 0) {
             Write-Log "安装包已成功生成到: $OutputInstallerDir" "SUCCESS"
         } else {
-            Write-Log "安装包编译失败！" "WARN"
+            throw "安装包编译失败！退出码: $LASTEXITCODE"
         }
     } else {
         Write-Log "未找到安装脚本 $InstallerScript" "WARN"
@@ -332,5 +418,12 @@ if (Test-Path (Join-Path $ScriptDir "Output\EasyTools-Setup.exe")) {
     Write-Log "您的安装包位于: $(Join-Path $ScriptDir "Output\EasyTools-Setup.exe")"
 }
 Write-Log "全链路 TraceID: $TraceID (详见 deploy_logs)"
+
+# 新版、测试与安装包都已完成后才删除回滚副本。流程中途失败时保留该目录，
+# 便于人工恢复；成功流程不在工作区遗留一整份过期发布物。
+if (Test-Path $BackupDir) {
+    Remove-Item -Recurse -Force $BackupDir
+    Write-Log "旧版本回滚副本已清理。"
+}
 Write-Log "直接双击运行 deploy_dist/EasyTools.exe 即可启动工具。"
 Write-Log "======================================================="

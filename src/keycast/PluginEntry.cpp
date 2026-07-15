@@ -1,5 +1,7 @@
 #include "core/plugin/IPlugin.h"
+#include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
+#include "core/config/ConfigManager.h"
 #include "core/hotkey/KeyboardHook.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
@@ -10,7 +12,7 @@ namespace easy::keycast {
 class KeycastPlugin : public easy::core::IPlugin {
 public:
     const char* getName() const override { return "Keycast"; }
-    const char* getVersion() const override { return "1.0.0"; }
+    const char* getVersion() const override { return easy::version::String; }
 
     bool initialize() override {
         LOG_INFO("Keycast Plugin initialize");
@@ -21,10 +23,15 @@ public:
             return false;
         }
 
-        // Register to receive keystrokes
-        easy::core::KeyboardHook::instance().setKeycastCallback([](const std::string& sequence) {
-            KeycastOverlay::instance().pushKey(sequence);
-        });
+        applyEnabled(easy::core::ConfigManager::instance().get<bool>(
+            "/general/keycastEnabled", false));
+        m_configCallbackId = easy::core::ConfigManager::instance().onChange(
+            [this](const std::string& key) {
+                if (key == "*" || key == "/general" || key == "/general/keycastEnabled") {
+                    applyEnabled(easy::core::ConfigManager::instance().get<bool>(
+                        "/general/keycastEnabled", false));
+                }
+            });
 
         return true;
     }
@@ -32,25 +39,36 @@ public:
     void shutdown() override {
         LOG_INFO("Keycast Plugin shutdown");
         
-        // Unregister callback
+        easy::core::ConfigManager::instance().removeOnChange(m_configCallbackId);
         easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
         
         // Cleanup Overlay UI
         KeycastOverlay::instance().cleanup();
     }
+
+private:
+    void applyEnabled(bool enabled) {
+        if (enabled) {
+            easy::core::KeyboardHook::instance().setKeycastCallback([](const std::string& sequence) {
+                KeycastOverlay::instance().pushKey(sequence);
+            });
+        } else {
+            easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
+        }
+        LOG_INFO("Keycast Plugin: enabled={}", enabled);
+    }
+
+    size_t m_configCallbackId = 0;
 };
 
-extern "C" __declspec(dllexport) easy::core::IPlugin* createPlugin() {
-    return new KeycastPlugin();
-}
-
-extern "C" __declspec(dllexport) void destroyPlugin(easy::core::IPlugin* plugin) {
-    delete plugin;
+extern "C" __declspec(dllexport) easy::core::IPlugin* CreatePlugin() {
+    static KeycastPlugin instance;
+    return &instance;
 }
 
 } // namespace easy::keycast
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID) {
     switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);

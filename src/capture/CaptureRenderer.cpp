@@ -112,7 +112,41 @@ void CaptureRenderer::releaseRenderResources() {
     m_d2dFactory.Reset();
 }
 
-void CaptureRenderer::drawDimOverlay(const D2D1_RECT_F& selRect, CaptureState& state) {
+bool CaptureRenderer::updateScreenBitmap(const cv::Mat& image) {
+    m_screenBitmap.Reset();
+    if (!m_renderTarget || image.empty()) {
+        LOG_ERROR("截图底图上传失败: 渲染目标或图像为空");
+        return false;
+    }
+
+    cv::Mat bgra;
+    if (image.channels() == 4) {
+        bgra = image;
+    } else if (image.channels() == 3) {
+        cv::cvtColor(image, bgra, cv::COLOR_BGR2BGRA);
+    } else if (image.channels() == 1) {
+        cv::cvtColor(image, bgra, cv::COLOR_GRAY2BGRA);
+    } else {
+        LOG_ERROR("截图底图上传失败: 不支持的通道数={}", image.channels());
+        return false;
+    }
+
+    if (!bgra.isContinuous()) bgra = bgra.clone();
+    const auto props = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    const HRESULT hr = m_renderTarget->CreateBitmap(
+        D2D1::SizeU(static_cast<UINT32>(bgra.cols), static_cast<UINT32>(bgra.rows)),
+        bgra.data, static_cast<UINT32>(bgra.step[0]), props, m_screenBitmap.GetAddressOf());
+    if (FAILED(hr) || !m_screenBitmap) {
+        LOG_ERROR("截图底图上传 Direct2D 失败, hr=0x{:08X}", static_cast<unsigned>(hr));
+        return false;
+    }
+
+    invalidate();
+    return true;
+}
+
+void CaptureRenderer::drawDimOverlay(const D2D1_RECT_F& selRect, CaptureState&) {
     auto size = m_renderTarget->GetSize();
 
     // 上
@@ -125,7 +159,7 @@ void CaptureRenderer::drawDimOverlay(const D2D1_RECT_F& selRect, CaptureState& s
     m_renderTarget->FillRectangle(D2D1::RectF(selRect.right, selRect.top, size.width, selRect.bottom), m_dimBrush.Get());
 }
 
-void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state) {
+void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState&) {
     // 选区边框（紫色）
     m_renderTarget->DrawRectangle(rect, m_borderBrush.Get(), 2.0f);
 
@@ -149,7 +183,7 @@ void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state
     }
 }
 
-void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState& state) {
+void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState&) {
     int w = static_cast<int>(rect.right - rect.left);
     int h = static_cast<int>(rect.bottom - rect.top);
 
@@ -256,7 +290,6 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
     }
 
     // 悬停浮层提示：把生僻字形翻译成「名称 + 快捷键」
-    bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
     for (const auto& button : state.toolbarButtons) {
         if (state.currentCursor.x < button.rect.left || state.currentCursor.x > button.rect.right ||
             state.currentCursor.y < button.rect.top  || state.currentCursor.y > button.rect.bottom) {
@@ -617,15 +650,21 @@ void CaptureRenderer::drawCrosshair(float x, float y) {
 bool CaptureRenderer::sampleScreenColor(int x, int y, int& r, int& g, int& b, CaptureState& state) const {
     if (state.frozenScreen.empty()) return false;
     if (x < 0 || y < 0 || x >= state.frozenScreen.cols || y >= state.frozenScreen.rows) return false;
-    // 冻结图为 BGRA（freezeScreen 写入 CV_8UC4）
-    const cv::Vec4b& px = state.frozenScreen.at<cv::Vec4b>(y, x);
-    b = px[0]; g = px[1]; r = px[2];
+    if (state.frozenScreen.channels() == 4) {
+        const cv::Vec4b& px = state.frozenScreen.at<cv::Vec4b>(y, x);
+        b = px[0]; g = px[1]; r = px[2];
+    } else if (state.frozenScreen.channels() == 3) {
+        const cv::Vec3b& px = state.frozenScreen.at<cv::Vec3b>(y, x);
+        b = px[0]; g = px[1]; r = px[2];
+    } else {
+        return false;
+    }
     return true;
 }
 
 void CaptureRenderer::updateHistoryBitmap(CaptureState& state) {
     m_historyBitmap.Reset();
-    auto* entry = CaptureHistory::instance().get(state.historyIndex);
+    auto entry = CaptureHistory::instance().get(state.historyIndex);
     if (entry && !entry->image.empty() && m_renderTarget) {
         cv::Mat bgra;
         if (entry->image.channels() == 3) {
@@ -747,10 +786,12 @@ void CaptureRenderer::render(CaptureState& state) {
             drawSizeInfo(winRect, state);
         }
 
-        drawCrosshair(static_cast<float>(state.currentCursor.x),
-                      static_cast<float>(state.currentCursor.y));
-        // 预选悬停时显示像素级取色放大镜（坐标 + RGB/HEX，按 C 复制）
-        drawSelectionLoupe(static_cast<float>(state.currentCursor.x), static_cast<float>(state.currentCursor.y), state);
+        if (state.options.showCrosshair) {
+            drawCrosshair(static_cast<float>(state.currentCursor.x),
+                          static_cast<float>(state.currentCursor.y));
+            // 预选悬停时显示像素级取色放大镜（坐标 + RGB/HEX，按 C 复制）
+            drawSelectionLoupe(static_cast<float>(state.currentCursor.x), static_cast<float>(state.currentCursor.y), state);
+        }
     }
 
     

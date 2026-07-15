@@ -17,7 +17,9 @@ namespace easy::core {
 
 struct PluginInstance {
     std::string name;
+    std::string version;
     IPlugin* plugin = nullptr;
+    bool initialized = false;
 #ifdef _WIN32
     HMODULE handle = nullptr;
 #else

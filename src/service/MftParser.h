@@ -7,13 +7,22 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
+#include <atomic>
 
 struct FileRecord {
     DWORDLONG fileReferenceNumber;
     DWORDLONG parentFileReferenceNumber;
     std::wstring fileName;
+    std::wstring normalizedName;
     std::wstring pinyinInitials;
     bool isDirectory;
+};
+
+struct SearchResult {
+    std::wstring fileName;
+    std::wstring fullPath;
+    bool isDirectory = false;
 };
 
 class MftParser {
@@ -29,7 +38,7 @@ public:
     void StopListening();
     
     // Quick search
-    std::vector<FileRecord*> Search(const std::wstring& query, int limit = 100);
+    std::vector<SearchResult> Search(const std::wstring& query, int limit = 100);
 
 private:
     char m_DriveLetter;
@@ -44,6 +53,12 @@ private:
     // Memory structures
     std::shared_mutex m_MapMutex;
     std::unordered_map<DWORDLONG, std::unique_ptr<FileRecord>> m_FileMap;
+    std::atomic<uint64_t> m_IndexGeneration{0};
+    std::mutex m_SearchCacheMutex;
+    std::wstring m_CachedQuery;
+    std::vector<DWORDLONG> m_CachedCandidates;
+    uint64_t m_CachedGeneration = 0;
 
     bool QueryUsnJournal();
+    std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
 };

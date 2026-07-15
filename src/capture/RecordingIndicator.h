@@ -65,6 +65,7 @@ private:
     static LRESULT CALLBACK indicatorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd = nullptr;
+    HINSTANCE m_hInstance = nullptr;
     bool m_paused = false;
     double m_duration = 0.0;
     int m_frames = 0;

@@ -29,9 +29,6 @@
   background: var(--bg-surface);
   flex-shrink: 0;
 
-  /* 毛玻璃效果 */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .app__header-title {
@@ -53,7 +50,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--spacing-xl);
-  animation: fadeIn 0.25s ease;
+  animation: fadeIn 0.12s ease-out;
 }
 
 /* ── 响应式适配 ───────────────────────────────────────────────────────────── */

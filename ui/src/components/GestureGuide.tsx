@@ -12,7 +12,7 @@ const GUIDES = [
   { code: 'UR', nameKey: 'gestureGuide.dirUR', path: 'M 30 70 L 70 30' },
   { code: 'UL', nameKey: 'gestureGuide.dirUL', path: 'M 70 70 L 30 30' },
   { code: 'RD', nameKey: 'gestureGuide.dirRD', path: 'M 30 30 L 70 30 L 70 70' },
-];
+] as const;
 
 export const GestureGuide: React.FC = () => {
   const { t } = useTranslation();
@@ -34,7 +34,7 @@ export const GestureGuide: React.FC = () => {
         <div className="gesture-guide__desc">{t('gestureGuide.desc')}</div>
         <div className="gesture-guide__badge">
           <span>{guide.code}</span>
-          <span>{t(guide.nameKey as any)}</span>
+          <span>{t(guide.nameKey)}</span>
         </div>
       </div>
       <div className="gesture-guide__canvas">

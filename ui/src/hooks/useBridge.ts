@@ -9,12 +9,25 @@ import { useCallback, useEffect, useRef } from 'react';
 
 type MessageHandler = (data: unknown) => void;
 
+export class BridgeError extends Error {
+  readonly code?: string | number;
+
+  constructor(reason: unknown) {
+    const record = reason && typeof reason === 'object' ? reason as Record<string, unknown> : null;
+    super(typeof record?.message === 'string' ? record.message : String(reason || 'Bridge request failed'));
+    this.name = 'BridgeError';
+    if (typeof record?.code === 'string' || typeof record?.code === 'number') this.code = record.code;
+  }
+}
+
 let nextId = 1;
 const pendingRequests = new Map<number, {
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
 }>();
 const eventListeners = new Map<string, Set<MessageHandler>>();
+const LONG_RUNNING_METHODS = new Set(['config.export', 'config.import', 'capture.browseDirectory']);
 
 // 全局消息监听（只注册一次）
 let initialized = false;
@@ -30,15 +43,22 @@ function initGlobalListener() {
         // C++ → JS 事件推送
         const listeners = eventListeners.get(msg.event);
         if (listeners) {
-          listeners.forEach(handler => handler(msg.data));
+          listeners.forEach(handler => {
+            try {
+              handler(msg.data);
+            } catch (error) {
+              console.error(`[Bridge] Event handler failed (${String(msg.event)}):`, error);
+            }
+          });
         }
       } else if (msg.id !== undefined) {
         // 响应匹配
         const pending = pendingRequests.get(msg.id);
         if (pending) {
           pendingRequests.delete(msg.id);
+          clearTimeout(pending.timeoutId);
           if (msg.error) {
-            pending.reject(msg.error);
+            pending.reject(new BridgeError(msg.error));
           } else {
             pending.resolve(msg.result);
           }
@@ -57,27 +77,37 @@ export function bridgeRequest<T = unknown>(method: string, params: Record<string
   initGlobalListener();
 
   return new Promise((resolve, reject) => {
+    if (nextId >= Number.MAX_SAFE_INTEGER) nextId = 1;
+    while (pendingRequests.has(nextId)) nextId += 1;
     const id = nextId++;
-    pendingRequests.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    // 文件/目录选择器允许用户停留；普通 IPC 仍保持快速失败，避免悬空 Promise。
+    const timeoutMs = LONG_RUNNING_METHODS.has(method)
+      ? 5 * 60_000
+      : 10_000;
+    const timeoutId = setTimeout(() => {
+      if (pendingRequests.delete(id)) {
+        reject(new Error(`Bridge request timeout: ${method}`));
+      }
+    }, timeoutMs);
+    pendingRequests.set(id, { resolve: resolve as (v: unknown) => void, reject, timeoutId });
 
     const message = JSON.stringify({ id, method, params });
 
     if (window.chrome?.webview) {
-      window.chrome.webview.postMessage(message);
+      try {
+        window.chrome.webview.postMessage(message);
+      } catch (error) {
+        pendingRequests.delete(id);
+        clearTimeout(timeoutId);
+        reject(new BridgeError(error));
+      }
     } else {
       // 开发模式下模拟响应
       console.warn('[Bridge] WebView2 not available, mocking response for:', method);
       pendingRequests.delete(id);
+      clearTimeout(timeoutId);
       resolve(getMockResponse(method) as T);
     }
-
-    // 超时处理
-    setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.delete(id);
-        reject(new Error(`Bridge request timeout: ${method}`));
-      }
-    }, 10000);
   });
 }
 
@@ -127,7 +157,7 @@ function getMockResponse(method: string): unknown {
         capture: { format: 'png', quality: 95, copyToClipboard: true, saveToFile: true },
         recording: { format: 'mp4_h264', fps: 30, bitrate: 8 },
         general: { theme: 'light', language: 'zh-CN', autoStart: false },
-        ocr: { engine: 'paddleocr', language: 'ch', autoOcr: false },
+        ocr: { engine: 'windows', language: 'system', copyResult: true, showResultWindow: true },
       };
 
     case 'gesture.getProfiles':
@@ -176,13 +206,12 @@ function getMockResponse(method: string): unknown {
     case 'capture.getSettings':
       return {
         format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
-        savePath: '', showCrosshair: true, autoDetectWindow: true,
+        saveDirectory: '', showCrosshair: true, autoDetectWindow: true,
       };
 
     case 'recording.getSettings':
       return {
-        format: 'mp4_h264', fps: 30, bitrate: 8,
-        includeAudio: false, savePath: '',
+        format: 'mp4_h264', fps: 30, bitrate: 8, saveDirectory: '',
       };
 
     case 'general.getSettings':
@@ -193,9 +222,8 @@ function getMockResponse(method: string): unknown {
 
     case 'ocr.getSettings':
       return {
-        engine: 'windows', language: 'auto',
-        autoOcr: false, copyResult: true,
-        shortcut: 'Ctrl+Shift+O',
+        engine: 'windows', language: 'system', copyResult: true,
+        showResultWindow: true,
       };
 
     case 'ocr.getStatus':
@@ -203,6 +231,47 @@ function getMockResponse(method: string): unknown {
 
     case 'ocr.recognizeImageFile':
       return { success: true, text: '(mock) 识别到的示例文字', copied: true };
+
+    case 'history.getAll':
+      return [];
+
+    case 'history.open':
+      return { success: true };
+
+    case 'stats.getHistory': {
+      const today = new Date();
+      return Object.fromEntries(Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(today);
+        date.setDate(today.getDate() - (6 - index));
+        const dateKey = [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, '0'),
+          String(date.getDate()).padStart(2, '0'),
+        ].join('-');
+        return [dateKey, {
+          totalKeys: 7800 + index * 1260,
+          leftClicks: 980 + index * 94,
+          rightClicks: 180 + index * 21,
+          mouseDistance: 182000 + index * 24500,
+          keyMap: { 8: 315, 13: 482, 32: 1210, 65: 720, 69: 884, 73: 691, 78: 742, 79: 804, 83: 765, 84: 910 },
+        }];
+      }));
+    }
+
+    case 'stats.getTotal':
+      return { totalKeystrokes: 128640 };
+
+    case 'search.query':
+      return { available: true, results: [] };
+
+    case 'perf.getMetrics':
+      return { memoryMB: 42.5, cpuPercent: 0.8, screenshotLatencyMs: 0, gestureLatencyMs: 1.2, uiRenderLatencyMs: 4.1 };
+
+    case 'app.getSystemInfo':
+      return { version: '1.0.0', cpuArch: 'x64', cpuCores: 12, totalMemoryGB: 32, dpiScale: 1 };
+
+    case 'app.checkForUpdates':
+      return { success: true, started: false };
 
     case 'hotcorner.getSettings':
       return {
@@ -216,12 +285,25 @@ function getMockResponse(method: string): unknown {
         },
       };
 
+    case 'radialmenu.getItems':
+      return { items: [
+        { label: '截图', command: '10' },
+        { label: '搜索', command: '16' },
+        { label: '锁屏', command: '8' },
+        { label: '贴图', command: '18' },
+      ] };
+
     case 'hotkey.getAll':
       return [
-        { name: 'capture', shortcut: 'Ctrl+Shift+A' },
-        { name: 'recording', shortcut: 'Ctrl+Shift+R' },
-        { name: 'ocr', shortcut: 'Ctrl+Shift+O' },
-        { name: 'gesturePause', shortcut: 'Ctrl+Alt+Shift+W' },
+        { name: 'Screenshot', shortcut: 'Ctrl+Shift+A' },
+        { name: 'Record', shortcut: 'Ctrl+Shift+R' },
+        { name: 'OCR', shortcut: 'Ctrl+Shift+O' },
+        { name: 'Pause Gestures', shortcut: 'Ctrl+Alt+Shift+W' },
+        { name: 'Toggle Search', shortcut: 'Alt+Space' },
+        { name: 'Pin Toggle', shortcut: 'Ctrl+Alt+Shift+X' },
+        { name: 'Pin Paste', shortcut: 'Ctrl+Alt+Shift+V' },
+        { name: 'Pin Hide All', shortcut: 'Ctrl+Alt+Shift+H' },
+        { name: 'Pin Arrange', shortcut: 'Ctrl+Alt+Shift+G' },
       ];
 
     case 'config.get':
@@ -240,6 +322,7 @@ function getMockResponse(method: string): unknown {
     case 'gesture.setPaused':
     case 'gesture.updateSettings':
     case 'hotcorner.updateSettings':
+    case 'radialmenu.updateItems':
     case 'hotkey.rebind':
     case 'config.set':
       return { success: true };

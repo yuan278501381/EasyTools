@@ -66,6 +66,15 @@ void GestureTrailOverlay::shutdown() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
+    // 上一条轨迹可能仍在淡出。先停止定时器并隐藏，但不要在低级鼠标
+    // 钩子里清空/刷新整张虚拟屏幕位图。只有真实移动后才安排首帧。
+    if (m_hwnd) {
+        KillTimer(m_hwnd, RENDER_TIMER_ID);
+        KillTimer(m_hwnd, FADE_TIMER_ID);
+        if (m_visible.exchange(false)) {
+            ShowWindow(m_hwnd, SW_HIDE);
+        }
+    }
     {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
@@ -75,29 +84,25 @@ void GestureTrailOverlay::beginTrail() {
 
     m_fading = false;
     m_fadeAlpha = 1.0f;
-
-    // 渲染第一帧（全透明），确保 UpdateLayeredWindow 更新了画面，防止出现图层闪烁
-    render();
-
-    // 显示窗口
-    if (m_hwnd) {
-        ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
-        m_visible = true;
-
-        // 启动渲染定时器
-        SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
-    }
 }
 
 void GestureTrailOverlay::addPoint(float x, float y) {
-    std::lock_guard lock(m_trailMutex);
-    // 距离过滤: 跳过与上一点过近的采样, 否则手势起点处的密集点会叠成一团("一坨")
-    if (!m_points.empty()) {
-        float dx = x - m_points.back().x;
-        float dy = y - m_points.back().y;
-        if (dx * dx + dy * dy < 16.0f) return;  // < 4px 忽略
+    bool hasVisibleTrail = false;
+    {
+        std::lock_guard lock(m_trailMutex);
+        // 距离过滤: 跳过与上一点过近的采样, 否则手势起点处的密集点会叠成一团("一坨")
+        if (!m_points.empty()) {
+            float dx = x - m_points.back().x;
+            float dy = y - m_points.back().y;
+            if (dx * dx + dy * dy < 16.0f) return;  // < 4px 忽略
+        }
+        m_points.push_back({x, y, GetTickCount()});
+        hasVisibleTrail = m_points.size() >= 2;
     }
-    m_points.push_back({x, y, GetTickCount()});
+    if (hasVisibleTrail && m_hwnd) {
+        // SetTimer 只投递后续 WM_TIMER；真正的全屏渲染发生在钩子返回以后。
+        SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
+    }
 }
 
 void GestureTrailOverlay::endTrail(const std::string& resultText) {
@@ -106,10 +111,7 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
         m_resultText = resultText;
     }
 
-    // 最后渲染一帧（带结果文字）
-    render();
-
-    // 启动淡出
+    // 首个淡出定时帧会绘制结果文字，避免在低级钩子回调内同步渲染。
     startFadeOut();
 }
 
@@ -468,6 +470,9 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
             if (wParam == RENDER_TIMER_ID) {
                 // 实时渲染轨迹
                 self->render();
+                if (!self->m_visible.exchange(true)) {
+                    ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
+                }
             } else if (wParam == FADE_TIMER_ID) {
                 // 淡出动画
                 DWORD elapsed = GetTickCount() - self->m_fadeStartTick;
@@ -478,6 +483,9 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 } else {
                     self->m_fadeAlpha = 1.0f - progress;
                     self->render();
+                    if (!self->m_visible.exchange(true)) {
+                        ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
+                    }
                 }
             }
             return 0;

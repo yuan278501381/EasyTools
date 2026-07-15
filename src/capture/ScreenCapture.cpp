@@ -9,10 +9,12 @@
 
 #include "capture/ScreenCapture.h"
 #include "core/events/EventBus.h"
+#include "core/events/MainThreadDispatcher.h"
 #include "capture/CaptureOverlay.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
+#include "core/config/ConfigManager.h"
 #include "ocr/OcrEngine.h"
 #include "ocr/OcrResultWindow.h"
 #include "capture/ScrollCapture.h"
@@ -39,6 +41,7 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
     // 初始化截图覆盖层
     auto& overlay = CaptureOverlay::instance();
     overlay.initialize(hInstance);
+    overlay.setClosedCallback([this]() { m_capturing.store(false); });
     overlay.setCallback([this](const CaptureRegion& region, const cv::Mat& markedImage) {
         easy::core::TraceId::Scope scope;
         CaptureResult result;
@@ -73,34 +76,56 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
 
     overlay.setOcrCallback([this]([[maybe_unused]] const CaptureRegion& region, const cv::Mat& cropped) {
         if (cropped.empty()) return;
+        if (m_ocrRunning.exchange(true)) {
+            easy::core::EventBus::instance().publish(
+                easy::core::ShowToastEvent{L"OCR 正在识别，请稍候"});
+            return;
+        }
         
-        easy::ocr::OcrResultWindow::instance().showResult("识别中... (Recognizing...)");
+        const bool showResultWindow = easy::core::ConfigManager::instance().get<bool>(
+            "/ocr/showResultWindow", true);
+        if (showResultWindow) {
+            easy::ocr::OcrResultWindow::instance().showResult("识别中... (Recognizing...)");
+        }
 
         // OCR(WinRT .get()) 放后台线程: 避免在主 STA 线程阻塞/冻结 UI; 全程 try/catch 兜底。
         std::string traceId = easy::core::TraceId::current();
-        cv::Mat img = cropped;  // cv::Mat 引用计数, 拷贝廉价
-        std::thread([img, traceId]() {
+        cv::Mat img = cropped.clone();
+        if (m_ocrWorker.joinable()) m_ocrWorker.join();
+        m_ocrWorker = std::jthread([this, img = std::move(img), traceId]() {
             easy::core::TraceId::setCurrent(traceId);
+            std::string displayText;
             try {
                 auto results = easy::ocr::OcrEngine::instance().extractText(img);
                 std::string fullText;
                 for (const auto& r : results) fullText += r.text + "\r\n";
                 if (!fullText.empty()) {
-                    easy::core::WinUtils::copyToClipboard(fullText);
-                    LOG_INFO("OCR 提取完成，已复制到剪贴板, 行数={}", results.size());
-                    easy::ocr::OcrResultWindow::instance().showResult(fullText);
+                    if (easy::core::ConfigManager::instance().get<bool>("/ocr/copyResult", true)) {
+                        easy::core::WinUtils::copyToClipboard(fullText);
+                    }
+                    LOG_INFO("OCR 提取完成, 行数={}", results.size());
+                    displayText = std::move(fullText);
                 } else {
                     LOG_WARN("OCR 未提取到文字");
-                    easy::ocr::OcrResultWindow::instance().showResult("未识别到文字 (No text recognized)");
+                    displayText = "未识别到文字 (No text recognized)";
                 }
             } catch (const std::exception& e) {
                 LOG_ERROR("OCR(覆盖层) 异常: {}", e.what());
-                easy::ocr::OcrResultWindow::instance().showResult("识别失败 (Recognition failed)");
+                displayText = "识别失败 (Recognition failed)";
             } catch (...) {
                 LOG_ERROR("OCR(覆盖层) 未知异常");
-                easy::ocr::OcrResultWindow::instance().showResult("识别失败 (Unknown error)");
+                displayText = "识别失败 (Unknown error)";
             }
-        }).detach();
+            m_ocrRunning.store(false);
+            if (easy::core::ConfigManager::instance().get<bool>("/ocr/showResultWindow", true)) {
+                easy::core::MainThreadDispatcher::instance().post([text = std::move(displayText)]() {
+                    easy::ocr::OcrResultWindow::instance().showResult(text);
+                });
+            } else {
+                easy::core::EventBus::instance().publish(
+                    easy::core::ShowToastEvent{L"OCR 识别完成"});
+            }
+        });
     });
 
     ScrollCapture::instance().setCompletionCallback([this](const ScrollCaptureResult& result) {
@@ -110,21 +135,29 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
             return;
         }
 
-        // 复制到剪贴板
+        bool copied = false;
         if (m_activeOptions.copyToClipboard) {
-            copyToClipboard(result.stitchedImage);
+            copied = copyToClipboard(result.stitchedImage);
         }
 
+        std::string savedPath;
         if (m_activeOptions.saveToFile) {
             auto encoded = encodeImage(result.stitchedImage, m_activeOptions.format, m_activeOptions.quality);
             if (!encoded.empty()) {
                 std::string path = m_activeOptions.savePath.empty()
                     ? generateSavePath(m_activeOptions.format)
                     : m_activeOptions.savePath;
-                saveToFile(encoded, path, m_activeOptions.format);
+                savedPath = saveToFile(encoded, path, m_activeOptions.format);
             }
         }
-        
+        CaptureRegion historyRegion{};
+        historyRegion.width = result.stitchedImage.cols;
+        historyRegion.height = result.stitchedImage.rows;
+        CaptureHistory::instance().push(result.stitchedImage, historyRegion, savedPath);
+        easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{
+            savedPath.empty()
+                ? (copied ? L"长截图已复制到剪贴板" : L"长截图已完成")
+                : L"长截图已保存"});
         LOG_INFO("长截图已保存，共 {} 帧", result.frameCount);
     });
 
@@ -133,7 +166,11 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
 }
 
 void ScreenCapture::shutdown() {
+    ScrollCapture::instance().shutdown();
+    if (m_ocrWorker.joinable()) m_ocrWorker.join();
+    m_ocrRunning.store(false);
     CaptureOverlay::instance().shutdown();
+    m_capturing.store(false);
     LOG_INFO("截图引擎已关闭");
 }
 
@@ -142,19 +179,18 @@ void ScreenCapture::shutdown() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void ScreenCapture::startCapture(const CaptureOptions& options) {
-    if (m_capturing) {
+    bool expected = false;
+    if (!m_capturing.compare_exchange_strong(expected, true)) {
         LOG_WARN("截图已在进行中");
         return;
     }
 
     easy::core::TraceId::Scope scope;
-    m_capturing = true;
     m_activeOptions = options;
 
     // 启动区域选择覆盖层
     CaptureOverlay::instance().startSelection(options);
 
-    m_capturing = false;
 }
 
 CaptureResult ScreenCapture::captureFullScreen(const CaptureOptions& options) {
@@ -392,12 +428,13 @@ std::string ScreenCapture::saveToFile(const std::vector<uint8_t>& data,
                                        [[maybe_unused]] ImageFormat format) {
     try {
         // 确保目录存在
-        auto dir = std::filesystem::path(path).parent_path();
+        const auto widePath = easy::core::WinUtils::utf8ToWstring(path);
+        auto dir = std::filesystem::path(widePath).parent_path();
         if (!dir.empty()) {
             std::filesystem::create_directories(dir);
         }
 
-        std::ofstream file(path, std::ios::binary);
+        std::ofstream file(std::filesystem::path(widePath), std::ios::binary);
         if (!file.is_open()) {
             LOG_ERROR("无法打开文件: {}", path);
             return "";
@@ -429,7 +466,7 @@ std::string ScreenCapture::generateSavePath(ImageFormat format) const {
 
     // 保存到用户图片目录
     auto picturesDir = easy::core::WinUtils::getAppDataDirectory() / L"Screenshots";
-    return (picturesDir / oss.str()).string();
+    return easy::core::WinUtils::wstringToUtf8((picturesDir / oss.str()).wstring());
 }
 
 std::string ScreenCapture::formatExtension(ImageFormat format) {

@@ -157,17 +157,10 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
         case BuiltinCommand::TakeScreenshot:
         case BuiltinCommand::StartRecording:
         case BuiltinCommand::ToggleSearch:
+        case BuiltinCommand::ShowRadialMenu:
         case BuiltinCommand::PasteAsPin:
             dispatchAppCommand(cmd);
             break;
-            
-        case BuiltinCommand::ShowRadialMenu: {
-            POINT pt;
-            GetCursorPos(&pt);
-            // 依赖注入或回调比较好，这里为了简单直接调用 MessageBridge 发 IPC 给自己
-            easy::core::MessageBridge::instance().handleMessage("gesture.showRadialMenu");
-            break;
-        }
     }
 }
 

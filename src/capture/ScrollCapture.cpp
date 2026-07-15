@@ -30,8 +30,11 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
 
     easy::core::TraceId::Scope scope;
     m_options = options;
-    m_frames.clear();
-    m_currentStitched = cv::Mat();
+    m_segments.clear();
+    m_lastFrame.release();
+    m_frameCount = 0;
+    m_completionDelivered = false;
+    m_suppressCompletion = false;
     m_running = true;
 
     if (options.mode == ScrollMode::Auto) {
@@ -55,32 +58,18 @@ void ScrollCapture::stop() {
         m_scrollThread.join();
     }
 
-    if (m_frames.empty()) {
-        if (m_completionCb) {
-            m_completionCb({false, {}, 0, "没有捕获到任何帧"});
-        }
-        return;
-    }
+    deliverCompletion();
+}
 
-    LOG_INFO("长截图停止, 帧数={}, 开始拼接", m_frames.size());
-
-    // 拼接
-    auto stitched = m_currentStitched.clone();
-
-    ScrollCaptureResult result;
-    result.success = !stitched.empty();
-    result.stitchedImage = stitched;
-    result.frameCount = static_cast<int>(m_frames.size());
-
-    if (!result.success) {
-        result.errorMessage = "图像拼接失败";
-    }
-
-    if (m_completionCb) {
-        m_completionCb(result);
-    }
-
-    LOG_INFO("长截图拼接完成: {}x{}", stitched.cols, stitched.rows);
+void ScrollCapture::shutdown() {
+    m_suppressCompletion = true;
+    m_running = false;
+    if (m_scrollThread.joinable()) m_scrollThread.join();
+    m_progressCb = nullptr;
+    m_completionCb = nullptr;
+    m_segments.clear();
+    m_lastFrame.release();
+    m_frameCount = 0;
 }
 
 void ScrollCapture::captureCurrentFrame() {
@@ -88,17 +77,7 @@ void ScrollCapture::captureCurrentFrame() {
 
     auto frame = captureRegion(m_options.captureRect);
     if (!frame.empty()) {
-        if (m_frames.empty()) {
-            m_currentStitched = frame.clone();
-        } else {
-            std::vector<cv::Mat> toStitch = {m_currentStitched, frame};
-            m_currentStitched = stitchFrames(toStitch, m_options.overlapPercent);
-        }
-        m_frames.push_back(frame);
-
-        if (m_progressCb) {
-            m_progressCb(m_currentStitched, static_cast<int>(m_frames.size()));
-        }
+        appendFrame(frame);
     }
 }
 
@@ -108,6 +87,8 @@ void ScrollCapture::captureCurrentFrame() {
 
 void ScrollCapture::autoScrollLoop() {
     easy::core::TraceId::Scope scope;
+    POINT originalCursor{};
+    GetCursorPos(&originalCursor);
 
     // 线程入口兜底: 截屏(cv::Mat 分配)、拼接、回调等可抛异常, 逃逸出线程函数会 std::terminate。
     try {
@@ -117,22 +98,12 @@ void ScrollCapture::autoScrollLoop() {
         if (frame.empty()) continue;
 
         // 检测是否到达底部
-        if (!m_frames.empty() && isAtBottom(frame, m_frames.back())) {
+        if (!m_lastFrame.empty() && isAtBottom(frame, m_lastFrame)) {
             LOG_INFO("检测到滚动到底部, frame={}", i);
             break;
         }
 
-        if (m_frames.empty()) {
-            m_currentStitched = frame.clone();
-        } else {
-            std::vector<cv::Mat> toStitch = {m_currentStitched, frame};
-            m_currentStitched = stitchFrames(toStitch, m_options.overlapPercent);
-        }
-        m_frames.push_back(frame);
-
-        if (m_progressCb) {
-            m_progressCb(m_currentStitched, static_cast<int>(m_frames.size()));
-        }
+        appendFrame(frame);
 
         // 模拟鼠标滚轮滚动
         RECT& r = m_options.captureRect;
@@ -155,25 +126,65 @@ void ScrollCapture::autoScrollLoop() {
     }
 
     m_running = false;
-
-    // 自动触发拼接
-    if (!m_frames.empty()) {
-        auto stitched = m_currentStitched.clone();
-        ScrollCaptureResult result;
-        result.success = !stitched.empty();
-        result.stitchedImage = stitched;
-        result.frameCount = static_cast<int>(m_frames.size());
-
-        if (m_completionCb) {
-            m_completionCb(result);
-        }
-    }
+    SetCursorPos(originalCursor.x, originalCursor.y);
+    deliverCompletion();
     } catch (const std::exception& e) {
         m_running = false;
+        SetCursorPos(originalCursor.x, originalCursor.y);
         LOG_ERROR("长截图线程异常, 已停止: {}", e.what());
+        deliverCompletion(e.what());
     } catch (...) {
         m_running = false;
+        SetCursorPos(originalCursor.x, originalCursor.y);
         LOG_ERROR("长截图线程未知异常, 已停止");
+        deliverCompletion("未知错误");
+    }
+}
+
+void ScrollCapture::appendFrame(const cv::Mat& frame) {
+    if (frame.empty()) return;
+    if (m_lastFrame.empty()) {
+        m_segments.push_back(frame.clone());
+    } else {
+        int offset = findStitchOffset(m_lastFrame, frame);
+        if (offset <= 0 || offset >= frame.rows) {
+            offset = frame.rows * std::clamp(m_options.overlapPercent, 0, 95) / 100;
+        }
+        const int remaining = frame.rows - offset;
+        if (remaining > 0) {
+            m_segments.push_back(frame(cv::Rect(0, offset, frame.cols, remaining)).clone());
+        }
+    }
+    m_lastFrame = frame.clone();
+    ++m_frameCount;
+
+    if (m_progressCb) {
+        m_progressCb(buildStitchedImage(), m_frameCount);
+    }
+}
+
+cv::Mat ScrollCapture::buildStitchedImage() const {
+    if (m_segments.empty()) return {};
+    cv::Mat stitched;
+    cv::vconcat(m_segments, stitched);
+    return stitched;
+}
+
+void ScrollCapture::deliverCompletion(const std::string& error) {
+    if (m_completionDelivered.exchange(true)) return;
+    if (m_suppressCompletion.load()) return;
+    ScrollCaptureResult result;
+    result.frameCount = m_frameCount;
+    result.errorMessage = error;
+    if (error.empty()) result.stitchedImage = buildStitchedImage();
+    result.success = error.empty() && !result.stitchedImage.empty();
+    if (!result.success && result.errorMessage.empty()) {
+        result.errorMessage = m_frameCount == 0 ? "没有捕获到任何帧" : "图像拼接失败";
+    }
+    if (m_completionCb) m_completionCb(result);
+    if (result.success) {
+        LOG_INFO("长截图拼接完成: {}x{}, 帧数={}", result.stitchedImage.cols,
+                 result.stitchedImage.rows, result.frameCount);
     }
 }
 

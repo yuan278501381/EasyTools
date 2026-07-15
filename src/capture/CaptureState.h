@@ -54,7 +54,7 @@ public:
     POINT markupEnd{};
     std::vector<cv::Point> penPoints;
     std::vector<ToolbarButton> toolbarButtons;
-    inline void rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) { toolbarButtons.clear(); }
+    inline void rebuildToolbarButtons(const D2D1_RECT_F&) { toolbarButtons.clear(); }
 
     MarkupElement* activeElement = nullptr;
     HitArea dragHandle = HitArea::None;

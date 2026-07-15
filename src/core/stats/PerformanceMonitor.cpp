@@ -51,19 +51,15 @@ PerfTimer::~PerfTimer() {
 
 void PerfTimer::stop() {
     if (m_stopped) return;
+    m_elapsedMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - m_start).count();
     m_stopped = true;
-    double ms = elapsedMs();
-    PerformanceMonitor::instance().recordLatency(m_label, ms);
-    LOG_TRACE("PerfTimer [{}]: {:.2f} ms", m_label, ms);
+    PerformanceMonitor::instance().recordLatency(m_label, m_elapsedMs);
+    LOG_TRACE("PerfTimer [{}]: {:.2f} ms", m_label, m_elapsedMs);
 }
 
 double PerfTimer::elapsedMs() const {
-    auto end = m_stopped ? m_start : std::chrono::steady_clock::now();
-    if (m_stopped) {
-        // 已停止时无法再取精确时间，返回 0 表示需要外部记录
-        // 实际上 stop() 里已经记录了
-        return 0.0;
-    }
+    if (m_stopped) return m_elapsedMs;
     return std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - m_start).count();
 }
@@ -135,6 +131,7 @@ void PerformanceMonitor::recordPluginInit(const std::string& pluginName, double 
 
 std::vector<PerfMetrics> PerformanceMonitor::getHistory(int count) const {
     std::lock_guard lock(m_mutex);
+    if (count <= 0 || m_history.empty()) return {};
     int n = std::min(count, static_cast<int>(m_history.size()));
     return std::vector<PerfMetrics>(m_history.end() - n, m_history.end());
 }

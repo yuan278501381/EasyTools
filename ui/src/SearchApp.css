@@ -61,6 +61,20 @@
     font-weight: 300;
 }
 
+.search-loading {
+    width: 16px;
+    height: 16px;
+    margin-left: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    animation: search-spin 0.7s linear infinite;
+}
+
+@keyframes search-spin {
+    to { transform: rotate(360deg); }
+}
+
 .search-input::placeholder {
     color: rgba(255, 255, 255, 0.3);
 }
@@ -115,6 +129,38 @@
     text-overflow: ellipsis;
 }
 
+.file-info {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.file-path {
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.42);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-status {
+    display: flex;
+    min-height: 92px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 14px;
+    text-align: center;
+}
+
+.search-status--error {
+  color: #f87171;
+}
+
 .search-footer {
     display: flex;
     align-items: center;
@@ -142,4 +188,11 @@
     font-size: 11px;
     color: rgba(255, 255, 255, 0.8);
     box-shadow: 0 1px 1px rgba(0,0,0,0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .search-container,
+    .search-loading {
+        animation: none;
+    }
 }

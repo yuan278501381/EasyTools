@@ -66,12 +66,9 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
   }, [keyMap]);
 
   const getHeatIntensity = (vkCode: number | number[]) => {
-    let count = 0;
-    if (Array.isArray(vkCode)) {
-      count = vkCode.reduce((sum, code) => sum + (keyMap[code] || 0), 0);
-    } else {
-      count = keyMap[vkCode] || 0;
-    }
+    const count = Array.isArray(vkCode)
+      ? vkCode.reduce((sum, code) => sum + (keyMap[code] || 0), 0)
+      : keyMap[vkCode] || 0;
     return { count, intensity: count / maxCount };
   };
 

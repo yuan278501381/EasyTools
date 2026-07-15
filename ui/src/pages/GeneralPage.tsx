@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
+import { HotkeyRecorder } from '../components/HotkeyRecorder';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +26,13 @@ interface GeneralSettings {
 interface HotkeyEntry {
   name: string;
   shortcut: string;
+}
+
+interface OperationResult {
+  success: boolean;
+  cancelled?: boolean;
+  error?: string;
+  shortcut?: string;
 }
 
 export const GeneralPage: FC = () => {
@@ -55,38 +63,45 @@ export const GeneralPage: FC = () => {
       }
       setHotkeys(Array.isArray(hotkeyData) ? hotkeyData : []);
     })
-    .catch(console.error)
+    .catch((error) => {
+      console.error(error);
+      toast.error(t('general.loadFailed'));
+    })
     .finally(() => setLoading(false));
-  }, [i18n]);
+  }, [i18n, t]);
 
   // 保存单个设置项
-  const updateSetting = useCallback((key: keyof GeneralSettings, value: unknown) => {
+  const updateSetting = useCallback(async <K extends keyof GeneralSettings,>(key: K, value: GeneralSettings[K]) => {
+    const previous = settings[key];
     setSettings(prev => ({ ...prev, [key]: value }));
 
-    if (key === 'language') {
-      const langValue = value as string;
-      if (langValue === 'auto') {
-        const browserLang = navigator.language;
-        i18n.changeLanguage(browserLang);
-      } else {
-        i18n.changeLanguage(langValue);
+    const applyLocalValue = (localValue: GeneralSettings[K]) => {
+      if (key === 'language') {
+        const langValue = String(localValue);
+        if (langValue === 'auto') void i18n.changeLanguage(navigator.language);
+        else void i18n.changeLanguage(langValue);
+      } else if (key === 'theme') {
+        window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: localValue }));
       }
-    }
+    };
+    applyLocalValue(value);
 
-    bridgeRequest('general.updateSettings', { [key]: value }).then(() => {
-      toast.success(t('general.toastSaveSuccess'), {
-        description: t('general.toastSaveDesc', { key }),
-        duration: 2000,
-      });
-    }).catch(e => {
-      toast.error(t('general.toastSaveFailed'), { description: String(e) });
-    });
-  }, [i18n, t]);
+    try {
+      const result = await bridgeRequest<OperationResult>('general.updateSettings', { [key]: value });
+      if (!result.success) throw new Error(result.error || t('general.toastSaveFailed'));
+    } catch (error) {
+      setSettings(prev => prev[key] === value ? { ...prev, [key]: previous } : prev);
+      applyLocalValue(previous);
+      toast.error(t('general.toastSaveFailed'), { description: String(error) });
+    }
+  }, [i18n, settings, t]);
 
   // ── 数据管理操作 ─────────────────────────────────────────────────────────
   const handleExportConfig = async () => {
     try {
-      await bridgeRequest('config.export');
+      const result = await bridgeRequest<OperationResult>('config.export');
+      if (result.cancelled) return;
+      if (!result.success) throw new Error(result.error || t('general.exportFailed'));
       toast.success(t('general.exportSuccess'));
     } catch (e) {
       toast.error(t('general.exportFailed'), { description: String(e) });
@@ -95,8 +110,15 @@ export const GeneralPage: FC = () => {
 
   const handleImportConfig = async () => {
     try {
-      await bridgeRequest('config.import');
+      const result = await bridgeRequest<OperationResult>('config.import');
+      if (result.cancelled) return;
+      if (!result.success) throw new Error(result.error || t('general.importFailed'));
       toast.success(t('general.importSuccess'));
+      const refreshed = await bridgeRequest<GeneralSettings>('general.getSettings');
+      setSettings(prev => ({ ...prev, ...refreshed }));
+      if (refreshed.language === 'auto') void i18n.changeLanguage(navigator.language);
+      else void i18n.changeLanguage(refreshed.language);
+      window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: refreshed.theme }));
     } catch (e) {
       toast.error(t('general.importFailed'), { description: String(e) });
     }
@@ -105,11 +127,15 @@ export const GeneralPage: FC = () => {
   const handleResetConfig = async () => {
     if (!window.confirm(t('general.resetConfirmMsg'))) return;
     try {
-      await bridgeRequest('config.reset');
+      const result = await bridgeRequest<OperationResult>('config.reset');
+      if (!result.success) throw new Error(result.error || t('general.resetFailed'));
       toast.success(t('general.resetSuccess'));
       // 重新加载设置
       const res = await bridgeRequest<GeneralSettings>('general.getSettings');
       setSettings(prev => ({ ...prev, ...res }));
+      if (res.language === 'auto') void i18n.changeLanguage(navigator.language);
+      else void i18n.changeLanguage(res.language);
+      window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: res.theme }));
     } catch (e) {
       toast.error(t('general.resetFailed'), { description: String(e) });
     }
@@ -117,10 +143,40 @@ export const GeneralPage: FC = () => {
 
   // ── 快捷键名称映射 ──────────────────────────────────────────────────────
   const hotkeyNameMap: Record<string, string> = {
+    Screenshot: t('onboarding.shortcutCapture'),
+    Record: t('onboarding.shortcutRecord'),
+    OCR: t('onboarding.shortcutOcr'),
+    'Pause Gestures': t('onboarding.shortcutGesturePause'),
+    'Toggle Search': t('search.title'),
+    'Pin Toggle': t('general.shortcutPinToggle'),
+    'Pin Paste': t('general.shortcutPinPaste'),
+    'Pin Hide All': t('general.shortcutPinHideAll'),
+    'Pin Arrange': t('general.shortcutPinArrange'),
     capture: t('onboarding.shortcutCapture'),
     recording: t('onboarding.shortcutRecord'),
     ocr: t('onboarding.shortcutOcr'),
     gesturePause: t('onboarding.shortcutGesturePause'),
+  };
+
+  const rebindHotkey = async (entry: HotkeyEntry, shortcut: string) => {
+    const previous = entry.shortcut;
+    setHotkeys(items => items.map(item =>
+      item.name === entry.name ? { ...item, shortcut } : item));
+    try {
+      const result = await bridgeRequest<OperationResult>('hotkey.rebind', {
+        name: entry.name,
+        hotkey: shortcut,
+      });
+      if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
+      setHotkeys(items => items.map(item =>
+        item.name === entry.name ? { ...item, shortcut: result.shortcut || shortcut } : item));
+    } catch (error) {
+      setHotkeys(items => items.map(item =>
+        item.name === entry.name && item.shortcut === shortcut
+          ? { ...item, shortcut: previous }
+          : item));
+      toast.error(t('hotkey.bindFailed'), { description: String(error) });
+    }
   };
 
   if (loading) {
@@ -182,6 +238,7 @@ export const GeneralPage: FC = () => {
               value={settings.theme}
               onChange={(v) => updateSetting('theme', v)}
               options={[
+                { value: 'system', label: t('general.themeSystem') },
                 { value: 'light', label: t('general.themeLight') },
                 { value: 'dark', label: t('general.themeDark') }
               ]}
@@ -221,7 +278,13 @@ export const GeneralPage: FC = () => {
                   <span className="general-page__hotkey-name">
                     {hotkeyNameMap[hk.name] ?? hk.name}
                   </span>
-                  <kbd className="general-page__hotkey-kbd">{hk.shortcut}</kbd>
+                  <div className="general-page__hotkey-control">
+                    <HotkeyRecorder
+                      id={`general-hotkey-${hk.name.replace(/\s+/g, '-').toLowerCase()}`}
+                      value={hk.shortcut}
+                      onChange={(value) => void rebindHotkey(hk, value)}
+                    />
+                  </div>
                 </div>
               ))}
             </div>

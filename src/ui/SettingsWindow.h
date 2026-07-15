@@ -18,6 +18,7 @@
 #include <functional>
 #include <atomic>
 #include <memory>
+#include <cstdint>
 
 // WebView2 头文件（来自 NuGet 包）
 #include <wrl/client.h>
@@ -90,6 +91,7 @@ private:
     SettingsWindowConfig m_config;
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;
+    std::atomic<uint64_t> m_generation{0};
 
     // WebView2 组件（使用 void* 避免头文件依赖）
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;

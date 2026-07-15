@@ -41,7 +41,7 @@ public:
     /// 初始化配置管理器
     /// @param configDir 配置文件所在目录
     /// @param filename 配置文件名（默认 "config.json"）
-    void initialize(const std::filesystem::path& configDir, const std::string& filename = "config.json");
+    bool initialize(const std::filesystem::path& configDir, const std::string& filename = "config.json");
 
     /// 关闭（停止文件监控线程）
     void shutdown();
@@ -68,27 +68,27 @@ public:
 
     /// 设置配置值并自动保存到文件
     template <typename T>
-    void set(const std::string& key, const T& value) {
-        {
-            std::lock_guard lock(m_mutex);
-            auto ptr = json::json_pointer(key);
-            m_config[ptr] = value;
-        }
-        save();
-        notifyChange(key);
+    bool set(const std::string& key, const T& value) {
+        return setJsonValue(key, json(value));
     }
+
+    /// 以 RFC 7396 merge-patch 方式一次提交多个配置项，只触发一次落盘。
+    bool mergePatch(const json& patch, const std::string& notificationKey = "*");
 
     /// 检查 key 是否存在
     bool has(const std::string& key) const;
 
     /// 删除指定 key
-    void remove(const std::string& key);
+    bool remove(const std::string& key);
 
     /// 获取完整配置的 JSON 字符串（用于 IPC 传输给前端）
     std::string toJsonString(int indent = 2) const;
 
     /// 从 JSON 字符串批量更新（用于前端 IPC 回写）
-    void fromJsonString(const std::string& jsonStr);
+    bool fromJsonString(const std::string& jsonStr);
+
+    /// 清空当前配置并立即持久化。调用方随后会回退到各模块的默认值。
+    bool reset();
 
     // ── 配置变更通知 ─────────────────────────────────────────────────────
 
@@ -114,10 +114,15 @@ private:
     ConfigManager& operator=(const ConfigManager&) = delete;
 
     /// 从文件加载配置
-    void load();
+    bool load(bool* changed = nullptr);
 
     /// 保存配置到文件
-    void save() const;
+    bool save() const;
+
+    /// m_ioMutex 已持有时，将快照原子写入配置文件。
+    bool writeSnapshotLocked(const json& snapshot) const;
+
+    bool setJsonValue(const std::string& key, json value);
 
     /// 通知所有观察者
     void notifyChange(const std::string& key);
@@ -128,6 +133,7 @@ private:
     json m_config;
     std::filesystem::path m_configFilePath;
     mutable std::mutex m_mutex;
+    mutable std::mutex m_ioMutex;
 
     // 变更通知
     std::vector<std::pair<size_t, ConfigChangeCallback>> m_callbacks;

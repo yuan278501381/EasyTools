@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, ExternalLink, Image as ImageIcon } from 'lucide-react';
 import { bridgeRequest } from '../hooks/useBridge';
+import { toast } from 'sonner';
 import './HistoryPage.css';
 
 interface HistoryEntry {
@@ -18,45 +19,41 @@ export default function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchHistory = async () => {
-    setLoading(true);
-    try {
-      const data = await bridgeRequest<HistoryEntry[]>('history.getAll', {});
-      setEntries(data || []);
-      
-      // Fetch thumbnails
-      if (data && data.length > 0) {
-        data.forEach(async (entry) => {
-          try {
-            const thumbData = await bridgeRequest<{base64: string}>('history.getThumbnail', { index: entry.index });
-            if (thumbData && thumbData.base64) {
-              setEntries(prev => prev.map(e => e.index === entry.index ? { ...e, base64: thumbData.base64 } : e));
-            }
-          } catch (e) {
-            console.error('Failed to fetch thumbnail', e);
-          }
-        });
-      }
-    } catch (e) {
-      console.error('Failed to fetch history', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchHistory();
-  }, []);
+    let active = true;
+    bridgeRequest<HistoryEntry[]>('history.getAll', { includeThumbnails: true })
+      .then((data) => {
+        if (active) setEntries(Array.isArray(data) ? data : []);
+      })
+      .catch((error) => {
+        console.error('Failed to fetch history', error);
+        if (active) toast.error(t('history.loadFailed'));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [t]);
 
   const handleClear = async () => {
     if (window.confirm(t('history.confirmClear', 'Are you sure you want to clear all capture history?'))) {
-      await bridgeRequest('history.clear', {});
-      setEntries([]);
+      try {
+        const result = await bridgeRequest<{ success: boolean; error?: string }>('history.clear', {});
+        if (!result.success) throw new Error(result.error || t('history.clearFailed'));
+        setEntries([]);
+      } catch (error) {
+        toast.error(t('history.clearFailed'), { description: String(error) });
+      }
     }
   };
 
-  const openFile = (path: string) => {
-    bridgeRequest('system.openFile', { path });
+  const openEntry = async (index: number) => {
+    try {
+      const result = await bridgeRequest<{ success: boolean; error?: string }>('history.open', { index });
+      if (!result.success) throw new Error(result.error || t('history.openFailed'));
+    } catch (error) {
+      toast.error(t('history.openFailed'), { description: String(error) });
+    }
   };
 
   return (
@@ -82,10 +79,10 @@ export default function HistoryPage() {
           </div>
         ) : (
           entries.map(entry => (
-            <div key={entry.index} className="history-card" onClick={() => openFile(entry.filePath)}>
+            <button key={entry.index} type="button" className="history-card" onClick={() => openEntry(entry.index)}>
               <div className="history-card-image">
                 {entry.base64 ? (
-                  <img src={`data:image/png;base64,${entry.base64}`} alt="Thumbnail" />
+                  <img src={`data:image/png;base64,${entry.base64}`} alt={t('history.thumbnailAlt')} loading="lazy" />
                 ) : (
                   <div className="placeholder"><ImageIcon size={24} /></div>
                 )}
@@ -97,7 +94,7 @@ export default function HistoryPage() {
                 <span className="timestamp">{entry.timestamp.replace('T', ' ')}</span>
                 <span className="dimensions">{entry.width} × {entry.height}</span>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>

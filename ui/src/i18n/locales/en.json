@@ -15,7 +15,13 @@
     "import": "Import",
     "unknown": "Unknown",
     "script": "Script",
-    "selectAll": "Select All"
+    "selectAll": "Select All",
+    "name": "Name",
+    "empty": "No data",
+    "close": "Close",
+    "saving": "Saving...",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "nav": {
     "capture": "Screen Capture",
@@ -32,6 +38,7 @@
     "gesture": "Configure gesture mappings and scopes",
     "hotcorner": "Trigger actions by moving mouse to screen corners",
     "capture": "Settings for screen capture and recording",
+    "history": "Browse and reopen recent captures",
     "ocr": "Text recognition engine and language configuration",
     "general": "Startup, language, and diagnostic settings",
     "about": "Version information and tech stack"
@@ -43,7 +50,7 @@
     "autoStartDesc": "Start EasyTools automatically when Windows starts",
     "minimizeToTray": "Minimize to Tray",
     "minimizeToTrayDesc": "Minimize to system tray instead of exiting when window is closed",
-    "checkUpdates": "Auto Update",
+    "checkUpdates": "Automatic update checks",
     "checkUpdatesDesc": "Check for updates automatically on startup",
     "uiAndLang": "Interface & Language",
     "keycast": "Keycast Overlay",
@@ -55,6 +62,7 @@
     "langEn": "English",
     "theme": "Theme",
     "themeDesc": "Switch between dark and light themes",
+    "themeSystem": "Follow system",
     "themeLight": "Light Theme",
     "themeDark": "Dark Theme",
     "advanced": "Advanced",
@@ -63,6 +71,7 @@
     "toastSaveSuccess": "Settings saved",
     "toastSaveDesc": "Updated: {{key}}",
     "toastSaveFailed": "Save failed",
+    "loadFailed": "Could not load settings",
     "dataManagement": "Data Management",
     "exportConfig": "Export Config",
     "exportConfigDesc": "Export all settings to a file for backup or migration",
@@ -79,8 +88,12 @@
     "resetSuccess": "Settings restored to defaults",
     "resetFailed": "Reset failed",
     "keyboardShortcuts": "Keyboard Shortcuts",
-    "keyboardShortcutsDesc": "View all registered global hotkeys",
-    "noShortcuts": "No registered shortcuts"
+    "keyboardShortcutsDesc": "Select a shortcut, then press a new key combination to rebind it",
+    "noShortcuts": "No registered shortcuts",
+    "shortcutPinToggle": "Toggle click-through for the pin under the pointer",
+    "shortcutPinPaste": "Create a pin from the clipboard",
+    "shortcutPinHideAll": "Hide or show all pins",
+    "shortcutPinArrange": "Arrange all pins"
   },
   "capture": {
     "title": "Screen Capture Settings",
@@ -102,14 +115,24 @@
     "autoDetectWindowDesc": "Highlight window boundaries on hover, click to capture the window",
     "formatPng": "PNG (Lossless)",
     "formatJpg": "JPEG (Compressed)",
-    "formatWebp": "WebP (Efficient)"
+    "formatWebp": "WebP (Efficient)",
+    "formatBmp": "BMP (Uncompressed)",
+    "quality": "Image Quality",
+    "qualityDesc": "Compression quality for JPEG and WebP files",
+    "loadFailed": "Could not load capture settings",
+    "saveFailed": "Could not save this setting",
+    "browseFailed": "Could not open the folder picker"
   },
   "history": {
     "title": "Capture History",
-    "subtitle": "View recent screenshots and recordings",
+    "subtitle": "View and reopen recent screen captures",
     "clearAll": "Clear All",
     "empty": "No capture history found.",
-    "confirmClear": "Are you sure you want to clear all history?"
+    "confirmClear": "Are you sure you want to clear all history?",
+    "loadFailed": "Could not load capture history",
+    "clearFailed": "Could not clear capture history",
+    "openFailed": "Could not open this capture",
+    "thumbnailAlt": "Screenshot preview"
   },
   "recording": {
     "title": "Recording Settings",
@@ -131,7 +154,9 @@
     "bitrate4": "4 Mbps (Light)",
     "bitrate8": "8 Mbps (Recommended)",
     "bitrate16": "16 Mbps (HD)",
-    "bitrate32": "32 Mbps (Ultra HD)"
+    "bitrate32": "32 Mbps (Ultra HD)",
+    "saveDir": "Recording folder",
+    "saveDirDesc": "Choose where completed recordings are stored"
   },
   "ocr": {
     "title": "Text OCR Settings",
@@ -142,9 +167,12 @@
     "showResultWindow": "Show Result Window",
     "showResultWindowDesc": "Display a window with the extracted text after OCR",
     "engine": "OCR Engine",
-    "engineDesc": "Select the backend engine for text recognition",
-    "engineTesseract": "Tesseract (Local, Fast)",
-    "engineWindowsOCR": "Windows OCR (Local, Accurate)"
+    "engineDesc": "Offline recognition provided by the Windows language packs installed on this PC",
+    "engineWindowsOCR": "Windows OCR (offline)",
+    "available": "Ready",
+    "unavailable": "Language pack required",
+    "loadFailed": "Could not load OCR settings",
+    "saveFailed": "Could not save this OCR setting"
   },
   "gesture": {
     "title": "Mouse Gesture Settings",
@@ -178,7 +206,33 @@
     "timeoutDesc": "Maximum time allowed to draw a gesture before it cancels",
     "statusRunning": "Gestures active",
     "statusPaused": "Gestures paused",
-    "deleteConfirm": "Delete gesture \"{{name}}\" ({{code}})?"
+    "deleteConfirm": "Delete gesture \"{{name}}\" ({{code}})?",
+    "radialMenu": "Radial Menu",
+    "radialHint": "Up to 8 items; this order is used clockwise in the menu.",
+    "radialDefaultLabel": "Action {{count}}",
+    "radialLabelPlaceholder": "Menu label",
+    "radialLabelRequired": "A radial-menu label cannot be empty",
+    "radialSaved": "Radial menu saved",
+    "loadFailed": "Could not load gesture settings",
+    "saveFailed": "Could not save gesture settings"
+  },
+  "hotcorner": {
+    "title": "Hot Corners",
+    "enabled": "Enable Hot Corners",
+    "enabledDesc": "Trigger a selected action after the pointer rests in a screen corner",
+    "corners": "Corner Actions",
+    "screenHint": "Move the pointer into a corner to trigger its action",
+    "cornerTL": "Top left",
+    "cornerTR": "Top right",
+    "cornerBL": "Bottom left",
+    "cornerBR": "Bottom right",
+    "noAction": "No action",
+    "unknown": "Unknown action",
+    "advanced": "Trigger Timing",
+    "delay": "Activation delay",
+    "delayDesc": "How long the pointer must remain in the corner before triggering",
+    "loadFailed": "Could not load hot-corner settings",
+    "saveFailed": "Could not save hot-corner settings"
   },
   "gestureEditor": {
     "titleEdit": "Edit Gesture",
@@ -201,7 +255,34 @@
     "builtinCommand": "Built-in Command",
     "programPath": "Program Path",
     "programArgs": "Launch Arguments",
-    "programArgsHint": "Optional"
+    "programArgsHint": "Optional",
+    "actionTypes": {
+      "hotkey": "Hotkey",
+      "lua": "Lua script",
+      "builtin": "Built-in command",
+      "program": "Run program"
+    },
+    "builtin": {
+      "closeWindow": "Close window",
+      "closeTab": "Close tab",
+      "maximize": "Maximize or restore window",
+      "minimize": "Minimize window",
+      "restore": "Restore window",
+      "showDesktop": "Show desktop",
+      "switchDesktop": "Switch virtual desktop",
+      "taskView": "Task view",
+      "lockScreen": "Lock screen",
+      "pauseGestures": "Pause gestures",
+      "screenshot": "Take screenshot",
+      "record": "Start or pause recording",
+      "restoreTab": "Restore closed tab",
+      "topmost": "Toggle always on top",
+      "transparency": "Toggle window transparency",
+      "webSearch": "Search selected text on the web",
+      "search": "Toggle file search",
+      "radialMenu": "Show radial menu",
+      "pasteAsPin": "Pin clipboard content"
+    }
   },
   "gestureGuide": {
     "title": "Gesture Demo",
@@ -227,7 +308,36 @@
     "colEffect": "Effect",
     "deleteRuleConfirm": "Delete rule \"{{name}}\"?",
     "deleteSelectedConfirm": "Delete {{count}} selected rules?",
-    "selectRow": "Select {{name}}"
+    "selectRow": "Select {{name}}",
+    "loadFailed": "Could not load scope rules",
+    "saveFailed": "Could not save scope rules",
+    "editRule": "Edit Scope Rule",
+    "newRule": "New Scope Rule",
+    "ruleName": "Rule Name",
+    "ruleNamePlaceholder": "e.g. Chrome browser",
+    "nameRequired": "Enter a rule name",
+    "targetRequired": "Enter a process or window class to match",
+    "matchTarget": "Match Target",
+    "byProcess": "Process name",
+    "byClass": "Window class",
+    "processName": "Process Name",
+    "windowClass": "Window Class",
+    "processHint": "For example chrome.exe; wildcards such as *.exe are supported",
+    "classHint": "For example Chrome_WidgetWin_1",
+    "matchMode": "Match Mode",
+    "matchExact": "Exact match",
+    "matchWildcard": "Wildcard (* and ?)",
+    "matchRegex": "Regular expression",
+    "effect": "Effect",
+    "effectEnable": "Enable gestures",
+    "effectDisable": "Disable gestures",
+    "effectProfile": "Use profile",
+    "profile": "Gesture Profile",
+    "profileHint": "Switch to this profile when the window matches",
+    "targetProcess": "Process",
+    "targetClass": "Class",
+    "targetNone": "Unset",
+    "noTarget": "No match target"
   },
   "stats": {
     "title": "Statistics",
@@ -253,6 +363,14 @@
     "license": "License",
     "components": "Open Source Components",
     "checkUpdate": "Check for Updates",
+    "checkingUpdate": "Checking...",
+    "upToDate": "EasyTools is up to date",
+    "updateAvailable": "EasyTools {{version}} is available",
+    "updateFailed": "Unable to check for updates",
+    "updateCheckBusy": "An update check is already running",
+    "noPublishedRelease": "No published release is available yet",
+    "openRelease": "Open release page",
+    "openReleaseFailed": "Unable to open the release page",
     "techStack": "Tech Stack",
     "subtitle": "Desktop Efficiency Tool",
     "depPurpose": {
@@ -264,8 +382,15 @@
       "luaSol2": "Script Extension",
       "opencv": "Image Processing/Stitching",
       "ffmpeg": "Video Encoding/Recording",
-      "paddleOcr": "Text Recognition"
-    }
+      "windowsOcr": "Offline OCR using installed Windows language packs"
+    },
+    "geekMode": "Performance Monitor",
+    "enablePerfMonitor": "Enable live metrics",
+    "enablePerfMonitorDesc": "Show memory, CPU, gesture, and interface latency in real time",
+    "perfMemory": "Memory usage",
+    "perfCpu": "CPU usage",
+    "perfGestureLatency": "Gesture latency",
+    "perfUiLatency": "UI latency"
   },
   "sidebar": {
     "themeToggleLight": "Switch to light theme",
@@ -299,5 +424,28 @@
     "next": "Next",
     "prev": "Previous",
     "skip": "Skip"
+  },
+  "hotkey": {
+    "pressKeys": "Press a key combination...",
+    "bindFailed": "Could not apply this hotkey"
+  },
+  "search": {
+    "title": "Quick file search",
+    "placeholder": "Search files or Pinyin initials...",
+    "serviceUnavailable": "The file index service is unavailable. Repair or reinstall EasyTools to restore instant search.",
+    "noResults": "No matching files",
+    "open": "Open",
+    "pinImage": "Pin image",
+    "close": "Close",
+    "openFailed": "Could not open this result",
+    "pinFailed": "Could not pin this image"
+  },
+  "tray": {
+    "settings": "Settings",
+    "capture": "Capture",
+    "recording": "Recording",
+    "resumeGesture": "Resume gestures",
+    "pauseGesture": "Pause gestures",
+    "exit": "Exit"
   }
 }

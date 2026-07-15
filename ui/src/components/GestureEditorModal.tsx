@@ -14,8 +14,8 @@ import { HotkeyRecorder } from './HotkeyRecorder';
 import { useTranslation } from 'react-i18next';
 import {
   type GestureMapping,
-  ACTION_TYPE_OPTIONS,
-  BUILTIN_COMMANDS,
+  ACTION_TYPE_KEYS,
+  BUILTIN_COMMAND_KEYS,
   GESTURE_CODE_PATTERN,
   codeToArrows,
 } from './gestureModel';
@@ -120,7 +120,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       <Field label={t('gestureEditor.actionType')}>
         <Select
           value={String(draft.action.type)}
-          options={ACTION_TYPE_OPTIONS}
+          options={ACTION_TYPE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
           onChange={(v) => setAction({ type: Number(v) })}
         />
       </Field>
@@ -150,7 +150,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
         <Field label={t('gestureEditor.builtinCommand')}>
           <Select
             value={String(draft.action.builtinCmd ?? 0)}
-            options={BUILTIN_COMMANDS.map((label, i) => ({ value: String(i), label }))}
+            options={BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) }))}
             onChange={(v) => setAction({ builtinCmd: Number(v) })}
           />
         </Field>

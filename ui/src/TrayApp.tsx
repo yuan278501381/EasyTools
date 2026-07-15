@@ -2,55 +2,66 @@ import { useState, useEffect } from 'react';
 import { Settings, Camera, Video, Pause, LogOut } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
+import { useAppearance } from './hooks/useAppearance';
 import './TrayApp.css';
 
 export default function TrayApp() {
+  useAppearance();
   const { t } = useTranslation();
   const [gesturePaused, setGesturePaused] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Initial fetch of gesture pause state if needed
-    bridgeRequest<boolean>('config.get', { key: '/gesture/paused' })
-      .then(val => setGesturePaused(!!val))
+    bridgeRequest<{ paused: boolean }>('gesture.getState')
+      .then(state => setGesturePaused(state.paused))
       .catch(() => {});
   }, []);
 
-  const handleAction = (action: string) => {
+  const handleAction = async (action: string) => {
+    if (busy) return;
+    const previousPaused = gesturePaused;
     if (action === 'pauseGesture') {
-      const nextState = !gesturePaused;
-      setGesturePaused(nextState);
-      bridgeRequest('config.set', { key: '/gesture/paused', value: nextState });
+      setGesturePaused(!gesturePaused);
     }
-    bridgeRequest('tray.action', { action });
+    setBusy(true);
+    try {
+      const result = await bridgeRequest<{ success: boolean }>('tray.action', { action });
+      if (!result.success) throw new Error('Tray action failed');
+    } catch (error) {
+      console.error(error);
+      setGesturePaused(previousPaused);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className="tray-menu">
-      <div className="tray-menu__item" onClick={() => handleAction('openSettings')}>
+      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('openSettings')}>
         <Settings size={16} />
         <span>{t('tray.settings', 'Settings')}</span>
-      </div>
+      </button>
       <div className="tray-menu__divider" />
-      <div className="tray-menu__item" onClick={() => handleAction('screenshot')}>
+      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
         <Camera size={16} />
         <span>{t('tray.capture', 'Capture')}</span>
-      </div>
-      <div className="tray-menu__item" onClick={() => handleAction('recording')}>
+      </button>
+      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('recording')}>
         <Video size={16} />
         <span>{t('tray.recording', 'Recording')}</span>
-      </div>
+      </button>
       <div className="tray-menu__divider" />
-      <div className="tray-menu__item" onClick={() => handleAction('pauseGesture')}>
+      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
         <Pause size={16} />
         <span>
           {gesturePaused ? t('tray.resumeGesture', 'Resume Gesture') : t('tray.pauseGesture', 'Pause Gesture')}
         </span>
-      </div>
+      </button>
       <div className="tray-menu__divider" />
-      <div className="tray-menu__item tray-menu__item--danger" onClick={() => handleAction('exit')}>
+      <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={16} />
         <span>{t('tray.exit', 'Exit')}</span>
-      </div>
+      </button>
     </div>
   );
 }

@@ -5,19 +5,167 @@
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/events/EventBus.h"
+#include "core/events/MainThreadDispatcher.h"
 #include "gesture/GestureEngine.h"
 #include "gesture/MouseHook.h"
 #include "gesture/BuiltinCommands.h"
 #include "gesture/HotCornerEngine.h"
 #include "gesture/RadialMenuOverlay.h"
+#include "EasyToolsVersion.h"
+#include <algorithm>
+#include <array>
+#include <optional>
+#include <unordered_set>
 #include <windows.h>
 
 namespace easy::gesture {
 
+namespace {
+
+int hotCornerCommandIndex(const std::string& value) {
+    if (value.empty()) return -1;
+    if (value == "capture") return static_cast<int>(BuiltinCommand::TakeScreenshot);
+    if (value == "search") return static_cast<int>(BuiltinCommand::ToggleSearch);
+    try {
+        const int index = std::stoi(value);
+        return index >= 0 && index <= static_cast<int>(BuiltinCommand::PasteAsPin) ? index : -1;
+    } catch (...) {
+        return -1;
+    }
+}
+
+constexpr std::array<std::pair<const char*, HotCorner>, 4> kHotCorners{{
+    {"topLeft", HotCorner::TopLeft},
+    {"topRight", HotCorner::TopRight},
+    {"bottomLeft", HotCorner::BottomLeft},
+    {"bottomRight", HotCorner::BottomRight},
+}};
+
+std::optional<std::string> parseHotCornerCommand(const nlohmann::json& value) {
+    if (value.is_string()) {
+        const auto text = value.get<std::string>();
+        if (text.empty() || text == "capture" || text == "search") return text;
+        try {
+            const int index = std::stoi(text);
+            if (std::to_string(index) == text && index >= 0 &&
+                index <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
+                return text;
+            }
+        } catch (...) {}
+        return std::nullopt;
+    }
+
+    int index = -1;
+    if (value.is_number_integer()) index = value.get<int>();
+    else if (value.is_object() && value.contains("commandIndex") &&
+             value["commandIndex"].is_number_integer()) {
+        index = value["commandIndex"].get<int>();
+    } else {
+        return std::nullopt;
+    }
+    if (index == -1) return std::string{};
+    if (index < 0 || index > static_cast<int>(BuiltinCommand::PasteAsPin)) {
+        return std::nullopt;
+    }
+    return std::to_string(index);
+}
+
+nlohmann::json updateHotCornerSettings(const nlohmann::json& params) {
+    using json = nlohmann::json;
+    if (!params.is_object() || params.empty()) {
+        return {{"success", false}, {"error", "no hot-corner settings supplied"}};
+    }
+
+    static const std::unordered_set<std::string> allowedKeys = {
+        "enabled", "delay", "triggerDelay", "corners",
+        "topLeft", "topRight", "bottomLeft", "bottomRight"
+    };
+    for (const auto& [key, value] : params.items()) {
+        if (!allowedKeys.contains(key)) {
+            return {{"success", false}, {"error", "unsupported setting: " + key}};
+        }
+    }
+
+    auto& engine = HotCornerEngine::instance();
+    json desired = {
+        {"enabled", engine.isEnabled()},
+        {"triggerDelay", engine.triggerDelay()},
+        {"topLeft", engine.getCornerAction(HotCorner::TopLeft)},
+        {"topRight", engine.getCornerAction(HotCorner::TopRight)},
+        {"bottomLeft", engine.getCornerAction(HotCorner::BottomLeft)},
+        {"bottomRight", engine.getCornerAction(HotCorner::BottomRight)},
+    };
+
+    if (params.contains("enabled")) {
+        if (!params["enabled"].is_boolean()) {
+            return {{"success", false}, {"error", "enabled must be boolean"}};
+        }
+        desired["enabled"] = params["enabled"];
+    }
+
+    const char* delayKey = params.contains("delay") ? "delay" :
+                           (params.contains("triggerDelay") ? "triggerDelay" : nullptr);
+    if (delayKey) {
+        if (!params[delayKey].is_number_integer()) {
+            return {{"success", false}, {"error", "delay must be an integer"}};
+        }
+        desired["triggerDelay"] = std::clamp(params[delayKey].get<int>(), 100, 2000);
+    }
+
+    if (params.contains("corners")) {
+        if (!params["corners"].is_object()) {
+            return {{"success", false}, {"error", "corners must be an object"}};
+        }
+        for (const auto& [key, value] : params["corners"].items()) {
+            const auto known = std::ranges::find_if(kHotCorners, [&key](const auto& entry) {
+                return key == entry.first;
+            });
+            if (known == kHotCorners.end()) {
+                return {{"success", false}, {"error", "unsupported corner: " + key}};
+            }
+            const auto command = parseHotCornerCommand(value);
+            if (!command) {
+                return {{"success", false}, {"error", "invalid command for " + key}};
+            }
+            desired[key] = *command;
+        }
+    }
+
+    for (const auto& [key, corner] : kHotCorners) {
+        if (!params.contains(key)) continue;
+        const auto command = parseHotCornerCommand(params[key]);
+        if (!command) {
+            return {{"success", false}, {"error", std::string("invalid command for ") + key}};
+        }
+        desired[key] = *command;
+    }
+
+    if (!easy::core::ConfigManager::instance().mergePatch(
+            {{"gesture", {{"hotCorners", desired}}}}, "/gesture/hotCorners")) {
+        return {{"success", false}, {"error", "failed to persist hot-corner settings"}};
+    }
+
+    engine.setEnabled(desired["enabled"].get<bool>());
+    engine.setTriggerDelay(desired["triggerDelay"].get<int>());
+    for (const auto& [key, corner] : kHotCorners) {
+        engine.setCornerAction(corner, desired[key].get<std::string>());
+    }
+    return {{"success", true}, {"settings", std::move(desired)}};
+}
+
+easy::core::HotkeyDef configuredHotkey(const std::string& name,
+                                       const easy::core::HotkeyDef& fallback) {
+    const auto text = easy::core::ConfigManager::instance().get<std::string>(
+        "/hotkeys/" + name, fallback.toString());
+    return easy::core::HotkeyDef::fromString(text).value_or(fallback);
+}
+
+}  // namespace
+
 class GesturePlugin : public easy::core::IPlugin {
 public:
     const char* getName() const override { return "Gesture"; }
-    const char* getVersion() const override { return "1.0.0"; }
+    const char* getVersion() const override { return easy::version::String; }
 
     bool initialize() override {
         LOG_INFO("GesturePlugin: 初始化手势引擎");
@@ -26,38 +174,57 @@ public:
         using easy::gesture::BuiltinCommand;
         auto& dispatcher = easy::gesture::BuiltinCommandDispatcher::instance();
         dispatcher.registerHandler(BuiltinCommand::PauseGestures, []() {
-            auto& engine = easy::gesture::GestureEngine::instance();
-            engine.setPaused(!engine.isPaused());
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                auto& engine = easy::gesture::GestureEngine::instance();
+                engine.setPaused(!engine.isPaused());
+            });
         });
         dispatcher.registerHandler(BuiltinCommand::TakeScreenshot, []() {
-            easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{});
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{});
+            });
         });
         dispatcher.registerHandler(BuiltinCommand::StartRecording, []() {
-            easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{});
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{});
+            });
         });
         dispatcher.registerHandler(BuiltinCommand::ToggleSearch, []() {
-            easy::core::MessageBridge::instance().handleMessage(R"({"method":"search.toggle"})");
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                easy::core::MessageBridge::instance().handleMessage(R"({"method":"search.toggle"})");
+            });
         });
         dispatcher.registerHandler(BuiltinCommand::PasteAsPin, []() {
-            easy::core::MessageBridge::instance().handleMessage(R"({"method":"capture.pasteAsPin"})");
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                easy::core::MessageBridge::instance().handleMessage(R"({"method":"capture.pasteAsPin"})");
+            });
         });
         dispatcher.registerHandler(BuiltinCommand::ShowRadialMenu, []() {
-            LOG_INFO("GesturePlugin: 内置命令触发轮盘菜单");
-            POINT pt;
-            GetCursorPos(&pt);
-            easy::gesture::RadialMenuOverlay::instance().show(pt);
+            easy::core::MainThreadDispatcher::instance().post([]() {
+                LOG_INFO("GesturePlugin: 内置命令触发轮盘菜单");
+                POINT pt;
+                GetCursorPos(&pt);
+                easy::gesture::RadialMenuOverlay::instance().show(pt);
+            });
         });
 
         // 状态变化回调
         auto& gestureEngine = easy::gesture::GestureEngine::instance();
-        gestureEngine.setPauseChangedCallback([](bool paused) {
+        gestureEngine.setPauseChangedCallback([](bool paused) -> bool {
             auto& config = easy::core::ConfigManager::instance();
-            config.set("/gesture/paused", paused);
-            config.set("/gesture/enabled", !paused);
+            const bool alreadySaved =
+                config.get<bool>("/gesture/paused", !paused) == paused &&
+                config.get<bool>("/gesture/enabled", paused) == !paused;
+            if (!alreadySaved && !config.mergePatch({
+                    {"gesture", {{"paused", paused}, {"enabled", !paused}}}
+                }, "/gesture")) {
+                return false;
+            }
             easy::core::MessageBridge::instance().pushEvent("gesture.stateChanged", {
                 {"paused", paused},
                 {"enabled", !paused}
             });
+            return true;
         });
 
         // 注册 IPC 处理器
@@ -72,12 +239,13 @@ public:
         
         mb.registerHandler("gesture.togglePause", [](const nlohmann::json&) -> nlohmann::json {
             auto& engine = easy::gesture::GestureEngine::instance();
-            engine.setPaused(!engine.isPaused());
-            return {{"success", true}};
+            const bool success = engine.setPaused(!engine.isPaused());
+            return {{"success", success}, {"paused", engine.isPaused()},
+                    {"enabled", !engine.isPaused()}};
         });
 
         auto& hotkeys = easy::core::HotkeyManager::instance();
-        hotkeys.registerHotkey("Pause Gestures", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'W'}, []() {
+        hotkeys.registerHotkey("Pause Gestures", configuredHotkey("Pause Gestures", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'W'}), []() {
             auto& engine = easy::gesture::GestureEngine::instance();
             engine.setPaused(!engine.isPaused());
         });
@@ -85,10 +253,7 @@ public:
         mb.registerHandler("gesture.getProfiles", [](const nlohmann::json&) -> nlohmann::json {
             auto& engine = easy::gesture::GestureEngine::instance();
             nlohmann::json result = nlohmann::json::array();
-            auto* defaultProfile = engine.getProfile("default");
-            if (defaultProfile) result.push_back(defaultProfile->toJson());
-            auto* browserProfile = engine.getProfile("browser");
-            if (browserProfile) result.push_back(browserProfile->toJson());
+            for (const auto& profile : engine.getProfiles()) result.push_back(profile.toJson());
             return result;
         });
 
@@ -105,19 +270,54 @@ public:
         mb.registerHandler("gesture.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
             auto& engine = easy::gesture::GestureEngine::instance();
             auto& config = easy::core::ConfigManager::instance();
-            if (params.contains("enabled")) engine.setPaused(!params["enabled"].get<bool>());
-            if (params.contains("paused")) engine.setPaused(params["paused"].get<bool>());
+            if (!params.is_object() || params.empty()) {
+                return {{"success", false}, {"error", "no gesture settings supplied"}};
+            }
+            static const std::unordered_set<std::string> allowed = {
+                "enabled", "paused", "triggerButton", "trailVisible"
+            };
+            for (const auto& [key, value] : params.items()) {
+                if (!allowed.contains(key)) {
+                    return {{"success", false}, {"error", "unsupported setting: " + key}};
+                }
+            }
+            if ((params.contains("enabled") && !params["enabled"].is_boolean()) ||
+                (params.contains("paused") && !params["paused"].is_boolean()) ||
+                (params.contains("trailVisible") && !params["trailVisible"].is_boolean())) {
+                return {{"success", false}, {"error", "boolean setting has invalid type"}};
+            }
+            if (params.contains("enabled") && params.contains("paused") &&
+                params["enabled"].get<bool>() == params["paused"].get<bool>()) {
+                return {{"success", false}, {"error", "enabled and paused conflict"}};
+            }
+
+            std::string trigger = engine.triggerButton();
             if (params.contains("triggerButton")) {
-                engine.setTriggerButton(params["triggerButton"].get<std::string>());
-                config.set("/gesture/triggerButton", engine.triggerButton());
+                if (!params["triggerButton"].is_string()) {
+                    return {{"success", false}, {"error", "triggerButton must be a string"}};
+                }
+                trigger = params["triggerButton"].get<std::string>();
+                if (trigger != "right" && trigger != "middle") {
+                    return {{"success", false}, {"error", "invalid triggerButton"}};
+                }
             }
-            if (params.contains("trailVisible")) {
-                bool trailVisible = params["trailVisible"].get<bool>();
-                engine.setTrailVisible(trailVisible);
-                config.set("/gesture/trailVisible", trailVisible);
+
+            bool paused = engine.isPaused();
+            if (params.contains("enabled")) paused = !params["enabled"].get<bool>();
+            if (params.contains("paused")) paused = params["paused"].get<bool>();
+            const bool trailVisible = params.value("trailVisible", engine.trailVisible());
+            nlohmann::json patch = {
+                {"paused", paused}, {"enabled", !paused},
+                {"triggerButton", trigger}, {"trailVisible", trailVisible}
+            };
+            if (!config.mergePatch({{"gesture", patch}}, "/gesture")) {
+                return {{"success", false}, {"error", "failed to persist gesture settings"}};
             }
+            engine.setTriggerButton(trigger);
+            engine.setTrailVisible(trailVisible);
+            const bool pauseApplied = engine.setPaused(paused);
             return {
-                {"success", true},
+                {"success", pauseApplied},
                 {"paused", engine.isPaused()},
                 {"enabled", !engine.isPaused()},
                 {"triggerButton", engine.triggerButton()},
@@ -126,17 +326,28 @@ public:
         });
 
         mb.registerHandler("gesture.updateProfile", [](const nlohmann::json& params) -> nlohmann::json {
+            if (!params.is_object() || !params.contains("name") || !params["name"].is_string() ||
+                params["name"].get<std::string>().empty() ||
+                !params.contains("mappings") || !params["mappings"].is_array()) {
+                return {{"success", false}, {"error", "invalid profile"}};
+            }
             auto profile = easy::gesture::GestureProfile::fromJson(params);
-            easy::gesture::GestureEngine::instance().setProfile(profile.name(), profile);
-            easy::gesture::GestureEngine::instance().saveToConfig();
+            auto& engine = easy::gesture::GestureEngine::instance();
+            const auto previous = engine.getProfile(profile.name());
+            engine.setProfile(profile.name(), profile);
+            if (!engine.saveToConfig()) {
+                if (previous) engine.setProfile(previous->name(), *previous);
+                else engine.removeProfile(profile.name());
+                return {{"success", false}, {"error", "failed to persist profile"}};
+            }
             return {{"success", true}};
         });
 
         mb.registerHandler("gesture.setPaused", [](const nlohmann::json& params) -> nlohmann::json {
             bool paused = params.value("paused", false);
-            easy::gesture::GestureEngine::instance().setPaused(paused);
+            const bool success = easy::gesture::GestureEngine::instance().setPaused(paused);
             return {
-                {"success", true},
+                {"success", success},
                 {"paused", easy::gesture::GestureEngine::instance().isPaused()},
                 {"enabled", !easy::gesture::GestureEngine::instance().isPaused()}
             };
@@ -148,75 +359,45 @@ public:
 
         mb.registerHandler("gesture.updateScopeRules", [](const nlohmann::json& params) -> nlohmann::json {
             const nlohmann::json& rules = (params.is_object() && params.contains("rules")) ? params["rules"] : params;
-            easy::gesture::GestureEngine::instance().scopeRules().loadFromJson(rules);
-            easy::gesture::GestureEngine::instance().saveToConfig();
+            if (!rules.is_array()) {
+                return {{"success", false}, {"error", "rules must be an array"}};
+            }
+            auto& engine = easy::gesture::GestureEngine::instance();
+            const auto previous = engine.scopeRules().toJson();
+            engine.scopeRules().loadFromJson(rules);
+            if (!engine.saveToConfig()) {
+                engine.scopeRules().loadFromJson(previous);
+                return {{"success", false}, {"error", "failed to persist scope rules"}};
+            }
             return {{"success", true}};
         });
 
         // 注册 HotCorner 相关 IPC
         mb.registerHandler("gesture.updateHotCorners", [](const nlohmann::json& params) -> nlohmann::json {
-            auto& config = easy::core::ConfigManager::instance();
-            auto& hce = easy::gesture::HotCornerEngine::instance();
-            if (params.contains("topLeft")) hce.setCornerAction(easy::gesture::HotCorner::TopLeft, params["topLeft"].get<std::string>());
-            if (params.contains("topRight")) hce.setCornerAction(easy::gesture::HotCorner::TopRight, params["topRight"].get<std::string>());
-            if (params.contains("bottomLeft")) hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, params["bottomLeft"].get<std::string>());
-            if (params.contains("bottomRight")) hce.setCornerAction(easy::gesture::HotCorner::BottomRight, params["bottomRight"].get<std::string>());
-            
-            // 顺便保存到 Config
-            config.set("/gesture/hotCorners/topLeft", hce.getCornerAction(easy::gesture::HotCorner::TopLeft));
-            config.set("/gesture/hotCorners/topRight", hce.getCornerAction(easy::gesture::HotCorner::TopRight));
-            config.set("/gesture/hotCorners/bottomLeft", hce.getCornerAction(easy::gesture::HotCorner::BottomLeft));
-            config.set("/gesture/hotCorners/bottomRight", hce.getCornerAction(easy::gesture::HotCorner::BottomRight));
-
-            return {{"success", true}};
+            return updateHotCornerSettings(params);
         });
 
         // hotcorner.getSettings —— 返回四个角的动作和启用状态
         mb.registerHandler("hotcorner.getSettings", [](const nlohmann::json&) -> nlohmann::json {
             auto& hce = easy::gesture::HotCornerEngine::instance();
+            auto& config = easy::core::ConfigManager::instance();
             LOG_DEBUG("IPC: hotcorner.getSettings 查询触发角配置");
             return {
                 {"enabled", hce.isEnabled()},
-                {"topLeft",     hce.getCornerAction(easy::gesture::HotCorner::TopLeft)},
-                {"topRight",    hce.getCornerAction(easy::gesture::HotCorner::TopRight)},
-                {"bottomLeft",  hce.getCornerAction(easy::gesture::HotCorner::BottomLeft)},
-                {"bottomRight", hce.getCornerAction(easy::gesture::HotCorner::BottomRight)}
+                {"delay", config.get<int>("/gesture/hotCorners/triggerDelay", 300)},
+                {"corners", {
+                    {"topLeft", {{"commandIndex", hotCornerCommandIndex(hce.getCornerAction(easy::gesture::HotCorner::TopLeft))}}},
+                    {"topRight", {{"commandIndex", hotCornerCommandIndex(hce.getCornerAction(easy::gesture::HotCorner::TopRight))}}},
+                    {"bottomLeft", {{"commandIndex", hotCornerCommandIndex(hce.getCornerAction(easy::gesture::HotCorner::BottomLeft))}}},
+                    {"bottomRight", {{"commandIndex", hotCornerCommandIndex(hce.getCornerAction(easy::gesture::HotCorner::BottomRight))}}}
+                }}
             };
         });
 
         // hotcorner.updateSettings —— 更新角落动作/延迟/启用状态
         mb.registerHandler("hotcorner.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
-            auto& config = easy::core::ConfigManager::instance();
-            auto& hce = easy::gesture::HotCornerEngine::instance();
             LOG_INFO("IPC: hotcorner.updateSettings 更新触发角配置");
-
-            if (params.contains("enabled")) {
-                bool enabled = params["enabled"].get<bool>();
-                hce.setEnabled(enabled);
-                config.set("/gesture/hotCorners/enabled", enabled);
-            }
-            if (params.contains("triggerDelay")) {
-                int delay = params["triggerDelay"].get<int>();
-                hce.setTriggerDelay(delay);
-                config.set("/gesture/hotCorners/triggerDelay", delay);
-            }
-            if (params.contains("topLeft")) {
-                hce.setCornerAction(easy::gesture::HotCorner::TopLeft, params["topLeft"].get<std::string>());
-                config.set("/gesture/hotCorners/topLeft", params["topLeft"].get<std::string>());
-            }
-            if (params.contains("topRight")) {
-                hce.setCornerAction(easy::gesture::HotCorner::TopRight, params["topRight"].get<std::string>());
-                config.set("/gesture/hotCorners/topRight", params["topRight"].get<std::string>());
-            }
-            if (params.contains("bottomLeft")) {
-                hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, params["bottomLeft"].get<std::string>());
-                config.set("/gesture/hotCorners/bottomLeft", params["bottomLeft"].get<std::string>());
-            }
-            if (params.contains("bottomRight")) {
-                hce.setCornerAction(easy::gesture::HotCorner::BottomRight, params["bottomRight"].get<std::string>());
-                config.set("/gesture/hotCorners/bottomRight", params["bottomRight"].get<std::string>());
-            }
-            return {{"success", true}};
+            return updateHotCornerSettings(params);
         });
 
         // 注册 RadialMenu 弹出接口
@@ -246,18 +427,32 @@ public:
             }
 
             const auto& itemsJson = params["items"];
+            if (itemsJson.size() > 16) {
+                return {{"success", false}, {"error", "too many radial-menu items"}};
+            }
             std::vector<easy::gesture::RadialMenuItem> items;
             items.reserve(itemsJson.size());
             for (const auto& ij : itemsJson) {
+                if (!ij.is_object() || !ij.contains("label") || !ij["label"].is_string() ||
+                    !ij.contains("command") || !ij["command"].is_string()) {
+                    return {{"success", false}, {"error", "invalid radial-menu item"}};
+                }
+                const auto label = ij["label"].get<std::string>();
+                const auto command = ij["command"].get<std::string>();
+                if (label.empty() || label.size() > 80 || command.size() > 256) {
+                    return {{"success", false}, {"error", "invalid radial-menu item length"}};
+                }
                 items.push_back({
-                    ij.value("label", ""),
-                    ij.value("command", "")
+                    label,
+                    command
                 });
             }
-            easy::gesture::RadialMenuOverlay::instance().setItems(items);
 
             // 持久化到配置
-            config.set("/gesture/radialMenu/items", itemsJson);
+            if (!config.set("/gesture/radialMenu/items", itemsJson)) {
+                return {{"success", false}, {"error", "failed to persist radial-menu items"}};
+            }
+            easy::gesture::RadialMenuOverlay::instance().setItems(items);
             LOG_INFO("radialmenu.updateItems: 已更新 {} 个菜单项", items.size());
             return {{"success", true}, {"count", items.size()}};
         });
@@ -271,6 +466,8 @@ public:
         hce.setCornerAction(easy::gesture::HotCorner::TopRight, config.get<std::string>("/gesture/hotCorners/topRight", "capture")); // 默认右上角截图
         hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, config.get<std::string>("/gesture/hotCorners/bottomLeft", ""));
         hce.setCornerAction(easy::gesture::HotCorner::BottomRight, config.get<std::string>("/gesture/hotCorners/bottomRight", "search")); // 默认右下角搜索
+        hce.setEnabled(config.get<bool>("/gesture/hotCorners/enabled", false));
+        hce.setTriggerDelay(std::clamp(config.get<int>("/gesture/hotCorners/triggerDelay", 300), 100, 2000));
 
         // 初始化 RadialMenu — 优先从配置加载，无配置时使用默认项
         auto savedRadialItems = config.get<nlohmann::json>("/gesture/radialMenu/items", nlohmann::json());
@@ -293,8 +490,10 @@ public:
             LOG_INFO("GesturePlugin: 使用默认轮盘菜单项, 数量={}", rItems.size());
         }
 
-        easy::gesture::MouseHook::instance().install();
-        gestureEngine.start();
+        if (!gestureEngine.start()) {
+            LOG_ERROR("GesturePlugin: 手势引擎启动失败");
+            return false;
+        }
         hce.start();
         return true;
     }
@@ -305,7 +504,6 @@ public:
         gestureEngine.saveToConfig();
         gestureEngine.stop();
         easy::gesture::HotCornerEngine::instance().stop();
-        easy::gesture::MouseHook::instance().uninstall();
     }
 };
 

@@ -22,6 +22,11 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <optional>
+#include <shared_mutex>
+#include <thread>
 
 namespace easy::gesture {
 
@@ -35,7 +40,7 @@ enum class GestureState {
 /// 手势轨迹可视化回调（由 UI 层实现）
 using TrailRenderCallback = std::function<void(const std::vector<TrackPoint>& points,
                                                 const std::vector<Direction>& directions)>;
-using PauseChangedCallback = std::function<void(bool paused)>;
+using PauseChangedCallback = std::function<bool(bool paused)>;
 
 class GestureEngine {
 public:
@@ -48,7 +53,8 @@ public:
     void stop();
 
     /// 暂停/恢复手势
-    void setPaused(bool paused);
+    /// 返回 false 表示状态持久化失败，运行时状态已自动回滚。
+    bool setPaused(bool paused);
     bool isPaused() const { return m_paused.load(); }
     void setPauseChangedCallback(PauseChangedCallback callback);
 
@@ -68,11 +74,14 @@ public:
     /// 添加/更新 Profile
     void setProfile(const std::string& name, const GestureProfile& profile);
 
-    /// 获取 Profile
-    GestureProfile* getProfile(const std::string& name);
+    /// 获取 Profile 快照。禁止向调用方暴露容器内指针，避免并发更新后悬空。
+    std::optional<GestureProfile> getProfile(const std::string& name) const;
 
-    /// 获取全局默认 Profile
-    GestureProfile& defaultProfile() { return m_profiles["default"]; }
+    /// 获取全部 Profile 的稳定快照，按名称排序。
+    std::vector<GestureProfile> getProfiles() const;
+
+    /// 删除 Profile（用于持久化失败后的回滚）。
+    bool removeProfile(const std::string& name);
 
     // ── 作用域规则 ───────────────────────────────────────────────────────
 
@@ -90,7 +99,7 @@ public:
     void loadFromConfig();
 
     /// 保存全部状态到配置文件
-    void saveToConfig();
+    bool saveToConfig();
 
 private:
     GestureEngine();
@@ -112,13 +121,17 @@ private:
     /// 把被吞掉的触发键点击补发出去 (无有效手势时还原右键/中键的正常点击)
     void reinjectTriggerClick();
 
+    void enqueueAction(GestureAction action, std::string traceId);
+    void actionWorkerLoop(std::stop_token stopToken);
+
     /// 根据当前前台窗口查找适用的 Profile
-    GestureProfile* resolveProfile(HWND hwnd);
+    std::optional<GestureProfile> resolveProfile(HWND hwnd) const;
 
     // 组件
     GestureRecognizer m_recognizer;
     ScopeRuleEngine m_scopeRules;
     std::unordered_map<std::string, GestureProfile> m_profiles;
+    mutable std::shared_mutex m_profileMutex;
 
     // 状态
     std::atomic<GestureState> m_state{GestureState::Idle};
@@ -131,12 +144,25 @@ private:
 
     // 轨迹可视化
     TrailRenderCallback m_trailCallback;
+    mutable std::mutex m_callbackMutex;
 
     // 触发按键 (默认右键)
-    MouseEventType m_triggerDown = MouseEventType::RightDown;
-    MouseEventType m_triggerUp   = MouseEventType::RightUp;
+    std::atomic<MouseEventType> m_triggerDown{MouseEventType::RightDown};
+    std::atomic<MouseEventType> m_triggerUp{MouseEventType::RightUp};
+    // 一次手势从按下到抬起必须使用同一触发键，即使用户此时在设置页切换配置。
+    MouseEventType m_activeTriggerDown = MouseEventType::RightDown;
+    MouseEventType m_activeTriggerUp = MouseEventType::RightUp;
 
     std::mutex m_mutex;
+
+    struct ActionJob {
+        GestureAction action;
+        std::string traceId;
+    };
+    std::mutex m_actionMutex;
+    std::condition_variable_any m_actionCv;
+    std::deque<ActionJob> m_actionQueue;
+    std::jthread m_actionWorker;
 };
 
 }  // namespace easy::gesture

@@ -17,7 +17,7 @@ export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'his
 interface NavItem {
   id: NavId;
   icon: ReactNode;
-  labelKey: string;
+  labelKey: 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.history' | 'nav.ocr' | 'nav.settings' | 'nav.about';
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -63,7 +63,7 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
           >
             <span className="sidebar__item-indicator" />
             <span className="sidebar__item-icon">{item.icon}</span>
-            <span className="sidebar__item-label">{t(item.labelKey as any)}</span>
+            <span className="sidebar__item-label">{t(item.labelKey)}</span>
           </button>
         ))}
       </nav>

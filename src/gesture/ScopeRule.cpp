@@ -13,6 +13,26 @@
 
 namespace easy::gesture {
 
+namespace {
+
+std::wstring wildcardToRegex(const std::wstring& pattern) {
+    std::wstring result;
+    result.reserve(pattern.size() * 2);
+    for (const wchar_t ch : pattern) {
+        if (ch == L'*') result += L".*";
+        else if (ch == L'?') result += L'.';
+        else {
+            if (std::wstring_view(L".^$|()[]{}+\\").find(ch) != std::wstring_view::npos) {
+                result += L'\\';
+            }
+            result += ch;
+        }
+    }
+    return result;
+}
+
+}  // namespace
+
 // ── ScopeRule::matches ───────────────────────────────────────────────────────
 
 bool ScopeRule::matches(HWND hwnd, const std::wstring& procName, const std::wstring& className) const {
@@ -31,20 +51,7 @@ bool ScopeRule::matches(HWND hwnd, const std::wstring& procName, const std::wstr
                 if (className == wideClass) return true;
                 break;
             case MatchMode::Wildcard: {
-                // 简单通配符: 将 * 转为正则 .*
-                std::wstring pattern = wideClass;
-                // 转义所有特殊字符，然后把 * 替换为 .*
-                std::wstring regexStr;
-                for (wchar_t ch : pattern) {
-                    if (ch == L'*') regexStr += L".*";
-                    else if (ch == L'?') regexStr += L".";
-                    else if (ch == L'.' || ch == L'(' || ch == L')' || ch == L'[' || ch == L']') {
-                        regexStr += L"\\";
-                        regexStr += ch;
-                    } else {
-                        regexStr += ch;
-                    }
-                }
+                const std::wstring regexStr = wildcardToRegex(wideClass);
                 try {
                     std::wregex re(regexStr, std::regex_constants::icase);
                     if (std::regex_match(className, re)) return true;
@@ -75,14 +82,7 @@ bool ScopeRule::matches(HWND hwnd, const std::wstring& procName, const std::wstr
                 break;
             }
             case MatchMode::Wildcard: {
-                std::wstring regexStr;
-                for (wchar_t ch : wideProcName) {
-                    if (ch == L'*') regexStr += L".*";
-                    else if (ch == L'?') regexStr += L".";
-                    else {
-                        regexStr += ch;
-                    }
-                }
+                const std::wstring regexStr = wildcardToRegex(wideProcName);
                 try {
                     std::wregex re(regexStr, std::regex_constants::icase);
                     if (std::regex_match(procName, re)) return true;
@@ -124,8 +124,10 @@ ScopeRule ScopeRule::fromJson(const nlohmann::json& j) {
     rule.enabled = j.value("enabled", true);
     rule.processName = j.value("processName", "");
     rule.windowClass = j.value("windowClass", "");
-    rule.matchMode = static_cast<MatchMode>(j.value("matchMode", 0));
-    rule.effect = static_cast<RuleEffect>(j.value("effect", 0));
+    const int matchMode = j.value("matchMode", 0);
+    const int effect = j.value("effect", 0);
+    rule.matchMode = static_cast<MatchMode>(std::clamp(matchMode, 0, 2));
+    rule.effect = static_cast<RuleEffect>(std::clamp(effect, 0, 2));
     rule.profileName = j.value("profileName", "");
     return rule;
 }
@@ -133,6 +135,7 @@ ScopeRule ScopeRule::fromJson(const nlohmann::json& j) {
 // ── ScopeRuleEngine ──────────────────────────────────────────────────────────
 
 std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
+    std::lock_guard lock(m_mutex);
     // ── LRU 缓存：按 (PID, className) 缓存评估结果 ──────────────────
     // 在鼠标钩子热路径上，前台窗口很少变化，缓存命中率 >95%
     DWORD pid = 0;
@@ -153,10 +156,12 @@ std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
 
     // 按优先级排序: 句柄规则 > 类名规则 > 进程规则
     std::optional<std::string> result = "";
+    bool matchedHigherPriority = false;
 
     // 先检查句柄规则
     for (const auto& rule : m_rules) {
         if (rule.windowHandle != nullptr && rule.matches(hwnd, info.processName, info.className)) {
+            matchedHigherPriority = true;
             if (rule.effect == RuleEffect::Disable) { result = std::nullopt; break; }
             if (rule.effect == RuleEffect::UseProfile) { result = rule.profileName; break; }
             break;
@@ -164,10 +169,11 @@ std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
     }
 
     // 再检查类名规则（如果句柄规则未匹配）
-    if (result.has_value() && result.value().empty()) {
+    if (!matchedHigherPriority && result.has_value() && result.value().empty()) {
         for (const auto& rule : m_rules) {
             if (rule.windowHandle == nullptr && !rule.windowClass.empty()
                 && rule.matches(hwnd, info.processName, info.className)) {
+                matchedHigherPriority = true;
                 if (rule.effect == RuleEffect::Disable) { result = std::nullopt; break; }
                 if (rule.effect == RuleEffect::UseProfile) { result = rule.profileName; break; }
                 break;
@@ -176,7 +182,7 @@ std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
     }
 
     // 最后检查进程规则
-    if (result.has_value() && result.value().empty()) {
+    if (!matchedHigherPriority && result.has_value() && result.value().empty()) {
         for (const auto& rule : m_rules) {
             if (rule.windowHandle == nullptr && rule.windowClass.empty() && !rule.processName.empty()
                 && rule.matches(hwnd, info.processName, info.className)) {
@@ -200,6 +206,7 @@ std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
 }
 
 void ScopeRuleEngine::addRule(const ScopeRule& rule) {
+    std::lock_guard lock(m_mutex);
     m_rules.push_back(rule);
     invalidateCache();  // 规则变更时清除缓存
     LOG_DEBUG("添加作用域规则: id={}, name={}, process={}, class={}",
@@ -207,23 +214,29 @@ void ScopeRuleEngine::addRule(const ScopeRule& rule) {
 }
 
 void ScopeRuleEngine::removeRule(const std::string& ruleId) {
+    std::lock_guard lock(m_mutex);
     std::erase_if(m_rules, [&](const ScopeRule& r) { return r.id == ruleId; });
     invalidateCache();  // 规则变更时清除缓存
 }
 
 void ScopeRuleEngine::addRules(const std::vector<ScopeRule>& rules) {
+    std::lock_guard lock(m_mutex);
     for (const auto& rule : rules) {
-        addRule(rule);
+        m_rules.push_back(rule);
     }
+    invalidateCache();
 }
 
 void ScopeRuleEngine::removeRules(const std::vector<std::string>& ruleIds) {
-    for (const auto& id : ruleIds) {
-        removeRule(id);
-    }
+    std::lock_guard lock(m_mutex);
+    std::erase_if(m_rules, [&](const ScopeRule& rule) {
+        return std::find(ruleIds.begin(), ruleIds.end(), rule.id) != ruleIds.end();
+    });
+    invalidateCache();
 }
 
 void ScopeRuleEngine::loadFromJson(const nlohmann::json& j) {
+    std::lock_guard lock(m_mutex);
     m_rules.clear();
     if (j.is_array()) {
         for (const auto& item : j) {
@@ -235,11 +248,23 @@ void ScopeRuleEngine::loadFromJson(const nlohmann::json& j) {
 }
 
 nlohmann::json ScopeRuleEngine::toJson() const {
+    std::lock_guard lock(m_mutex);
     nlohmann::json j = nlohmann::json::array();
     for (const auto& rule : m_rules) {
         j.push_back(rule.toJson());
     }
     return j;
+}
+
+std::vector<ScopeRule> ScopeRuleEngine::getRules() const {
+    std::lock_guard lock(m_mutex);
+    return m_rules;
+}
+
+void ScopeRuleEngine::clearRules() {
+    std::lock_guard lock(m_mutex);
+    m_rules.clear();
+    invalidateCache();
 }
 
 ScopeRuleEngine::WindowInfo ScopeRuleEngine::getWindowInfo(HWND hwnd) const {

@@ -10,6 +10,7 @@ import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { Camera, Video } from 'lucide-react';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { toast } from 'sonner';
 
 interface CaptureSettings {
   format: string;
@@ -26,8 +27,11 @@ interface RecordingSettings {
   format: string;
   fps: number;
   bitrate: number;
-  includeAudio: boolean;
+  saveDirectory?: string;
 }
+
+interface OperationResult { success: boolean; error?: string; shortcut?: string }
+interface HotkeyEntry { name: string; shortcut: string }
 
 export const CapturePage: FC = () => {
   const { t } = useTranslation();
@@ -36,38 +40,79 @@ export const CapturePage: FC = () => {
     showCrosshair: true, autoDetectWindow: true,
   });
   const [recording, setRecording] = useState<RecordingSettings>({
-    format: 'mp4_h264', fps: 30, bitrate: 8, includeAudio: false,
+    format: 'mp4_h264', fps: 30, bitrate: 8,
   });
   const [loading, setLoading] = useState(true);
+  const [screenshotHotkey, setScreenshotHotkey] = useState('Ctrl+Shift+A');
+  const [recordHotkey, setRecordHotkey] = useState('Ctrl+Shift+R');
 
   useEffect(() => {
     Promise.all([
       bridgeRequest<CaptureSettings>('capture.getSettings'),
       bridgeRequest<RecordingSettings>('recording.getSettings'),
-    ]).then(([capData, recData]) => {
+      bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
+    ]).then(([capData, recData, hotkeyData]) => {
       setCapture(prev => ({ ...prev, ...capData }));
       setRecording(prev => ({ ...prev, ...recData }));
-      setLoading(false);
-    });
-  }, []);
+      setScreenshotHotkey(hotkeyData.find(item => item.name === 'Screenshot')?.shortcut || 'Ctrl+Shift+A');
+      setRecordHotkey(hotkeyData.find(item => item.name === 'Record')?.shortcut || 'Ctrl+Shift+R');
+    }).catch((error) => {
+      console.error(error);
+      toast.error(t('capture.loadFailed'));
+    }).finally(() => setLoading(false));
+  }, [t]);
 
   const updateCapture = useCallback((key: keyof CaptureSettings, value: unknown) => {
     setCapture(prev => ({ ...prev, [key]: value }));
-    bridgeRequest('capture.updateSettings', { [key]: value });
-  }, []);
+    bridgeRequest<OperationResult>('capture.updateSettings', { [key]: value })
+      .then(result => { if (!result.success) throw new Error(result.error || 'update failed'); })
+      .catch(async (error) => {
+        toast.error(t('capture.saveFailed'), { description: String(error) });
+        try { setCapture(await bridgeRequest<CaptureSettings>('capture.getSettings')); } catch { /* keep usable */ }
+      });
+  }, [t]);
 
   const updateRecording = useCallback((key: keyof RecordingSettings, value: unknown) => {
     setRecording(prev => ({ ...prev, [key]: value }));
-    bridgeRequest('recording.updateSettings', { [key]: value });
-  }, []);
+    bridgeRequest<OperationResult>('recording.updateSettings', { [key]: value })
+      .then(result => { if (!result.success) throw new Error(result.error || 'update failed'); })
+      .catch(async (error) => {
+        toast.error(t('capture.saveFailed'), { description: String(error) });
+        try { setRecording(await bridgeRequest<RecordingSettings>('recording.getSettings')); } catch { /* keep usable */ }
+      });
+  }, [t]);
+
+  const rebindHotkey = async (name: 'Screenshot' | 'Record', value: string) => {
+    try {
+      const result = await bridgeRequest<OperationResult>('hotkey.rebind', { name, hotkey: value });
+      if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
+      if (name === 'Screenshot') setScreenshotHotkey(result.shortcut || value);
+      else setRecordHotkey(result.shortcut || value);
+    } catch (error) {
+      toast.error(t('hotkey.bindFailed'), { description: String(error) });
+    }
+  };
 
   const handleBrowseDir = async () => {
-    const dir = await bridgeRequest<string>('capture.browseDirectory');
-    if (dir) updateCapture('saveDirectory', dir);
+    try {
+      const dir = await bridgeRequest<string | null>('capture.browseDirectory');
+      if (dir) updateCapture('saveDirectory', dir);
+    } catch (error) {
+      toast.error(t('capture.browseFailed'), { description: String(error) });
+    }
+  };
+
+  const handleBrowseRecordingDir = async () => {
+    try {
+      const dir = await bridgeRequest<string | null>('capture.browseDirectory');
+      if (dir) updateRecording('saveDirectory', dir);
+    } catch (error) {
+      toast.error(t('capture.browseFailed'), { description: String(error) });
+    }
   };
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading' as any, '加载中...')}</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
 
   return (
@@ -77,11 +122,8 @@ export const CapturePage: FC = () => {
           <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
             <HotkeyRecorder
               id="capture-shortcut"
-              value={capture.shortcut || 'Ctrl+Shift+A'}
-              onChange={(v) => {
-                updateCapture('shortcut', v);
-                bridgeRequest('hotkey.rebind', { name: 'Screenshot', hotkey: v });
-              }}
+              value={screenshotHotkey}
+              onChange={(v) => void rebindHotkey('Screenshot', v)}
             />
           </SettingRow>
           <Toggle
@@ -122,9 +164,22 @@ export const CapturePage: FC = () => {
                 { value: 'png', label: t('capture.formatPng') },
                 { value: 'jpg', label: t('capture.formatJpg') },
                 { value: 'webp', label: t('capture.formatWebp') },
+                { value: 'bmp', label: t('capture.formatBmp') },
               ]}
             />
           </SettingRow>
+          {(capture.format === 'jpg' || capture.format === 'jpeg' || capture.format === 'webp') && (
+            <SettingRow label={t('capture.quality')} description={t('capture.qualityDesc')}>
+              <Select
+                id="capture-quality"
+                value={String(capture.quality)}
+                onChange={(v) => updateCapture('quality', parseInt(v))}
+                options={[75, 85, 90, 95, 100].map((value) => ({
+                  value: String(value), label: `${value}%`,
+                }))}
+              />
+            </SettingRow>
+          )}
           <Toggle
             id="capture-crosshair"
             label={t('capture.showCrosshair')}
@@ -147,11 +202,15 @@ export const CapturePage: FC = () => {
           <SettingRow label={t('recording.shortcut')} description={t('recording.shortcutDesc')}>
             <HotkeyRecorder
               id="recording-shortcut"
-              value={'Ctrl+Shift+R'}
-              onChange={(v) => {
-                bridgeRequest('hotkey.rebind', { name: 'Recording', hotkey: v });
-              }}
+              value={recordHotkey}
+              onChange={(v) => void rebindHotkey('Record', v)}
             />
+          </SettingRow>
+          <SettingRow label={t('recording.saveDir')} description={t('recording.saveDirDesc')}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <TextInput id="recordSaveDir" value={recording.saveDirectory || ''} disabled onChange={() => {}} />
+              <Button variant="ghost" onClick={handleBrowseRecordingDir}>{t('capture.browse')}</Button>
+            </div>
           </SettingRow>
           <SettingRow label={t('recording.format')} description={t('recording.formatDesc')}>
             <Select

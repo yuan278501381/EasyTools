@@ -1,6 +1,6 @@
 {
   "name": "easytools",
-  "version-string": "0.1.0",
+  "version-string": "1.0.0",
   "description": "High-performance desktop productivity toolkit",
   "supports": "windows & x64",
   "dependencies": [
@@ -10,6 +10,11 @@
     "lua",
     "fmt",
     "opencv4",
-    "ffmpeg"
+    {
+      "name": "ffmpeg",
+      "features": [
+        "openh264"
+      ]
+    }
   ]
 }
