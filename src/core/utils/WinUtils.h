@@ -56,6 +56,11 @@ public:
         return dir;
     }
 
+    /// 主动释放进程未使用的物理内存并修剪工作集 (Working Set)
+    static void trimWorkingSet() {
+        SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+    }
+
     /// 由 PID 取得进程可执行文件名 (仅文件名, 如 "chrome.exe")。
     /// 用 QueryFullProcessImageNameW 直接查询, 避免 Toolhelp 快照枚举全部进程
     /// (后者在低级鼠标钩子热路径上代价过高)。

@@ -42,18 +42,18 @@ SIZE getTrayWindowSize(HWND hwnd = nullptr) {
         }
     }
     return {
-        static_cast<LONG>(230 * scale),
-        static_cast<LONG>(300 * scale)
+        static_cast<LONG>(190 * scale),
+        static_cast<LONG>(215 * scale)
     };
 }
 
 POINT trayWindowOrigin(int x, int y, int width, int height) {
     const RECT workArea = monitorWorkAreaForPoint({x, y});
-    const LONG maxX = std::max(workArea.left, workArea.right - static_cast<LONG>(width));
-    const LONG maxY = std::max(workArea.top, workArea.bottom - static_cast<LONG>(height));
+    const LONG maxX = std::max(workArea.left, workArea.right - static_cast<LONG>(width) - 10);
+    const LONG maxY = std::max(workArea.top, workArea.bottom - static_cast<LONG>(height) - 10);
     return {
-        std::clamp<LONG>(static_cast<LONG>(x - width / 2), workArea.left, maxX),
-        std::clamp<LONG>(static_cast<LONG>(y - height), workArea.top, maxY)
+        std::clamp<LONG>(static_cast<LONG>(x - width / 2), workArea.left + 10, maxX),
+        std::clamp<LONG>(static_cast<LONG>(y - height - 10), workArea.top + 10, maxY)
     };
 }
 
@@ -185,10 +185,10 @@ void TrayWindow::initializeWebView2() {
                                 m_controller->put_IsVisible(FALSE);
                             }
                             
-                            // 开启透明背景
+                            // 开启真正完全透明背景 (ARGB = 0x00000000)
                             Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2;
                             if (SUCCEEDED(m_controller.As(&controller2))) {
-                                COREWEBVIEW2_COLOR transparent = {0, 255, 0, 255}; // magenta as colorkey
+                                COREWEBVIEW2_COLOR transparent = {0, 0, 0, 0};
                                 controller2->put_DefaultBackgroundColor(transparent);
                             }
 

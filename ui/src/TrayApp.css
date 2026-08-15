@@ -3,18 +3,18 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --tray-bg: rgba(23, 23, 30, 0.78);
+  --tray-bg: rgba(28, 28, 36, 0.95);
   --tray-hover: rgba(139, 92, 246, 0.18);
   --tray-text: #f8f8fc;
-  --tray-border: rgba(255, 255, 255, 0.12);
+  --tray-border: rgba(255, 255, 255, 0.14);
   --tray-radius: 12px;
 }
 
 [data-theme="light"] {
-  --tray-bg: rgba(255, 255, 255, 0.88);
+  --tray-bg: rgba(248, 248, 252, 0.96);
   --tray-hover: rgba(124, 58, 237, 0.12);
   --tray-text: #18181b;
-  --tray-border: rgba(0, 0, 0, 0.08);
+  --tray-border: rgba(0, 0, 0, 0.10);
 }
 
 body {
@@ -26,8 +26,8 @@ body {
 }
 
 #root {
-  padding: 6px;
-  height: 100vh;
+  padding: 4px;
+  height: 100%;
   box-sizing: border-box;
 }
 

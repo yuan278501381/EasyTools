@@ -3,6 +3,7 @@
 #include "core/logger/Logger.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/KeyboardHook.h"
+#include "core/utils/WinUtils.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
 #include <string>
@@ -49,11 +50,14 @@ public:
 private:
     void applyEnabled(bool enabled) {
         if (enabled) {
+            KeycastOverlay::instance().init();
             easy::core::KeyboardHook::instance().setKeycastCallback([](const std::string& sequence) {
                 KeycastOverlay::instance().pushKey(sequence);
             });
         } else {
             easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
+            KeycastOverlay::instance().cleanup();
+            easy::core::WinUtils::trimWorkingSet();
         }
         LOG_INFO("Keycast Plugin: enabled={}", enabled);
     }

@@ -47,6 +47,11 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
+    // 初始提交完全透明帧并常驻保持显示，彻底消除 Show/Hide 触发的任务栏图标跳动
+    clearCanvas();
+    ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+    m_visible = false;
+
     LOG_INFO("手势轨迹覆盖层初始化成功");
     return true;
 }
@@ -57,8 +62,27 @@ void GestureTrailOverlay::shutdown() {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    if (m_helperOwnerHwnd) {
+        DestroyWindow(m_helperOwnerHwnd);
+        m_helperOwnerHwnd = nullptr;
+    }
     m_visible = false;
     LOG_DEBUG("手势轨迹覆盖层已关闭");
+}
+
+void GestureTrailOverlay::clearCanvas() {
+    if (!m_hwnd || !m_renderTarget || !m_memoryDC) return;
+    m_renderTarget->BeginDraw();
+    m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+    m_renderTarget->EndDraw();
+
+    HDC hdcScreen = GetDC(nullptr);
+    POINT ptSrc = { 0, 0 };
+    SIZE sz = { m_width, m_height };
+    POINT ptDst = { m_originX, m_originY };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
+    ReleaseDC(nullptr, hdcScreen);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,15 +90,11 @@ void GestureTrailOverlay::shutdown() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
-    // 上一条轨迹可能仍在淡出。先停止定时器并隐藏，但不要在低级鼠标
-    // 钩子里清空/刷新整张虚拟屏幕位图。只有真实移动后才安排首帧。
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
         m_renderTimerActive.store(false);
-        if (m_visible.exchange(false)) {
-            ShowWindow(m_hwnd, SW_HIDE);
-        }
+        clearCanvas();
     }
     {
         std::lock_guard lock(m_trailMutex);
@@ -91,17 +111,15 @@ void GestureTrailOverlay::addPoint(float x, float y) {
     bool hasVisibleTrail = false;
     {
         std::lock_guard lock(m_trailMutex);
-        // 距离过滤: 跳过与上一点过近的采样, 否则手势起点处的密集点会叠成一团("一坨")
         if (!m_points.empty()) {
             float dx = x - m_points.back().x;
             float dy = y - m_points.back().y;
-            if (dx * dx + dy * dy < 16.0f) return;  // < 4px 忽略
+            if (dx * dx + dy * dy < 16.0f) return;
         }
         m_points.push_back({x, y, GetTickCount()});
         hasVisibleTrail = m_points.size() >= 2;
     }
     if (hasVisibleTrail && m_hwnd) {
-        // 原子节流：若渲染定时器已在活动状态，直接跳过系统调用开销，彻底杜绝 1000Hz 鼠标下的系统调用风暴
         if (!m_renderTimerActive.exchange(true)) {
             SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
         }
@@ -113,8 +131,6 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
         std::lock_guard lock(m_trailMutex);
         m_resultText = resultText;
     }
-
-    // 首个淡出定时帧会绘制结果文字，避免在低级钩子回调内同步渲染。
     startFadeOut();
 }
 
@@ -123,7 +139,7 @@ void GestureTrailOverlay::hide() {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
         m_renderTimerActive.store(false);
-        ShowWindow(m_hwnd, SW_HIDE);
+        clearCanvas();
     }
     m_visible = false;
     m_fading = false;
@@ -156,13 +172,22 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     m_width = screenW;
     m_height = screenH;
 
+    // 创建隐藏的 Helper Owner 窗口，使覆盖层成为 Owned Window，杜绝 Windows Shell 派发顶层窗口通知导致任务栏图标跳动
+    m_helperOwnerHwnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"STATIC", L"",
+        WS_POPUP,
+        0, 0, 0, 0,
+        nullptr, nullptr, hInstance, nullptr
+    );
+
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         OVERLAY_CLASS,
         L"",
         WS_POPUP,
         screenX, screenY, screenW, screenH,
-        nullptr, nullptr, hInstance, this
+        m_helperOwnerHwnd, nullptr, hInstance, this
     );
 
     if (!m_hwnd) {
@@ -475,9 +500,7 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
             if (wParam == RENDER_TIMER_ID) {
                 // 实时渲染轨迹
                 self->render();
-                if (!self->m_visible.exchange(true)) {
-                    ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
-                }
+                self->m_visible.store(true);
             } else if (wParam == FADE_TIMER_ID) {
                 // 淡出动画
                 DWORD elapsed = GetTickCount() - self->m_fadeStartTick;
@@ -488,9 +511,7 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 } else {
                     self->m_fadeAlpha = 1.0f - progress;
                     self->render();
-                    if (!self->m_visible.exchange(true)) {
-                        ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
-                    }
+                    self->m_visible.store(true);
                 }
             }
             return 0;

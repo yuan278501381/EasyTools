@@ -110,10 +110,19 @@ bool GestureEngine::setPaused(bool paused) {
         }
     }
     if (paused) {
-        std::lock_guard lock(m_mutex);
-        if (m_state.load(std::memory_order_relaxed) == GestureState::Tracking) {
-            cancelTracking();
+        {
+            std::lock_guard lock(m_mutex);
+            if (m_state.load(std::memory_order_relaxed) == GestureState::Tracking) {
+                cancelTracking();
+            }
         }
+        // 深度释放手势全屏位图与 D2D 渲染资源，并主动修剪工作集归还系统物理内存
+        GestureTrailOverlay::instance().hide();
+        GestureTrailOverlay::instance().releaseD2DResources();
+        easy::core::WinUtils::trimWorkingSet();
+    } else {
+        // 恢复时按需重新初始化 Direct2D 与内存 DC
+        GestureTrailOverlay::instance().createD2DResources();
     }
     LOG_INFO("手势引擎暂停状态: paused={}", paused);
     return true;

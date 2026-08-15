@@ -61,6 +61,15 @@ public:
     /// 结束手势轨迹，显示识别结果（如 "← 后退"）
     void endTrail(const std::string& resultText = "");
 
+    /// 创建 Direct2D 资源 (按需初始化)
+    bool createD2DResources();
+
+    /// 释放 D2D 资源与大尺寸虚拟屏幕位图 (深度释放内存)
+    void releaseD2DResources();
+
+    /// 清空画布 (提交全透明帧)
+    void clearCanvas();
+
     /// 立即隐藏
     void hide();
 
@@ -79,12 +88,6 @@ private:
     /// 创建 Layered Window
     bool createOverlayWindow(HINSTANCE hInstance);
 
-    /// 创建 Direct2D 资源
-    bool createD2DResources();
-
-    /// 释放 D2D 资源
-    void releaseD2DResources();
-
     /// 渲染帧
     void render();
 
@@ -94,6 +97,7 @@ private:
     /// 窗口过程
     static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    HWND m_helperOwnerHwnd = nullptr;
     HWND m_hwnd = nullptr;
     TrailStyle m_style;
     std::atomic<bool> m_visible{false};

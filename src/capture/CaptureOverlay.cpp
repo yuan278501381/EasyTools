@@ -201,6 +201,7 @@ void CaptureOverlay::realCancel() {
         m_hwnd = nullptr;
     }
     m_state.frozenScreen.release();
+    easy::core::WinUtils::trimWorkingSet();
     if (wasActive && m_closedCallback) m_closedCallback();
 }
 
