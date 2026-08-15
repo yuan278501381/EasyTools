@@ -348,6 +348,78 @@ bool LuaEngine::executeScript(const std::string& script,
                         "executeScript", permissions, timeout, cancelToken);
 }
 
+bool LuaEngine::authorizeAndExecute(const std::string& script,
+                                    const ScriptContext& context,
+                                    std::chrono::milliseconds timeout,
+                                    std::atomic<bool>* cancelToken) {
+    LuaPermission effectivePerms = LuaPermission::Safe;
+
+    if (context.requestedPerms == LuaPermission::None ||
+        hasPermission(LuaPermission::Safe, context.requestedPerms)) {
+        effectivePerms = LuaPermission::Safe;
+    } else if (isScriptAuthorized(context.scriptId, context.requestedPerms)) {
+        effectivePerms = context.requestedPerms;
+    } else if (context.interactive) {
+        // 模态弹窗向用户请求显式授权
+        std::wstring title = L"EasyTools 脚本安全授权确认";
+        std::wstring prompt = L"手势/脚本「" +
+            WinUtils::utf8ToWstring(context.scriptName.empty() ? context.scriptId : context.scriptName) +
+            L"」申请获取以下敏感操作权限：\n\n";
+
+        std::vector<std::string> perms = formatLuaPermissions(context.requestedPerms);
+        for (const auto& p : perms) {
+            if (p == "keyboard") prompt += L"  • 模拟键盘输入\n";
+            else if (p == "mouse") prompt += L"  • 模拟鼠标点击与移动\n";
+            else if (p == "clipboard") prompt += L"  • 读写系统剪贴板\n";
+            else if (p == "window") prompt += L"  • 控制其他窗口状态 (最小化/最大化/关闭)\n";
+            else if (p == "screen") prompt += L"  • 读取屏幕像素数据\n";
+            else if (p == "ui") prompt += L"  • 弹出交互对话框或通知\n";
+            else if (p == "shell") prompt += L"  • 启动外部应用程序 (高风险)\n";
+            else if (p == "fs") prompt += L"  • 读写本地磁盘文件 (高风险)\n";
+            else if (p == "http") prompt += L"  • 发起网络 HTTP 请求 (高风险)\n";
+        }
+        prompt += L"\n是否信任并授权该脚本执行？(选择「是」将记住您的授权)";
+
+        int choice = MessageBoxW(nullptr, prompt.c_str(), title.c_str(),
+                                 MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+        if (choice == IDYES) {
+            grantPermissions(context.scriptId, context.requestedPerms);
+            effectivePerms = context.requestedPerms;
+            LOG_INFO("用户已明确授权脚本 {} 权限", context.scriptId);
+        } else {
+            LOG_WARN("用户拒绝授予脚本 {} 敏感权限，终止执行", context.scriptId);
+            return false;
+        }
+    } else {
+        LOG_WARN("脚本 {} 未经用户预授权，已自动限制在安全只读沙箱执行", context.scriptId);
+        effectivePerms = LuaPermission::Safe;
+    }
+
+    return executeScript(script, effectivePerms, timeout, cancelToken);
+}
+
+bool LuaEngine::isScriptAuthorized(const std::string& scriptId, LuaPermission requiredPerms) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_authorizedScripts.find(scriptId);
+    if (it == m_authorizedScripts.end()) return false;
+    return hasPermission(it->second, requiredPerms);
+}
+
+void LuaEngine::grantPermissions(const std::string& scriptId, LuaPermission perms) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_authorizedScripts[scriptId] = m_authorizedScripts[scriptId] | perms;
+}
+
+void LuaEngine::revokePermissions(const std::string& scriptId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_authorizedScripts.erase(scriptId);
+}
+
+void LuaEngine::revokeAllPermissions() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_authorizedScripts.clear();
+}
+
 bool LuaEngine::executeFile(const std::string& utf8Path,
                             LuaPermission permissions,
                             std::chrono::milliseconds timeout,
@@ -382,11 +454,57 @@ void LuaEngine::bindApi() {
     (*m_lua)["easyTools"] = easy;
 }
 
+LuaPermission parseLuaPermissions(const std::vector<std::string>& permStrings) {
+    LuaPermission result = LuaPermission::None;
+    for (const auto& s : permStrings) {
+        if (s == "log") result = result | LuaPermission::Log;
+        else if (s == "url") result = result | LuaPermission::Url;
+        else if (s == "window") result = result | LuaPermission::Window;
+        else if (s == "ui") result = result | LuaPermission::Ui;
+        else if (s == "keyboard") result = result | LuaPermission::Keyboard;
+        else if (s == "mouse") result = result | LuaPermission::Mouse;
+        else if (s == "clipboard") result = result | LuaPermission::Clipboard;
+        else if (s == "screen") result = result | LuaPermission::Screen;
+        else if (s == "shell") result = result | LuaPermission::Shell;
+        else if (s == "fs") result = result | LuaPermission::Fs;
+        else if (s == "http") result = result | LuaPermission::Http;
+        else if (s == "safe") result = result | LuaPermission::Safe;
+        else if (s == "standard") result = result | LuaPermission::Standard;
+        else if (s == "all") result = result | LuaPermission::All;
+    }
+    return result;
+}
+
+std::vector<std::string> formatLuaPermissions(LuaPermission perms) {
+    std::vector<std::string> res;
+    if (hasPermission(perms, LuaPermission::Log)) res.push_back("log");
+    if (hasPermission(perms, LuaPermission::Url)) res.push_back("url");
+    if (hasPermission(perms, LuaPermission::Window)) res.push_back("window");
+    if (hasPermission(perms, LuaPermission::Ui)) res.push_back("ui");
+    if (hasPermission(perms, LuaPermission::Keyboard)) res.push_back("keyboard");
+    if (hasPermission(perms, LuaPermission::Mouse)) res.push_back("mouse");
+    if (hasPermission(perms, LuaPermission::Clipboard)) res.push_back("clipboard");
+    if (hasPermission(perms, LuaPermission::Screen)) res.push_back("screen");
+    if (hasPermission(perms, LuaPermission::Shell)) res.push_back("shell");
+    if (hasPermission(perms, LuaPermission::Fs)) res.push_back("fs");
+    if (hasPermission(perms, LuaPermission::Http)) res.push_back("http");
+    return res;
+}
+
 void LuaEngine::bindLog(sol::table& easy) {
     sol::table t = easy.create_named("log");
-    t.set_function("info",  [](const std::string& m) { LOG_INFO("[Lua] {}", m); });
-    t.set_function("warn",  [](const std::string& m) { LOG_WARN("[Lua] {}", m); });
-    t.set_function("error", [](const std::string& m) { LOG_ERROR("[Lua] {}", m); });
+    t.set_function("info",  [this](const std::string& m) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Log, "easy.log");
+        LOG_INFO("[Lua] {}", m);
+    });
+    t.set_function("warn",  [this](const std::string& m) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Log, "easy.log");
+        LOG_WARN("[Lua] {}", m);
+    });
+    t.set_function("error", [this](const std::string& m) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Log, "easy.log");
+        LOG_ERROR("[Lua] {}", m);
+    });
 }
 
 void LuaEngine::bindKeyboard(sol::table& easy) {
@@ -579,23 +697,36 @@ void LuaEngine::bindUi(sol::table& easy) {
         return MessageBoxW(nullptr, WinUtils::utf8ToWstring(msg).c_str(),
                            WinUtils::utf8ToWstring(title).c_str(), flags | MB_TOPMOST);
     };
-    t.set_function("toast", [box](const std::string& msg) {
+    t.set_function("toast", [this, box](const std::string& msg) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Ui, "easy.ui");
         box(msg, "EasyTools", MB_OK | MB_ICONINFORMATION);
     });
-    t.set_function("notify", [box](const std::string& title, const std::string& msg) {
+    t.set_function("notify", [this, box](const std::string& title, const std::string& msg) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Ui, "easy.ui");
         box(msg, title, MB_OK | MB_ICONINFORMATION);
     });
-    t.set_function("confirm", [box](const std::string& msg) {
+    t.set_function("confirm", [this, box](const std::string& msg) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Ui, "easy.ui");
         return box(msg, "EasyTools", MB_YESNO | MB_ICONQUESTION) == IDYES;
     });
-    // inputBox: 受限于无原生输入框，暂以剪贴板内容回填 (后续可接 WebView 弹窗)
-    t.set_function("inputBox", [](const std::string& /*prompt*/) { return clipboardGetText(); });
+    // inputBox: 严格双重校验 Ui 弹窗与 Clipboard 剪贴板权限
+    t.set_function("inputBox", [this](const std::string& /*prompt*/) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Ui, "easy.ui");
+        requirePermission(m_lua->lua_state(), LuaPermission::Clipboard, "easy.clipboard");
+        return clipboardGetText();
+    });
 }
 
 void LuaEngine::bindUrl(sol::table& easy) {
     sol::table t = easy.create_named("url");
-    t.set_function("encode", [](const std::string& s) { return urlEncode(s); });
-    t.set_function("decode", [](const std::string& s) { return urlDecode(s); });
+    t.set_function("encode", [this](const std::string& s) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Url, "easy.url");
+        return urlEncode(s);
+    });
+    t.set_function("decode", [this](const std::string& s) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Url, "easy.url");
+        return urlDecode(s);
+    });
 }
 
 }  // namespace easy::core

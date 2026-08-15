@@ -73,6 +73,7 @@ struct GestureAction {
     // 根据 type 使用不同字段:
     KeyStroke keyStroke;             // type == SendKeys
     std::string luaScript;           // type == LuaScript (Lua 代码或脚本文件路径)
+    std::vector<std::string> requestedPermissions; // type == LuaScript (声明的细粒度权限列表)
     BuiltinCommand builtinCmd;       // type == BuiltinCommand
     std::string programPath;         // type == RunProgram
     std::string programArgs;         // type == RunProgram

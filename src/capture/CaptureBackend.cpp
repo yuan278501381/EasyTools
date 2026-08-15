@@ -173,9 +173,16 @@ public:
             return false;
         }
 
-        ComPtr<IDXGIAdapter1> selectedAdapter;
-        ComPtr<IDXGIOutput> selectedOutput;
-        DXGI_OUTPUT_DESC selectedDesc{};
+        RECT regRect{ region.x, region.y, region.x + region.width, region.y + region.height };
+
+        struct MatchedOutput {
+            ComPtr<IDXGIAdapter1> adapter;
+            ComPtr<IDXGIOutput> output;
+            DXGI_OUTPUT_DESC desc{};
+            RECT intersection{};
+        };
+        std::vector<MatchedOutput> matchedOutputs;
+
         for (UINT adapterIndex = 0; ; ++adapterIndex) {
             ComPtr<IDXGIAdapter1> adapter;
             const HRESULT adapterResult = factory->EnumAdapters1(adapterIndex, &adapter);
@@ -187,46 +194,50 @@ public:
                 if (outputResult == DXGI_ERROR_NOT_FOUND) break;
                 if (FAILED(outputResult) || !output) continue;
                 DXGI_OUTPUT_DESC desc{};
-                if (SUCCEEDED(output->GetDesc(&desc)) && desc.AttachedToDesktop &&
-                    containsRegion(desc.DesktopCoordinates, region)) {
-                    selectedAdapter = adapter;
-                    selectedOutput = output;
-                    selectedDesc = desc;
-                    break;
+                if (SUCCEEDED(output->GetDesc(&desc)) && desc.AttachedToDesktop) {
+                    RECT sect{};
+                    if (IntersectRect(&sect, &desc.DesktopCoordinates, &regRect) &&
+                        sect.right > sect.left && sect.bottom > sect.top) {
+                        if (desc.Rotation != DXGI_MODE_ROTATION_IDENTITY &&
+                            desc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED) {
+                            error = "rotated display requires the compatibility backend";
+                            return false;
+                        }
+                        matchedOutputs.push_back({ adapter, output, desc, sect });
+                    }
                 }
             }
-            if (selectedOutput) break;
         }
-        if (!selectedOutput) {
-            error = "capture region spans displays or has no attached DXGI output";
-            return false;
-        }
-        // Duplication returns an unrotated surface with rotated pixels. Until a
-        // GPU rotation pass exists, prefer the compatibility backend for accuracy.
-        if (selectedDesc.Rotation != DXGI_MODE_ROTATION_IDENTITY &&
-            selectedDesc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED) {
-            error = "rotated display requires the compatibility backend";
+
+        if (matchedOutputs.empty()) {
+            error = "no attached DXGI outputs intersect capture region";
             return false;
         }
 
-        result = createDevice(selectedAdapter.Get(), m_device, m_context);
+        // 创建 Direct3D11 渲染与捕获设备
+        result = createDevice(matchedOutputs.front().adapter.Get(), m_device, m_context);
         if (FAILED(result)) {
             error = "D3D11CreateDevice failed (" + hresultText(result) + ")";
             shutdown();
             return false;
         }
-        ComPtr<IDXGIOutput1> output1;
-        result = selectedOutput.As(&output1);
-        if (FAILED(result)) {
-            error = "IDXGIOutput1 is unavailable (" + hresultText(result) + ")";
-            shutdown();
-            return false;
-        }
-        result = output1->DuplicateOutput(m_device.Get(), &m_duplication);
-        if (FAILED(result)) {
-            error = "DuplicateOutput failed (" + hresultText(result) + ")";
-            shutdown();
-            return false;
+
+        for (auto& item : matchedOutputs) {
+            ComPtr<IDXGIOutput1> output1;
+            result = item.output.As(&output1);
+            if (FAILED(result)) {
+                error = "IDXGIOutput1 is unavailable (" + hresultText(result) + ")";
+                shutdown();
+                return false;
+            }
+            ComPtr<IDXGIOutputDuplication> dupl;
+            result = output1->DuplicateOutput(m_device.Get(), &dupl);
+            if (FAILED(result)) {
+                error = "DuplicateOutput failed (" + hresultText(result) + ")";
+                shutdown();
+                return false;
+            }
+            m_outputs.push_back({ output1, dupl, item.desc, item.intersection, false });
         }
 
         D3D11_TEXTURE2D_DESC textureDesc{};
@@ -246,52 +257,64 @@ public:
         }
 
         m_region = region;
-        m_outputCoordinates = selectedDesc.DesktopCoordinates;
         return true;
     }
 
     bool capture(CaptureFrameView& frame, std::string& error) override {
         releaseFrame();
-        if (!m_duplication || !m_context || !m_stagingTexture) {
+        if (m_outputs.empty() || !m_context || !m_stagingTexture) {
             error = "Desktop Duplication backend is not initialized";
             return false;
         }
 
-        DXGI_OUTDUPL_FRAME_INFO frameInfo{};
-        ComPtr<IDXGIResource> desktopResource;
-        const HRESULT acquireResult = m_duplication->AcquireNextFrame(
-            m_hasFrame ? 0u : 250u, &frameInfo, &desktopResource);
-        if (acquireResult == DXGI_ERROR_ACCESS_LOST) {
-            error = "desktop duplication access was lost";
-            return false;
-        }
-        if (acquireResult != DXGI_ERROR_WAIT_TIMEOUT && FAILED(acquireResult)) {
-            error = "AcquireNextFrame failed (" + hresultText(acquireResult) + ")";
-            return false;
-        }
-
-        if (SUCCEEDED(acquireResult)) {
-            ComPtr<ID3D11Texture2D> desktopTexture;
-            const HRESULT textureResult = desktopResource.As(&desktopTexture);
-            if (FAILED(textureResult)) {
-                m_duplication->ReleaseFrame();
-                error = "desktop resource is not a D3D11 texture (" +
-                    hresultText(textureResult) + ")";
+        bool allOutputsReady = true;
+        for (auto& out : m_outputs) {
+            DXGI_OUTDUPL_FRAME_INFO frameInfo{};
+            ComPtr<IDXGIResource> desktopResource;
+            // 采用极小超时（首帧 50ms，后续 0ms）保证多屏并发低延迟
+            const HRESULT acquireResult = out.duplication->AcquireNextFrame(
+                out.hasFrame ? 0u : 50u, &frameInfo, &desktopResource);
+            if (acquireResult == DXGI_ERROR_ACCESS_LOST) {
+                error = "desktop duplication access was lost";
                 return false;
             }
-            const UINT left = static_cast<UINT>(m_region.x - m_outputCoordinates.left);
-            const UINT top = static_cast<UINT>(m_region.y - m_outputCoordinates.top);
-            const D3D11_BOX sourceBox{
-                left, top, 0, left + static_cast<UINT>(m_region.width),
-                top + static_cast<UINT>(m_region.height), 1
-            };
-            m_context->CopySubresourceRegion(
-                m_stagingTexture.Get(), 0, 0, 0, 0,
-                desktopTexture.Get(), 0, &sourceBox);
-            m_duplication->ReleaseFrame();
-            m_hasFrame = true;
-        } else if (!m_hasFrame) {
-            error = "timed out waiting for the first desktop frame";
+            if (acquireResult != DXGI_ERROR_WAIT_TIMEOUT && FAILED(acquireResult)) {
+                error = "AcquireNextFrame failed (" + hresultText(acquireResult) + ")";
+                return false;
+            }
+
+            if (SUCCEEDED(acquireResult)) {
+                ComPtr<ID3D11Texture2D> desktopTexture;
+                const HRESULT textureResult = desktopResource.As(&desktopTexture);
+                if (FAILED(textureResult)) {
+                    out.duplication->ReleaseFrame();
+                    error = "desktop resource is not a D3D11 texture (" + hresultText(textureResult) + ")";
+                    return false;
+                }
+                const UINT srcLeft = static_cast<UINT>(out.intersection.left - out.desc.DesktopCoordinates.left);
+                const UINT srcTop = static_cast<UINT>(out.intersection.top - out.desc.DesktopCoordinates.top);
+                const UINT width = static_cast<UINT>(out.intersection.right - out.intersection.left);
+                const UINT height = static_cast<UINT>(out.intersection.bottom - out.intersection.top);
+                const D3D11_BOX sourceBox{
+                    srcLeft, srcTop, 0, srcLeft + width, srcTop + height, 1
+                };
+                const UINT dstX = static_cast<UINT>(out.intersection.left - m_region.x);
+                const UINT dstY = static_cast<UINT>(out.intersection.top - m_region.y);
+
+                m_context->CopySubresourceRegion(
+                    m_stagingTexture.Get(), 0, dstX, dstY, 0,
+                    desktopTexture.Get(), 0, &sourceBox);
+                out.duplication->ReleaseFrame();
+                out.hasFrame = true;
+            }
+
+            if (!out.hasFrame) {
+                allOutputsReady = false;
+            }
+        }
+
+        if (!allOutputsReady) {
+            error = "timed out waiting for complete initial frame across all outputs";
             return false;
         }
 
@@ -321,25 +344,29 @@ public:
     void shutdown() noexcept override {
         releaseFrame();
         m_stagingTexture.Reset();
-        m_duplication.Reset();
+        m_outputs.clear();
         m_context.Reset();
         m_device.Reset();
         m_region = {};
-        m_outputCoordinates = {};
-        m_hasFrame = false;
     }
 
 private:
+    struct OutputDuplicationEntry {
+        ComPtr<IDXGIOutput1> output;
+        ComPtr<IDXGIOutputDuplication> duplication;
+        DXGI_OUTPUT_DESC desc{};
+        RECT intersection{};
+        bool hasFrame = false;
+    };
+
     CaptureBackendInfo m_info{
         "dxgi-desktop-duplication", "DXGI Desktop Duplication", true, true, {}
     };
     CaptureRegion m_region;
-    RECT m_outputCoordinates{};
+    std::vector<OutputDuplicationEntry> m_outputs;
     ComPtr<ID3D11Device> m_device;
     ComPtr<ID3D11DeviceContext> m_context;
-    ComPtr<IDXGIOutputDuplication> m_duplication;
     ComPtr<ID3D11Texture2D> m_stagingTexture;
-    bool m_hasFrame = false;
     bool m_mapped = false;
 };
 

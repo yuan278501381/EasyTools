@@ -134,8 +134,15 @@ void GestureAction::execute() const {
         }
 
         case ActionType::LuaScript: {
-            LOG_DEBUG("执行手势动作: LuaScript, script={}", luaScript.substr(0, std::min(luaScript.size(), (size_t)100)));
-            easy::core::LuaEngine::instance().executeScript(luaScript);
+            LOG_DEBUG("执行手势动作: LuaScript, name={}, script={}", name, luaScript.substr(0, std::min(luaScript.size(), (size_t)100)));
+            easy::core::ScriptContext ctx;
+            ctx.scriptId = "gesture:" + (name.empty() ? std::to_string(std::hash<std::string>{}(luaScript)) : name);
+            ctx.scriptName = name.empty() ? "自定义手势脚本" : name;
+            ctx.requestedPerms = requestedPermissions.empty()
+                ? easy::core::LuaPermission::Safe
+                : easy::core::parseLuaPermissions(requestedPermissions);
+            ctx.interactive = true;
+            easy::core::LuaEngine::instance().authorizeAndExecute(luaScript, ctx);
             break;
         }
 
@@ -169,6 +176,9 @@ nlohmann::json GestureAction::toJson() const {
             break;
         case ActionType::LuaScript:
             j["luaScript"] = luaScript;
+            if (!requestedPermissions.empty()) {
+                j["permissions"] = requestedPermissions;
+            }
             break;
         case ActionType::BuiltinCommand:
             j["builtinCmd"] = static_cast<int>(builtinCmd);
@@ -193,6 +203,9 @@ GestureAction GestureAction::fromJson(const nlohmann::json& j) {
             break;
         case ActionType::LuaScript:
             action.luaScript = j.value("luaScript", "");
+            if (j.contains("permissions") && j["permissions"].is_array()) {
+                action.requestedPermissions = j["permissions"].get<std::vector<std::string>>();
+            }
             break;
         case ActionType::BuiltinCommand:
             action.builtinCmd = static_cast<BuiltinCommand>(j.value("builtinCmd", 0));
