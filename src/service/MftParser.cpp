@@ -84,6 +84,7 @@ void MftParser::UsnListenerLoop() {
                     record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
                     record->normalizedName = normalize(record->fileName);
                     record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
+                    record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
                     
                     m_FileMap[record->fileReferenceNumber] = std::move(record);
                     changed = true;
@@ -177,6 +178,7 @@ void MftParser::EnumerateFiles() {
             record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
             record->normalizedName = normalize(record->fileName);
             record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
+            record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
 
             m_FileMap[record->fileReferenceNumber] = std::move(record);
             count++;
@@ -208,7 +210,8 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
 
     auto matches = [&](const FileRecord& record) {
         return record.normalizedName.find(lowerQuery) != std::wstring::npos ||
-               (isPinyinSearch && record.pinyinInitials.find(lowerQuery) != std::wstring::npos);
+               (isPinyinSearch && (record.pinyinInitials.find(lowerQuery) != std::wstring::npos ||
+                                   record.pinyinFull.find(lowerQuery) != std::wstring::npos));
     };
 
     std::lock_guard cacheLock(m_SearchCacheMutex);
@@ -240,11 +243,14 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         const auto it = m_FileMap.find(id);
         if (it == m_FileMap.end()) continue;
         const auto& record = *it->second;
-        int rank = 4;
+        int rank = 6;
         if (record.normalizedName == lowerQuery) rank = 0;
         else if (record.normalizedName.starts_with(lowerQuery)) rank = 1;
-        else if (record.normalizedName.find(lowerQuery) != std::wstring::npos) rank = 2;
+        else if (record.pinyinFull.starts_with(lowerQuery)) rank = 2;
         else if (record.pinyinInitials.starts_with(lowerQuery)) rank = 3;
+        else if (record.normalizedName.find(lowerQuery) != std::wstring::npos) rank = 4;
+        else if (record.pinyinFull.find(lowerQuery) != std::wstring::npos) rank = 5;
+        else if (record.pinyinInitials.find(lowerQuery) != std::wstring::npos) rank = 6;
         ranked.push_back({id, &record, rank});
     }
     const auto compareRank = [](const auto& a, const auto& b) {

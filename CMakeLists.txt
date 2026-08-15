@@ -194,6 +194,7 @@ if(BUILD_TESTING)
         tests/unit/test_main.cpp
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
+        src/service/PinyinEngine.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(EasyToolsTests PRIVATE EasyCore user32 shell32)

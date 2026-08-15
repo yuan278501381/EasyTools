@@ -66,6 +66,10 @@ public:
     void setTrailVisible(bool visible);
     bool trailVisible() const { return m_trailVisible.load(); }
 
+    /// 全屏应用/游戏自动免打扰开关
+    void setAutoBypassFullscreen(bool enable);
+    bool autoBypassFullscreen() const { return m_autoBypassFullscreen.load(); }
+
     /// 当前状态
     GestureState state() const { return m_state.load(); }
 
@@ -137,6 +141,7 @@ private:
     std::atomic<GestureState> m_state{GestureState::Idle};
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_trailVisible{true};
+    std::atomic<bool> m_autoBypassFullscreen{false};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时的前台窗口
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
     uint8_t m_gestureModifiers = 0;       // 手势开始时的修饰键状态

@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // PinWindow.cpp — 贴图窗口实现
 //
 // 功能:
@@ -721,12 +721,48 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
 
         case WM_KEYDOWN: {
-            // 选中贴图后按 Esc 隐藏（非破坏性，可用 Ctrl+Alt+Shift+H 全部找回）
-            if (self && wParam == VK_ESCAPE) {
-                ShowWindow(hwnd, SW_HIDE);
+            if (!self) break;
+            bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+            // Esc / Ctrl+W: 优雅关闭当前贴图
+            if (wParam == VK_ESCAPE || (ctrl && wParam == 'W')) {
+                self->close();
                 return 0;
             }
-            break;  // 其余按键交给 DefWindowProc
+            // Ctrl+C: 复制原图到剪贴板
+            if (ctrl && wParam == 'C') {
+                copyImageToClipboard(self->m_sourceImage);
+                return 0;
+            }
+            // Ctrl+S: 保存贴图图片
+            if (ctrl && wParam == 'S') {
+                savePinnedImage(hwnd, self->m_sourceImage);
+                return 0;
+            }
+            // +/- 键: 缩放
+            if (wParam == VK_OEM_PLUS || wParam == VK_ADD || wParam == '=') {
+                self->setScale(self->m_scale * 1.1f);
+                return 0;
+            }
+            if (wParam == VK_OEM_MINUS || wParam == VK_SUBTRACT || wParam == '-') {
+                self->setScale(self->m_scale * 0.9f);
+                return 0;
+            }
+            // [/] 键: 透明度微调
+            if (wParam == VK_OEM_4) { // '['
+                self->setOpacity(std::max(0.1f, self->m_opacity - 0.1f));
+                return 0;
+            }
+            if (wParam == VK_OEM_6) { // ']'
+                self->setOpacity(std::min(1.0f, self->m_opacity + 0.1f));
+                return 0;
+            }
+            // 0 或 1: 恢复 100% 原始尺寸
+            if (wParam == '0' || wParam == VK_NUMPAD0) {
+                self->setScale(1.0f);
+                return 0;
+            }
+            break;
         }
 
         case WM_MOUSEMOVE: {

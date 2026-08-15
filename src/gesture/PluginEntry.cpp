@@ -263,7 +263,8 @@ public:
                 {"paused", engine.isPaused()},
                 {"enabled", !engine.isPaused()},
                 {"triggerButton", engine.triggerButton()},
-                {"trailVisible", engine.trailVisible()}
+                {"trailVisible", engine.trailVisible()},
+                {"autoBypassFullscreen", engine.autoBypassFullscreen()}
             };
         });
 
@@ -274,7 +275,7 @@ public:
                 return {{"success", false}, {"error", "no gesture settings supplied"}};
             }
             static const std::unordered_set<std::string> allowed = {
-                "enabled", "paused", "triggerButton", "trailVisible"
+                "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen"
             };
             for (const auto& [key, value] : params.items()) {
                 if (!allowed.contains(key)) {
@@ -283,7 +284,8 @@ public:
             }
             if ((params.contains("enabled") && !params["enabled"].is_boolean()) ||
                 (params.contains("paused") && !params["paused"].is_boolean()) ||
-                (params.contains("trailVisible") && !params["trailVisible"].is_boolean())) {
+                (params.contains("trailVisible") && !params["trailVisible"].is_boolean()) ||
+                (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean())) {
                 return {{"success", false}, {"error", "boolean setting has invalid type"}};
             }
             if (params.contains("enabled") && params.contains("paused") &&
@@ -306,22 +308,26 @@ public:
             if (params.contains("enabled")) paused = !params["enabled"].get<bool>();
             if (params.contains("paused")) paused = params["paused"].get<bool>();
             const bool trailVisible = params.value("trailVisible", engine.trailVisible());
+            const bool autoBypassFullscreen = params.value("autoBypassFullscreen", engine.autoBypassFullscreen());
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},
-                {"triggerButton", trigger}, {"trailVisible", trailVisible}
+                {"triggerButton", trigger}, {"trailVisible", trailVisible},
+                {"autoBypassFullscreen", autoBypassFullscreen}
             };
             if (!config.mergePatch({{"gesture", patch}}, "/gesture")) {
                 return {{"success", false}, {"error", "failed to persist gesture settings"}};
             }
             engine.setTriggerButton(trigger);
             engine.setTrailVisible(trailVisible);
+            engine.setAutoBypassFullscreen(autoBypassFullscreen);
             const bool pauseApplied = engine.setPaused(paused);
             return {
                 {"success", pauseApplied},
                 {"paused", engine.isPaused()},
                 {"enabled", !engine.isPaused()},
                 {"triggerButton", engine.triggerButton()},
-                {"trailVisible", engine.trailVisible()}
+                {"trailVisible", engine.trailVisible()},
+                {"autoBypassFullscreen", engine.autoBypassFullscreen()}
             };
         });
 

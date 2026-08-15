@@ -9,6 +9,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/events/EventBus.h"
 #include <windows.h>
+#include <commdlg.h>
 #include <imm.h>
 #include <ShellScalingApi.h>
 
@@ -916,14 +917,29 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             // 正在输入文字：其余按键交给 WM_CHAR
             if (editingText) return 0;
 
-            // 取色：选区前/拖拽中按 C 复制光标处像素的 HEX 颜色
-            if (wParam == 'C' && (int)m_state->state.load() == (int)OverlayState::Selecting) {
+            // 取色：选区前/拖拽中按 C 复制 HEX 格式，按 Shift+C 复制 RGB 格式
+            if (wParam == 'C' && !ctrl &&
+                ((int)m_state->state.load() == (int)OverlayState::Idle ||
+                 (int)m_state->state.load() == (int)OverlayState::Selecting)) {
+                bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 int cr, cg, cb;
                 if (m_renderer->sampleScreenColor(m_state->currentCursor.x, m_state->currentCursor.y, cr, cg, cb, *m_state)) {
-                    easy::core::WinUtils::copyToClipboard(std::format("#{:02X}{:02X}{:02X}", cr, cg, cb));
+                    std::string colorText = shift ? std::format("rgb({}, {}, {})", cr, cg, cb)
+                                                  : std::format("#{:02X}{:02X}{:02X}", cr, cg, cb);
+                    easy::core::WinUtils::copyToClipboard(colorText);
                     m_state->loupeToastUntil = GetTickCount() + 1200;
                     m_renderer->invalidate();
                 }
+                return 0;
+            }
+
+            // Ctrl+A: 一键全选当前屏幕
+            if (ctrl && wParam == 'A') {
+                m_state->dragStart = {0, 0};
+                m_state->dragEnd = {m_state->frozenScreen.cols, m_state->frozenScreen.rows};
+                m_state->state = OverlayState::Selected;
+                prepareMarkupBase();
+                m_renderer->invalidate();
                 return 0;
             }
 
@@ -932,6 +948,54 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 case VK_RETURN:
                     if (hasSelection) if (m_confirmCb) m_confirmCb();
                     return 0;
+                case 'C':
+                    if (ctrl && hasSelection) {
+                        if (m_confirmCb) m_confirmCb();
+                        return 0;
+                    }
+                    break;
+                case 'T':
+                    if (ctrl && hasSelection) {
+                        ToolbarButton pinBtn;
+                        pinBtn.command = ToolbarCommand::PinWindow;
+                        executeToolbarCommand(pinBtn);
+                        return 0;
+                    }
+                    break;
+                case 'S':
+                    if (ctrl && hasSelection) {
+                        int x1 = std::min(m_state->dragStart.x, m_state->dragEnd.x);
+                        int y1 = std::min(m_state->dragStart.y, m_state->dragEnd.y);
+                        int w = std::abs(m_state->dragEnd.x - m_state->dragStart.x);
+                        int h = std::abs(m_state->dragEnd.y - m_state->dragStart.y);
+                        if (w > 0 && h > 0) {
+                            cv::Mat cropped;
+                            if (m_state->markup.elementCount() > 0) cropped = m_state->markup.getCompositeImage();
+                            else {
+                                cv::Rect roi(x1, y1, w, h);
+                                roi &= cv::Rect(0, 0, m_state->frozenScreen.cols, m_state->frozenScreen.rows);
+                                if (roi.area() > 0) m_state->frozenScreen(roi).copyTo(cropped);
+                            }
+                            if (!cropped.empty()) {
+                                OPENFILENAMEW ofn{};
+                                wchar_t szFile[MAX_PATH] = L"EasyTools_Screenshot.png";
+                                ofn.lStructSize = sizeof(ofn);
+                                ofn.hwndOwner = hwnd;
+                                ofn.lpstrFile = szFile;
+                                ofn.nMaxFile = sizeof(szFile);
+                                ofn.lpstrFilter = L"PNG Image (*.png)\0*.png\0JPEG Image (*.jpg)\0*.jpg\0Bitmap (*.bmp)\0*.bmp\0All Files (*.*)\0*.*\0";
+                                ofn.nFilterIndex = 1;
+                                ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+                                if (GetSaveFileNameW(&ofn)) {
+                                    std::string u8path = easy::core::WinUtils::wstringToUtf8(ofn.lpstrFile);
+                                    cv::imwrite(u8path, cropped);
+                                }
+                            }
+                        }
+                        if (m_confirmCb) m_confirmCb();
+                        return 0;
+                    }
+                    break;
                 case 'Z':
                     if (ctrl) { m_state->activeElement = nullptr; m_state->markup.undo(); }
                     return 0;

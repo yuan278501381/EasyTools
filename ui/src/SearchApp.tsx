@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { File, Folder, Search, ServerOff } from 'lucide-react';
+import { 
+  File, 
+  Folder, 
+  Search, 
+  ServerOff, 
+  FileImage, 
+  FileCode, 
+  FileArchive, 
+  FileText, 
+  FileVideo, 
+  FileAudio, 
+  AppWindow 
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import './SearchApp.css';
@@ -17,7 +30,36 @@ interface SearchResponse {
   error?: string;
 }
 
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp)$/i;
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp|gif|svg|ico)$/i;
+
+function renderFileIcon(name: string, isDirectory: boolean) {
+  if (isDirectory) {
+    return <Folder className="file-icon file-icon--folder" size={20} aria-hidden="true" />;
+  }
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (IMAGE_EXTENSIONS.test(ext)) {
+    return <FileImage className="file-icon file-icon--image" size={20} aria-hidden="true" />;
+  }
+  if (/\.(zip|rar|7z|tar|gz|bz2|iso)$/i.test(ext)) {
+    return <FileArchive className="file-icon file-icon--archive" size={20} aria-hidden="true" />;
+  }
+  if (/\.(exe|msi|bat|cmd|ps1|com)$/i.test(ext)) {
+    return <AppWindow className="file-icon file-icon--exe" size={20} aria-hidden="true" />;
+  }
+  if (/\.(cpp|c|h|hpp|ts|tsx|js|jsx|json|py|rs|go|java|html|css|lua|sql|yml|yaml|xml)$/i.test(ext)) {
+    return <FileCode className="file-icon file-icon--code" size={20} aria-hidden="true" />;
+  }
+  if (/\.(mp4|mkv|avi|mov|flv|webm|wmv)$/i.test(ext)) {
+    return <FileVideo className="file-icon file-icon--media" size={20} aria-hidden="true" />;
+  }
+  if (/\.(mp3|wav|flac|ogg|aac|m4a)$/i.test(ext)) {
+    return <FileAudio className="file-icon file-icon--audio" size={20} aria-hidden="true" />;
+  }
+  if (/\.(txt|md|pdf|doc|docx|xls|xlsx|ppt|pptx|log|csv)$/i.test(ext)) {
+    return <FileText className="file-icon file-icon--doc" size={20} aria-hidden="true" />;
+  }
+  return <File className="file-icon" size={20} aria-hidden="true" />;
+}
 
 export default function SearchApp() {
   useAppearance();
@@ -55,7 +97,7 @@ export default function SearchApp() {
       } finally {
         if (sequence === requestSequence.current) setLoading(false);
       }
-    }, 120);
+    }, 100);
 
     return () => window.clearTimeout(timer);
   }, [query]);
@@ -89,6 +131,26 @@ export default function SearchApp() {
     }
   }, [hide, t]);
 
+  const openFolderResult = useCallback(async (result: SearchResult | undefined) => {
+    if (!result) return;
+    setActionError('');
+    try {
+      const response = await bridgeRequest<{ success: boolean }>('search.openFolder', {
+        filepath: result.path,
+      });
+      if (response.success) hide();
+      else setActionError(t('search.openFailed'));
+    } catch {
+      setActionError(t('search.openFailed'));
+    }
+  }, [hide, t]);
+
+  const copyPathResult = useCallback((result: SearchResult | undefined) => {
+    if (!result) return;
+    void navigator.clipboard.writeText(result.path);
+    toast.success(t('search.copiedPath'));
+  }, [t]);
+
   const pinResult = useCallback(async (result: SearchResult | undefined) => {
     if (!result || result.isDirectory || !IMAGE_EXTENSIONS.test(result.path)) return;
     setActionError('');
@@ -110,12 +172,33 @@ export default function SearchApp() {
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       setSelectedIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'PageDown') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.min(index + 5, Math.max(results.length - 1, 0)));
+    } else if (event.key === 'PageUp') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.max(index - 5, 0));
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      setSelectedIndex(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      setSelectedIndex(Math.max(results.length - 1, 0));
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      void openResult(results[selectedIndex]);
+      if (event.ctrlKey || event.shiftKey) {
+        void openFolderResult(results[selectedIndex]);
+      } else {
+        void openResult(results[selectedIndex]);
+      }
     } else if (event.key === 'Escape') {
       event.preventDefault();
       hide();
+    } else if (event.key.toLowerCase() === 'c' && event.ctrlKey) {
+      if (results.length > 0 && selectedIndex >= 0 && selectedIndex < results.length) {
+        event.preventDefault();
+        copyPathResult(results[selectedIndex]);
+      }
     } else if (event.key.toLowerCase() === 'p' && event.ctrlKey) {
       event.preventDefault();
       void pinResult(results[selectedIndex]);
@@ -170,9 +253,7 @@ export default function SearchApp() {
                 onClick={() => setSelectedIndex(index)}
                 onDoubleClick={() => void openResult(result)}
               >
-                {result.isDirectory
-                  ? <Folder className="file-icon" size={20} aria-hidden="true" />
-                  : <File className="file-icon" size={20} aria-hidden="true" />}
+                {renderFileIcon(result.name, result.isDirectory)}
                 <span className="file-info">
                   <span className="file-name">{result.name}</span>
                   <span className="file-path">{result.path}</span>
@@ -184,6 +265,8 @@ export default function SearchApp() {
 
         <footer className="search-footer">
           <span className="search-hint"><kbd>Enter</kbd> {t('search.open')}</span>
+          <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder')}</span>
+          <span className="search-hint"><kbd>Ctrl+C</kbd> {t('search.copyPath')}</span>
           <span className="search-hint"><kbd>Ctrl+P</kbd> {t('search.pinImage')}</span>
           <span className="search-hint"><kbd>Esc</kbd> {t('search.close')}</span>
         </footer>

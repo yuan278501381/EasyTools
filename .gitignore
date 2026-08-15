@@ -2,6 +2,7 @@
 # 编译产出目录 (C++ / CMake)
 # ==============================================================================
 build/
+build-*/
 deploy_dist/
 deploy_dist_backup/
 deploy_dist_staging_*/

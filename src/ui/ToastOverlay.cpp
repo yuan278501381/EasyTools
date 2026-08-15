@@ -29,7 +29,6 @@ bool ToastOverlay::initialize(HINSTANCE hInstance) {
     RegisterClassExW(&wc);
 
     int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
     
     float scale = easy::core::WinUtils::getDpiScale();
     int width = static_cast<int>(600 * scale);

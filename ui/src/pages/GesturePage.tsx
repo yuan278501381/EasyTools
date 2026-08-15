@@ -2,7 +2,7 @@
  * GesturePage — 鼠标手势设置页
  *
  * 功能:
- *   - 手势全局开关 / 触发按钮 / 轨迹显示
+ *   - 手势全局开关 / 触发按钮 / 轨迹显示 / 全屏游戏免打扰
  *   - 手势映射表的增 / 删 / 改 (经 gesture.updateProfile 持久化)
  *   - 动作类型: 快捷键 / Lua 脚本 / 内置命令 / 运行程序
  * ───────────────────────────────────────────────────────────────────────────── */
@@ -34,6 +34,7 @@ interface GestureState {
   paused: boolean;
   triggerButton: string;
   trailVisible: boolean;
+  autoBypassFullscreen?: boolean;
 }
 
 interface OperationResult {
@@ -51,6 +52,7 @@ const PROFILE_NAME = 'default';
 export const GesturePage: FC = () => {
   const [enabled, setEnabled] = useState(true);
   const [trailVisible, setTrailVisible] = useState(true);
+  const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(false);
   const [triggerButton, setTriggerButton] = useState('right');
   const [mappings, setMappings] = useState<GestureMapping[]>([]);
   const [profileNames, setProfileNames] = useState<string[]>([PROFILE_NAME]);
@@ -94,6 +96,7 @@ export const GesturePage: FC = () => {
         setEnabled(state.enabled);
         setTriggerButton(state.triggerButton ?? 'right');
         setTrailVisible(state.trailVisible ?? true);
+        setAutoBypassFullscreen(state.autoBypassFullscreen ?? false);
         if (profiles?.length) setProfileNames(profiles.map((p) => p.name));
         const defaultProfile = profiles?.find((p) => p.name === PROFILE_NAME);
         if (defaultProfile) setMappings(defaultProfile.mappings);
@@ -147,6 +150,18 @@ export const GesturePage: FC = () => {
     } catch (err) {
       setTrailVisible(!checked);
       console.error('Failed to update gesture trail state:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const handleToggleAutoBypass = async (checked: boolean) => {
+    setAutoBypassFullscreen(checked);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { autoBypassFullscreen: checked });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+    } catch (err) {
+      setAutoBypassFullscreen(!checked);
+      console.error('Failed to update gesture autoBypassFullscreen state:', err);
       toast.error(t('gesture.saveFailed'), { description: String(err) });
     }
   };
@@ -276,6 +291,13 @@ export const GesturePage: FC = () => {
             description={t('gesture.showTrailDesc')}
             checked={trailVisible}
             onChange={handleToggleTrail}
+          />
+          <Toggle
+            id="gesture-bypass-fullscreen"
+            label={t('gesture.autoBypassFullscreen')}
+            description={t('gesture.autoBypassFullscreenDesc')}
+            checked={autoBypassFullscreen}
+            onChange={handleToggleAutoBypass}
           />
           <SettingRow label={t('gesture.triggerButton')} description={t('gesture.triggerButtonDesc')}>
             <Select

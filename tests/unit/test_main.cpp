@@ -268,6 +268,31 @@ static void test_update_version_comparison() {
     CHECK(!UpdateChecker::isNewerVersion("not-a-version", "1.0.0"));
 }
 
+#include "service/PinyinEngine.h"
+#include "core/utils/WinUtils.h"
+
+static void test_pinyin_engine() {
+    auto wx_init = PinyinEngine::GetInitials(L"微信");
+    auto wx_full = PinyinEngine::GetFullPinyin(L"微信");
+    std::wprintf(L"[DEBUG] 微信 initials: %ls, full: %ls\n", wx_init.c_str(), wx_full.c_str());
+
+    // 拼音首字母
+    CHECK(PinyinEngine::GetInitials(L"微信") == L"wx");
+    CHECK(PinyinEngine::GetInitials(L"你好世界") == L"nhsj");
+    CHECK(PinyinEngine::GetInitials(L"EasyTools工具") == L"easytoolsgj");
+
+    // 拼音全拼
+    CHECK(PinyinEngine::GetFullPinyin(L"微信") == L"weixin");
+    CHECK(PinyinEngine::GetFullPinyin(L"你好") == L"nihao");
+    CHECK(PinyinEngine::GetFullPinyin(L"EasyTools") == L"easytools");
+}
+
+static void test_winutils_fullscreen() {
+    // 空句柄或无效句柄返回 false
+    CHECK(!easy::core::WinUtils::isWindowFullscreen(nullptr));
+    CHECK(!easy::core::WinUtils::isWindowFullscreen((HWND)(uintptr_t)0x12345678));
+}
+
 int main() {
     test_recognizer();
     test_scoperule();
@@ -276,6 +301,8 @@ int main() {
     test_message_bridge();
     test_perf_timer();
     test_update_version_comparison();
+    test_pinyin_engine();
+    test_winutils_fullscreen();
 
     std::printf("\n==== EasyTools 单元测试: %d 断言, %d 失败 ====\n",
                 g_checks, g_failures);

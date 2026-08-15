@@ -148,6 +148,11 @@ void GestureEngine::setTrailVisible(bool visible) {
     LOG_INFO("手势轨迹显示状态: visible={}", visible);
 }
 
+void GestureEngine::setAutoBypassFullscreen(bool enable) {
+    m_autoBypassFullscreen = enable;
+    LOG_INFO("手势全屏自动免打扰状态: enable={}", enable);
+}
+
 void GestureEngine::setProfile(const std::string& name, const GestureProfile& profile) {
     std::unique_lock lock(m_profileMutex);
     m_profiles.insert_or_assign(name, profile);
@@ -212,6 +217,13 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
                     bool disabled = false;
                     std::string exeName;
                     std::string className;
+
+                    // 全屏免打扰模式：检测前台窗口是否处于全屏独占状态
+                    if (m_autoBypassFullscreen.load() && easy::core::WinUtils::isWindowFullscreen(hwnd)) {
+                        LOG_INFO("前台窗口处于全屏模式，手势引擎自动放行: hwnd=0x{:X}", reinterpret_cast<uintptr_t>(hwnd));
+                        return false;
+                    }
+
                     // 绝大多数用户没有例外规则。只有确实需要匹配时才跨进程查询
                     // 可执行文件和窗口类，普通右键不再承担这项开销。
                     if (exceptions.is_array() && !exceptions.empty()) {
@@ -528,6 +540,7 @@ void GestureEngine::loadFromConfig() {
     m_paused = paused;
     setTriggerButton(config.get<std::string>("/gesture/triggerButton", "right"));
     setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
+    setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", false));
 
     // 加载 Profile
     std::unordered_map<std::string, GestureProfile> loadedProfiles;
@@ -575,7 +588,8 @@ bool GestureEngine::saveToConfig() {
             {"paused", m_paused.load()},
             {"enabled", !m_paused.load()},
             {"triggerButton", triggerButton()},
-            {"trailVisible", m_trailVisible.load()}
+            {"trailVisible", m_trailVisible.load()},
+            {"autoBypassFullscreen", m_autoBypassFullscreen.load()}
         }}
     }, "/gesture");
 

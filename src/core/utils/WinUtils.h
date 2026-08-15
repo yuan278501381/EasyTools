@@ -214,6 +214,36 @@ public:
         LANGID langId = GetUserDefaultUILanguage();
         return PRIMARYLANGID(langId) == LANG_CHINESE;
     }
+
+    /// 判断指定窗口是否处于全屏独占模式（如 3D 游戏、全屏播放等）
+    /// 自动排除桌面、任务栏等系统特殊窗口
+    static bool isWindowFullscreen(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) return false;
+
+        // 排除桌面和 Shell 窗口
+        if (hwnd == GetDesktopWindow() || hwnd == GetShellWindow()) return false;
+        std::wstring className = getWindowClassName(hwnd);
+        if (className == L"Progman" || className == L"WorkerW" || className == L"Shell_TrayWnd") {
+            return false;
+        }
+
+        // 获取窗口所在的显示器
+        HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+        if (!hMon) return false;
+
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(MONITORINFO);
+        if (!GetMonitorInfoW(hMon, &mi)) return false;
+
+        RECT rcWindow{};
+        if (!GetWindowRect(hwnd, &rcWindow)) return false;
+
+        // 判定窗口是否覆盖整个物理显示器区域
+        return (rcWindow.left <= mi.rcMonitor.left &&
+                rcWindow.top <= mi.rcMonitor.top &&
+                rcWindow.right >= mi.rcMonitor.right &&
+                rcWindow.bottom >= mi.rcMonitor.bottom);
+    }
 };
 
 }  // namespace easy::core

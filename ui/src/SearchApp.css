@@ -114,12 +114,22 @@
 .file-icon {
     width: 20px;
     height: 20px;
-    margin-right: 16px;
+    margin-right: 14px;
     color: rgba(255, 255, 255, 0.5);
+    flex-shrink: 0;
 }
 
+.file-icon--folder { color: #60a5fa; }
+.file-icon--image { color: #f472b6; }
+.file-icon--archive { color: #fbbf24; }
+.file-icon--exe { color: #34d399; }
+.file-icon--code { color: #a78bfa; }
+.file-icon--media { color: #f87171; }
+.file-icon--audio { color: #38bdf8; }
+.file-icon--doc { color: #cbd5e1; }
+
 .search-result-item.selected .file-icon {
-    color: #fff;
+    filter: brightness(1.2);
 }
 
 .file-name {

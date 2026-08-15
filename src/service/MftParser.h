@@ -16,6 +16,7 @@ struct FileRecord {
     std::wstring fileName;
     std::wstring normalizedName;
     std::wstring pinyinInitials;
+    std::wstring pinyinFull;
     bool isDirectory;
 };
 
