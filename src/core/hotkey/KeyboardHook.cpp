@@ -68,6 +68,8 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                         std::lock_guard lock(self.m_callbackMutex);
                         keycastCallback = self.m_keycastCallback;
                     }
+
+                    if (keycastCallback) {
                         // 检查是否开启“仅显示快捷键/特殊键”过滤 (默认开启，录屏/演示推荐)
                         bool onlyShortcuts = easy::core::ConfigManager::instance().get<bool>(
                             "/general/keycastOnlyShortcuts", true);
@@ -92,49 +94,48 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                         bool hasModifier = hasCtrl || hasAlt || hasWin || (hasShift && !isSpecial);
 
                         // 过滤模式：仅在有修饰键组合或特殊功能键时回显
-                        if (onlyShortcuts && !hasModifier && !isSpecial) {
-                            return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
-                        }
-
-                        // 转换当前键为主按键名
-                        char keyName[64] = {0};
-                        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
-                        switch (vk) {
-                            case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
-                            case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
-                            case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
-                            case VK_NUMLOCK:
-                                scanCode |= KF_EXTENDED;
-                                break;
-                        }
-
-                        std::string mainKey;
-                        if (GetKeyNameTextA(scanCode << 16, keyName, sizeof(keyName)) > 0) {
-                            mainKey = keyName;
-                        }
-
-                        if (vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL) mainKey = "Ctrl";
-                        else if (vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU) mainKey = "Alt";
-                        else if (vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT) mainKey = "Shift";
-                        else if (vk == VK_LWIN || vk == VK_RWIN) mainKey = "Win";
-                        else if (vk == VK_SPACE) mainKey = "Space";
-
-                        // 组合键格式化 (如 Ctrl + Shift + A)
-                        std::vector<std::string> combo;
-                        if (hasCtrl && mainKey != "Ctrl") combo.push_back("Ctrl");
-                        if (hasWin && mainKey != "Win") combo.push_back("Win");
-                        if (hasAlt && mainKey != "Alt") combo.push_back("Alt");
-                        if (hasShift && mainKey != "Shift") combo.push_back("Shift");
-                        if (!mainKey.empty()) combo.push_back(mainKey);
-
-                        if (!combo.empty()) {
-                            std::string display;
-                            for (size_t i = 0; i < combo.size(); ++i) {
-                                if (i > 0) display += " + ";
-                                display += combo[i];
+                        if (!onlyShortcuts || hasModifier || isSpecial) {
+                            // 转换当前键为主按键名
+                            char keyName[64] = {0};
+                            UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+                            switch (vk) {
+                                case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
+                                case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
+                                case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
+                                case VK_NUMLOCK:
+                                    scanCode |= KF_EXTENDED;
+                                    break;
                             }
-                            keycastCallback(display);
+
+                            std::string mainKey;
+                            if (GetKeyNameTextA(scanCode << 16, keyName, sizeof(keyName)) > 0) {
+                                mainKey = keyName;
+                            }
+
+                            if (vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL) mainKey = "Ctrl";
+                            else if (vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU) mainKey = "Alt";
+                            else if (vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT) mainKey = "Shift";
+                            else if (vk == VK_LWIN || vk == VK_RWIN) mainKey = "Win";
+                            else if (vk == VK_SPACE) mainKey = "Space";
+
+                            // 组合键格式化 (如 Ctrl + Shift + A)
+                            std::vector<std::string> combo;
+                            if (hasCtrl && mainKey != "Ctrl") combo.push_back("Ctrl");
+                            if (hasWin && mainKey != "Win") combo.push_back("Win");
+                            if (hasAlt && mainKey != "Alt") combo.push_back("Alt");
+                            if (hasShift && mainKey != "Shift") combo.push_back("Shift");
+                            if (!mainKey.empty()) combo.push_back(mainKey);
+
+                            if (!combo.empty()) {
+                                std::string display;
+                                for (size_t i = 0; i < combo.size(); ++i) {
+                                    if (i > 0) display += " + ";
+                                    display += combo[i];
+                                }
+                                keycastCallback(display);
+                            }
                         }
+                    }
                 }
             }
         } catch (const std::exception& e) {
