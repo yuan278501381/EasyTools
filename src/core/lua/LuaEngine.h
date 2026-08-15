@@ -26,6 +26,36 @@
 
 namespace easy::core {
 
+/// 细粒度 Lua 脚本权限控制枚举
+enum class LuaPermission : uint32_t {
+    None      = 0,
+    Log       = 1 << 0,
+    Keyboard  = 1 << 1,
+    Mouse     = 1 << 2,
+    Clipboard = 1 << 3,
+    Window    = 1 << 4,
+    Screen    = 1 << 5,
+    Ui        = 1 << 6,
+    Url       = 1 << 7,
+    Shell     = 1 << 8,   // 敏感权限：调用外部程序
+    Fs        = 1 << 9,   // 敏感权限：本地文件读写
+    Http      = 1 << 10,  // 敏感权限：网络 HTTP 请求
+    Standard  = Log | Keyboard | Mouse | Clipboard | Window | Screen | Ui | Url,
+    All       = 0xFFFFFFFF
+};
+
+inline constexpr LuaPermission operator|(LuaPermission a, LuaPermission b) noexcept {
+    return static_cast<LuaPermission>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+inline constexpr LuaPermission operator&(LuaPermission a, LuaPermission b) noexcept {
+    return static_cast<LuaPermission>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
+
+inline constexpr bool hasPermission(LuaPermission set, LuaPermission required) noexcept {
+    return (static_cast<uint32_t>(set) & static_cast<uint32_t>(required)) == static_cast<uint32_t>(required);
+}
+
 class EASYCORE_API LuaEngine {
 public:
     static LuaEngine& instance();
@@ -36,13 +66,15 @@ public:
     /// 释放虚拟机。
     void shutdown();
 
-    /// 执行一段 Lua 源码。支持超时限制与取消令牌。成功返回 true；失败记录错误日志并返回 false。
+    /// 执行一段 Lua 源码。支持细粒度权限控制、超时限制与取消令牌。成功返回 true；失败记录错误日志并返回 false。
     bool executeScript(const std::string& script,
+                       LuaPermission permissions = LuaPermission::Standard,
                        std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
                        std::atomic<bool>* cancelToken = nullptr);
 
-    /// 执行磁盘上的 Lua 脚本文件 (UTF-8 路径)。支持超时限制与取消令牌。
+    /// 执行磁盘上的 Lua 脚本文件 (UTF-8 路径)。支持细粒度权限控制、超时限制与取消令牌。
     bool executeFile(const std::string& utf8Path,
+                     LuaPermission permissions = LuaPermission::Standard,
                      std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
                      std::atomic<bool>* cancelToken = nullptr);
 
@@ -55,6 +87,7 @@ private:
     // 在锁内执行已加载/编译好的可调用对象，统一错误处理与安全超时限制。
     bool runProtected(const std::function<sol::protected_function_result()>& fn,
                       const char* context,
+                      LuaPermission permissions = LuaPermission::Standard,
                       std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
                       std::atomic<bool>* cancelToken = nullptr);
 

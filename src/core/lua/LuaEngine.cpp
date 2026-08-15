@@ -247,18 +247,18 @@ bool LuaEngine::initialize() {
     std::lock_guard<std::mutex> lock(m_mutex);
     try {
         m_lua = std::make_unique<sol::state>();
-        // 沙箱: 开放安全标准库; 不开放 io / debug。
-        m_lua->open_libraries(sol::lib::base, sol::lib::package, sol::lib::string,
+        // 沙箱: 仅开放安全标准库; 不开放 io / debug / package (杜绝 C-DLL 动态载入攻击)
+        m_lua->open_libraries(sol::lib::base, sol::lib::string,
                               sol::lib::math, sol::lib::table, sol::lib::coroutine,
                               sol::lib::utf8, sol::lib::os);
-        // 收紧 os: 保留 time/date/clock 等只读函数, 移除可改动系统状态的危险函数。
+        // 收紧 os: 保留 time/date/clock 等只读函数, 移除可改动系统状态的危险函数
         if (sol::optional<sol::table> os = (*m_lua)["os"]) {
             for (const char* fn : {"execute", "remove", "rename", "exit", "tmpname", "setlocale"}) {
                 (*os)[fn] = sol::nil;
             }
         }
         bindApi();
-        LOG_INFO("Lua 脚本引擎初始化成功 (easy.* API 已注入)");
+        LOG_INFO("Lua 脚本引擎初始化成功 (easy.* API 已注入并启用细粒度沙箱权限防御)");
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Lua 引擎初始化失败: {}", e.what());
@@ -273,8 +273,15 @@ struct ExecutionGuard {
     std::chrono::steady_clock::time_point startTime;
     std::chrono::milliseconds timeout{5000};
     std::atomic<bool>* cancelToken = nullptr;
+    LuaPermission permissions = LuaPermission::Standard;
 };
 static thread_local ExecutionGuard s_currentGuard;
+
+static void requirePermission(lua_State* L, LuaPermission perm, const char* name) {
+    if (!hasPermission(s_currentGuard.permissions, perm)) {
+        luaL_error(L, "权限不足: 该脚本未获得使用 %s 模块的授权", name);
+    }
+}
 
 static void luaTimeoutHook(lua_State* L, lua_Debug*) {
     auto now = std::chrono::steady_clock::now();
@@ -297,6 +304,7 @@ void LuaEngine::shutdown() {
 
 bool LuaEngine::runProtected(const std::function<sol::protected_function_result()>& fn,
                              const char* context,
+                             LuaPermission permissions,
                              std::chrono::milliseconds timeout,
                              std::atomic<bool>* cancelToken) {
     if (!m_lua) {
@@ -307,6 +315,7 @@ bool LuaEngine::runProtected(const std::function<sol::protected_function_result(
     s_currentGuard.startTime = std::chrono::steady_clock::now();
     s_currentGuard.timeout = timeout;
     s_currentGuard.cancelToken = cancelToken;
+    s_currentGuard.permissions = permissions;
 
     // 每执行 1000 条 Lua 字节码指令检查一次超时与取消
     lua_sethook(L, luaTimeoutHook, LUA_MASKCOUNT, 1000);
@@ -326,18 +335,21 @@ bool LuaEngine::runProtected(const std::function<sol::protected_function_result(
 
     lua_sethook(L, nullptr, 0, 0);
     s_currentGuard.cancelToken = nullptr;
+    s_currentGuard.permissions = LuaPermission::Standard;
     return ok;
 }
 
 bool LuaEngine::executeScript(const std::string& script,
+                              LuaPermission permissions,
                               std::chrono::milliseconds timeout,
                               std::atomic<bool>* cancelToken) {
     std::lock_guard<std::mutex> lock(m_mutex);
     return runProtected([&] { return m_lua->safe_script(script, sol::script_pass_on_error); },
-                        "executeScript", timeout, cancelToken);
+                        "executeScript", permissions, timeout, cancelToken);
 }
 
 bool LuaEngine::executeFile(const std::string& utf8Path,
+                            LuaPermission permissions,
                             std::chrono::milliseconds timeout,
                             std::atomic<bool>* cancelToken) {
     std::ifstream f(WinUtils::utf8ToWstring(utf8Path).c_str(), std::ios::binary);
@@ -347,7 +359,7 @@ bool LuaEngine::executeFile(const std::string& utf8Path,
     }
     std::stringstream buf;
     buf << f.rdbuf();
-    return executeScript(buf.str(), timeout, cancelToken);
+    return executeScript(buf.str(), permissions, timeout, cancelToken);
 }
 
 // ── API 绑定 ──────────────────────────────────────────────────────────────────
@@ -379,12 +391,17 @@ void LuaEngine::bindLog(sol::table& easy) {
 
 void LuaEngine::bindKeyboard(sol::table& easy) {
     sol::table t = easy.create_named("keyboard");
-    t.set_function("sendKeys", [](const std::string& combo) { sendKeys(combo); });
-    t.set_function("keyDown", [](int vk) {
+    t.set_function("sendKeys", [this](const std::string& combo) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Keyboard, "easy.keyboard");
+        sendKeys(combo);
+    });
+    t.set_function("keyDown", [this](int vk) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Keyboard, "easy.keyboard");
         INPUT in{}; in.type = INPUT_KEYBOARD; in.ki.wVk = static_cast<WORD>(vk);
         SendInput(1, &in, sizeof(INPUT));
     });
-    t.set_function("keyUp", [](int vk) {
+    t.set_function("keyUp", [this](int vk) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Keyboard, "easy.keyboard");
         INPUT in{}; in.type = INPUT_KEYBOARD; in.ki.wVk = static_cast<WORD>(vk);
         in.ki.dwFlags = KEYEVENTF_KEYUP;
         SendInput(1, &in, sizeof(INPUT));
@@ -393,8 +410,12 @@ void LuaEngine::bindKeyboard(sol::table& easy) {
 
 void LuaEngine::bindMouse(sol::table& easy) {
     sol::table t = easy.create_named("mouse");
-    t.set_function("moveTo", [](int x, int y) { SetCursorPos(x, y); });
-    t.set_function("click", [](int button) {
+    t.set_function("moveTo", [this](int x, int y) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Mouse, "easy.mouse");
+        SetCursorPos(x, y);
+    });
+    t.set_function("click", [this](int button) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Mouse, "easy.mouse");
         DWORD down = MOUSEEVENTF_LEFTDOWN, up = MOUSEEVENTF_LEFTUP;
         if (button == 2)      { down = MOUSEEVENTF_RIGHTDOWN;  up = MOUSEEVENTF_RIGHTUP; }
         else if (button == 3) { down = MOUSEEVENTF_MIDDLEDOWN; up = MOUSEEVENTF_MIDDLEUP; }
@@ -403,7 +424,8 @@ void LuaEngine::bindMouse(sol::table& easy) {
         in[1].type = INPUT_MOUSE; in[1].mi.dwFlags = up;
         SendInput(2, in, sizeof(INPUT));
     });
-    t.set_function("scroll", [](int amount) {
+    t.set_function("scroll", [this](int amount) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Mouse, "easy.mouse");
         INPUT in{}; in.type = INPUT_MOUSE; in.mi.dwFlags = MOUSEEVENTF_WHEEL;
         in.mi.mouseData = static_cast<DWORD>(amount * WHEEL_DELTA);
         SendInput(1, &in, sizeof(INPUT));
@@ -412,17 +434,25 @@ void LuaEngine::bindMouse(sol::table& easy) {
 
 void LuaEngine::bindClipboard(sol::table& easy) {
     sol::table t = easy.create_named("clipboard");
-    t.set_function("getText", []() { return clipboardGetText(); });
-    t.set_function("setText", [](const std::string& s) { return WinUtils::copyToClipboard(s); });
+    t.set_function("getText", [this]() {
+        requirePermission(m_lua->lua_state(), LuaPermission::Clipboard, "easy.clipboard");
+        return clipboardGetText();
+    });
+    t.set_function("setText", [this](const std::string& s) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Clipboard, "easy.clipboard");
+        return WinUtils::copyToClipboard(s);
+    });
 }
 
 void LuaEngine::bindShell(sol::table& easy) {
     sol::table t = easy.create_named("shell");
-    t.set_function("open", [](const std::string& target) {
+    t.set_function("open", [this](const std::string& target) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Shell, "easy.shell");
         ShellExecuteW(nullptr, L"open", WinUtils::utf8ToWstring(target).c_str(),
                       nullptr, nullptr, SW_SHOWNORMAL);
     });
-    auto runImpl = [](const std::string& cmd, bool wait) {
+    auto runImpl = [this](const std::string& cmd, bool wait) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Shell, "easy.shell");
         std::wstring wcmd = WinUtils::utf8ToWstring(cmd);
         STARTUPINFOW si{}; si.cb = sizeof(si);
         PROCESS_INFORMATION pi{};
@@ -445,25 +475,40 @@ void LuaEngine::bindShell(sol::table& easy) {
 
 void LuaEngine::bindWindow(sol::table& easy) {
     sol::table t = easy.create_named("window");
-    t.set_function("getForeground", []() -> int64_t {
+    t.set_function("getForeground", [this]() -> int64_t {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         return static_cast<int64_t>(reinterpret_cast<uintptr_t>(resolveHwnd(sol::optional<int64_t>{})));
     });
-    t.set_function("getTitle", [](sol::optional<int64_t> h) {
+    t.set_function("getTitle", [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         return WinUtils::wstringToUtf8(WinUtils::getWindowTitle(resolveHwnd(h)));
     });
-    t.set_function("getClass", [](sol::optional<int64_t> h) {
+    t.set_function("getClass", [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         return WinUtils::wstringToUtf8(WinUtils::getWindowClassName(resolveHwnd(h)));
     });
-    t.set_function("getProcess", [](sol::optional<int64_t> h) {
+    t.set_function("getProcess", [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         return WinUtils::getProcessNameFromWindow(resolveHwnd(h));
     });
-    t.set_function("minimize", [](sol::optional<int64_t> h) { ShowWindow(resolveHwnd(h), SW_MINIMIZE); });
-    t.set_function("maximize", [](sol::optional<int64_t> h) { ShowWindow(resolveHwnd(h), SW_MAXIMIZE); });
-    t.set_function("restore",  [](sol::optional<int64_t> h) { ShowWindow(resolveHwnd(h), SW_RESTORE); });
-    t.set_function("close",    [](sol::optional<int64_t> h) {
+    t.set_function("minimize", [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
+        ShowWindow(resolveHwnd(h), SW_MINIMIZE);
+    });
+    t.set_function("maximize", [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
+        ShowWindow(resolveHwnd(h), SW_MAXIMIZE);
+    });
+    t.set_function("restore",  [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
+        ShowWindow(resolveHwnd(h), SW_RESTORE);
+    });
+    t.set_function("close",    [this](sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         if (HWND w = resolveHwnd(h)) PostMessageW(w, WM_CLOSE, 0, 0);
     });
-    t.set_function("setTopmost", [](bool topmost, sol::optional<int64_t> h) {
+    t.set_function("setTopmost", [this](bool topmost, sol::optional<int64_t> h) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Window, "easy.window");
         if (HWND w = resolveHwnd(h))
             SetWindowPos(w, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -474,6 +519,7 @@ void LuaEngine::bindScreen(sol::table& easy) {
     sol::table t = easy.create_named("screen");
     // 返回 {r, g, b}
     t.set_function("getPixelColor", [this](int x, int y) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Screen, "easy.screen");
         HDC hdc = GetDC(nullptr);
         COLORREF c = GetPixel(hdc, x, y);
         ReleaseDC(nullptr, hdc);
@@ -487,16 +533,19 @@ void LuaEngine::bindScreen(sol::table& easy) {
 
 void LuaEngine::bindFs(sol::table& easy) {
     sol::table t = easy.create_named("fs");
-    t.set_function("exists", [](const std::string& p) {
+    t.set_function("exists", [this](const std::string& p) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Fs, "easy.fs");
         return std::filesystem::exists(WinUtils::utf8ToWstring(p));
     });
-    t.set_function("readFile", [](const std::string& p) -> std::string {
+    t.set_function("readFile", [this](const std::string& p) -> std::string {
+        requirePermission(m_lua->lua_state(), LuaPermission::Fs, "easy.fs");
         std::ifstream f(WinUtils::utf8ToWstring(p).c_str(), std::ios::binary);
         if (!f) return {};
         std::stringstream buf; buf << f.rdbuf();
         return buf.str();
     });
-    t.set_function("writeFile", [](const std::string& p, const std::string& content) {
+    t.set_function("writeFile", [this](const std::string& p, const std::string& content) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Fs, "easy.fs");
         std::ofstream f(WinUtils::utf8ToWstring(p).c_str(), std::ios::binary | std::ios::trunc);
         if (!f) return false;
         f.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -507,6 +556,7 @@ void LuaEngine::bindFs(sol::table& easy) {
 void LuaEngine::bindHttp(sol::table& easy) {
     sol::table t = easy.create_named("http");
     t.set_function("get", [this](const std::string& url) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Http, "easy.http");
         HttpResult r = httpRequest(L"GET", url, {});
         sol::table out = m_lua->create_table();
         out["status"] = r.status;
@@ -514,6 +564,7 @@ void LuaEngine::bindHttp(sol::table& easy) {
         return out;
     });
     t.set_function("post", [this](const std::string& url, sol::optional<std::string> body) {
+        requirePermission(m_lua->lua_state(), LuaPermission::Http, "easy.http");
         HttpResult r = httpRequest(L"POST", url, body.value_or(""));
         sol::table out = m_lua->create_table();
         out["status"] = r.status;

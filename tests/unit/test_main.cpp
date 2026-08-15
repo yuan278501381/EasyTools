@@ -1088,12 +1088,12 @@ static void test_lua_engine_security() {
     auto& lua = easy::core::LuaEngine::instance();
     CHECK(lua.initialize());
 
-    // 1. 正常执行与 API
+    // 1. 正常执行与标准权限 (Log / Keyboard / Window / Ui / Url)
     CHECK(lua.executeScript("local a = 1 + 2; easy.log.info('Lua test normal execution')"));
 
     // 2. 超时保护测试（死循环被 100ms 钩子及时中断）
     auto t0 = std::chrono::steady_clock::now();
-    bool timeoutResult = lua.executeScript("while true do end", std::chrono::milliseconds(100));
+    bool timeoutResult = lua.executeScript("while true do end", easy::core::LuaPermission::Standard, std::chrono::milliseconds(100));
     auto t1 = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     CHECK(!timeoutResult);
@@ -1101,11 +1101,18 @@ static void test_lua_engine_security() {
 
     // 3. 取消令牌测试
     std::atomic<bool> cancelToken{true};
-    CHECK(!lua.executeScript("local x = 0; for i = 1, 10000000 do x = x + i end", std::chrono::milliseconds(5000), &cancelToken));
+    CHECK(!lua.executeScript("local x = 0; for i = 1, 10000000 do x = x + i end", easy::core::LuaPermission::Standard, std::chrono::milliseconds(5000), &cancelToken));
 
     // 4. 沙箱安全性：危险系统调用已被封禁
     CHECK(!lua.executeScript("os.execute('echo hack')"));
     CHECK(!lua.executeScript("os.remove('test.txt')"));
+
+    // 5. 细粒度权限模型校验：标准权限下默认拦截 shell 与 fs
+    CHECK(!lua.executeScript("easy.shell.run('notepad.exe')", easy::core::LuaPermission::Standard));
+    CHECK(!lua.executeScript("easy.fs.writeFile('C:\\\\test.tmp', 'data')", easy::core::LuaPermission::Standard));
+
+    // 6. 显式授予敏感权限时允许调用
+    CHECK(lua.executeScript("local ok = easy.fs.exists('CMakeLists.txt')", easy::core::LuaPermission::Fs));
 
     lua.shutdown();
 }
