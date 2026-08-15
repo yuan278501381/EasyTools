@@ -10,28 +10,30 @@
 
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 20px;
-  padding: 20px 0;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
   overflow-y: auto;
   align-content: start;
 }
 
 .history-card {
-  background: var(--surface-2);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
   display: flex;
   flex-direction: column;
+  text-align: left;
+  padding: 0;
 }
 
 .history-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  border-color: var(--primary-color);
+  border-color: rgba(139, 92, 246, 0.35);
 }
 
 .history-card:focus-visible {
@@ -42,39 +44,41 @@
 .history-card-image {
   position: relative;
   aspect-ratio: 16/9;
-  background: var(--surface-3);
+  background: var(--input-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .history-card-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
 }
 
 .history-card:hover .history-card-image img {
-  transform: scale(1.05);
+  transform: scale(1.04);
 }
 
 .placeholder {
-  color: var(--text-secondary);
-  opacity: 0.5;
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 
 .history-card-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: #ffffff;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-fast);
 }
 
 .history-card:hover .history-card-overlay {
@@ -82,21 +86,23 @@
 }
 
 .history-card-info {
-  padding: 12px;
+  padding: var(--spacing-sm) var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  background: var(--bg-elevated);
 }
 
 .history-card-info .timestamp {
-  font-size: 13px;
+  font-size: 0.8rem;
   color: var(--text-primary);
   font-weight: 500;
+  font-family: 'Consolas', 'Menlo', monospace;
 }
 
 .history-card-info .dimensions {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 
 .empty-state {
@@ -105,33 +111,38 @@
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: var(--text-secondary);
-  gap: 16px;
+  color: var(--text-muted);
+  gap: var(--spacing-md);
   text-align: center;
   grid-column: 1 / -1;
+  background: var(--card-bg);
+  border: 1px dashed var(--card-border);
+  border-radius: var(--radius-lg);
 }
 
 .danger-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(248, 113, 113, 0.1);
-  color: #f87171;
-  border: 1px solid rgba(248, 113, 113, 0.2);
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
+  gap: 6px;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .danger-btn:hover:not(:disabled) {
-  background: #f87171;
-  color: white;
+  background: var(--danger);
+  color: #ffffff;
+  border-color: var(--danger);
+  box-shadow: 0 2px 8px rgba(248, 113, 113, 0.35);
 }
 
 .danger-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }

@@ -576,20 +576,23 @@ void CaptureRenderer::drawSelectionLoupe(float cx, float cy, CaptureState& state
     
     m_renderTarget->DrawRectangle(dst, blackBrush.Get(), 1.0f);
 
-    D2D1_RECT_F panel = D2D1::RectF(lx, ly + loupeBoxH, lx + loupeBoxW, ly + totalH);
+    D2D1_ROUNDED_RECT panelRounded = D2D1::RoundedRect(
+        D2D1::RectF(lx, ly + loupeBoxH, lx + loupeBoxW, ly + totalH),
+        4.0f * scale, 4.0f * scale
+    );
     ComPtr<ID2D1SolidColorBrush> panelBg;
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f, 0.95f), panelBg.GetAddressOf());
-    if (panelBg) m_renderTarget->FillRectangle(panel, panelBg.Get());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.10f, 0.10f, 0.14f, 0.96f), panelBg.GetAddressOf());
+    if (panelBg) m_renderTarget->FillRoundedRectangle(panelRounded, panelBg.Get());
 
     if (hasColor && m_infoTextFormat && m_dwriteFactory) {
         std::wstring text1 = std::format(L"({} , {})", px, py);
         std::wstring text2 = state.colorFormatHex ? 
                              std::format(L"#{:02X}{:02X}{:02X}", r, g, b) : 
                              std::format(L"rgb({}, {}, {})", r, g, b);
-        std::wstring text3 = L"Shift: 切换颜色格式";
+        std::wstring text3 = L"Shift: 切换格式";
         
         bool toast = (state.loupeToastUntil != 0 && GetTickCount() < state.loupeToastUntil);
-        std::wstring text4 = toast ? L"已复制!" : L"C: 复制颜色值";
+        std::wstring text4 = toast ? L"✓ 颜色已复制!" : L"C: 复制颜色值";
 
         float tx = lx;
         float tw = loupeBoxW;
@@ -617,9 +620,10 @@ void CaptureRenderer::drawSelectionLoupe(float cx, float cy, CaptureState& state
         ComPtr<ID2D1SolidColorBrush> colorBox;
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f), colorBox.GetAddressOf());
         if (colorBox) {
-            float boxY = currY + (20.0f * scale - boxSz) / 2.0f; // center vertically with text
-            m_renderTarget->FillRectangle(D2D1::RectF(startX, boxY, startX + boxSz, boxY + boxSz), colorBox.Get());
-            m_renderTarget->DrawRectangle(D2D1::RectF(startX, boxY, startX + boxSz, boxY + boxSz), whiteBrush.Get(), 1.0f * scale);
+            float boxY = currY + (20.0f * scale - boxSz) / 2.0f;
+            D2D1_ROUNDED_RECT colorRect = D2D1::RoundedRect(D2D1::RectF(startX, boxY, startX + boxSz, boxY + boxSz), 2.0f * scale, 2.0f * scale);
+            m_renderTarget->FillRoundedRectangle(colorRect, colorBox.Get());
+            m_renderTarget->DrawRoundedRectangle(colorRect, whiteBrush.Get(), 1.0f * scale);
             
             m_renderTarget->DrawTextW(text2.c_str(), (UINT32)text2.size(), m_infoTextFormat.Get(),
                 D2D1::RectF(startX + boxSz + gap, currY, startX + totalBlockW, currY + 24.0f * scale), m_infoTextBrush.Get());
@@ -629,16 +633,28 @@ void CaptureRenderer::drawSelectionLoupe(float cx, float cy, CaptureState& state
         currY += 22.0f * scale;
 
         ComPtr<ID2D1SolidColorBrush> hintBrush;
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.8f, 0.8f, 0.8f, 1.0f), hintBrush.GetAddressOf());
-        m_renderTarget->DrawTextW(text3.c_str(), (UINT32)text3.size(), m_infoTextFormat.Get(),
-            D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), hintBrush.Get());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.7f, 0.7f, 0.78f, 1.0f), hintBrush.GetAddressOf());
+        if (hintBrush) {
+            m_renderTarget->DrawTextW(text3.c_str(), (UINT32)text3.size(), m_infoTextFormat.Get(),
+                D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), hintBrush.Get());
+        }
         currY += 20.0f * scale;
 
-        m_renderTarget->DrawTextW(text4.c_str(), (UINT32)text4.size(), m_infoTextFormat.Get(),
-            D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), hintBrush.Get());
+        ComPtr<ID2D1SolidColorBrush> actionBrush;
+        if (toast) {
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.2f, 0.85f, 0.6f, 1.0f), actionBrush.GetAddressOf());
+        } else {
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.85f, 0.75f, 1.0f, 1.0f), actionBrush.GetAddressOf());
+        }
+        if (actionBrush) {
+            m_renderTarget->DrawTextW(text4.c_str(), (UINT32)text4.size(), m_infoTextFormat.Get(),
+                D2D1::RectF(tx, currY, tx + tw, currY + 24.0f * scale), actionBrush.Get());
+        }
     }
 
-    m_renderTarget->DrawRectangle(D2D1::RectF(lx, ly, lx + loupeBoxW, ly + totalH), blackBrush.Get(), 1.0f);
+    if (blackBrush) {
+        m_renderTarget->DrawRectangle(D2D1::RectF(lx, ly, lx + loupeBoxW, ly + totalH), blackBrush.Get(), 1.0f);
+    }
 }
 
 void CaptureRenderer::drawCrosshair(float x, float y) {
