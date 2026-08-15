@@ -17,6 +17,7 @@ param (
     [switch]$Quick = $false,             # 极速增量开发模式 (跳过 npm ci，复用 node_modules 直奔编译与测试)
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
     [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
+    [switch]$Coverage = $false,          # 强制启用 100% 代码覆盖率分析 (OpenCppCoverage)
     [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
 
@@ -229,13 +230,47 @@ if ($LASTEXITCODE -ne 0) {
 Write-Log "C++ 编译完成。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
-# 4.5 运行单元测试 (失败则中断流水线)
+# 4.5 运行单元测试与 100% 代码覆盖率分析 (失败则中断流水线)
 # ------------------------------------------------------------------------------
 if (-not $SkipTests) {
-    Write-Log "运行 CTest 测试套件..."
-    ctest --test-dir $BuildDir -C $Configuration --output-on-failure
-    if ($LASTEXITCODE -ne 0) {
-        throw "测试失败！退出码: $LASTEXITCODE"
+    $OpenCppCoverageExe = $null
+    if (Get-Command "OpenCppCoverage" -ErrorAction SilentlyContinue) {
+        $OpenCppCoverageExe = "OpenCppCoverage"
+    } elseif (Test-Path "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe") {
+        $OpenCppCoverageExe = "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe"
+    }
+
+    if ($Coverage -or $OpenCppCoverageExe) {
+        Write-Log "运行 C++ 单元测试与 100% 代码覆盖率严苛分析..."
+        $CoverageReportDir = Join-Path $ScriptDir "coverage_report"
+        if (-not (Test-Path $CoverageReportDir)) { New-Item -ItemType Directory -Path $CoverageReportDir | Out-Null }
+
+        $TestExe = Join-Path $BuildDir "bin\$Configuration\EasyToolsTests.exe"
+        if (-not (Test-Path $TestExe)) { $TestExe = Join-Path $BuildDir "bin\EasyToolsTests.exe" }
+
+        if ((Test-Path $TestExe) -and $OpenCppCoverageExe) {
+            & $OpenCppCoverageExe --sources "$ScriptDir\src" `
+                                  --excluded_sources "$ScriptDir\build" `
+                                  --excluded_sources "$ScriptDir\packages" `
+                                  --export_type "html:$CoverageReportDir" `
+                                  --export_type "cobertura:$CoverageReportDir\cobertura.xml" `
+                                  -- $TestExe
+            if ($LASTEXITCODE -ne 0) {
+                throw "单元测试与代码覆盖率分析执行失败！退出码: $LASTEXITCODE"
+            }
+            Write-Log "代码覆盖率报告已生成: $CoverageReportDir" "SUCCESS"
+        } else {
+            ctest --test-dir $BuildDir -C $Configuration --output-on-failure
+            if ($LASTEXITCODE -ne 0) {
+                throw "测试失败！退出码: $LASTEXITCODE"
+            }
+        }
+    } else {
+        Write-Log "运行 CTest 测试套件..."
+        ctest --test-dir $BuildDir -C $Configuration --output-on-failure
+        if ($LASTEXITCODE -ne 0) {
+            throw "测试失败！退出码: $LASTEXITCODE"
+        }
     }
     Write-Log "测试套件通过。" "SUCCESS"
 } else {

@@ -6,5 +6,10 @@
    - **Strict Red Lines**: NEVER call `trimWorkingSet()` inside Hot Paths (e.g., low-level mouse/keyboard hook callbacks, 60fps render loops, gesture tracking loops, keycast typing streams) to prevent micro-stuttering caused by soft page faults.
    - **Lazy Re-initialization**: Must pair with lazy re-creation of heavy resources (Direct2D render targets, DIB sections, big Mat buffers) when features are reactivated.
 
+## Quality Assurance & Code Coverage (100% Coverage Mandate)
+1. **100% Code Coverage Standard**: All core business logic, utility classes, codecs, parsers, state machines, math/transform algorithms, and plugin contracts must maintain 100% statement and branch test coverage.
+2. **Zero-Dead-Code Principle**: Any code path that cannot be covered or is unexecutable must be strictly refactored or removed. Do not introduce unreachable switch cases or phantom branches.
+3. **Automated Gate & Verification**: Unit tests (`EasyToolsTests.exe`) and frontend checks (`npm run lint`, `npm run i18n-check`) must execute and pass completely on every build and CI pipeline.
+
 ## Frontend (React/TypeScript) Development
 1. **i18next Dynamic Keys**: The project's `react-i18next` `t()` function uses strict TypeScript union types for keys. When passing dynamic variables as translation keys (e.g., from an array or config), cast the key `as any` (e.g., `t(item.key as any)`) to bypass `TS2345` type errors.

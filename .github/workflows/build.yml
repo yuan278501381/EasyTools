@@ -70,14 +70,14 @@ jobs:
             ${{ runner.os }}-vcpkg-archives-
             ${{ runner.os }}-vcpkg-
 
-      - name: 安装 Inno Setup (Install Inno Setup)
+      - name: 安装打包与覆盖率工具 (Install Inno Setup & OpenCppCoverage)
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup opencppcoverage --yes --no-progress
 
-      - name: 执行一键幂等部署流水线 (Run Deployment Script)
+      - name: 执行一键幂等部署流水线 (Run Deployment Script with Coverage)
         shell: pwsh
         run: |
-          .\deploy.ps1 -Configuration Release
+          .\deploy.ps1 -Configuration Release -Coverage
 
       - name: 统计 Sccache 命中率 (Show Sccache Stats)
         shell: pwsh
@@ -87,7 +87,16 @@ jobs:
             sccache --show-stats
           }
 
-      - name: 上传构建产物 (Upload Artifact)
+      - name: 归档代码覆盖率报告 (Upload Code Coverage Report)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EasyTools-CodeCoverage-Report
+          path: coverage_report/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: 上传构建产物 (Upload Build Artifacts)
         uses: actions/upload-artifact@v4
         with:
           name: EasyTools-Release-x64
