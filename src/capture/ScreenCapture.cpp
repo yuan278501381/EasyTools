@@ -440,8 +440,18 @@ std::vector<uint8_t> ScreenCapture::encodeImage(const cv::Mat& image, ImageForma
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
-    // 编码为 BMP 格式（剪贴板原生支持）
-    if (!OpenClipboard(nullptr)) {
+    if (image.empty()) return false;
+
+    // 剪贴板可能被其他进程瞬时独占（如剪贴板管理器、Office），进行有界重试
+    bool opened = false;
+    for (int retry = 0; retry < 5; ++retry) {
+        if (OpenClipboard(nullptr)) {
+            opened = true;
+            break;
+        }
+        Sleep(10);
+    }
+    if (!opened) {
         LOG_WARN("无法打开剪贴板, error={}", GetLastError());
         return false;
     }
@@ -468,6 +478,11 @@ bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
     }
 
     auto* pMem = static_cast<uint8_t*>(GlobalLock(hGlobal));
+    if (!pMem) {
+        GlobalFree(hGlobal);
+        CloseClipboard();
+        return false;
+    }
     memcpy(pMem, &bi, sizeof(bi));
 
     // 确保图像是连续的 BGR
@@ -484,7 +499,11 @@ bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
     }
 
     GlobalUnlock(hGlobal);
-    SetClipboardData(CF_DIB, hGlobal);
+    if (!SetClipboardData(CF_DIB, hGlobal)) {
+        GlobalFree(hGlobal);
+        CloseClipboard();
+        return false;
+    }
     CloseClipboard();
 
     return true;

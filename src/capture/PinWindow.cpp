@@ -89,6 +89,9 @@ void PinWindow::close() {
                        [](const auto& p) { return !p->isAlive(); }),
         s_instances.end()
     );
+    if (s_instances.empty()) {
+        easy::core::WinUtils::trimWorkingSet();
+    }
 }
 
 void PinWindow::closeAll() {
@@ -103,6 +106,7 @@ void PinWindow::closeAll() {
     }
     s_instances.clear();
     s_allHidden = false;
+    easy::core::WinUtils::trimWorkingSet();
     LOG_INFO("所有贴图窗口已关闭并释放资源");
 }
 
@@ -287,9 +291,20 @@ bool PinWindow::toggleClickThroughUnderCursor() {
     return false;
 }
 
-// 将 cv::Mat 以 CF_DIB 写入剪贴板（复刻 ScreenCapture 的成熟实现，供右键"复制"使用）
+// 将 cv::Mat 以 CF_DIB 写入剪贴板（支持有界重试与完整内存安全保护）
 static bool copyImageToClipboard(const cv::Mat& image) {
-    if (image.empty() || !OpenClipboard(nullptr)) return false;
+    if (image.empty()) return false;
+
+    bool opened = false;
+    for (int retry = 0; retry < 5; ++retry) {
+        if (OpenClipboard(nullptr)) {
+            opened = true;
+            break;
+        }
+        Sleep(10);
+    }
+    if (!opened) return false;
+
     EmptyClipboard();
 
     BITMAPINFOHEADER bi{};
@@ -320,7 +335,11 @@ static bool copyImageToClipboard(const cv::Mat& image) {
     }
 
     GlobalUnlock(hGlobal);
-    SetClipboardData(CF_DIB, hGlobal);
+    if (!SetClipboardData(CF_DIB, hGlobal)) {
+        GlobalFree(hGlobal);
+        CloseClipboard();
+        return false;
+    }
     CloseClipboard();
     return true;
 }
@@ -885,12 +904,53 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_MBUTTONUP: {
+            // 鼠标中键单击：快速恢复 1:1 原始物理像素尺寸
+            if (self) {
+                self->setScale(1.0f);
+            }
+            return 0;
+        }
+
         case WM_MOUSEWHEEL: {
-            // 滚轮缩放
             if (!self) break;
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            float newScale = self->m_scale + (delta > 0 ? 0.1f : -0.1f);
-            self->setScale(newScale);
+            const bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0 ||
+                              ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
+
+            if (ctrl) {
+                // Ctrl + 滚轮：平滑微调透明度 (10% ~ 100%, 步进 5%)
+                float newOpacity = self->m_opacity + (delta > 0 ? 0.05f : -0.05f);
+                self->setOpacity(newOpacity);
+            } else {
+                // 滚轮：以当前鼠标光标为锚点平滑缩放 (0.1x ~ 5.0x)
+                POINT cursor;
+                GetCursorPos(&cursor);
+                RECT rc;
+                GetWindowRect(hwnd, &rc);
+
+                float oldScale = self->m_scale;
+                float zoomFactor = (delta > 0 ? 1.1f : 0.9f);
+                float newScale = std::clamp(oldScale * zoomFactor, 0.1f, 5.0f);
+
+                if (std::abs(newScale - oldScale) > 0.001f) {
+                    float relX = (cursor.x - rc.left) / static_cast<float>((std::max)(1L, rc.right - rc.left));
+                    float relY = (cursor.y - rc.top) / static_cast<float>((std::max)(1L, rc.bottom - rc.top));
+
+                    int newW = static_cast<int>(self->m_origWidth * newScale);
+                    int newH = static_cast<int>(self->m_origHeight * newScale);
+
+                    int newLeft = cursor.x - static_cast<int>(newW * relX);
+                    int newTop = cursor.y - static_cast<int>(newH * relY);
+
+                    self->m_scale = newScale;
+                    SetWindowPos(hwnd, nullptr, newLeft, newTop, newW, newH, SWP_NOZORDER | SWP_NOACTIVATE);
+                    if (self->m_renderTarget) {
+                        self->m_renderTarget->Resize(D2D1::SizeU(newW, newH));
+                    }
+                    self->render();
+                }
+            }
             return 0;
         }
 
@@ -902,12 +962,13 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板  (Ctrl+C)" : L"Copy to Clipboard  (Ctrl+C)");
             AppendMenuW(menu, MF_STRING, 10, isZh ? L"保存图片...  (Ctrl+S)" : L"Save Image...  (Ctrl+S)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, 15, isZh ? L"1:1 原始尺寸  (0 或鼠标中键)" : L"1:1 Original Scale  (0 or MButton)");
             AppendMenuW(menu, MF_STRING, 11, isZh ? L"顺时针旋转 90°  (R)" : L"Rotate Right 90°  (R)");
             AppendMenuW(menu, MF_STRING, 12, isZh ? L"逆时针旋转 90°  (Shift+R)" : L"Rotate Left 90°  (Shift+R)");
             AppendMenuW(menu, MF_STRING, 13, isZh ? L"水平翻转  (H)" : L"Flip Horizontal  (H)");
             AppendMenuW(menu, MF_STRING, 14, isZh ? L"垂直翻转  (V)" : L"Flip Vertical  (V)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%" : L"Opacity 100%");
+            AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%  (Ctrl+滚轮微调)" : L"Opacity 100%  (Ctrl+Wheel)");
             AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%" : L"Opacity 75%");
             AppendMenuW(menu, MF_STRING, 4, isZh ? L"透明度 50%" : L"Opacity 50%");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -929,6 +990,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             switch (cmd) {
                 case 1: copyImageToClipboard(self->m_sourceImage); break;
                 case 10: savePinnedImage(hwnd, self->m_sourceImage); break;
+                case 15: self->setScale(1.0f); break;
                 case 11: self->rotate(90); break;
                 case 12: self->rotate(270); break;
                 case 13: self->flip(true); break;

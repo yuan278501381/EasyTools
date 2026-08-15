@@ -860,35 +860,29 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             bool hasSelection = ((int)m_state->state.load() == (int)OverlayState::Selected ||
                                  (int)m_state->state.load() == (int)OverlayState::Marking);
 
-            // 世界级细节：方向键微调
+            // 方向键微调与光标像素级移动
             if (!editingText) {
                 bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 
-                // 如果已经有选区了，方向键用来微调选区边界
+                // 存在选区时：方向键移动选区，Shift+方向键调整选区尺寸
                 if (hasSelection && (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT)) {
-                    int dx = 0, dy = 0;
-                    if (wParam == VK_UP) dy = -1;
-                    if (wParam == VK_DOWN) dy = 1;
-                    if (wParam == VK_LEFT) dx = -1;
-                    if (wParam == VK_RIGHT) dx = 1;
+                    int step = ctrl ? 10 : 1;
+                    int dx = (wParam == VK_LEFT ? -step : wParam == VK_RIGHT ? step : 0);
+                    int dy = (wParam == VK_UP   ? -step : wParam == VK_DOWN  ? step : 0);
                     
-                    if (shift) {
-                        // 缩放选区（右下角）
-                        m_state->dragEnd.x += dx;
-                        m_state->dragEnd.y += dy;
+                    if (m_state->activeElement) {
+                        m_state->activeElement->moveBy(dx, dy);
+                    } else if (shift) {
+                        adjustSelection(HitArea::RB, dx, dy);
                     } else {
-                        // 移动整个选区
-                        m_state->dragStart.x += dx;
-                        m_state->dragStart.y += dy;
-                        m_state->dragEnd.x += dx;
-                        m_state->dragEnd.y += dy;
+                        adjustSelection(HitArea::Body, dx, dy);
                     }
                     prepareMarkupBase();
                     m_renderer->invalidate();
                     return 0;
                 }
                 
-                // 否则（或按 WASD 时），控制鼠标光标进行像素级移动（取色/找点）
+                // 无选区时：方向键或 WASD 控制光标进行 1px 微调（精准取色）
                 if (!hasSelection) {
                     POINT pt;
                     GetCursorPos(&pt);
@@ -970,6 +964,9 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         pinBtn.command = ToolbarCommand::PinWindow;
                         executeToolbarCommand(pinBtn);
                         return 0;
+                    } else if (!ctrl) {
+                        setCurrentTool(MarkupTool::Text);
+                        return 0;
                     }
                     break;
                 case 'S':
@@ -1002,6 +999,9 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                             }
                         }
                         return 0;
+                    } else if (!ctrl) {
+                        setCurrentTool(MarkupTool::Spotlight);
+                        return 0;
                     }
                     break;
                 case 'Z':
@@ -1011,58 +1011,26 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     if (ctrl) { m_state->activeElement = nullptr; m_state->markup.redo(); }
                     return 0;
                 case VK_DELETE:
-                    // 只删除当前选中的标注，避免一键误清空全部
                     if (m_state->activeElement) {
                         m_state->markup.removeElement(m_state->activeElement->id);
                         m_state->activeElement = nullptr;
                     }
                     return 0;
-                default: break;
-            }
-
-            if (!hasSelection) return 0;
-
-            // 方向键微调（需用到 Ctrl 作加速，故先于 Ctrl 拦截处理）
-            if (wParam == VK_LEFT || wParam == VK_RIGHT ||
-                wParam == VK_UP   || wParam == VK_DOWN) {
-                int step = ctrl ? 10 : 1;
-                int dx = (wParam == VK_LEFT ? -step : wParam == VK_RIGHT ? step : 0);
-                int dy = (wParam == VK_UP   ? -step : wParam == VK_DOWN  ? step : 0);
-                if (m_state->activeElement) {
-                    m_state->activeElement->moveBy(dx, dy);   // 微调选中元素
-                } else {
-                    adjustSelection(HitArea::Body, dx, dy);  // 微调整块选区（含标注重映射）
-                }
-                return 0;
-            }
-
-            // 其余 Ctrl 组合键不触发工具/颜色快捷键
-            if (ctrl) return 0;
-
-            // 颜色快捷键 1-5（与工具栏色板顺序一致）
-            switch (wParam) {
-                case '1': m_state->currentColor = MarkupColor::Red();    return 0;
-                case '2': m_state->currentColor = MarkupColor::Yellow(); return 0;
-                case '3': m_state->currentColor = MarkupColor::Green();  return 0;
-                case '4': m_state->currentColor = MarkupColor::Blue();   return 0;
-                case '5': m_state->currentColor = MarkupColor::White();  return 0;
-                default: break;
-            }
-
-            // 工具快捷键
-            switch (wParam) {
-                case 'R': setCurrentTool(MarkupTool::Rectangle); return 0;
-                case 'A': setCurrentTool(MarkupTool::Arrow);     return 0;
-                case 'O': case 'E': setCurrentTool(MarkupTool::Ellipse); return 0;
-                case 'P': setCurrentTool(MarkupTool::Pen);       return 0;
-                case 'H': setCurrentTool(MarkupTool::Highlight); return 0;
-                case 'M': setCurrentTool(MarkupTool::Mosaic);    return 0;
-                case 'T': setCurrentTool(MarkupTool::Text);      return 0;
-                case 'N': setCurrentTool(MarkupTool::Number);    return 0;
-                case 'G': setCurrentTool(MarkupTool::Magnifier); return 0;
-                case 'S': setCurrentTool(MarkupTool::Spotlight); return 0;
-                case 'W': setCurrentTool(MarkupTool::Watermark); return 0;
-                case 'I': setCurrentTool(MarkupTool::Inpaint);   return 0;
+                case '1': if (!ctrl) { m_state->currentColor = MarkupColor::Red();    return 0; } break;
+                case '2': if (!ctrl) { m_state->currentColor = MarkupColor::Yellow(); return 0; } break;
+                case '3': if (!ctrl) { m_state->currentColor = MarkupColor::Green();  return 0; } break;
+                case '4': if (!ctrl) { m_state->currentColor = MarkupColor::Blue();   return 0; } break;
+                case '5': if (!ctrl) { m_state->currentColor = MarkupColor::White();  return 0; } break;
+                case 'R': if (!ctrl) { setCurrentTool(MarkupTool::Rectangle); return 0; } break;
+                case 'A': if (!ctrl) { setCurrentTool(MarkupTool::Arrow);     return 0; } break;
+                case 'O': case 'E': if (!ctrl) { setCurrentTool(MarkupTool::Ellipse); return 0; } break;
+                case 'P': if (!ctrl) { setCurrentTool(MarkupTool::Pen);       return 0; } break;
+                case 'H': if (!ctrl) { setCurrentTool(MarkupTool::Highlight); return 0; } break;
+                case 'M': if (!ctrl) { setCurrentTool(MarkupTool::Mosaic);    return 0; } break;
+                case 'N': if (!ctrl) { setCurrentTool(MarkupTool::Number);    return 0; } break;
+                case 'G': if (!ctrl) { setCurrentTool(MarkupTool::Magnifier); return 0; } break;
+                case 'W': if (!ctrl) { setCurrentTool(MarkupTool::Watermark); return 0; } break;
+                case 'I': if (!ctrl) { setCurrentTool(MarkupTool::Inpaint);   return 0; } break;
                 default: break;
             }
             return 0;

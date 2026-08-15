@@ -86,6 +86,7 @@ void ScrollCapture::shutdown() {
     if (m_captureBackend) m_captureBackend->shutdown();
     m_captureBackend.reset();
     m_frameCount = 0;
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 void ScrollCapture::captureCurrentFrame() {
@@ -240,6 +241,7 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
     }
     m_segments.clear();
     m_lastFrame.release();
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
