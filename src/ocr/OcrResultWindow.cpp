@@ -1,4 +1,4 @@
-﻿#include "OcrResultWindow.h"
+#include "OcrResultWindow.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include <algorithm>
@@ -175,28 +175,42 @@ void OcrResultWindow::render() {
         m_renderTarget->PopAxisAlignedClip();
     }
 
-    // Buttons
-    m_btnCopyRect = D2D1::RectF(width - 240.0f, height - 50.0f, width - 130.0f, height - 15.0f);
-    m_btnCloseRect = D2D1::RectF(width - 120.0f, height - 50.0f, width - 20.0f, height - 15.0f);
+    // 按钮渲染
+    m_btnCopyRect = D2D1::RectF(width - 260.0f, height - 50.0f, width - 140.0f, height - 15.0f);
+    m_btnCloseRect = D2D1::RectF(width - 130.0f, height - 50.0f, width - 20.0f, height - 15.0f);
+
+    bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
+    bool justCopied = (GetTickCount64() - m_copiedTime < 2000);
 
     D2D1_ROUNDED_RECT rCopy = D2D1::RoundedRect(m_btnCopyRect, 6.0f, 6.0f);
-    m_renderTarget->FillRoundedRectangle(&rCopy, m_hoverCopy ? m_brushBtnHover.Get() : m_brushBtn.Get());
+    if (justCopied) {
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> successBrush;
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.83f, 0.60f, 0.85f), &successBrush);
+        m_renderTarget->FillRoundedRectangle(&rCopy, successBrush.Get());
+    } else {
+        m_renderTarget->FillRoundedRectangle(&rCopy, m_hoverCopy ? m_brushBtnHover.Get() : m_brushBtn.Get());
+    }
     
     D2D1_ROUNDED_RECT rClose = D2D1::RoundedRect(m_btnCloseRect, 6.0f, 6.0f);
     m_renderTarget->FillRoundedRectangle(&rClose, m_hoverClose ? m_brushBtnHover.Get() : m_brushBtn.Get());
 
-    // Button Texts
+    // 按钮文字
     Microsoft::WRL::ComPtr<IDWriteTextLayout> tlCopy;
-    std::wstring copyStr = (GetTickCount64() - m_copiedTime < 2000) ? L"Ѹ" : L"һ";
-    m_dwriteFactory->CreateTextLayout(copyStr.c_str(), (UINT32)copyStr.length(), m_textFormat.Get(), 110, 35, &tlCopy);
-    tlCopy->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_renderTarget->DrawTextLayout(D2D1::Point2F(m_btnCopyRect.left, m_btnCopyRect.top + 5), tlCopy.Get(), m_brushText.Get());
+    std::wstring copyStr = justCopied ? (isZh ? L"✓ 已复制" : L"✓ Copied")
+                                      : (isZh ? L"📋 复制全文" : L"📋 Copy All");
+    m_dwriteFactory->CreateTextLayout(copyStr.c_str(), static_cast<UINT32>(copyStr.length()), m_textFormat.Get(), 120, 35, &tlCopy);
+    if (tlCopy) {
+        tlCopy->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_renderTarget->DrawTextLayout(D2D1::Point2F(m_btnCopyRect.left, m_btnCopyRect.top + 5), tlCopy.Get(), m_brushText.Get());
+    }
 
     Microsoft::WRL::ComPtr<IDWriteTextLayout> tlClose;
-    std::wstring closeStr = L"ر";
-    m_dwriteFactory->CreateTextLayout(closeStr.c_str(), (UINT32)closeStr.length(), m_textFormat.Get(), 100, 35, &tlClose);
-    tlClose->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_renderTarget->DrawTextLayout(D2D1::Point2F(m_btnCloseRect.left, m_btnCloseRect.top + 5), tlClose.Get(), m_brushText.Get());
+    std::wstring closeStr = isZh ? L"关闭 (Esc)" : L"Close (Esc)";
+    m_dwriteFactory->CreateTextLayout(closeStr.c_str(), static_cast<UINT32>(closeStr.length()), m_textFormat.Get(), 110, 35, &tlClose);
+    if (tlClose) {
+        tlClose->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_renderTarget->DrawTextLayout(D2D1::Point2F(m_btnCloseRect.left, m_btnCloseRect.top + 5), tlClose.Get(), m_brushText.Get());
+    }
 
     m_renderTarget->EndDraw();
 
@@ -242,14 +256,15 @@ LRESULT CALLBACK OcrResultWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         } else if (self.m_hoverClose) {
             ShowWindow(hwnd, SW_HIDE);
             KillTimer(hwnd, 1);
+            easy::core::WinUtils::trimWorkingSet();
         } else {
-            SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); // Allow drag
+            SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); // 允许拖拽移动窗口
         }
         return 0;
     }
     case WM_MOUSEWHEEL: {
         int zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-        self.m_scrollY -= (zDelta / 120.0f) * 30.0f; // Scroll speed
+        self.m_scrollY -= (zDelta / 120.0f) * 30.0f; // 滚轮滚动速度
         self.m_scrollY = (std::max)(0.0f, (std::min)(self.m_scrollY, self.m_maxScroll));
         self.render();
         return 0;
@@ -258,6 +273,7 @@ LRESULT CALLBACK OcrResultWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         if (wParam == VK_ESCAPE) {
             ShowWindow(hwnd, SW_HIDE);
             KillTimer(hwnd, 1);
+            easy::core::WinUtils::trimWorkingSet();
         }
         return 0;
     case WM_TIMER:

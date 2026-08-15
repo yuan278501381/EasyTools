@@ -103,13 +103,21 @@ void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
     UINT msg = LOWORD(lParam);
 
     switch (msg) {
+        case WM_LBUTTONUP:
+            // 左键单击：切换显示/收起托盘微型操作卡片
+            showContextMenu();
+            break;
+
         case WM_LBUTTONDBLCLK:
-            // 双击打开设置
+            // 双击：直接唤起主设置窗口
+            if (easy::ui::TrayWindow::instance().isVisible()) {
+                easy::ui::TrayWindow::instance().hide();
+            }
             fireCallback(TrayMenuId::OpenSettings);
             break;
 
         case WM_RBUTTONUP:
-            // 右键弹出菜单
+            // 右键：弹出托盘菜单
             showContextMenu();
             break;
 
@@ -122,13 +130,19 @@ void TrayIcon::showContextMenu() {
     POINT pt;
     GetCursorPos(&pt);
 
-    // 如果用户按住 Shift 键右键，或者 WebView2 托盘弹窗未就绪，直接呼出零延迟原生菜单
+    // 如果托盘卡片当前正处于激活显示状态，再次点击托盘图标时执行平滑收起（Toggle）
+    if (easy::ui::TrayWindow::instance().isVisible()) {
+        easy::ui::TrayWindow::instance().hide();
+        return;
+    }
+
+    // 如果用户按住 Shift 键右键，直接呼出零延迟 Windows 原生上下文菜单
     if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
         showNativeContextMenu(pt);
         return;
     }
 
-    // 优先调用现代 WebView2 托盘窗口
+    // 优先调用现代 WebView2 磨砂质感托盘窗口
     easy::ui::TrayWindow::instance().show(GetModuleHandleW(nullptr), pt.x, pt.y);
 }
 

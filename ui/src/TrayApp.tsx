@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Camera, Video, Pause, LogOut } from 'lucide-react';
+import { Settings, Camera, Video, Pause, Play, LogOut } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -52,7 +52,7 @@ export default function TrayApp() {
       </button>
       <div className="tray-menu__divider" />
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
-        <Pause size={16} />
+        {gesturePaused ? <Play size={16} /> : <Pause size={16} />}
         <span>
           {gesturePaused ? t('tray.resumeGesture', 'Resume Gesture') : t('tray.pauseGesture', 'Pause Gesture')}
         </span>
