@@ -47,9 +47,8 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
-    // 初始提交完全透明帧并常驻保持显示，彻底消除 Show/Hide 触发的任务栏图标跳动
     clearCanvas();
-    ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+    ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
 
     LOG_INFO("手势轨迹覆盖层初始化成功");
@@ -94,7 +93,10 @@ void GestureTrailOverlay::beginTrail() {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
         m_renderTimerActive.store(false);
-        clearCanvas();
+        if (m_visible.exchange(false)) {
+            clearCanvas();
+            ShowWindow(m_hwnd, SW_HIDE);
+        }
     }
     {
         std::lock_guard lock(m_trailMutex);
@@ -140,6 +142,13 @@ void GestureTrailOverlay::hide() {
         KillTimer(m_hwnd, FADE_TIMER_ID);
         m_renderTimerActive.store(false);
         clearCanvas();
+        ShowWindow(m_hwnd, SW_HIDE);
+    }
+    {
+        std::lock_guard lock(m_trailMutex);
+        m_points.clear();
+        m_resultText.clear();
+        m_pathCache.clear();
     }
     m_visible = false;
     m_fading = false;
@@ -500,7 +509,9 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
             if (wParam == RENDER_TIMER_ID) {
                 // 实时渲染轨迹
                 self->render();
-                self->m_visible.store(true);
+                if (!self->m_visible.exchange(true)) {
+                    ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
+                }
             } else if (wParam == FADE_TIMER_ID) {
                 // 淡出动画
                 DWORD elapsed = GetTickCount() - self->m_fadeStartTick;
@@ -511,7 +522,9 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 } else {
                     self->m_fadeAlpha = 1.0f - progress;
                     self->render();
-                    self->m_visible.store(true);
+                    if (!self->m_visible.exchange(true)) {
+                        ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
+                    }
                 }
             }
             return 0;
