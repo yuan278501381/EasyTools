@@ -81,24 +81,30 @@ void PinWindow::close() {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    m_sourceImage.release();
     // 从全局列表移除已失效的实例
     s_instances.erase(
         std::remove_if(s_instances.begin(), s_instances.end(),
                        [](const auto& p) { return !p->isAlive(); }),
         s_instances.end()
     );
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 void PinWindow::closeAll() {
     for (auto& pin : s_instances) {
-        if (pin->m_hwnd) {
-            DestroyWindow(pin->m_hwnd);
-            pin->m_hwnd = nullptr;
+        if (pin) {
+            pin->m_sourceImage.release();
+            if (pin->m_hwnd) {
+                DestroyWindow(pin->m_hwnd);
+                pin->m_hwnd = nullptr;
+            }
         }
     }
     s_instances.clear();
     s_allHidden = false;
-    LOG_INFO("所有贴图窗口已关闭");
+    easy::core::WinUtils::trimWorkingSet();
+    LOG_INFO("所有贴图窗口已关闭并释放物理内存");
 }
 
 void PinWindow::toggleHideAll() {

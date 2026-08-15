@@ -622,6 +622,7 @@ void ScreenRecorder::cleanupEncoder() {
     }
     m_stream = nullptr;
     m_headerWritten = false;
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 std::string ScreenRecorder::generateOutputPath(RecordFormat format) const {

@@ -107,7 +107,8 @@ void SettingsWindow::hide() {
             m_controller->put_IsVisible(FALSE);
         }
         
-        LOG_DEBUG("设置窗口已隐藏");
+        easy::core::WinUtils::trimWorkingSet();
+        LOG_DEBUG("设置窗口已隐藏并收缩工作集物理内存");
     }
 }
 

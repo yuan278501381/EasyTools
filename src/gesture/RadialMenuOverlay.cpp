@@ -2,6 +2,7 @@
 #include "gesture/BuiltinCommands.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/utils/WinUtils.h"
 #include <cmath>
 #include <algorithm>
 #include <unordered_map>
@@ -104,6 +105,13 @@ void RadialMenuOverlay::hide() {
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
         m_hoverIndex = -1;
+        discardResources();
+        if (m_hBitmap) {
+            DeleteObject(m_hBitmap);
+            m_hBitmap = nullptr;
+            m_bits = nullptr;
+        }
+        easy::core::WinUtils::trimWorkingSet();
     }
 }
 

@@ -12,6 +12,7 @@
 #include "capture/ScrollCapture.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 
 #include <opencv2/imgproc.hpp>
 
@@ -70,6 +71,7 @@ void ScrollCapture::shutdown() {
     m_segments.clear();
     m_lastFrame.release();
     m_frameCount = 0;
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 void ScrollCapture::captureCurrentFrame() {
@@ -186,6 +188,9 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
         LOG_INFO("长截图拼接完成: {}x{}, 帧数={}", result.stitchedImage.cols,
                  result.stitchedImage.rows, result.frameCount);
     }
+    m_segments.clear();
+    m_lastFrame.release();
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
