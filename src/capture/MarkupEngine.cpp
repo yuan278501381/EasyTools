@@ -60,50 +60,180 @@ namespace {
     std::mutex g_gdiPlusMutex;
     ULONG_PTR g_gdiPlusToken = 0;
 
-    cv::Size getGdiTextSize(const std::wstring& text, int fontSize) {
+    std::wstring utf8ToWide(const std::string& str) {
+        if (str.empty()) return L"";
+        int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+        if (len <= 0) return L"";
+        std::wstring wstr(len - 1, 0);
+        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], len);
+        return wstr;
+    }
+
+    cv::Size measureSnipasteText(const std::wstring& wtext, int fontSize) {
+        if (wtext.empty()) return {24, fontSize + 8};
         Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
-        Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
         HDC hdc = GetDC(nullptr);
         Gdiplus::Graphics graphics(hdc);
         Gdiplus::RectF boundRect;
-        graphics.MeasureString(text.c_str(), -1, &font, Gdiplus::PointF(0, 0), &boundRect);
+        Gdiplus::StringFormat format;
+        format.SetAlignment(Gdiplus::StringAlignmentNear);
+        graphics.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &boundRect);
         ReleaseDC(nullptr, hdc);
-        return cv::Size(static_cast<int>(boundRect.Width + 5), static_cast<int>(boundRect.Height + 5));
+        return cv::Size(static_cast<int>(std::ceil(boundRect.Width)) + 16, static_cast<int>(std::ceil(boundRect.Height)) + 8);
     }
 
-    void renderTextToMat(cv::Mat& canvas, const std::wstring& text, cv::Point pt, const cv::Scalar& color, int fontSize) {
-        cv::Size sz = getGdiTextSize(text, fontSize);
-        if (sz.width <= 0 || sz.height <= 0) return;
-        
-        cv::Mat textMat(sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
-        if (textMat.step > static_cast<size_t>(std::numeric_limits<INT>::max())) return;
-        {
-            Gdiplus::Bitmap bitmap(sz.width, sz.height, static_cast<INT>(textMat.step),
-                                   PixelFormat32bppARGB, textMat.data);
-            Gdiplus::Graphics graphics(&bitmap);
-            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-            
-            Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
-            Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
-            
-            Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(128, 0, 0, 0));
-            graphics.DrawString(text.c_str(), -1, &font, Gdiplus::PointF(2.0f, 2.0f), &shadowBrush);
-            
-            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, static_cast<BYTE>(color[2]), static_cast<BYTE>(color[1]), static_cast<BYTE>(color[0])));
-            graphics.DrawString(text.c_str(), -1, &font, Gdiplus::PointF(0.0f, 0.0f), &textBrush);
+    void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, cv::Size& outSize) {
+        std::wstring wtext = utf8ToWide(text);
+        if (wtext.empty() && !isEditing) {
+            outSize = cv::Size(0, 0);
+            return;
         }
-        
+
+        cv::Size sz = measureSnipasteText(wtext, fontSize);
+        outSize = sz;
+        if (sz.width <= 0 || sz.height <= 0) return;
+
+        cv::Mat textMat(sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+        {
+            Gdiplus::Bitmap bitmap(sz.width, sz.height, static_cast<INT>(textMat.step), PixelFormat32bppARGB, textMat.data);
+            Gdiplus::Graphics g(&bitmap);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+
+            // 1. 半透明气泡底衬 (Snipaste / PixPin 风格圆角胶囊)
+            Gdiplus::GraphicsPath bgPath;
+            float pad = 1.0f;
+            float r = 5.0f;
+            float w = static_cast<float>(sz.width) - pad * 2.0f;
+            float h = static_cast<float>(sz.height) - pad * 2.0f;
+            bgPath.AddArc(pad, pad, r * 2, r * 2, 180, 90);
+            bgPath.AddArc(pad + w - r * 2, pad, r * 2, r * 2, 270, 90);
+            bgPath.AddArc(pad + w - r * 2, pad + h - r * 2, r * 2, r * 2, 0, 90);
+            bgPath.AddArc(pad, pad + h - r * 2, r * 2, r * 2, 90, 90);
+            bgPath.CloseFigure();
+
+            BYTE rVal = static_cast<BYTE>(color[2]);
+            BYTE gVal = static_cast<BYTE>(color[1]);
+            BYTE bVal = static_cast<BYTE>(color[0]);
+            float luminance = (0.299f * rVal + 0.587f * gVal + 0.114f * bVal) / 255.0f;
+
+            // 气泡半透明填充 (Alpha 130) + 浅描边
+            Gdiplus::SolidBrush bgBrush(Gdiplus::Color(135, 18, 18, 24));
+            g.FillPath(&bgBrush, &bgPath);
+            Gdiplus::Pen borderPen(Gdiplus::Color(70, 255, 255, 255), 1.0f);
+            g.DrawPath(&borderPen, &bgPath);
+
+            // 2. 文字双层发光描边 (4 向柔和描边，在任何黑白背景上都极其清晰)
+            Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
+            Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+
+            Gdiplus::Color strokeColor = (luminance > 0.45f) ? Gdiplus::Color(220, 0, 0, 0) : Gdiplus::Color(220, 255, 255, 255);
+            Gdiplus::SolidBrush strokeBrush(strokeColor);
+            float textX = 8.0f;
+            float textY = 4.0f;
+            for (float dx = -1.2f; dx <= 1.2f; dx += 1.2f) {
+                for (float dy = -1.2f; dy <= 1.2f; dy += 1.2f) {
+                    if (dx != 0.0f || dy != 0.0f) {
+                        g.DrawString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX + dx, textY + dy), &strokeBrush);
+                    }
+                }
+            }
+
+            // 正文文字
+            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
+            g.DrawString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX, textY), &textBrush);
+
+            // 3. 编辑态光标绘制
+            if (isEditing && (GetTickCount() / 450) % 2 == 0) {
+                Gdiplus::RectF measured;
+                g.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX, textY), &measured);
+                float cursorX = textX + (wtext.empty() ? 0.0f : measured.Width) + 1.0f;
+                Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
+                g.DrawLine(&cursorPen, cursorX, textY + 2.0f, cursorX, textY + fontSize + 2.0f);
+            }
+        }
+
+        // 4. Alpha 混合到 canvas
         for (int y = 0; y < sz.height; ++y) {
             for (int x = 0; x < sz.width; ++x) {
-                if (pt.y - sz.height + y < 0 || pt.y - sz.height + y >= canvas.rows || pt.x + x < 0 || pt.x + x >= canvas.cols) continue;
-                cv::Vec4b& bg = canvas.at<cv::Vec4b>(pt.y - sz.height + y, pt.x + x);
+                int targetY = pt.y + y;
+                int targetX = pt.x + x;
+                if (targetY < 0 || targetY >= canvas.rows || targetX < 0 || targetX >= canvas.cols) continue;
+
+                cv::Vec4b& bg = canvas.at<cv::Vec4b>(targetY, targetX);
                 cv::Vec4b fg = textMat.at<cv::Vec4b>(y, x);
                 float alpha = fg[3] / 255.0f;
-                bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
-                bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
-                bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
-                bg[3] = 255;
+                if (alpha > 0.001f) {
+                    bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
+                    bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
+                    bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
+                    bg[3] = 255;
+                }
+            }
+        }
+    }
+
+    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color) {
+        int radius = 15;
+        int sz = radius * 2 + 10;
+        cv::Mat badgeMat(sz, sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+        {
+            Gdiplus::Bitmap bitmap(sz, sz, static_cast<INT>(badgeMat.step), PixelFormat32bppARGB, badgeMat.data);
+            Gdiplus::Graphics g(&bitmap);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+
+            float cx = sz / 2.0f;
+            float cy = sz / 2.0f;
+
+            // 1. 柔和外层投影
+            Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
+            g.FillEllipse(&shadowBrush, cx - radius + 1.5f, cy - radius + 2.5f, radius * 2.0f, radius * 2.0f);
+
+            // 2. 主题色彩圆盘
+            BYTE rVal = static_cast<BYTE>(color[2]);
+            BYTE gVal = static_cast<BYTE>(color[1]);
+            BYTE bVal = static_cast<BYTE>(color[0]);
+            Gdiplus::SolidBrush circleBrush(Gdiplus::Color(255, rVal, gVal, bVal));
+            g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+
+            // 3. 1.5px 白色高光内圈
+            Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f);
+            g.DrawEllipse(&ringPen, cx - radius + 1.0f, cy - radius + 1.0f, (radius - 1.0f) * 2.0f, (radius - 1.0f) * 2.0f);
+
+            // 4. 数字矢量排版
+            std::wstring numWStr = std::to_wstring(number);
+            Gdiplus::FontFamily fontFamily(L"Segoe UI");
+            float fontSize = (number >= 100) ? 11.0f : (number >= 10 ? 13.0f : 15.0f);
+            Gdiplus::Font font(&fontFamily, fontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+
+            Gdiplus::StringFormat format;
+            format.SetAlignment(Gdiplus::StringAlignmentCenter);
+            format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+
+            Gdiplus::SolidBrush numBrush(Gdiplus::Color(255, 255, 255, 255));
+            Gdiplus::RectF layoutRect(cx - radius, cy - radius - 0.5f, radius * 2.0f, radius * 2.0f);
+            g.DrawString(numWStr.c_str(), -1, &font, layoutRect, &format, &numBrush);
+        }
+
+        int startX = center.x - sz / 2;
+        int startY = center.y - sz / 2;
+        for (int y = 0; y < sz; ++y) {
+            for (int x = 0; x < sz; ++x) {
+                int targetY = startY + y;
+                int targetX = startX + x;
+                if (targetY < 0 || targetY >= canvas.rows || targetX < 0 || targetX >= canvas.cols) continue;
+
+                cv::Vec4b& bg = canvas.at<cv::Vec4b>(targetY, targetX);
+                cv::Vec4b fg = badgeMat.at<cv::Vec4b>(y, x);
+                float alpha = fg[3] / 255.0f;
+                if (alpha > 0.001f) {
+                    bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
+                    bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
+                    bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
+                    bg[3] = 255;
+                }
             }
         }
     }
@@ -182,21 +312,17 @@ cv::Rect MarkupElement::getBoundingBox() const {
             return cv::Rect(cx - rx, cy - ry, rx * 2, ry * 2);
         }
         case MarkupTool::Text: {
-            // Text is anchored at startPt (bottom-left usually, but we draw background above it)
             if (textRenderSize.width == 0) {
-                double fontScale = fontSize / 20.0;
-                int baseline = 0;
-                auto size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, static_cast<int>(thickness), &baseline);
-                size.height += baseline;
-                const_cast<MarkupElement*>(this)->textRenderSize = size;
+                std::wstring wtext = utf8ToWide(text);
+                const_cast<MarkupElement*>(this)->textRenderSize = measureSnipasteText(wtext, static_cast<int>(fontSize));
             }
-            return cv::Rect(startPt.x - 4, startPt.y - textRenderSize.height - 4, textRenderSize.width + 8, textRenderSize.height + 8);
+            return cv::Rect(startPt.x, startPt.y, textRenderSize.width, textRenderSize.height);
         }
         case MarkupTool::Magnifier: {
             return cv::Rect(startPt.x - magnifierRadius, startPt.y - magnifierRadius, magnifierRadius * 2, magnifierRadius * 2);
         }
         case MarkupTool::Number: {
-            int r = 14;
+            int r = 16;
             return cv::Rect(startPt.x - r, startPt.y - r, r * 2, r * 2);
         }
         case MarkupTool::Pen: {
@@ -603,50 +729,14 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
         }
 
         case MarkupTool::Text: {
-            double fontScale = element.fontSize / 20.0;
-            int baseline = 0;
-            cv::Size textSize = cv::getTextSize(element.text, cv::FONT_HERSHEY_SIMPLEX,
-                                                fontScale, thick, &baseline);
-            const_cast<MarkupElement*>(&element)->textRenderSize = cv::Size(textSize.width, textSize.height + baseline); // 更新包围盒尺寸
-
-            // 文字背景（半透明黑色）
-            cv::Rect bgRect(element.startPt.x - 4, element.startPt.y - textSize.height - 4,
-                            textSize.width + 8, textSize.height + baseline + 8);
-            // 裁剪到画布范围
-            bgRect &= cv::Rect(0, 0, canvas.cols, canvas.rows);
-            if (bgRect.area() > 0) {
-                cv::Mat overlay = canvas.clone();
-                cv::rectangle(overlay, bgRect, cv::Scalar(0, 0, 0), cv::FILLED);
-                cv::addWeighted(overlay, 0.5, canvas, 0.5, 0, canvas);
-            }
-
-            cv::putText(canvas, element.text, element.startPt, cv::FONT_HERSHEY_SIMPLEX,
-                        fontScale, color, thick, cv::LINE_AA);
-
-            // 如果处于编辑状态，绘制光标
-            if (element.isEditing && (GetTickCount() / 500) % 2 == 0) {
-                cv::Point cursorStart(element.startPt.x + textSize.width + 2, element.startPt.y - textSize.height);
-                cv::Point cursorEnd(element.startPt.x + textSize.width + 2, element.startPt.y + baseline);
-                cv::line(canvas, cursorStart, cursorEnd, color, thick, cv::LINE_AA);
-            }
+            cv::Size renderedSize(0, 0);
+            renderSnipasteStyleText(canvas, element.text, element.startPt, color, static_cast<int>(element.fontSize), element.isEditing, renderedSize);
+            const_cast<MarkupElement*>(&element)->textRenderSize = renderedSize;
             break;
         }
 
         case MarkupTool::Number: {
-            // 圆形背景 + 数字
-            int radius = 14;
-            cv::circle(canvas, element.startPt, radius, color, cv::FILLED, cv::LINE_AA);
-
-            // 白色数字
-            std::string numStr = std::to_string(element.numberValue);
-            double fontScale = 0.5;
-            int baseline = 0;
-            cv::Size textSize = cv::getTextSize(numStr, cv::FONT_HERSHEY_SIMPLEX,
-                                                fontScale, 2, &baseline);
-            cv::Point textOrg(element.startPt.x - textSize.width / 2,
-                              element.startPt.y + textSize.height / 2);
-            cv::putText(canvas, numStr, textOrg, cv::FONT_HERSHEY_SIMPLEX,
-                        fontScale, cv::Scalar(255, 255, 255), 2, cv::LINE_AA);
+            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color);
             break;
         }
 

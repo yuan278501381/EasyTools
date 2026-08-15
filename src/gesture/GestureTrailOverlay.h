@@ -100,6 +100,7 @@ private:
     bool m_fading = false;
     float m_fadeAlpha = 1.0f;
     DWORD m_fadeStartTick = 0;
+    std::atomic<bool> m_renderTimerActive{false};
 
     // 虚拟屏幕原点: 轨迹点是绝对屏幕坐标, 覆盖层左上角对应此原点, 绘制时需减去
     int m_originX = 0;

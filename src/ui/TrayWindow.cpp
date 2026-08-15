@@ -28,6 +28,25 @@ RECT monitorWorkAreaForPoint(POINT point) {
     return workArea;
 }
 
+SIZE getTrayWindowSize(HWND hwnd = nullptr) {
+    float scale = 1.0f;
+    if (hwnd && IsWindow(hwnd)) {
+        UINT dpi = GetDpiForWindow(hwnd);
+        if (dpi > 0) scale = static_cast<float>(dpi) / 96.0f;
+    } else {
+        HDC screen = GetDC(nullptr);
+        if (screen) {
+            int dpi = GetDeviceCaps(screen, LOGPIXELSX);
+            ReleaseDC(nullptr, screen);
+            if (dpi > 0) scale = static_cast<float>(dpi) / 96.0f;
+        }
+    }
+    return {
+        static_cast<LONG>(230 * scale),
+        static_cast<LONG>(300 * scale)
+    };
+}
+
 POINT trayWindowOrigin(int x, int y, int width, int height) {
     const RECT workArea = monitorWorkAreaForPoint({x, y});
     const LONG maxX = std::max(workArea.left, workArea.right - static_cast<LONG>(width));
@@ -47,12 +66,11 @@ TrayWindow& TrayWindow::instance() {
 
 void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     if (m_hwnd && IsWindow(m_hwnd)) {
-        // 更新位置
-        int width = 240;
-        int height = 320;
-        const POINT origin = trayWindowOrigin(x, y, width, height);
+        // 更新位置 (DPI 自适应)
+        const SIZE sz = getTrayWindowSize(m_hwnd);
+        const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
         
-        SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, width, height, SWP_SHOWWINDOW);
+        SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, sz.cx, sz.cy, SWP_SHOWWINDOW);
         SetForegroundWindow(m_hwnd);
         m_visible = true;
 
@@ -117,17 +135,15 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
     wc.lpszClassName = TRAY_WINDOW_CLASS;
     RegisterClassExW(&wc);
 
-    int width = 240;  // 托盘菜单宽度
-    int height = 320; // 托盘菜单高度
-
-    const POINT origin = trayWindowOrigin(x, y, width, height);
+    const SIZE sz = getTrayWindowSize();
+    const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
         TRAY_WINDOW_CLASS,
         L"EasyTools TrayMenu",
         WS_POPUP, // 无边框
-        origin.x, origin.y, width, height,
+        origin.x, origin.y, sz.cx, sz.cy,
         nullptr, nullptr, hInstance, nullptr
     );
 

@@ -69,16 +69,19 @@ public:
     void onPauseGesture(TrayEventCallback callback)  { m_callbacks[TrayMenuId::PauseGesture] = std::move(callback); }
     void onExit(TrayEventCallback callback)          { m_callbacks[TrayMenuId::Exit]         = std::move(callback); }
 
+    /// 显示右键菜单
+    void showContextMenu();
+
+    /// 显示 Windows 原生右键菜单 (零延迟/高可靠兜底)
+    void showNativeContextMenu(POINT pt);
+
+    /// 触发菜单回调
+    void fireCallback(TrayMenuId id);
+
 private:
     TrayIcon() = default;
     TrayIcon(const TrayIcon&) = delete;
     TrayIcon& operator=(const TrayIcon&) = delete;
-
-    /// 显示右键菜单
-    void showContextMenu();
-
-    /// 触发菜单回调
-    void fireCallback(TrayMenuId id);
 
     NOTIFYICONDATAW m_nid{};
     HWND m_hwnd = nullptr;

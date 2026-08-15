@@ -1,31 +1,32 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * TrayApp.css — 托盘菜单样式
+ * TrayApp.css — 托盘菜单样式 (Modern Mica/Glass Aesthetic)
  * ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --tray-bg: rgba(25, 25, 35, 0.65);
-  --tray-hover: rgba(139, 92, 246, 0.2);
+  --tray-bg: rgba(23, 23, 30, 0.78);
+  --tray-hover: rgba(139, 92, 246, 0.18);
   --tray-text: #f8f8fc;
-  --tray-border: rgba(255, 255, 255, 0.1);
+  --tray-border: rgba(255, 255, 255, 0.12);
   --tray-radius: 12px;
 }
 
 [data-theme="light"] {
-  --tray-bg: rgba(255, 255, 255, 0.7);
-  --tray-hover: rgba(124, 58, 237, 0.15);
-  --tray-text: #111118;
-  --tray-border: rgba(0, 0, 0, 0.1);
+  --tray-bg: rgba(255, 255, 255, 0.88);
+  --tray-hover: rgba(124, 58, 237, 0.12);
+  --tray-text: #18181b;
+  --tray-border: rgba(0, 0, 0, 0.08);
 }
 
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden; /* 防止出现滚动条 */
+  overflow: hidden;
   background: transparent !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 #root {
-  padding: 8px; /* 留出阴影空间 */
+  padding: 6px;
   height: 100vh;
   box-sizing: border-box;
 }
@@ -34,21 +35,21 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--tray-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--tray-border);
   border-radius: var(--tray-radius);
   padding: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  animation: trayPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: trayPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: bottom center;
 }
 
 @keyframes trayPop {
-  0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+  0% { opacity: 0; transform: scale(0.96) translateY(6px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
@@ -56,13 +57,13 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
   cursor: pointer;
   color: var(--tray-text);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   user-select: none;
   width: 100%;
   border: 0;
@@ -73,10 +74,15 @@ body {
 
 .tray-menu__item:hover {
   background: var(--tray-hover);
+  transform: translateX(2px);
+}
+
+.tray-menu__item:active {
+  transform: scale(0.98);
 }
 
 .tray-menu__item:focus-visible {
-  outline: 2px solid #a78bfa;
+  outline: 2px solid #8b5cf6;
   outline-offset: -2px;
 }
 
@@ -85,13 +91,17 @@ body {
   opacity: 0.65;
 }
 
-.tray-menu__item--danger:hover {
-  background: rgba(248, 113, 113, 0.2);
+.tray-menu__item--danger {
   color: #f87171;
+}
+
+.tray-menu__item--danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
 }
 
 .tray-menu__divider {
   height: 1px;
   background: var(--tray-border);
-  margin: 4px 8px;
+  margin: 4px 6px;
 }

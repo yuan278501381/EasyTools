@@ -122,8 +122,39 @@ void TrayIcon::showContextMenu() {
     POINT pt;
     GetCursorPos(&pt);
 
-    // 调用现代的 WebView2 托盘窗口
+    // 如果用户按住 Shift 键右键，或者 WebView2 托盘弹窗未就绪，直接呼出零延迟原生菜单
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+        showNativeContextMenu(pt);
+        return;
+    }
+
+    // 优先调用现代 WebView2 托盘窗口
     easy::ui::TrayWindow::instance().show(GetModuleHandleW(nullptr), pt.x, pt.y);
+}
+
+void TrayIcon::showNativeContextMenu(POINT pt) {
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    bool isEn = isEnglishLocale();
+    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::OpenSettings), isEn ? L"⚙️ Settings" : L"⚙️ 设置");
+    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Screenshot), isEn ? L"📷 Capture" : L"📷 截图");
+    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Recording), isEn ? L"🎥 Recording" : L"🎥 录屏");
+    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::PauseGesture),
+                m_gesturePaused ? (isEn ? L"▶️ Resume Gesture" : L"▶️ 恢复手势") : (isEn ? L"⏸️ Pause Gesture" : L"⏸️ 暂停手势"));
+    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"❌ Exit EasyTools" : L"❌ 退出 EasyTools");
+
+    SetForegroundWindow(m_hwnd);
+    UINT selected = TrackPopupMenuEx(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, m_hwnd, nullptr);
+    PostMessageW(m_hwnd, WM_NULL, 0, 0);
+    DestroyMenu(hMenu);
+
+    if (selected != 0) {
+        fireCallback(static_cast<TrayMenuId>(selected));
+    }
 }
 
 void TrayIcon::fireCallback(TrayMenuId id) {

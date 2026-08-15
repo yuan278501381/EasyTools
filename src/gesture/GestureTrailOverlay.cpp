@@ -71,6 +71,7 @@ void GestureTrailOverlay::beginTrail() {
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
+        m_renderTimerActive.store(false);
         if (m_visible.exchange(false)) {
             ShowWindow(m_hwnd, SW_HIDE);
         }
@@ -100,8 +101,10 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         hasVisibleTrail = m_points.size() >= 2;
     }
     if (hasVisibleTrail && m_hwnd) {
-        // SetTimer 只投递后续 WM_TIMER；真正的全屏渲染发生在钩子返回以后。
-        SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
+        // 原子节流：若渲染定时器已在活动状态，直接跳过系统调用开销，彻底杜绝 1000Hz 鼠标下的系统调用风暴
+        if (!m_renderTimerActive.exchange(true)) {
+            SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
+        }
     }
 }
 
@@ -119,6 +122,7 @@ void GestureTrailOverlay::hide() {
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
+        m_renderTimerActive.store(false);
         ShowWindow(m_hwnd, SW_HIDE);
     }
     m_visible = false;
@@ -452,6 +456,7 @@ void GestureTrailOverlay::startFadeOut() {
     // 停止渲染定时器，启用淡出定时器
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
+        m_renderTimerActive.store(false);
         SetTimer(m_hwnd, FADE_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
     }
 }
