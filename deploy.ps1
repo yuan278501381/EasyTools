@@ -3,16 +3,21 @@
 EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 
 .DESCRIPTION
-此脚本一键完成环境检测、依赖安装、前端构建、C++ 编译和成品打包，完全幂等。
+此脚本一键完成环境检测、依赖安装、前端构建、C++ 编译和成品打包，完全幂等。支持 sccache 极速编译与 vcpkg 二进制缓存。
 
 .EXAMPLE
 .\deploy.ps1 -Configuration Release
+.\deploy.ps1 -Quick
 #>
 
 param (
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
     [string]$Configuration = "Release",
-    [string]$VcpkgRoot = "C:\vcpkg"
+    [string]$VcpkgRoot = "C:\vcpkg",
+    [switch]$Quick = $false,             # 极速增量开发模式 (跳过 npm ci，复用 node_modules 直奔编译与测试)
+    [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
+    [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
+    [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +30,30 @@ if ($CMakeText -notmatch '(?s)project\s*\(\s*EasyTools\s+VERSION\s+([0-9]+\.[0-9
 }
 $ProjectVersion = $Matches[1]
 $WebView2Version = "1.0.4022.49"
+
+$TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
+$LogDir = Join-Path $ScriptDir "deploy_logs"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$LogFile = Join-Path $LogDir "deploy_$(Get-Date -Format 'yyyyMMdd').log"
+
+# 统一日志函数
+function Write-Log ($Message, $Level = "INFO") {
+    $TimeStamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $LogStr = "[$TimeStamp] [$TraceID] [$Level] $Message"
+    $Color = switch ($Level) {
+        "INFO" { "Cyan" }
+        "WARN" { "Yellow" }
+        "ERROR" { "Red" }
+        "SUCCESS" { "Green" }
+        default { "White" }
+    }
+    Write-Host "[$TimeStamp] [$Level] $Message" -ForegroundColor $Color
+    Add-Content -Path $LogFile -Value $LogStr -Encoding UTF8
+}
+
+Write-Log "======================================================="
+Write-Log "启动 EasyTools 一键幂等部署流程"
+Write-Log "配置环境: $Configuration"
 
 $TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
 $LogDir = Join-Path $ScriptDir "deploy_logs"
@@ -63,10 +92,13 @@ if (Test-Path "ui/package.json") {
             throw "前端版本 $($UiPackage.version) 与项目版本 $ProjectVersion 不一致"
         }
 
-        # npm ci 严格按照 lockfile 构建，避免开发机 node_modules 掩盖依赖漂移。
-        Write-Log "执行 npm ci (锁定依赖)..."
-        npm ci --prefer-offline --no-audit
-        if ($LASTEXITCODE -ne 0) { throw "npm ci 失败，退出码: $LASTEXITCODE" }
+        if (-not $Quick -or -not (Test-Path "node_modules")) {
+            Write-Log "执行 npm ci (锁定依赖)..."
+            npm ci --prefer-offline --no-audit
+            if ($LASTEXITCODE -ne 0) { throw "npm ci 失败，退出码: $LASTEXITCODE" }
+        } else {
+            Write-Log "⚡ 极速模式: 复用本地 node_modules 依赖" "INFO"
+        }
 
         foreach ($Command in @("lint", "i18n-check", "build")) {
             Write-Log "执行 npm run $Command..."
@@ -87,9 +119,9 @@ if (Test-Path "ui/package.json") {
 }
 
 # ------------------------------------------------------------------------------
-# 2. Vcpkg 依赖安装 (Manifest Mode)
+# 2. Vcpkg 依赖安装与二进制归档缓存 (Binary Cache Acceleration)
 # ------------------------------------------------------------------------------
-Write-Log "检查 Vcpkg 依赖环境..."
+Write-Log "检查 Vcpkg 依赖环境与二进制缓存配置..."
 if (-not (Test-Path $VcpkgRoot)) {
     Write-Log "未检测到 Vcpkg ($VcpkgRoot)。开始克隆并安装 Vcpkg..." "WARN"
     git clone https://github.com/microsoft/vcpkg.git $VcpkgRoot
@@ -99,6 +131,16 @@ if (-not (Test-Path $VcpkgRoot)) {
 } else {
     Write-Log "发现 Vcpkg 安装在: $VcpkgRoot"
 }
+
+# 自动激活本地/CI vcpkg 二进制包归档缓存 (按 ABI 哈希缓存，彻底免除重编译)
+if ([string]::IsNullOrEmpty($BinaryCacheDir)) {
+    $BinaryCacheDir = Join-Path $env:LOCALAPPDATA "vcpkg\archives"
+}
+if (-not (Test-Path $BinaryCacheDir)) {
+    New-Item -ItemType Directory -Path $BinaryCacheDir -Force | Out-Null
+}
+$env:VCPKG_DEFAULT_BINARY_CACHE = $BinaryCacheDir
+Write-Log "⚡ 已激活 Vcpkg 二进制归档加速缓存: $BinaryCacheDir" "SUCCESS"
 
 $VcpkgToolchain = "$VcpkgRoot\scripts\buildsystems\vcpkg.cmake"
 if (-not (Test-Path $VcpkgToolchain)) {
@@ -117,30 +159,31 @@ if (-not (Test-Path $PackagesDir)) {
 $WebView2TargetDir = Join-Path $PackagesDir "Microsoft.Web.WebView2.$WebView2Version"
 if (-not (Test-Path (Join-Path $WebView2TargetDir "build\native\include\WebView2.h"))) {
     Write-Log "未发现固定版本 WebView2 SDK $WebView2Version，开始通过 nuget.exe 下载..." "WARN"
-    
-    $NugetExe = Join-Path $PackagesDir "nuget.exe"
-    if (-not (Test-Path $NugetExe)) {
+
+    $NugetPath = Join-Path $ScriptDir "nuget.exe"
+    if (-not (Test-Path $NugetPath)) {
         Write-Log "下载 nuget.exe..."
-        Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $NugetExe
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $NugetPath
     }
 
-    & $NugetExe install Microsoft.Web.WebView2 -Version $WebView2Version `
-        -OutputDirectory $PackagesDir -NonInteractive
+    & $NugetPath install Microsoft.Web.WebView2 -Version $WebView2Version -OutputDirectory $PackagesDir
     if ($LASTEXITCODE -ne 0) {
-        throw "WebView2 SDK 下载失败，退出码: $LASTEXITCODE"
+        throw "WebView2 SDK 下载失败！退出码: $LASTEXITCODE"
     }
-    Write-Log "WebView2 SDK 下载完成。" "SUCCESS"
+    Write-Log "WebView2 SDK 安装成功。" "SUCCESS"
 } else {
-    Write-Log "WebView2 SDK 已存在，跳过下载。"
+    Write-Log "已就绪 WebView2 SDK: $WebView2TargetDir"
 }
 
 # ------------------------------------------------------------------------------
-# 4. CMake 编译 (带 vcpkg 依赖)
+# 4. CMake 构建 C++ 核心与插件 (含 sccache 编译器级缓存)
 # ------------------------------------------------------------------------------
-# 如果环境中没有 cmake，则尝试自动装载 VS 开发者环境
-if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
-    Write-Log "未在 PATH 中找到 CMake，尝试自动挂载 Visual Studio 开发者环境..."
-    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+Write-Log "准备 C++ 构建环境..."
+
+# 动态挂载 VS 开发环境工具链
+if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue) -or -not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vswhere) {
         $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
         if ($vsPath) {
@@ -158,19 +201,27 @@ if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
     throw "仍然无法找到 CMake！请确保已安装 C++ 桌面开发工作负载，或尝试在 'Developer PowerShell for VS' 窗口中运行此脚本。"
 }
 
+$CMakeExtraArgs = @()
+if (Get-Command "sccache" -ErrorAction SilentlyContinue) {
+    Write-Log "⚡ 检测到 sccache 编译器缓存，自动启用 C/C++ 极速编译加速..." "SUCCESS"
+    $CMakeExtraArgs += "-DCMAKE_C_COMPILER_LAUNCHER=sccache"
+    $CMakeExtraArgs += "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+}
+
 Write-Log "执行 CMake Configure..."
 $BuildDir = Join-Path $ScriptDir "build"
 if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows"
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" @CMakeExtraArgs
 if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败！退出码: $LASTEXITCODE"
 }
 
-Write-Log "执行 CMake Build ($Configuration)..."
-cmake --build build --config $Configuration --parallel
+$CpuCount = [Environment]::ProcessorCount
+Write-Log "执行 CMake Build ($Configuration, 并发核心数: $CpuCount)..."
+cmake --build build --config $Configuration --parallel $CpuCount
 
 if ($LASTEXITCODE -ne 0) {
     throw "C++ 编译失败！退出码: $LASTEXITCODE"
@@ -180,12 +231,16 @@ Write-Log "C++ 编译完成。" "SUCCESS"
 # ------------------------------------------------------------------------------
 # 4.5 运行单元测试 (失败则中断流水线)
 # ------------------------------------------------------------------------------
-Write-Log "运行 CTest 测试套件..."
-ctest --test-dir $BuildDir -C $Configuration --output-on-failure
-if ($LASTEXITCODE -ne 0) {
-    throw "测试失败！退出码: $LASTEXITCODE"
+if (-not $SkipTests) {
+    Write-Log "运行 CTest 测试套件..."
+    ctest --test-dir $BuildDir -C $Configuration --output-on-failure
+    if ($LASTEXITCODE -ne 0) {
+        throw "测试失败！退出码: $LASTEXITCODE"
+    }
+    Write-Log "测试套件通过。" "SUCCESS"
+} else {
+    Write-Log "已指定 -SkipTests，跳过单测执行。" "WARN"
 }
-Write-Log "测试套件通过。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
 # 5. 打包输出物 (Deploy)
