@@ -18,6 +18,7 @@ interface GeneralSettings {
   minimizeToTray: boolean;
   checkUpdates: boolean;
   keycastEnabled: boolean;
+  keycastOnlyShortcuts: boolean;
   language: string;
   logLevel: string;
   theme: string;
@@ -41,6 +42,7 @@ export const GeneralPage: FC = () => {
     minimizeToTray: true,
     checkUpdates: true,
     keycastEnabled: false,
+    keycastOnlyShortcuts: true,
     language: 'auto',
     logLevel: 'info',
     theme: 'dark',
@@ -220,6 +222,15 @@ export const GeneralPage: FC = () => {
             checked={settings.keycastEnabled}
             onChange={(v) => updateSetting('keycastEnabled', v)}
           />
+          {settings.keycastEnabled && (
+            <Toggle
+              id="keycastOnlyShortcuts"
+              label={t('general.keycastOnlyShortcuts')}
+              description={t('general.keycastOnlyShortcutsDesc')}
+              checked={settings.keycastOnlyShortcuts}
+              onChange={(v) => updateSetting('keycastOnlyShortcuts', v)}
+            />
+          )}
           <SettingRow label={t('general.language')} description={t('general.languageDesc')}>
             <Select
               id="language"

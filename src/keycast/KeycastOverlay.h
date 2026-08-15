@@ -1,4 +1,4 @@
-﻿#ifndef EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
+#ifndef EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
 #define EASYTOOLS_KEYCAST_KEYCASTOVERLAY_H
 
 #include <windows.h>
@@ -38,6 +38,13 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushText;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBg;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBorder;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBadgeBg;
+
+    HDC m_memoryDC = nullptr;
+    HBITMAP m_memoryBitmap = nullptr;
+    HBITMAP m_oldBitmap = nullptr;
+    int m_width = 800;
+    int m_height = 160;
 
     std::string m_currentText;
     std::string m_rawLastKey;

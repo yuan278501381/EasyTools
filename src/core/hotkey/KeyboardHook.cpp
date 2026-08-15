@@ -1,6 +1,7 @@
-﻿#include "core/hotkey/KeyboardHook.h"
+#include "core/hotkey/KeyboardHook.h"
 #include "core/logger/Logger.h"
 #include "core/stats/StatsManager.h"
+#include "core/config/ConfigManager.h"
 #include <vector>
 #include <string>
 #include <format>
@@ -67,26 +68,38 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                         std::lock_guard lock(self.m_callbackMutex);
                         keycastCallback = self.m_keycastCallback;
                     }
-                    if (keycastCallback) {
-                        static std::vector<std::string> currentSequence;
-                        static uint64_t lastKeyTick = 0;
-                        static std::mutex sequenceMutex;
-                        std::lock_guard<std::mutex> lock(sequenceMutex);
+                        // 检查是否开启“仅显示快捷键/特殊键”过滤 (默认开启，录屏/演示推荐)
+                        bool onlyShortcuts = easy::core::ConfigManager::instance().get<bool>(
+                            "/general/keycastOnlyShortcuts", true);
 
-                        uint64_t now = GetTickCount64();
+                        DWORD vk = data->vkCode;
+                        bool isMod = (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL ||
+                                      vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU ||
+                                      vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
+                                      vk == VK_LWIN || vk == VK_RWIN);
 
-                        // 超时清空序列 (1500ms 内没有新按键则打断)
-                        if (now - lastKeyTick > 1500) {
-                            currentSequence.clear();
+                        bool isSpecial = isMod || (vk >= VK_F1 && vk <= VK_F24) ||
+                                         (vk == VK_ESCAPE || vk == VK_TAB || vk == VK_RETURN || vk == VK_BACK ||
+                                          vk == VK_DELETE || vk == VK_INSERT || vk == VK_HOME || vk == VK_END ||
+                                          vk == VK_PRIOR || vk == VK_NEXT || vk == VK_CAPITAL || vk == VK_SNAPSHOT ||
+                                          vk == VK_PAUSE || vk == VK_SCROLL || vk == VK_LEFT || vk == VK_UP ||
+                                          vk == VK_RIGHT || vk == VK_DOWN || vk == VK_SPACE);
+
+                        bool hasCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                        bool hasAlt  = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+                        bool hasShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                        bool hasWin  = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+                        bool hasModifier = hasCtrl || hasAlt || hasWin || (hasShift && !isSpecial);
+
+                        // 过滤模式：仅在有修饰键组合或特殊功能键时回显
+                        if (onlyShortcuts && !hasModifier && !isSpecial) {
+                            return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
                         }
-                        lastKeyTick = now;
 
-                        // 转换 vkCode 为按键名
+                        // 转换当前键为主按键名
                         char keyName[64] = {0};
-                        UINT scanCode = MapVirtualKeyW(data->vkCode, MAPVK_VK_TO_VSC);
-                        
-                        // 处理特殊键扩展位
-                        switch (data->vkCode) {
+                        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+                        switch (vk) {
                             case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
                             case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
                             case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
@@ -95,31 +108,33 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                                 break;
                         }
 
+                        std::string mainKey;
                         if (GetKeyNameTextA(scanCode << 16, keyName, sizeof(keyName)) > 0) {
-                            std::string keyStr(keyName);
+                            mainKey = keyName;
+                        }
 
-                            // 修饰键过滤：如果只有修饰键，也可直接显示，但通常我们要拼装
-                            // 为了更美观，可以把 LCTRL / RCTRL 等统一为 Ctrl
-                            if (data->vkCode == VK_LCONTROL || data->vkCode == VK_RCONTROL) keyStr = "Ctrl";
-                            else if (data->vkCode == VK_LMENU || data->vkCode == VK_RMENU) keyStr = "Alt";
-                            else if (data->vkCode == VK_LSHIFT || data->vkCode == VK_RSHIFT) keyStr = "Shift";
-                            else if (data->vkCode == VK_LWIN || data->vkCode == VK_RWIN) keyStr = "Win";
+                        if (vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL) mainKey = "Ctrl";
+                        else if (vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU) mainKey = "Alt";
+                        else if (vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT) mainKey = "Shift";
+                        else if (vk == VK_LWIN || vk == VK_RWIN) mainKey = "Win";
+                        else if (vk == VK_SPACE) mainKey = "Space";
 
-                            // 避免重复推入修饰键（比如按住 Ctrl 不放）
-                            if (currentSequence.empty() || currentSequence.back() != keyStr) {
-                                currentSequence.push_back(keyStr);
-                            }
-                            
-                            // 拼接显示
+                        // 组合键格式化 (如 Ctrl + Shift + A)
+                        std::vector<std::string> combo;
+                        if (hasCtrl && mainKey != "Ctrl") combo.push_back("Ctrl");
+                        if (hasWin && mainKey != "Win") combo.push_back("Win");
+                        if (hasAlt && mainKey != "Alt") combo.push_back("Alt");
+                        if (hasShift && mainKey != "Shift") combo.push_back("Shift");
+                        if (!mainKey.empty()) combo.push_back(mainKey);
+
+                        if (!combo.empty()) {
                             std::string display;
-                            for (size_t i = 0; i < currentSequence.size(); ++i) {
-                                if (i > 0) display += " \xe2\x9e\x9c "; // arrow ->
-                                display += currentSequence[i];
+                            for (size_t i = 0; i < combo.size(); ++i) {
+                                if (i > 0) display += " + ";
+                                display += combo[i];
                             }
-                            
                             keycastCallback(display);
                         }
-                    }
                 }
             }
         } catch (const std::exception& e) {
