@@ -4,6 +4,7 @@
 
 #include "core/ipc/MessageBridge.h"
 #include "core/logger/Logger.h"
+#include "core/plugin/PluginManager.h"
 #include "core/utils/TraceId.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
@@ -124,9 +125,60 @@ MessageBridge& MessageBridge::instance() {
 }
 
 void MessageBridge::registerHandler(const std::string& method, MessageHandler handler) {
-    std::unique_lock lock(m_mutex);
-    m_handlers[method] = std::move(handler);
+    auto slot = std::make_shared<HandlerSlot>();
+    slot->handler = std::move(handler);
+    std::shared_ptr<HandlerSlot> replaced;
+    {
+        std::unique_lock lock(m_mutex);
+        if (auto it = m_handlers.find(method); it != m_handlers.end()) {
+            replaced = std::move(it->second);
+            it->second = std::move(slot);
+        } else {
+            m_handlers.emplace(method, std::move(slot));
+        }
+    }
+    if (replaced) retireSlots({std::move(replaced)});
     LOG_TRACE("注册 IPC 处理器: method={}", method);
+}
+
+void MessageBridge::retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots) {
+    for (const auto& slot : slots) {
+        std::unique_lock lock(slot->mutex);
+        slot->accepting = false;
+        slot->idle.wait(lock, [&slot]() { return slot->activeCalls == 0; });
+        slot->handler = nullptr;
+    }
+}
+
+void MessageBridge::unregisterHandler(const std::string& method) {
+    std::shared_ptr<HandlerSlot> removed;
+    {
+        std::unique_lock lock(m_mutex);
+        if (const auto it = m_handlers.find(method); it != m_handlers.end()) {
+            removed = std::move(it->second);
+            m_handlers.erase(it);
+        }
+    }
+    if (removed) retireSlots({std::move(removed)});
+}
+
+size_t MessageBridge::unregisterHandlersByPrefix(const std::string& prefix) {
+    std::vector<std::shared_ptr<HandlerSlot>> removed;
+    {
+        std::unique_lock lock(m_mutex);
+        for (auto it = m_handlers.begin(); it != m_handlers.end();) {
+            if (it->first.starts_with(prefix)) {
+                removed.push_back(std::move(it->second));
+                it = m_handlers.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    const size_t count = removed.size();
+    retireSlots(std::move(removed));
+    if (count > 0) LOG_DEBUG("注销 IPC 命名空间: prefix={}, count={}", prefix, count);
+    return count;
 }
 
 std::string MessageBridge::handleMessage(const std::string& messageJson) {
@@ -140,13 +192,21 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
 
         LOG_DEBUG("收到前端消息: id={}, method={}", id, method);
 
-        MessageHandler handler;
+        std::shared_ptr<HandlerSlot> slot;
         {
             std::shared_lock lock(m_mutex);
             auto it = m_handlers.find(method);
-            if (it != m_handlers.end()) handler = it->second;
+            if (it != m_handlers.end()) slot = it->second;
         }
-        if (!handler) {
+        bool acquired = false;
+        if (slot) {
+            std::lock_guard lock(slot->mutex);
+            if (slot->accepting && slot->handler) {
+                ++slot->activeCalls;
+                acquired = true;
+            }
+        }
+        if (!acquired) {
             LOG_WARN("未知的 IPC 方法: {}", method);
             json response = {
                 {"id", id},
@@ -155,7 +215,18 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
             return response.dump();
         }
 
-        json result = handler(params);
+        json result;
+        try {
+            result = slot->handler(params);
+        } catch (...) {
+            std::lock_guard lock(slot->mutex);
+            if (--slot->activeCalls == 0) slot->idle.notify_all();
+            throw;
+        }
+        {
+            std::lock_guard lock(slot->mutex);
+            if (--slot->activeCalls == 0) slot->idle.notify_all();
+        }
         json response = {
             {"id", id},
             {"result", result}
@@ -188,15 +259,17 @@ void MessageBridge::clearHandlers() {
     // std::function destructors may release objects whose cleanup re-enters the
     // bridge. Move callbacks out while locked, then destroy them without
     // holding m_mutex to avoid shutdown deadlocks.
-    decltype(m_handlers) handlers;
+    std::vector<std::shared_ptr<HandlerSlot>> handlers;
     EventPusher eventPusher;
     {
         std::unique_lock lock(m_mutex);
-        handlers.swap(m_handlers);
+        handlers.reserve(m_handlers.size());
+        for (auto& [_, slot] : m_handlers) handlers.push_back(std::move(slot));
+        m_handlers.clear();
         eventPusher.swap(m_eventPusher);
     }
     eventPusher = nullptr;
-    handlers.clear();
+    retireSlots(std::move(handlers));
     LOG_INFO("IPC 处理器与事件推送器已清空");
 }
 
@@ -213,6 +286,43 @@ void MessageBridge::pushEvent(const std::string& eventName, const json& data) {
 }
 
 void MessageBridge::registerBuiltinHandlers() {
+    registerHandler("plugins.getAll", [](const json&) -> json {
+        json plugins = json::array();
+        for (const auto& plugin : PluginManager::instance().getPluginStatuses()) {
+            plugins.push_back({
+                {"id", plugin.id},
+                {"name", plugin.name},
+                {"version", plugin.version},
+                {"fileName", plugin.fileName},
+                {"abiVersion", plugin.abiVersion},
+                {"capabilities", plugin.capabilities},
+                {"permissions", plugin.permissions},
+                {"enabled", plugin.enabled},
+                {"active", plugin.active},
+                {"restartRequired", plugin.restartRequired},
+                {"state", plugin.state},
+                {"error", plugin.error}
+            });
+        }
+        return plugins;
+    });
+    registerHandler("plugins.setEnabled", [](const json& params) -> json {
+        if (!params.is_object() || !params.contains("id") || !params["id"].is_string() ||
+            !params.contains("enabled") || !params["enabled"].is_boolean()) {
+            return {{"success", false}, {"error", "id and enabled are required"}};
+        }
+        bool restartRequired = false;
+        std::string error;
+        const bool success = PluginManager::instance().setPluginEnabled(
+            params["id"].get<std::string>(), params["enabled"].get<bool>(),
+            restartRequired, error);
+        return {
+            {"success", success},
+            {"restartRequired", restartRequired},
+            {"error", error}
+        };
+    });
+
     registerHandler("config.getAll", [](const json&) -> json {
         return json::parse(ConfigManager::instance().toJsonString());
     });
@@ -300,7 +410,8 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("hotkey.getAll", [](const json&) -> json {
         json hotkeys = json::array();
         for (const auto& entry : HotkeyManager::instance().getAllHotkeys()) {
-            hotkeys.push_back({{"name", entry.name}, {"shortcut", entry.def.toString()}});
+            hotkeys.push_back({{"name", entry.name}, {"shortcut", entry.def.toString()},
+                               {"registered", entry.registered}});
         }
         std::sort(hotkeys.begin(), hotkeys.end(), [](const json& a, const json& b) {
             return a.value("name", "") < b.value("name", "");
@@ -310,8 +421,7 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("hotkey.rebind", [](const json& params) -> json {
         const std::string name = canonicalHotkeyName(params.value("name", ""));
         const std::string text = params.value("hotkey", "");
-        const auto parsed = HotkeyDef::fromString(text);
-        if (name.empty() || !parsed) {
+        if (name.empty()) {
             return {{"success", false}, {"error", "invalid hotkey"}};
         }
         auto& manager = HotkeyManager::instance();
@@ -322,12 +432,28 @@ void MessageBridge::registerBuiltinHandlers() {
         if (previous == entries.end()) {
             return {{"success", false}, {"error", "unknown hotkey"}};
         }
+        if (text.empty()) {
+            if (!manager.clearHotkey(name)) {
+                return {{"success", false}, {"error", "could not disable hotkey"}};
+            }
+            if (!ConfigManager::instance().set("/hotkeys/" + name, "")) {
+                if (previous->def.virtualKey != 0) manager.rebindHotkey(name, previous->def);
+                return {{"success", false}, {"error", "failed to persist hotkey"},
+                        {"name", name}, {"shortcut", previous->def.toString()}};
+            }
+            return {{"success", true}, {"name", name}, {"shortcut", ""}};
+        }
+        const auto parsed = HotkeyDef::fromString(text);
+        if (!parsed) return {{"success", false}, {"error", "invalid hotkey"}};
         if (!manager.rebindHotkey(name, *parsed)) {
             return {{"success", false}, {"error", "hotkey is unavailable"},
                     {"name", name}, {"shortcut", previous->def.toString()}};
         }
         if (!ConfigManager::instance().set("/hotkeys/" + name, parsed->toString())) {
-            if (!manager.rebindHotkey(name, previous->def)) {
+            const bool rolledBack = previous->def.virtualKey == 0
+                ? manager.clearHotkey(name)
+                : manager.rebindHotkey(name, previous->def);
+            if (!rolledBack) {
                 LOG_ERROR("快捷键持久化失败且运行时回滚失败: name={}", name);
             }
             return {{"success", false}, {"error", "failed to persist hotkey"},

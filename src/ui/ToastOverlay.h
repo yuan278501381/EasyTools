@@ -31,12 +31,16 @@ private:
 
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void render();
-    void createResources();
+    bool createResources();
     void discardResources();
-    void updateWindow();
+    bool ensureSurface(int width, int height);
+    void releaseSurface();
+    void updatePlacement();
 
     HWND m_hwnd = nullptr;
-    bool m_enabled = false;
+    bool m_enabled = true;
+    float m_dpiScale = 1.0f;
+    bool m_updatingPlacement = false;
     
     // UI 数据
     std::string m_displayText;
@@ -55,6 +59,12 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_strokeBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
+
+    HDC m_memoryDC = nullptr;
+    HBITMAP m_memoryBitmap = nullptr;
+    HBITMAP m_oldBitmap = nullptr;
+    int m_surfaceWidth = 0;
+    int m_surfaceHeight = 0;
 };
 
 } // namespace easy::ui

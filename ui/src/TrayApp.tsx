@@ -10,12 +10,26 @@ export default function TrayApp() {
   const { t } = useTranslation();
   const [gesturePaused, setGesturePaused] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [activePlugins, setActivePlugins] = useState(() => new Set(['capture', 'gesture']));
 
   useEffect(() => {
-    bridgeRequest<{ paused: boolean }>('gesture.getState')
-      .then(state => setGesturePaused(state.paused))
+    document.documentElement.dataset.surface = 'tray';
+    void bridgeRequest<Array<{ id: string; active: boolean }>>('plugins.getAll')
+      .then((plugins) => {
+        const active = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
+        setActivePlugins(active);
+        if (active.has('gesture')) {
+          void bridgeRequest<{ paused: boolean }>('gesture.getState')
+            .then(state => setGesturePaused(state.paused))
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
+    return () => { delete document.documentElement.dataset.surface; };
   }, []);
+
+  const captureActive = activePlugins.has('capture');
+  const gestureActive = activePlugins.has('gesture');
 
   const handleAction = async (action: string) => {
     if (busy) return;
@@ -41,22 +55,28 @@ export default function TrayApp() {
         <Settings size={16} />
         <span>{t('tray.settings', 'Settings')}</span>
       </button>
-      <div className="tray-menu__divider" />
-      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
-        <Camera size={16} />
-        <span>{t('tray.capture', 'Capture')}</span>
-      </button>
-      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('recording')}>
-        <Video size={16} />
-        <span>{t('tray.recording', 'Recording')}</span>
-      </button>
-      <div className="tray-menu__divider" />
-      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
-        {gesturePaused ? <Play size={16} /> : <Pause size={16} />}
-        <span>
-          {gesturePaused ? t('tray.resumeGesture', 'Resume Gesture') : t('tray.pauseGesture', 'Pause Gesture')}
-        </span>
-      </button>
+      {(captureActive || gestureActive) && <div className="tray-menu__divider" />}
+      {captureActive && (
+        <>
+          <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
+            <Camera size={16} />
+            <span>{t('tray.capture', 'Capture')}</span>
+          </button>
+          <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('recording')}>
+            <Video size={16} />
+            <span>{t('tray.recording', 'Recording')}</span>
+          </button>
+        </>
+      )}
+      {captureActive && gestureActive && <div className="tray-menu__divider" />}
+      {gestureActive && (
+        <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
+          {gesturePaused ? <Play size={16} /> : <Pause size={16} />}
+          <span>
+            {gesturePaused ? t('tray.resumeGesture', 'Resume Gesture') : t('tray.pauseGesture', 'Pause Gesture')}
+          </span>
+        </button>
+      )}
       <div className="tray-menu__divider" />
       <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={16} />

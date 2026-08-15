@@ -1,12 +1,9 @@
 #include "core/plugin/IPlugin.h"
 #include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
-#include "core/config/ConfigManager.h"
 #include "core/hotkey/KeyboardHook.h"
-#include "core/utils/WinUtils.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
-#include <string>
 
 namespace easy::keycast {
 
@@ -24,15 +21,9 @@ public:
             return false;
         }
 
-        applyEnabled(easy::core::ConfigManager::instance().get<bool>(
-            "/general/keycastEnabled", false));
-        m_configCallbackId = easy::core::ConfigManager::instance().onChange(
-            [this](const std::string& key) {
-                if (key == "*" || key == "/general" || key == "/general/keycastEnabled") {
-                    applyEnabled(easy::core::ConfigManager::instance().get<bool>(
-                        "/general/keycastEnabled", false));
-                }
-            });
+        easy::core::KeyboardHook::instance().setKeycastCallback([](const std::string& sequence) {
+            KeycastOverlay::instance().pushKey(sequence);
+        });
 
         return true;
     }
@@ -40,34 +31,21 @@ public:
     void shutdown() override {
         LOG_INFO("Keycast Plugin shutdown");
         
-        easy::core::ConfigManager::instance().removeOnChange(m_configCallbackId);
         easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
         
         // Cleanup Overlay UI
         KeycastOverlay::instance().cleanup();
     }
 
-private:
-    void applyEnabled(bool enabled) {
-        if (enabled) {
-            KeycastOverlay::instance().init();
-            easy::core::KeyboardHook::instance().setKeycastCallback([](const std::string& sequence) {
-                KeycastOverlay::instance().pushKey(sequence);
-            });
-        } else {
-            easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
-            KeycastOverlay::instance().cleanup();
-            easy::core::WinUtils::trimWorkingSet();
-        }
-        LOG_INFO("Keycast Plugin: enabled={}", enabled);
-    }
-
-    size_t m_configCallbackId = 0;
 };
 
 extern "C" __declspec(dllexport) easy::core::IPlugin* CreatePlugin() {
     static KeycastPlugin instance;
     return &instance;
+}
+
+extern "C" __declspec(dllexport) std::uint32_t GetPluginAbiVersion() {
+    return easy::core::CurrentPluginAbiVersion;
 }
 
 } // namespace easy::keycast

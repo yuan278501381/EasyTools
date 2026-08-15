@@ -106,7 +106,7 @@ export function bridgeRequest<T = unknown>(method: string, params: Record<string
       console.warn('[Bridge] WebView2 not available, mocking response for:', method);
       pendingRequests.delete(id);
       clearTimeout(timeoutId);
-      resolve(getMockResponse(method) as T);
+      resolve(getMockResponse(method, params) as T);
     }
   });
 }
@@ -149,7 +149,14 @@ export function useBridgeEvent(eventName: string, handler: MessageHandler) {
 }
 
 // ── 开发模式 Mock 数据 ──────────────────────────────────────────────────────
-function getMockResponse(method: string): unknown {
+let mockPlugins = [
+  { id: 'capture', name: 'Capture', version: '1.0.0', fileName: 'Plugin_Capture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+  { id: 'gesture', name: 'Gesture', version: '1.0.0', fileName: 'Plugin_Gesture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+  { id: 'keycast', name: 'Keycast', version: '1.0.0', fileName: 'Plugin_Keycast.dll', enabled: false, active: false, restartRequired: false, state: 'disabled' },
+  { id: 'search', name: 'Search', version: '1.0.0', fileName: 'Plugin_Search.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+];
+
+function getMockResponse(method: string, params: Record<string, unknown> = {}): unknown {
   switch (method) {
     case 'config.getAll':
       return {
@@ -159,6 +166,18 @@ function getMockResponse(method: string): unknown {
         general: { theme: 'light', language: 'zh-CN', autoStart: false },
         ocr: { engine: 'windows', language: 'system', copyResult: true, showResultWindow: true },
       };
+
+    case 'plugins.getAll':
+      return mockPlugins;
+
+    case 'plugins.setEnabled': {
+      const id = String(params.id ?? '');
+      const enabled = Boolean(params.enabled);
+      mockPlugins = mockPlugins.map((plugin) => plugin.id === id
+        ? { ...plugin, enabled, restartRequired: enabled !== plugin.active, state: enabled !== plugin.active ? 'pendingRestart' : (plugin.active ? 'running' : 'disabled') }
+        : plugin);
+      return { success: mockPlugins.some((plugin) => plugin.id === id), restartRequired: true };
+    }
 
     case 'gesture.getProfiles':
       return [
@@ -207,6 +226,7 @@ function getMockResponse(method: string): unknown {
       return {
         format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
         saveDirectory: '', showCrosshair: true, autoDetectWindow: true,
+        showShortcutHints: true,
       };
 
     case 'recording.getSettings':

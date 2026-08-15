@@ -49,10 +49,10 @@ private:
     RadialMenuOverlay& operator=(const RadialMenuOverlay&) = delete;
 
     void registerWindowClass();
-    void createResources();
+    bool createResources();
     void discardResources();
     void render();
-    void updateLayeredWindow();
+    void updateLayeredWindow(HDC screenDc, HDC memoryDc);
 
     int hitTest(POINT pt);
     void executeAction(int index);
@@ -68,6 +68,8 @@ private:
     
     int m_radiusOuter = 150;
     int m_radiusInner = 40;
+    int m_windowSize = 400;
+    float m_dpiScale = 1.0f;
 
     // 动画状态
     UINT_PTR m_timerId = 0;

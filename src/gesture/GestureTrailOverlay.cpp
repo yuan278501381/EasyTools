@@ -5,16 +5,19 @@
 //   1. 创建 WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST 的全屏窗口
 //   2. 使用 Direct2D 绘制半透明轨迹线段
 //   3. 线段从起点到终点做渐变透明度变化
-//   4. 手势完成后显示识别结果，之后自动淡出
+//   4. 手势绘制过程中及手势完成后显示按键回显风格的实时动作名称
 //   5. 窗口始终 click-through（WS_EX_TRANSPARENT），不影响用户操作
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "gesture/GestureTrailOverlay.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 using namespace Microsoft::WRL;
 
@@ -42,17 +45,30 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
-    if (!createD2DResources()) {
-        LOG_ERROR("创建 Direct2D 资源失败");
-        return false;
-    }
-
-    clearCanvas();
+    // A virtual-desktop 32-bit DIB can consume tens of megabytes on multi-4K
+    // setups. Keep the plugin idle allocation-free and create it on the first
+    // actual gesture instead of at process startup.
     ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
 
     LOG_INFO("手势轨迹覆盖层初始化成功");
     return true;
+}
+
+void GestureTrailOverlay::setStyle(const TrailStyle& style) {
+    m_style = style;
+    m_textScale = 0.0f;
+    if (m_dwriteFactory) updateTextFormat(m_dpiScale);
+    if (m_renderTarget) {
+        const float r = ((m_style.lineColor >> 16) & 0xFF) / 255.0f;
+        const float g = ((m_style.lineColor >> 8) & 0xFF) / 255.0f;
+        const float b = (m_style.lineColor & 0xFF) / 255.0f;
+        ComPtr<ID2D1SolidColorBrush> brush;
+        if (SUCCEEDED(m_renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(r, g, b, 1.0f), brush.GetAddressOf()))) {
+            m_lineBrush = std::move(brush);
+        }
+    }
 }
 
 void GestureTrailOverlay::shutdown() {
@@ -89,6 +105,15 @@ void GestureTrailOverlay::clearCanvas() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    m_dpiScale = easy::core::dpi::scaleAtPoint(cursor);
+    if (!m_renderTarget && !createD2DResources()) {
+        LOG_ERROR("手势轨迹按需渲染资源创建失败");
+        releaseD2DResources();
+        return;
+    }
+    if (m_dwriteFactory) updateTextFormat(m_dpiScale);
     if (m_hwnd) {
         KillTimer(m_hwnd, RENDER_TIMER_ID);
         KillTimer(m_hwnd, FADE_TIMER_ID);
@@ -110,28 +135,40 @@ void GestureTrailOverlay::beginTrail() {
 }
 
 void GestureTrailOverlay::addPoint(float x, float y) {
+    if (!m_renderTarget) return;
     bool hasVisibleTrail = false;
     {
         std::lock_guard lock(m_trailMutex);
         if (!m_points.empty()) {
             float dx = x - m_points.back().x;
             float dy = y - m_points.back().y;
-            if (dx * dx + dy * dy < 16.0f) return;
+            const float minimumDelta = 4.0f * m_dpiScale;
+            if (dx * dx + dy * dy < minimumDelta * minimumDelta) return;
         }
         m_points.push_back({x, y, GetTickCount()});
         hasVisibleTrail = m_points.size() >= 2;
     }
     if (hasVisibleTrail && m_hwnd) {
+        if (!m_visible.exchange(true)) {
+            ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+        }
         if (!m_renderTimerActive.exchange(true)) {
             SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
         }
     }
 }
 
+void GestureTrailOverlay::setLiveAction(const std::string& actionText) {
+    std::lock_guard lock(m_trailMutex);
+    m_resultText = actionText;
+}
+
 void GestureTrailOverlay::endTrail(const std::string& resultText) {
     {
         std::lock_guard lock(m_trailMutex);
-        m_resultText = resultText;
+        if (!resultText.empty()) {
+            m_resultText = resultText;
+        }
     }
     startFadeOut();
 }
@@ -204,10 +241,10 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         return false;
     }
 
-    // 移除 COLORKEY，改用 UpdateLayeredWindow 逐像素透明渲染
-    // SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
-
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
+        LOG_WARN("当前 Windows 版本无法从捕获中排除手势轨迹: error={}", GetLastError());
+    }
 
     LOG_DEBUG("轨迹覆盖层窗口已创建, screen={}x{} @ ({},{})", screenW, screenH, screenX, screenY);
     return true;
@@ -218,11 +255,17 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool GestureTrailOverlay::createD2DResources() {
+    if (m_renderTarget && m_memoryDC && m_memoryBitmap && m_lineBrush && m_textBorderBrush) return true;
+    releaseD2DResources();
+    const auto fail = [this]() {
+        releaseD2DResources();
+        return false;
+    };
     HRESULT hr;
 
     // D2D 工厂
     hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) return fail();
 
     // DWrite 工厂
     hr = DWriteCreateFactory(
@@ -230,23 +273,9 @@ bool GestureTrailOverlay::createD2DResources() {
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())
     );
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) return fail();
 
-    // 文本格式
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        m_style.resultFontSize,
-        L"zh-CN",
-        m_textFormat.GetAddressOf()
-    );
-    if (FAILED(hr)) return false;
-
-    m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    if (!updateTextFormat(m_dpiScale)) return fail();
 
     // 渲染目标
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
@@ -255,10 +284,11 @@ bool GestureTrailOverlay::createD2DResources() {
     );
 
     hr = m_d2dFactory->CreateDCRenderTarget(&rtProps, m_renderTarget.GetAddressOf());
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) return fail();
 
     // 创建内存 DC 与 DIB
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) return fail();
     m_memoryDC = CreateCompatibleDC(hdcScreen);
     
     BITMAPINFO bmi{};
@@ -271,12 +301,12 @@ bool GestureTrailOverlay::createD2DResources() {
     
     void* pBits = nullptr;
     m_memoryBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+    ReleaseDC(nullptr, hdcScreen);
+    if (!m_memoryDC || !m_memoryBitmap || !pBits) return fail();
     m_oldBitmap = (HBITMAP)SelectObject(m_memoryDC, m_memoryBitmap);
     
     RECT memRect = { 0, 0, m_width, m_height };
-    m_renderTarget->BindDC(m_memoryDC, &memRect);
-    
-    ReleaseDC(nullptr, hdcScreen);
+    if (FAILED(m_renderTarget->BindDC(m_memoryDC, &memRect))) return fail();
 
     // 禁用 D2D 的自动 DPI 缩放，使逻辑坐标 1:1 映射到物理像素 (因为输入坐标已是物理像素)
     m_renderTarget->SetDpi(96.0f, 96.0f);
@@ -287,8 +317,9 @@ bool GestureTrailOverlay::createD2DResources() {
     float b = (m_style.lineColor & 0xFF) / 255.0f;
 
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), m_lineBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.8f), m_textBgBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), m_textBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.88f), m_textBgBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.929f, 0.60f), m_textBorderBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.96f, 0.98f, 1.0f), m_textBrush.GetAddressOf());
 
     // 笔触样式 (使线段更平滑，具有圆头)
     D2D1_STROKE_STYLE_PROPERTIES strokeProps = D2D1::StrokeStyleProperties(
@@ -302,14 +333,41 @@ bool GestureTrailOverlay::createD2DResources() {
     );
     hr = m_d2dFactory->CreateStrokeStyle(strokeProps, nullptr, 0, m_strokeStyle.GetAddressOf());
 
+    if (FAILED(hr) || !m_lineBrush || !m_textBgBrush || !m_textBorderBrush || !m_textBrush) return fail();
+    return true;
+}
+
+bool GestureTrailOverlay::updateTextFormat(float dpiScale) {
+    dpiScale = std::clamp(dpiScale, 1.0f, 5.0f);
+    if (m_textFormat && std::abs(m_textScale - dpiScale) < 0.01f) return true;
+    if (!m_dwriteFactory) return false;
+    ComPtr<IDWriteTextFormat> format;
+    const HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        m_style.resultFontSize * dpiScale,
+        L"zh-CN",
+        format.GetAddressOf()
+    );
+    if (FAILED(hr) || !format) return false;
+    format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    m_textFormat = std::move(format);
+    m_textScale = dpiScale;
     return true;
 }
 
 void GestureTrailOverlay::releaseD2DResources() {
+    m_pathCache.clear();
     m_textBrush.Reset();
+    m_textBorderBrush.Reset();
     m_textBgBrush.Reset();
     m_lineBrush.Reset();
     m_textFormat.Reset();
+    m_textScale = 0.0f;
     m_strokeStyle.Reset();
     m_renderTarget.Reset();
     m_dwriteFactory.Reset();
@@ -318,6 +376,7 @@ void GestureTrailOverlay::releaseD2DResources() {
     if (m_memoryDC && m_oldBitmap) {
         SelectObject(m_memoryDC, m_oldBitmap);
     }
+    m_oldBitmap = nullptr;
     if (m_memoryBitmap) {
         DeleteObject(m_memoryBitmap);
         m_memoryBitmap = nullptr;
@@ -352,17 +411,17 @@ void GestureTrailOverlay::render() {
             bool isSecondLast = (i + 1 == numSegments - 1);
             
             if (m_pathCache[i] == nullptr || isLast || isSecondLast) {
-                m_d2dFactory->CreatePathGeometry(m_pathCache[i].ReleaseAndGetAddressOf());
+                if (FAILED(m_d2dFactory->CreatePathGeometry(
+                        m_pathCache[i].ReleaseAndGetAddressOf())) || !m_pathCache[i]) {
+                    continue;
+                }
                 
                 ComPtr<ID2D1GeometrySink> sink;
-                m_pathCache[i]->Open(&sink);
+                if (FAILED(m_pathCache[i]->Open(&sink)) || !sink) {
+                    m_pathCache[i].Reset();
+                    continue;
+                }
                 
-                // 二次贝塞尔曲线平滑算法 (基于中点)
-                // 设 P_i 为点 i, 曲线从 M(P_{i-1}, P_i) 经过控制点 P_i, 到达 M(P_i, P_{i+1})
-                
-                D2D1_POINT_2F startPt, ctrlPt, endPt;
-                
-                // 转换坐标 (减去原点)
                 auto getPt = [&](size_t idx) -> D2D1_POINT_2F {
                     return D2D1::Point2F(m_points[idx].x - m_originX, m_points[idx].y - m_originY);
                 };
@@ -370,13 +429,7 @@ void GestureTrailOverlay::render() {
                 D2D1_POINT_2F p0 = getPt(i);
                 D2D1_POINT_2F p1 = getPt(i + 1);
                 
-                // 二次贝塞尔曲线平滑算法 (基于中点)
-                // 设每段 i 代表 P[i] 到 P[i+1] 的连接
-                // 为了保证 C1 连续，除首尾外，每段都从 M(P_{i-1}, P_i) 经过控制点 P_i 到达 M(P_i, P_{i+1})
-                // 但由于我们是以线段 i 为单位：控制点设为 P_{i+1}
-                // 起点: i==0 ? P_0 : M(P_i, P_{i+1})
-                // 终点: isLast ? P_{i+1} : M(P_{i+1}, P_{i+2})
-                
+                D2D1_POINT_2F startPt, ctrlPt, endPt;
                 if (i == 0) {
                     startPt = p0;
                 } else {
@@ -395,7 +448,7 @@ void GestureTrailOverlay::render() {
                 sink->BeginFigure(startPt, D2D1_FIGURE_BEGIN_HOLLOW);
                 sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(ctrlPt, endPt));
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);
-                sink->Close();
+                if (FAILED(sink->Close())) m_pathCache[i].Reset();
             }
         }
 
@@ -403,12 +456,14 @@ void GestureTrailOverlay::render() {
         for (size_t i = 0; i < numSegments; ++i) {
             float progress = static_cast<float>(i) / static_cast<float>(numSegments);
             float alpha = m_style.startOpacity - progress * (m_style.startOpacity - m_style.endOpacity);
-            alpha *= m_fadeAlpha;  // 淡出时整体乘以 fade alpha
+            alpha *= m_fadeAlpha;
 
             m_lineBrush->SetOpacity(alpha);
 
             if (m_pathCache[i]) {
-                m_renderTarget->DrawGeometry(m_pathCache[i].Get(), m_lineBrush.Get(), m_style.lineWidth, m_strokeStyle.Get());
+                m_renderTarget->DrawGeometry(
+                    m_pathCache[i].Get(), m_lineBrush.Get(),
+                    m_style.lineWidth * m_dpiScale, m_strokeStyle.Get());
             }
         }
 
@@ -417,54 +472,85 @@ void GestureTrailOverlay::render() {
             const auto& lastPt = m_points.back();
             m_lineBrush->SetOpacity(0.8f);
             m_renderTarget->FillEllipse(
-                D2D1::Ellipse(D2D1::Point2F(lastPt.x - m_originX, lastPt.y - m_originY), 5.0f, 5.0f),
+                D2D1::Ellipse(
+                    D2D1::Point2F(lastPt.x - m_originX, lastPt.y - m_originY),
+                    5.0f * m_dpiScale, 5.0f * m_dpiScale),
                 m_lineBrush.Get()
             );
         }
     }
 
-    // 绘制识别结果文字
+    // 绘制识别结果与实时动作名称文字（按键回显风格浮动卡片）
     if (!m_resultText.empty() && !m_points.empty()) {
-        // 获取当前鼠标所在的显示器
         POINT ptCursor;
         GetCursorPos(&ptCursor);
         HMONITOR hMon = MonitorFromPoint(ptCursor, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi{};
-        mi.cbSize = sizeof(mi);
-        GetMonitorInfoW(hMon, &mi);
-        
-        // 在屏幕中下方（合十位置）显示
-        float centerX = static_cast<float>(mi.rcMonitor.left + mi.rcMonitor.right) / 2.0f;
-        float centerY = mi.rcMonitor.top + static_cast<float>(mi.rcMonitor.bottom - mi.rcMonitor.top) * 0.85f;
-        
-        centerX -= m_originX;  // 转为覆盖层(客户区)坐标
-        centerY -= m_originY;
+        const RECT work = easy::core::dpi::workArea(hMon);
+        const float resultScale = easy::core::dpi::scaleForMonitor(hMon);
+        const bool hasTextFormat = updateTextFormat(resultScale);
 
-        // 背景圆角矩形
-        float textW = m_style.resultFontSize * static_cast<float>(m_resultText.size()) * 0.6f + 24.0f;
-        float textH = m_style.resultFontSize + 16.0f;
+        float centerX = static_cast<float>(work.left + work.right) / 2.0f - m_originX;
+        float centerY = work.top + static_cast<float>(work.bottom - work.top) * 0.82f - m_originY;
 
-        D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(
-            D2D1::RectF(centerX - textW / 2, centerY - textH / 2, centerX + textW / 2, centerY + textH / 2),
-            6.0f, 6.0f
-        );
+        const std::wstring wText = hasTextFormat
+            ? easy::core::WinUtils::utf8ToWstring(m_resultText) : std::wstring{};
 
-        m_textBgBrush->SetOpacity(0.75f * m_fadeAlpha);
-        m_renderTarget->FillRoundedRectangle(bgRect, m_textBgBrush.Get());
+        if (hasTextFormat && !wText.empty() && m_dwriteFactory) {
+            ComPtr<IDWriteTextLayout> layout;
+            m_dwriteFactory->CreateTextLayout(
+                wText.c_str(), static_cast<UINT32>(wText.length()),
+                m_textFormat.Get(),
+                10000.0f, 1000.0f,
+                layout.GetAddressOf()
+            );
 
-        // 文字
-        std::wstring wText(m_resultText.begin(), m_resultText.end());
-        m_textBrush->SetOpacity(m_fadeAlpha);
-        m_renderTarget->DrawText(
-            wText.c_str(),
-            static_cast<UINT32>(wText.size()),
-            m_textFormat.Get(),
-            D2D1::RectF(centerX - textW / 2, centerY - textH / 2, centerX + textW / 2, centerY + textH / 2),
-            m_textBrush.Get()
-        );
+            float boxW = 120.0f * resultScale;
+            float boxH = 48.0f * resultScale;
+            if (layout) {
+                layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+                DWRITE_TEXT_METRICS metrics{};
+                if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+                    float paddingX = 28.0f * resultScale;
+                    float paddingY = 14.0f * resultScale;
+                    boxW = (std::max)(metrics.width + paddingX * 2.0f, 90.0f * resultScale);
+                    boxH = (std::max)(metrics.height + paddingY * 2.0f, 44.0f * resultScale);
+                }
+            }
+
+            D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
+                D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
+                            centerX + boxW / 2.0f, centerY + boxH / 2.0f),
+                12.0f * resultScale, 12.0f * resultScale
+            );
+
+            // 1. 深色半透明卡片背景 (Keycast 风格)
+            m_textBgBrush->SetOpacity(0.88f * m_fadeAlpha);
+            m_renderTarget->FillRoundedRectangle(&rrect, m_textBgBrush.Get());
+
+            // 2. 优雅紫调微发光描边
+            if (m_textBorderBrush) {
+                m_textBorderBrush->SetOpacity(0.60f * m_fadeAlpha);
+                m_renderTarget->DrawRoundedRectangle(
+                    &rrect, m_textBorderBrush.Get(), 1.5f * resultScale);
+            }
+
+            // 3. 高清居中文本渲染
+            m_textBrush->SetOpacity(m_fadeAlpha);
+            m_renderTarget->DrawText(
+                wText.c_str(),
+                static_cast<UINT32>(wText.size()),
+                m_textFormat.Get(),
+                D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
+                            centerX + boxW / 2.0f, centerY + boxH / 2.0f),
+                m_textBrush.Get());
+        }
     }
 
-    m_renderTarget->EndDraw();
+    if (FAILED(m_renderTarget->EndDraw())) {
+        LOG_WARN("手势轨迹 Direct2D 帧提交失败");
+        return;
+    }
     
     // 使用 UpdateLayeredWindow 一次性提交画面（逐像素Alpha混合）
     if (m_memoryDC) {
@@ -545,9 +631,6 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
 
                 // 重建内存位图并重新绑定 DC
                 if (self->m_memoryDC) {
-                    if (self->m_oldBitmap) SelectObject(self->m_memoryDC, self->m_oldBitmap);
-                    if (self->m_memoryBitmap) DeleteObject(self->m_memoryBitmap);
-                    
                     HDC hdcScreen = GetDC(nullptr);
                     BITMAPINFO bmi{};
                     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -558,14 +641,32 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                     bmi.bmiHeader.biCompression = BI_RGB;
                     
                     void* pBits = nullptr;
-                    self->m_memoryBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-                    self->m_oldBitmap = (HBITMAP)SelectObject(self->m_memoryDC, self->m_memoryBitmap);
-                    ReleaseDC(nullptr, hdcScreen);
-                    
-                    if (self->m_renderTarget) {
-                        RECT memRect = {0, 0, w, h};
-                        self->m_renderTarget->BindDC(self->m_memoryDC, &memRect);
+                    HBITMAP replacement = hdcScreen ? CreateDIBSection(
+                        hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0) : nullptr;
+                    if (hdcScreen) ReleaseDC(nullptr, hdcScreen);
+
+                    if (replacement && pBits) {
+                        HBITMAP previousSurface = static_cast<HBITMAP>(
+                            SelectObject(self->m_memoryDC, replacement));
+                        if (previousSurface && previousSurface != HGDI_ERROR) {
+                            self->m_memoryBitmap = replacement;
+                            DeleteObject(previousSurface);
+                        } else {
+                            DeleteObject(replacement);
+                            replacement = nullptr;
+                        }
                     }
+
+                    if (replacement && self->m_renderTarget) {
+                        RECT memRect = {0, 0, w, h};
+                        if (FAILED(self->m_renderTarget->BindDC(
+                                self->m_memoryDC, &memRect))) {
+                            self->releaseD2DResources();
+                        }
+                    } else if (!replacement) {
+                        self->releaseD2DResources();
+                    }
+                    self->m_pathCache.clear();
                 }
             }
             return 0;

@@ -17,6 +17,8 @@
 #include "gesture/GestureAction.h"
 
 #include <functional>
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 
 namespace easy::gesture {
@@ -31,6 +33,9 @@ public:
     /// 例如 TakeScreenshot / StartRecording / PauseGestures。
     void registerHandler(BuiltinCommand cmd, Handler handler);
 
+    /// 清理所有应用级命令回调。调用方必须先停止手势动作线程。
+    void clearHandlers();
+
     /// 执行一条内置命令。窗口管理类命令作用于调用时刻的前台窗口。
     /// 线程安全: 仅读取 m_handlers (注册发生在启动阶段，执行发生在手势线程)。
     void execute(BuiltinCommand cmd) const;
@@ -44,6 +49,7 @@ private:
     bool dispatchAppCommand(BuiltinCommand cmd) const;
 
     std::unordered_map<BuiltinCommand, Handler> m_handlers;
+    mutable std::shared_mutex m_mutex;
 };
 
 }  // namespace easy::gesture

@@ -17,6 +17,7 @@
 #include <string>
 #include <functional>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <cstdint>
 
@@ -92,6 +93,8 @@ private:
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;
     std::atomic<uint64_t> m_generation{0};
+    std::chrono::steady_clock::time_point m_initializationStartedAt{};
+    std::chrono::steady_clock::time_point m_showRequestedAt{};
 
     // WebView2 组件（使用 void* 避免头文件依赖）
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;

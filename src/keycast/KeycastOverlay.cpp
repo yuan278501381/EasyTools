@@ -1,5 +1,7 @@
 #include "KeycastOverlay.h"
+#include "KeycastStyle.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include <algorithm>
@@ -32,21 +34,12 @@ bool KeycastOverlay::init() {
 
     RegisterClassExW(&wcex);
 
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-
-    m_width = 800;
-    m_height = 160;
-
-    const int x = (screenW - m_width) / 2;
-    const int y = std::max(0, screenH - m_height - 64);
-
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         wcex.lpszClassName,
         L"EasyTools Keycast",
         WS_POPUP,
-        x, y, m_width, m_height,
+        0, 0, 1, 1,
         nullptr, nullptr, wcex.hInstance, nullptr
     );
 
@@ -55,12 +48,12 @@ bool KeycastOverlay::init() {
         return false;
     }
 
-    if (!createResources()) {
-        LOG_ERROR("Failed to create Keycast D2D resources");
-        return false;
+    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
+        LOG_WARN("当前 Windows 版本无法从捕获中排除按键回显: error={}", GetLastError());
     }
 
-    // 初始状态保持隐藏，杜绝任何黑框闪现
+    // Graphics resources stay lazy until the first keystroke so a disabled or
+    // unused plugin does not allocate a large high-DPI backing bitmap.
     ShowWindow(m_hwnd, SW_HIDE);
     return true;
 }
@@ -72,30 +65,36 @@ void KeycastOverlay::cleanup() {
         m_hwnd = nullptr;
     }
 
-    if (m_memoryDC && m_oldBitmap) {
-        SelectObject(m_memoryDC, m_oldBitmap);
-    }
-    if (m_memoryBitmap) {
-        DeleteObject(m_memoryBitmap);
-        m_memoryBitmap = nullptr;
-    }
-    if (m_memoryDC) {
-        DeleteDC(m_memoryDC);
-        m_memoryDC = nullptr;
-    }
+    discardResources();
+    m_dwriteFactory.Reset();
+    m_d2dFactory.Reset();
+}
 
+void KeycastOverlay::discardResources() {
     m_brushText.Reset();
     m_brushBg.Reset();
     m_brushBorder.Reset();
     m_brushBadgeBg.Reset();
-    m_textFormat.Reset();
-    m_dwriteFactory.Reset();
     m_renderTarget.Reset();
-    m_d2dFactory.Reset();
+    m_textFormat.Reset();
+    if (m_memoryDC && m_oldBitmap) SelectObject(m_memoryDC, m_oldBitmap);
+    m_oldBitmap = nullptr;
+    if (m_memoryBitmap) DeleteObject(m_memoryBitmap);
+    if (m_memoryDC) DeleteDC(m_memoryDC);
+    m_memoryBitmap = nullptr;
+    m_memoryDC = nullptr;
 }
 
 bool KeycastOverlay::createResources() {
-    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf()))) return false;
+    if (m_renderTarget && m_memoryDC && m_memoryBitmap && m_textFormat &&
+        m_brushText && m_brushBg && m_brushBorder && m_brushBadgeBg) {
+        return true;
+    }
+    discardResources();
+    if (!m_d2dFactory && FAILED(D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf()))) {
+        return false;
+    }
 
     auto props = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_DEFAULT,
@@ -104,9 +103,11 @@ bool KeycastOverlay::createResources() {
     );
 
     if (FAILED(m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget))) return false;
+    m_renderTarget->SetDpi(96.0f, 96.0f);
 
     // 创建常驻 32 位 DIB 内存 DC
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) return false;
     m_memoryDC = CreateCompatibleDC(hdcScreen);
 
     BITMAPINFO bmi = {};
@@ -119,13 +120,21 @@ bool KeycastOverlay::createResources() {
 
     void* pBits = nullptr;
     m_memoryBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-    m_oldBitmap = static_cast<HBITMAP>(SelectObject(m_memoryDC, m_memoryBitmap));
     ReleaseDC(nullptr, hdcScreen);
+    if (!m_memoryDC || !m_memoryBitmap || !pBits) {
+        discardResources();
+        return false;
+    }
+    m_oldBitmap = static_cast<HBITMAP>(SelectObject(m_memoryDC, m_memoryBitmap));
 
     RECT bindRect = {0, 0, m_width, m_height};
     m_renderTarget->BindDC(m_memoryDC, &bindRect);
 
-    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &m_dwriteFactory))) return false;
+    if (!m_dwriteFactory && FAILED(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &m_dwriteFactory))) {
+        discardResources();
+        return false;
+    }
 
     if (FAILED(m_dwriteFactory->CreateTextFormat(
         L"Segoe UI",
@@ -133,10 +142,13 @@ bool KeycastOverlay::createResources() {
         DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
-        36.0f,
+        KeycastStyle::BaseFontSize * m_dpiScale,
         L"zh-cn",
         &m_textFormat
-    ))) return false;
+    ))) {
+        discardResources();
+        return false;
+    }
 
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -146,7 +158,38 @@ bool KeycastOverlay::createResources() {
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.65f, 0.45f, 1.0f, 0.55f), &m_brushBorder);
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.85f, 0.25f, 0.45f, 0.90f), &m_brushBadgeBg);
 
+    if (!m_brushText || !m_brushBg || !m_brushBorder || !m_brushBadgeBg) {
+        discardResources();
+        return false;
+    }
     return true;
+}
+
+bool KeycastOverlay::updatePlacement() {
+    if (!m_hwnd) return false;
+    if (m_updatingPlacement) return true;
+    m_updatingPlacement = true;
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const float newScale = easy::core::dpi::scaleForMonitor(monitor);
+    const int newWidth = easy::core::dpi::scaleMetric(KeycastStyle::BaseWidth, newScale);
+    const int newHeight = easy::core::dpi::scaleMetric(KeycastStyle::BaseHeight, newScale);
+    if (std::abs(newScale - m_dpiScale) >= 0.01f ||
+        newWidth != m_width || newHeight != m_height) {
+        m_dpiScale = newScale;
+        m_width = newWidth;
+        m_height = newHeight;
+        discardResources();
+    }
+
+    const RECT work = easy::core::dpi::workArea(monitor);
+    const int x = work.left + ((work.right - work.left) - m_width) / 2;
+    const int y = std::max(work.top, work.bottom - m_height -
+        easy::core::dpi::scaleMetric(KeycastStyle::BaseBottomMargin, m_dpiScale));
+    const bool positioned = SetWindowPos(
+        m_hwnd, HWND_TOPMOST, x, y, m_width, m_height,
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER) != FALSE;
+    m_updatingPlacement = false;
+    return positioned;
 }
 
 void KeycastOverlay::pushKey(const std::string& keyStr) {
@@ -169,7 +212,7 @@ void KeycastOverlay::pushKey(const std::string& keyStr) {
         m_scale = 0.92f;
         m_animating = true;
     }
-    PostMessageW(m_hwnd, START_ANIMATION_MESSAGE, 0, 0);
+    if (m_hwnd) PostMessageW(m_hwnd, START_ANIMATION_MESSAGE, 0, 0);
 }
 
 void KeycastOverlay::render() {
@@ -200,15 +243,22 @@ void KeycastOverlay::render() {
         );
 
         if (layout) {
+            // The shared text format is centered for regular DrawText calls.
+            // A 10,000 px measurement layout would therefore place glyphs near
+            // x=5,000 and outside this window when drawn at the measured origin.
+            // Measure from a leading-aligned layout, then center that measured
+            // block explicitly below.
+            layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             DWRITE_TEXT_METRICS metrics;
-            layout->GetMetrics(&metrics);
+            if (FAILED(layout->GetMetrics(&metrics))) return;
 
-            float paddingX = 36.0f;
-            float paddingY = 16.0f;
+            float paddingX = 36.0f * m_dpiScale;
+            float paddingY = 16.0f * m_dpiScale;
             float boxW = metrics.width + paddingX * 2.0f;
             float boxH = metrics.height + paddingY * 2.0f;
-            if (boxW < 90.0f) boxW = 90.0f;
-            if (boxH < 54.0f) boxH = 54.0f;
+            if (boxW < 90.0f * m_dpiScale) boxW = 90.0f * m_dpiScale;
+            if (boxH < 54.0f * m_dpiScale) boxH = 54.0f * m_dpiScale;
 
             float centerX = m_width / 2.0f;
             float centerY = m_height / 2.0f;
@@ -222,7 +272,7 @@ void KeycastOverlay::render() {
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f, centerX + boxW / 2.0f, centerY + boxH / 2.0f),
-                14.0f, 14.0f
+                14.0f * m_dpiScale, 14.0f * m_dpiScale
             );
 
             // 1. 深色半透明卡片背景 (带当前动画透明度)
@@ -232,7 +282,8 @@ void KeycastOverlay::render() {
             // 2. 优雅细微紫色微发光边框
             if (m_brushBorder) {
                 m_brushBorder->SetOpacity(0.55f * currentOpacity);
-                m_renderTarget->DrawRoundedRectangle(&rrect, m_brushBorder.Get(), 1.5f);
+                m_renderTarget->DrawRoundedRectangle(
+                    &rrect, m_brushBorder.Get(), 1.5f * m_dpiScale);
             }
 
             // 3. 高质量文字排版
@@ -247,7 +298,10 @@ void KeycastOverlay::render() {
         }
     }
 
-    m_renderTarget->EndDraw();
+    if (FAILED(m_renderTarget->EndDraw())) {
+        discardResources();
+        return;
+    }
 
     HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
@@ -259,9 +313,14 @@ void KeycastOverlay::render() {
 
 LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == START_ANIMATION_MESSAGE) {
+        auto& self = KeycastOverlay::instance();
+        if (!self.updatePlacement() || !self.createResources()) {
+            LOG_ERROR("按键回显显示失败: 无法创建高 DPI 渲染资源");
+            return 0;
+        }
+        self.render();  // Clear stale pixels before the layered window is shown.
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, ANIMATION_TIMER_ID, 16, nullptr);
-        KeycastOverlay::instance().render();
         return 0;
     }
 
@@ -283,9 +342,11 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                     self.m_scale = 0.92f + 0.08f * std::sin(t * 1.57079f);
                     shouldRender = true;
                 } else if (elapsed < 1400) {
-                    self.m_opacity = 1.0f;
-                    self.m_scale = 1.0f;
-                    shouldRender = true;
+                    if (self.m_opacity != 1.0f || self.m_scale != 1.0f) {
+                        self.m_opacity = 1.0f;
+                        self.m_scale = 1.0f;
+                        shouldRender = true;
+                    }
                 } else if (elapsed < 1750) {
                     const float t = (elapsed - 1400) / 350.0f;
                     self.m_opacity = 1.0f - t;
@@ -306,6 +367,13 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         } else if (shouldRender) {
             self.render();
         }
+        return 0;
+    }
+
+    if ((msg == WM_DPICHANGED || msg == WM_DISPLAYCHANGE) &&
+        IsWindowVisible(hwnd)) {
+        auto& self = KeycastOverlay::instance();
+        if (self.updatePlacement() && self.createResources()) self.render();
         return 0;
     }
 

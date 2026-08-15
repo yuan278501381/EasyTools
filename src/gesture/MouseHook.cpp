@@ -63,6 +63,10 @@ void MouseHook::setTriggerButton(MouseEventType downEvent) {
     m_configuredTriggerDown.store(downEvent, std::memory_order_release);
 }
 
+void MouseHook::resetTriggerState() noexcept {
+    m_triggerButtonDown.store(false, std::memory_order_release);
+}
+
 std::vector<MouseEvent> MouseHook::drainEvents(size_t maxCount) {
     std::lock_guard lock(m_queueMutex);
     std::vector<MouseEvent> events;
@@ -122,6 +126,14 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             switch (wParam) {
                 case WM_MOUSEMOVE: {
                     event.type = MouseEventType::Move;
+                    // 自愈检查：若标记为按下但物理按键已抬起，则立即自愈复位，防止状态失步
+                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
+                        int vKey = (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) ? VK_MBUTTON : VK_RBUTTON;
+                        if ((GetAsyncKeyState(vKey) & 0x8000) == 0) {
+                            self.m_triggerButtonDown.store(false, std::memory_order_release);
+                        }
+                    }
+
                     // Idle mouse moves are the dominant system-wide hot path.
                     // Only enter the gesture engine while a possible trigger
                     // button is held; statistics remain lock-free below.
@@ -180,14 +192,17 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     break;
                 case WM_LBUTTONDOWN:
                     event.type = MouseEventType::LeftDown;
-                    shouldCapture = gestureEnabled &&
-                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
+                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
+                        // 左键按下时立即复位手势触发状态并通知引擎取消，绝对不吞掉左键点击
+                        self.m_triggerButtonDown.store(false, std::memory_order_release);
+                        shouldCapture = true;
+                    }
                     easy::core::StatsManager::instance().recordLeftClick();
                     break;
                 case WM_LBUTTONUP:
                     event.type = MouseEventType::LeftUp;
-                    shouldCapture = gestureEnabled &&
-                        self.m_triggerButtonDown.load(std::memory_order_relaxed);
+                    // 左键抬起永远放行给系统
+                    shouldCapture = false;
                     break;
                 case WM_MOUSEWHEEL: {
                     short delta = HIWORD(data->mouseData);

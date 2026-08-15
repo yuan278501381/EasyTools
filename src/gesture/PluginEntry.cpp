@@ -157,6 +157,7 @@ easy::core::HotkeyDef configuredHotkey(const std::string& name,
                                        const easy::core::HotkeyDef& fallback) {
     const auto text = easy::core::ConfigManager::instance().get<std::string>(
         "/hotkeys/" + name, fallback.toString());
+    if (text.empty()) return {};
     return easy::core::HotkeyDef::fromString(text).value_or(fallback);
 }
 
@@ -232,7 +233,7 @@ public:
         auto& mb = easy::core::MessageBridge::instance();
         auto& bus = easy::core::EventBus::instance();
 
-        bus.subscribe<easy::core::ActionToggleGesturePauseEvent>([](const easy::core::ActionToggleGesturePauseEvent&) {
+        m_pauseSubscription = bus.subscribe<easy::core::ActionToggleGesturePauseEvent>([](const easy::core::ActionToggleGesturePauseEvent&) {
             auto& engine = easy::gesture::GestureEngine::instance();
             engine.setPaused(!engine.isPaused());
         });
@@ -506,11 +507,24 @@ public:
 
     void shutdown() override {
         LOG_INFO("GesturePlugin: 卸载手势引擎");
+        auto& bridge = easy::core::MessageBridge::instance();
+        bridge.unregisterHandlersByPrefix("gesture.");
+        bridge.unregisterHandlersByPrefix("hotcorner.");
+        bridge.unregisterHandlersByPrefix("radialmenu.");
+        easy::core::HotkeyManager::instance().unregisterHotkey("Pause Gestures");
+        easy::core::EventBus::instance().unsubscribeAndWait(m_pauseSubscription);
+        m_pauseSubscription = 0;
+
         auto& gestureEngine = easy::gesture::GestureEngine::instance();
         gestureEngine.saveToConfig();
         gestureEngine.stop();
+        gestureEngine.setPauseChangedCallback(nullptr);
         easy::gesture::HotCornerEngine::instance().stop();
+        easy::gesture::BuiltinCommandDispatcher::instance().clearHandlers();
     }
+
+private:
+    easy::core::SubscriptionId m_pauseSubscription = 0;
 };
 
 } // namespace easy::gesture
@@ -518,4 +532,8 @@ public:
 PLUGIN_API easy::core::IPlugin* CreatePlugin() {
     static easy::gesture::GesturePlugin instance;
     return &instance;
+}
+
+PLUGIN_API std::uint32_t GetPluginAbiVersion() {
+    return easy::core::CurrentPluginAbiVersion;
 }

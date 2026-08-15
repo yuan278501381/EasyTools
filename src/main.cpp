@@ -27,6 +27,7 @@
 #include <shellapi.h>
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -66,7 +67,7 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 bool checkSingleInstance();
 bool hasCommandLineFlag(std::wstring_view flag);
 HWND createMessageWindow(HINSTANCE hInstance);
-void initializeSubsystems(HWND hwnd);
+void initializeSubsystems(HWND hwnd, bool preloadSettings);
 void shutdownSubsystems();
 void showSettingsWindow();
 void preloadSettingsWindow(HINSTANCE hInstance);
@@ -79,6 +80,7 @@ static HANDLE g_singleInstanceMutex = nullptr;
 // ─────────────────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     LPWSTR /*lpCmdLine*/, int /*nCmdShow*/) {
+    const auto startupBeganAt = std::chrono::steady_clock::now();
     // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
     easy::core::WinUtils::enableHighDpiSupport();
 
@@ -142,10 +144,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     easy::core::MainThreadDispatcher::instance().initialize(hwndMessage);
 
     // ── 7. 初始化其他子系统 ──────────────────────────────────────────────
-    initializeSubsystems(hwndMessage);
+    const bool silentStart = hasCommandLineFlag(L"--silent");
+    initializeSubsystems(hwndMessage, !silentStart);
+    easy::core::PerformanceMonitor::instance().recordLatency(
+        "startup.core",
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - startupBeganAt).count());
 
     // 用户主动启动时直接呈现设置；开机自启动使用 --silent 静默驻留托盘。
-    if (!hasCommandLineFlag(L"--silent")) {
+    if (!silentStart) {
         showSettingsWindow();
     }
 
@@ -231,7 +238,7 @@ HWND createMessageWindow(HINSTANCE hInstance) {
     );
 }
 
-void initializeSubsystems(HWND hwnd) {
+void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 1. 托盘图标
     auto& tray = easy::tray::TrayIcon::instance();
     tray.create(hwnd);
@@ -246,36 +253,43 @@ void initializeSubsystems(HWND hwnd) {
     // 2. 统计模块
     easy::core::StatsManager::instance().initialize();
 
-    // 3. 全局快捷键注册
+    // 3. 发现插件。这里只读取元数据与启停配置；实际初始化要等核心服务就绪。
+    auto& pm = easy::core::PluginManager::instance();
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    const std::filesystem::path pluginDir =
+        std::filesystem::path(exePath).parent_path() / L"plugins";
+    pm.loadPlugins(pluginDir.string());
+
+    // 4. 全局快捷键注册
     easy::core::HotkeyManager::instance().initialize(hwnd);
-    const easy::core::HotkeyDef searchFallback{easy::core::ModKey::Alt, VK_SPACE};
-    const auto searchHotkey = easy::core::HotkeyDef::fromString(
-        easy::core::ConfigManager::instance().get<std::string>(
-            "/hotkeys/Toggle Search", searchFallback.toString())).value_or(searchFallback);
-    easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, []() {
-        auto& searchWnd = easy::ui::SearchWindow::instance();
-        if (searchWnd.isVisible()) {
-            searchWnd.hide();
-        } else {
-            searchWnd.show(GetModuleHandleW(nullptr));
-        }
-    });
+    if (pm.isEnabledAtLaunch("search")) {
+        const easy::core::HotkeyDef searchFallback{easy::core::ModKey::Alt, VK_SPACE};
+        const auto searchText = easy::core::ConfigManager::instance().get<std::string>(
+            "/hotkeys/Toggle Search", searchFallback.toString());
+        const auto searchHotkey = searchText.empty() ? easy::core::HotkeyDef{}
+            : easy::core::HotkeyDef::fromString(searchText).value_or(searchFallback);
+        easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, []() {
+            auto& searchWnd = easy::ui::SearchWindow::instance();
+            if (searchWnd.isVisible()) searchWnd.hide();
+            else searchWnd.show(GetModuleHandleW(nullptr));
+        });
 
-    // 注册 search.toggle IPC 处理函数
-    easy::core::MessageBridge::instance().registerHandler("search.toggle", [](const nlohmann::json&) -> nlohmann::json {
-        if (easy::ui::SearchWindow::instance().isVisible()) {
-            easy::ui::SearchWindow::instance().hide();
-        } else {
-            easy::ui::SearchWindow::instance().show(GetModuleHandle(NULL));
-        }
-        return {{"success", true}};
-    });
-
-    // 注册 search.hide IPC 处理函数
-    easy::core::MessageBridge::instance().registerHandler("search.hide", [](const nlohmann::json&) -> nlohmann::json {
-        easy::ui::SearchWindow::instance().hide();
-        return {{"success", true}};
-    });
+        easy::core::MessageBridge::instance().registerHandler(
+            "search.toggle", [](const nlohmann::json&) -> nlohmann::json {
+                if (easy::ui::SearchWindow::instance().isVisible()) {
+                    easy::ui::SearchWindow::instance().hide();
+                } else {
+                    easy::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
+                }
+                return {{"success", true}};
+            });
+        easy::core::MessageBridge::instance().registerHandler(
+            "search.hide", [](const nlohmann::json&) -> nlohmann::json {
+                easy::ui::SearchWindow::instance().hide();
+                return {{"success", true}};
+            });
+    }
 
     // 注册核心基础 IPC 处理器
     easy::core::MessageBridge::instance().registerBuiltinHandlers();
@@ -303,18 +317,13 @@ void initializeSubsystems(HWND hwnd) {
         return {{"success", true}};
     });
 
-    // 4. 键盘钩子（用于按键显示等）
+    // 5. 键盘钩子（用于按键统计与按键显示）
     easy::core::KeyboardHook::instance().install();
 
-    // 5. 加载并初始化插件
-    auto& pm = easy::core::PluginManager::instance();
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::filesystem::path pluginDir = std::filesystem::path(exePath).parent_path() / L"plugins";
-    pm.loadPlugins(pluginDir.string());
+    // 6. 初始化本次启动获准加载的插件
     pm.initializePlugins();
 
-    // 6. UI Overlay 初始化
+    // 7. UI Overlay 初始化
     easy::ui::ToastOverlay::instance().initialize(GetModuleHandleW(nullptr));
 
     easy::core::EventBus::instance().subscribe<easy::core::ShowToastEvent>(
@@ -327,20 +336,22 @@ void initializeSubsystems(HWND hwnd) {
         }
     );
 
-    // 7. 设置窗口静默预热 (极速冷启动优化)
-    preloadSettingsWindow(GetModuleHandleW(nullptr));
+    // 8. 用户主动启动时预热设置页；开机静默驻留保持 WebView2 完全按需，
+    // 避免后台常驻 Chromium 进程和数十 MB 内存。
+    if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
-    // 8. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
+    // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);
 }
 
 void shutdownSubsystems() {
     easy::core::UpdateChecker::instance().shutdown();
-    easy::core::PluginManager::instance().shutdownPlugins();
+    // 先关闭所有 WebView 入口，阻止新的 IPC 请求进入插件，再等待并卸载插件。
     easy::ui::SettingsWindow::instance().destroy();
-    easy::ui::ToastOverlay::instance().shutdown();
     easy::ui::SearchWindow::instance().destroy();
     easy::ui::TrayWindow::instance().destroy();
+    easy::core::PluginManager::instance().shutdownPlugins();
+    easy::ui::ToastOverlay::instance().shutdown();
     easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
     easy::core::StatsManager::instance().shutdown();

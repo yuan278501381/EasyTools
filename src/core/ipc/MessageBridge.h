@@ -14,7 +14,10 @@
 #include "core/utils/Export.h"
 
 #include <string>
+#include <condition_variable>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
@@ -38,6 +41,12 @@ public:
     /// 注册消息处理器
     /// @param method 方法名 (如 "gesture.getProfiles", "config.get")
     void registerHandler(const std::string& method, MessageHandler handler);
+
+    /// 注销一个处理器，并等待已经进入该处理器的调用结束。
+    void unregisterHandler(const std::string& method);
+
+    /// 按命名空间前缀注销处理器（如 "capture."），并等待在途调用结束。
+    size_t unregisterHandlersByPrefix(const std::string& prefix);
 
     // ── 消息处理 ─────────────────────────────────────────────────────────
 
@@ -66,7 +75,17 @@ public:
 private:
     MessageBridge() = default;
 
-    std::unordered_map<std::string, MessageHandler> m_handlers;
+    struct HandlerSlot {
+        MessageHandler handler;
+        std::mutex mutex;
+        std::condition_variable idle;
+        size_t activeCalls = 0;
+        bool accepting = true;
+    };
+
+    static void retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots);
+
+    std::unordered_map<std::string, std::shared_ptr<HandlerSlot>> m_handlers;
     EventPusher m_eventPusher;
     mutable std::shared_mutex m_mutex;
 };

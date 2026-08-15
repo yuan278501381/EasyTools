@@ -2,8 +2,11 @@
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include "capture/CaptureHistory.h"
+#include "capture/CaptureToolbarLayout.h"
 #include <format>
+#include <algorithm>
 #include <cmath>
+#include <utility>
 #include <opencv2/imgproc.hpp>
 
 #pragma comment(lib, "d2d1.lib")
@@ -14,7 +17,22 @@ using namespace Microsoft::WRL;
 
 namespace easy::capture {
 
-static std::wstring tooltipForButton(ToolbarCommand cmd) {
+static std::wstring tooltipForButton(ToolbarCommand cmd, bool chinese) {
+    if (!chinese) {
+        switch (cmd) {
+            case ToolbarCommand::SelectTool: return L"Annotation tool";
+            case ToolbarCommand::SelectColor: return L"Change color";
+            case ToolbarCommand::Undo: return L"Undo (Ctrl+Z)";
+            case ToolbarCommand::Redo: return L"Redo (Ctrl+Y)";
+            case ToolbarCommand::Clear: return L"Clear annotations";
+            case ToolbarCommand::ExtractText: return L"Extract text (OCR)";
+            case ToolbarCommand::PinWindow: return L"Pin to screen";
+            case ToolbarCommand::ScrollCapture: return L"Scrolling capture";
+            case ToolbarCommand::Confirm: return L"Finish (Enter)";
+            case ToolbarCommand::Cancel: return L"Cancel (Esc)";
+            default: return L"";
+        }
+    }
     switch (cmd) {
         case ToolbarCommand::SelectTool: return L"选择标注";
         case ToolbarCommand::SelectColor: return L"更改颜色";
@@ -31,43 +49,36 @@ static std::wstring tooltipForButton(ToolbarCommand cmd) {
 }
 
 bool CaptureRenderer::initialize(HWND hwnd, CaptureState& state) {
+    releaseWindowResources();
     m_hwnd = hwnd;
-    return createRenderResources(state);
+    if (createRenderResources(state)) return true;
+    releaseWindowResources();
+    return false;
 }
 
 void CaptureRenderer::shutdown() {
-    releaseRenderResources();
+    releaseWindowResources();
+    m_dwriteFactory.Reset();
+    m_d2dFactory.Reset();
 }
 
 bool CaptureRenderer::createRenderResources(CaptureState& state) {
     HRESULT hr;
 
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    if (FAILED(hr)) return false;
-
-    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                             reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
-    if (FAILED(hr)) return false;
-
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * (state.dpiScale > 0 ? state.dpiScale : 1.0f), L"zh-CN", m_infoTextFormat.GetAddressOf()
-    );
-    if (FAILED(hr)) return false;
-    m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_infoTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // 文本工具的输入预览: 左对齐、较大字号
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        18.0f * (state.dpiScale > 0 ? state.dpiScale : 1.0f), L"zh-CN", m_textInputFormat.GetAddressOf()
-    );
-    if (SUCCEEDED(hr) && m_textInputFormat) {
-        m_textInputFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-        m_textInputFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (!m_d2dFactory) {
+        hr = D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+        if (FAILED(hr)) return false;
     }
+
+    if (!m_dwriteFactory) {
+        hr = DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
+        if (FAILED(hr)) return false;
+    }
+
+    if (!updateDpiScale(state.dpiScale)) return false;
 
     RECT rc;
     GetClientRect(m_hwnd, &rc);
@@ -98,7 +109,7 @@ bool CaptureRenderer::createRenderResources(CaptureState& state) {
     return true;
 }
 
-void CaptureRenderer::releaseRenderResources() {
+void CaptureRenderer::releaseWindowResources() {
     m_windowHighlightBrush.Reset();
     m_crosshairBrush.Reset();
     m_infoTextBrush.Reset();
@@ -106,10 +117,47 @@ void CaptureRenderer::releaseRenderResources() {
     m_borderBrush.Reset();
     m_dimBrush.Reset();
     m_screenBitmap.Reset();
+    m_markupCacheBitmap.Reset();
+    m_historyBitmap.Reset();
+    m_textInputFormat.Reset();
     m_infoTextFormat.Reset();
+    m_textScale = 0.0f;
     m_renderTarget.Reset();
-    m_dwriteFactory.Reset();
-    m_d2dFactory.Reset();
+    m_hwnd = nullptr;
+}
+
+bool CaptureRenderer::updateDpiScale(float scale) {
+    scale = std::clamp(scale > 0.0f ? scale : 1.0f, 1.0f, 5.0f);
+    if (m_infoTextFormat && m_textInputFormat &&
+        std::abs(scale - m_textScale) < 0.01f) {
+        return true;
+    }
+    if (!m_dwriteFactory) return false;
+
+    ComPtr<IDWriteTextFormat> infoFormat;
+    HRESULT hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI", nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, 13.0f * scale, L"zh-CN",
+        infoFormat.GetAddressOf());
+    if (FAILED(hr) || !infoFormat) return false;
+    infoFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    infoFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    ComPtr<IDWriteTextFormat> textInputFormat;
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI", nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, 18.0f * scale, L"zh-CN",
+        textInputFormat.GetAddressOf());
+    if (FAILED(hr) || !textInputFormat) return false;
+    textInputFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    textInputFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+
+    m_infoTextFormat = std::move(infoFormat);
+    m_textInputFormat = std::move(textInputFormat);
+    m_textScale = scale;
+    return true;
 }
 
 bool CaptureRenderer::updateScreenBitmap(const cv::Mat& image) {
@@ -120,8 +168,13 @@ bool CaptureRenderer::updateScreenBitmap(const cv::Mat& image) {
     }
 
     cv::Mat bgra;
+    D2D1_ALPHA_MODE alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
     if (image.channels() == 4) {
         bgra = image;
+        // A 32-bit BI_RGB screen DIB does not define/populate its alpha byte
+        // (it is commonly zero). Treat it as opaque without a full-screen pass
+        // that writes 255 into every fourth byte.
+        alphaMode = D2D1_ALPHA_MODE_IGNORE;
     } else if (image.channels() == 3) {
         cv::cvtColor(image, bgra, cv::COLOR_BGR2BGRA);
     } else if (image.channels() == 1) {
@@ -133,7 +186,7 @@ bool CaptureRenderer::updateScreenBitmap(const cv::Mat& image) {
 
     if (!bgra.isContinuous()) bgra = bgra.clone();
     const auto props = D2D1::BitmapProperties(
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode));
     const HRESULT hr = m_renderTarget->CreateBitmap(
         D2D1::SizeU(static_cast<UINT32>(bgra.cols), static_cast<UINT32>(bgra.rows)),
         bgra.data, static_cast<UINT32>(bgra.step[0]), props, m_screenBitmap.GetAddressOf());
@@ -159,12 +212,14 @@ void CaptureRenderer::drawDimOverlay(const D2D1_RECT_F& selRect, CaptureState&) 
     m_renderTarget->FillRectangle(D2D1::RectF(selRect.right, selRect.top, size.width, selRect.bottom), m_dimBrush.Get());
 }
 
-void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState&) {
+void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state) {
+    const float scale = std::clamp(
+        state.dpiScale > 0.0f ? state.dpiScale : 1.0f, 1.0f, 5.0f);
     // 选区边框（紫色）
-    m_renderTarget->DrawRectangle(rect, m_borderBrush.Get(), 2.0f);
+    m_renderTarget->DrawRectangle(rect, m_borderBrush.Get(), 2.0f * scale);
 
     // 八个控制点
-    float controlSize = 6.0f;
+    const float controlSize = 6.0f * scale;
     float cx = (rect.left + rect.right) / 2;
     float cy = (rect.top + rect.bottom) / 2;
 
@@ -183,21 +238,23 @@ void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState&) {
     }
 }
 
-void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState&) {
+void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState& state) {
     int w = static_cast<int>(rect.right - rect.left);
     int h = static_cast<int>(rect.bottom - rect.top);
 
     auto info = std::format(L"{}×{}", w, h);
 
     // 尺寸标签背景
-    float labelW = 100.0f;
-    float labelH = 24.0f;
+    const float scale = std::clamp(
+        state.dpiScale > 0.0f ? state.dpiScale : 1.0f, 1.0f, 5.0f);
+    float labelW = 100.0f * scale;
+    float labelH = 24.0f * scale;
     float labelX = rect.left;
-    float labelY = rect.top - labelH - 4;
-    if (labelY < 0) labelY = rect.bottom + 4;
+    float labelY = rect.top - labelH - 4.0f * scale;
+    if (labelY < 0) labelY = rect.bottom + 4.0f * scale;
 
     // 统一玻璃风：尺寸标签也用磨砂面板（小标签走廉价无图层模式）
-    drawGlassPanel(D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH), 5.0f, false);
+    drawGlassPanel(D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH), 5.0f * scale, false);
     m_renderTarget->DrawText(info.c_str(), static_cast<UINT32>(info.size()),
                              m_infoTextFormat.Get(),
                              D2D1::RectF(labelX, labelY, labelX + labelW, labelY + labelH),
@@ -205,15 +262,21 @@ void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState&) {
 }
 
 void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState& state) {
-    state.rebuildToolbarButtons(selectionRect);
+    rebuildCaptureToolbar(state, selectionRect, m_renderTarget->GetSize());
     if (state.toolbarButtons.empty()) return;
 
+    D2D1_RECT_F bounds = state.toolbarButtons.front().rect;
+    for (const auto& button : state.toolbarButtons) {
+        bounds.left = std::min(bounds.left, button.rect.left);
+        bounds.top = std::min(bounds.top, button.rect.top);
+        bounds.right = std::max(bounds.right, button.rect.right);
+        bounds.bottom = std::max(bounds.bottom, button.rect.bottom);
+    }
+    const float scale = std::clamp(state.dpiScale > 0.0f ? state.dpiScale : 1.0f,
+                                   1.0f, 5.0f);
     auto bgRect = D2D1::RectF(
-        state.toolbarButtons.front().rect.left - 8.0f,
-        state.toolbarButtons.front().rect.top - 6.0f,
-        state.toolbarButtons.back().rect.right + 8.0f,
-        state.toolbarButtons.back().rect.bottom + 6.0f
-    );
+        bounds.left - 8.0f * scale, bounds.top - 6.0f * scale,
+        bounds.right + 8.0f * scale, bounds.bottom + 6.0f * scale);
     // 磨砂玻璃 HUD 面板（替代原扁平深色条）
     drawGlassPanel(bgRect, 9.0f, false);
 
@@ -224,7 +287,9 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         float y0 = state.toolbarButtons.front().rect.top + 3.0f;
         float y1 = state.toolbarButtons.front().rect.bottom - 3.0f;
         auto drawSep = [&](size_t l, size_t r) {
-            if (sep && r < state.toolbarButtons.size()) {
+            if (sep && r < state.toolbarButtons.size() &&
+                std::abs(state.toolbarButtons[l].rect.top -
+                         state.toolbarButtons[r].rect.top) < 0.5f) {
                 float mx = (state.toolbarButtons[l].rect.right + state.toolbarButtons[r].rect.left) * 0.5f;
                 m_renderTarget->DrawLine(D2D1::Point2F(mx, y0), D2D1::Point2F(mx, y1), sep.Get(), 1.0f);
             }
@@ -295,18 +360,19 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
             state.currentCursor.y < button.rect.top  || state.currentCursor.y > button.rect.bottom) {
             continue;
         }
-        std::wstring tip = tooltipForButton(button.command);
+        std::wstring tip = tooltipForButton(button.command, state.toolbarLayoutChinese);
         if (tip.empty()) break;
 
-        float tw = 16.0f + static_cast<float>(tip.size()) * 12.0f;  // 粗略估宽，足够容纳中英文
-        float th = 22.0f;
+        float tw = (16.0f + static_cast<float>(tip.size()) * 12.0f) * scale;
+        float th = 22.0f * scale;
         auto sz = m_renderTarget->GetSize();
         float bcx = (button.rect.left + button.rect.right) * 0.5f;
-        float tx = std::clamp(bcx - tw * 0.5f, 4.0f, std::max(4.0f, sz.width - tw - 4.0f));
-        float ty = button.rect.top - th - 6.0f;
-        if (ty < 4.0f) ty = button.rect.bottom + 6.0f;
+        float tx = std::clamp(bcx - tw * 0.5f, 4.0f * scale,
+                              std::max(4.0f * scale, sz.width - tw - 4.0f * scale));
+        float ty = button.rect.top - th - 6.0f * scale;
+        if (ty < 4.0f * scale) ty = button.rect.bottom + 6.0f * scale;
 
-        drawGlassPanel(D2D1::RectF(tx, ty, tx + tw, ty + th), 5.0f, false);
+        drawGlassPanel(D2D1::RectF(tx, ty, tx + tw, ty + th), 5.0f * scale, false);
         m_renderTarget->DrawText(tip.c_str(), static_cast<UINT32>(tip.size()),
                                  m_infoTextFormat.Get(),
                                  D2D1::RectF(tx, ty, tx + tw, ty + th),

@@ -17,7 +17,14 @@ namespace easy::capture {
 
 enum class OverlayMode { Screenshot, RecordRegion };
 enum class OverlayState { Idle, Selecting, Selected, Marking };
+enum class CaptureCompletionAction { Default, Copy, SaveAs };
 enum class ToolbarCommand { SelectTool, SelectColor, Undo, Redo, Clear, ExtractText, PinWindow, ScrollCapture, Confirm, Cancel };
+
+struct CaptureCompletion {
+    CaptureCompletionAction action = CaptureCompletionAction::Default;
+    std::string filePath;
+    ImageFormat format = ImageFormat::PNG;
+};
 
 struct ToolbarButton {
     D2D1_RECT_F rect{};
@@ -27,7 +34,8 @@ struct ToolbarButton {
     std::wstring label;
 };
 
-using SelectionCallback = std::function<void(const CaptureRegion& region, const cv::Mat& markedImage)>;
+using SelectionCallback = std::function<void(
+    const CaptureRegion& region, const cv::Mat& markedImage, const CaptureCompletion& completion)>;
 using RecordSelectionCallback = std::function<void(const CaptureRegion& region)>;
 
 class CaptureState {
@@ -54,8 +62,12 @@ public:
     POINT markupEnd{};
     std::vector<cv::Point> penPoints;
     std::vector<ToolbarButton> toolbarButtons;
-    inline void rebuildToolbarButtons(const D2D1_RECT_F&) { toolbarButtons.clear(); }
-
+    D2D1_RECT_F toolbarLayoutSelection{};
+    D2D1_SIZE_F toolbarLayoutSurface{};
+    float toolbarLayoutScale = 0.0f;
+    OverlayMode toolbarLayoutMode = OverlayMode::Screenshot;
+    bool toolbarLayoutChinese = true;
+    bool toolbarLayoutValid = false;
     MarkupElement* activeElement = nullptr;
     HitArea dragHandle = HitArea::None;
     bool isManipulating = false;

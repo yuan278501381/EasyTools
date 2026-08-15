@@ -4,6 +4,7 @@
 
 import { type FC, type ReactNode, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ControlA11yContext, useControlA11y } from './ControlA11yContext';
 import './UIKit.css';
 
 /* ── Card ─────────────────────────────────────────────────────────────────── */
@@ -41,14 +42,16 @@ interface ToggleProps {
 export const Toggle: FC<ToggleProps> = ({ id, checked, onChange, label, description, disabled = false }) => (
   <div className={`uikit-toggle ${disabled ? 'uikit-toggle--disabled' : ''}`}>
     <div className="uikit-toggle__text">
-      {label && <span className="uikit-toggle__label">{label}</span>}
-      {description && <span className="uikit-toggle__desc">{description}</span>}
+      {label && <label id={`${id}-label`} htmlFor={id} className="uikit-toggle__label">{label}</label>}
+      {description && <span id={`${id}-description`} className="uikit-toggle__desc">{description}</span>}
     </div>
     <label className="uikit-toggle__switch" htmlFor={id}>
       <input
         type="checkbox"
         id={id}
         checked={checked}
+        aria-labelledby={label ? `${id}-label` : undefined}
+        aria-describedby={description ? `${id}-description` : undefined}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}
       />
@@ -65,15 +68,22 @@ interface SettingRowProps {
   children: ReactNode;
 }
 
-export const SettingRow: FC<SettingRowProps> = ({ label, description, children }) => (
-  <div className="uikit-setting-row">
-    <div className="uikit-setting-row__info">
-      <span className="uikit-setting-row__label">{label}</span>
-      {description && <span className="uikit-setting-row__desc">{description}</span>}
-    </div>
-    <div className="uikit-setting-row__control">{children}</div>
-  </div>
-);
+export const SettingRow: FC<SettingRowProps> = ({ label, description, children }) => {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const descriptionId = description ? `${id}-description` : undefined;
+  return (
+    <ControlA11yContext.Provider value={{ labelledBy: labelId, describedBy: descriptionId }}>
+      <div className="uikit-setting-row" role="group" aria-labelledby={labelId} aria-describedby={descriptionId}>
+        <div className="uikit-setting-row__info">
+          <span id={labelId} className="uikit-setting-row__label">{label}</span>
+          {description && <span id={descriptionId} className="uikit-setting-row__desc">{description}</span>}
+        </div>
+        <div className="uikit-setting-row__control">{children}</div>
+      </div>
+    </ControlA11yContext.Provider>
+  );
+};
 
 /* ── Setting Group ────────────────────────────────────────────────────────── */
 
@@ -83,15 +93,18 @@ interface SettingGroupProps {
   children: ReactNode;
 }
 
-export const SettingGroup: FC<SettingGroupProps> = ({ title, icon, children }) => (
-  <div className="uikit-group">
-    <div className="uikit-group__header">
-      {icon && <span className="uikit-group__icon">{icon}</span>}
-      <h2 className="uikit-group__title">{title}</h2>
-    </div>
-    <div className="uikit-group__content">{children}</div>
-  </div>
-);
+export const SettingGroup: FC<SettingGroupProps> = ({ title, icon, children }) => {
+  const titleId = useId();
+  return (
+    <section className="uikit-group" aria-labelledby={titleId}>
+      <div className="uikit-group__header">
+        {icon && <span className="uikit-group__icon" aria-hidden="true">{icon}</span>}
+        <h2 id={titleId} className="uikit-group__title">{title}</h2>
+      </div>
+      <div className="uikit-group__content">{children}</div>
+    </section>
+  );
+};
 
 /* ── Badge ────────────────────────────────────────────────────────────────── */
 
@@ -112,23 +125,30 @@ interface SelectProps {
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
   disabled?: boolean;
+  ariaLabel?: string;
 }
 
-export const Select: FC<SelectProps> = ({ id, value, options, onChange, disabled = false }) => (
-  <select
-    id={id}
-    className="uikit-select"
-    value={value}
-    disabled={disabled}
-    onChange={(e) => onChange(e.target.value)}
-  >
-    {options.map((opt) => (
-      <option key={opt.value} value={opt.value}>
-        {opt.label}
-      </option>
-    ))}
-  </select>
-);
+export const Select: FC<SelectProps> = ({ id, value, options, onChange, disabled = false, ariaLabel }) => {
+  const a11y = useControlA11y();
+  return (
+    <select
+      id={id}
+      className="uikit-select"
+      value={value}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabel ? undefined : a11y.labelledBy}
+      aria-describedby={a11y.describedBy}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  );
+};
 
 /* ── Button ───────────────────────────────────────────────────────────────── */
 
@@ -166,12 +186,21 @@ interface TextInputProps {
   disabled?: boolean;
   multiline?: boolean;
   rows?: number;
+  readOnly?: boolean;
+  ariaLabel?: string;
 }
 
 export const TextInput: FC<TextInputProps> = ({
   id, value, onChange, placeholder, disabled = false, multiline = false, rows = 4,
-}) =>
-  multiline ? (
+  readOnly = false, ariaLabel,
+}) => {
+  const a11y = useControlA11y();
+  const accessibility = {
+    'aria-label': ariaLabel,
+    'aria-labelledby': ariaLabel ? undefined : a11y.labelledBy,
+    'aria-describedby': a11y.describedBy,
+  };
+  return multiline ? (
     <textarea
       id={id}
       className="uikit-input uikit-input--multiline"
@@ -179,6 +208,8 @@ export const TextInput: FC<TextInputProps> = ({
       rows={rows}
       placeholder={placeholder}
       disabled={disabled}
+      readOnly={readOnly}
+      {...accessibility}
       onChange={(e) => onChange(e.target.value)}
     />
   ) : (
@@ -189,9 +220,12 @@ export const TextInput: FC<TextInputProps> = ({
       value={value}
       placeholder={placeholder}
       disabled={disabled}
+      readOnly={readOnly}
+      {...accessibility}
       onChange={(e) => onChange(e.target.value)}
     />
   );
+};
 
 /* ── HotkeyInput — 按下组合键自动捕获 (输出如 "Ctrl+Shift+T") ──────────────── */
 
@@ -248,14 +282,21 @@ interface FieldProps {
   children: ReactNode;
 }
 
-export const Field: FC<FieldProps> = ({ label, hint, error, children }) => (
-  <div className="uikit-field">
-    <label className="uikit-field__label">{label}</label>
-    {children}
-    {error ? <span className="uikit-field__error">{error}</span>
-           : hint && <span className="uikit-field__hint">{hint}</span>}
-  </div>
-);
+export const Field: FC<FieldProps> = ({ label, hint, error, children }) => {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const helpId = error || hint ? `${id}-help` : undefined;
+  return (
+    <ControlA11yContext.Provider value={{ labelledBy: labelId, describedBy: helpId }}>
+      <div className="uikit-field" role="group" aria-labelledby={labelId} aria-describedby={helpId}>
+        <span id={labelId} className="uikit-field__label">{label}</span>
+        {children}
+        {error ? <span id={helpId} className="uikit-field__error" role="alert">{error}</span>
+               : hint && <span id={helpId} className="uikit-field__hint">{hint}</span>}
+      </div>
+    </ControlA11yContext.Provider>
+  );
+};
 
 /* ── Modal ────────────────────────────────────────────────────────────────── */
 

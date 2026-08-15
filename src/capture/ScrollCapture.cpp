@@ -28,6 +28,10 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
         LOG_WARN("长截图已在运行中");
         return;
     }
+    // autoScrollLoop marks m_running=false just before delivering completion.
+    // Join that tail before touching shared segments/callback resources for a
+    // new session, otherwise a rapid restart can race the previous completion.
+    if (m_scrollThread.joinable()) m_scrollThread.join();
 
     easy::core::TraceId::Scope scope;
     m_options = options;
@@ -38,13 +42,22 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
     m_suppressCompletion = false;
     m_running = true;
 
+    m_captureBackend = createCaptureBackend();
+    std::string captureError;
+    const CaptureRegion region{
+        options.captureRect.left, options.captureRect.top,
+        options.captureRect.right - options.captureRect.left,
+        options.captureRect.bottom - options.captureRect.top
+    };
+    if (!m_captureBackend || !m_captureBackend->initialize(region, captureError)) {
+        m_captureBackend.reset();
+        m_running = false;
+        LOG_ERROR("长截图捕获后端初始化失败: {}", captureError);
+        deliverCompletion(captureError.empty() ? "无法初始化屏幕捕获" : captureError);
+        return;
+    }
+
     if (options.mode == ScrollMode::Auto) {
-        // 回收上一次已结束但尚未 join 的线程: autoScrollLoop 自行完成拼接后只置 m_running=false,
-        // 并不 join 自身, 故 m_scrollThread 仍处于 joinable。直接向 joinable 的 std::thread 赋值
-        // 会触发 std::terminate。此处 m_running 已为 false(被上方守卫保证), join 会立即返回。
-        if (m_scrollThread.joinable()) {
-            m_scrollThread.join();
-        }
         m_scrollThread = std::thread([this]() { autoScrollLoop(); });
     }
 
@@ -70,8 +83,9 @@ void ScrollCapture::shutdown() {
     m_completionCb = nullptr;
     m_segments.clear();
     m_lastFrame.release();
+    if (m_captureBackend) m_captureBackend->shutdown();
+    m_captureBackend.reset();
     m_frameCount = 0;
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 void ScrollCapture::captureCurrentFrame() {
@@ -95,6 +109,10 @@ void ScrollCapture::autoScrollLoop() {
     // 线程入口兜底: 截屏(cv::Mat 分配)、拼接、回调等可抛异常, 逃逸出线程函数会 std::terminate。
     try {
     for (int i = 0; i < m_options.maxFrames && m_running; ++i) {
+        if (GetAsyncKeyState(VK_ESCAPE) & 1) {
+            LOG_INFO("用户按 Esc 结束长截图, frame={}", i);
+            break;
+        }
         // 截取当前画面
         auto frame = captureRegion(m_options.captureRect);
         if (frame.empty()) continue;
@@ -121,10 +139,23 @@ void ScrollCapture::autoScrollLoop() {
         input.type = INPUT_MOUSE;
         input.mi.dwFlags = MOUSEEVENTF_WHEEL;
         input.mi.mouseData = static_cast<DWORD>(-WHEEL_DELTA * m_options.scrollAmount);
-        SendInput(1, &input, sizeof(INPUT));
+        if (SendInput(1, &input, sizeof(INPUT)) != 1) {
+            LOG_WARN("长截图滚轮输入失败: error={}", GetLastError());
+            break;
+        }
 
-        // 等待页面渲染
-        std::this_thread::sleep_for(std::chrono::milliseconds(m_options.scrollDelayMs));
+        // 分片等待页面渲染，让 Esc、插件停用和应用退出都能快速中断。
+        int waitedMs = 0;
+        while (waitedMs < m_options.scrollDelayMs && m_running) {
+            const int sliceMs = std::min(25, m_options.scrollDelayMs - waitedMs);
+            std::this_thread::sleep_for(std::chrono::milliseconds(sliceMs));
+            waitedMs += sliceMs;
+            if (GetAsyncKeyState(VK_ESCAPE) & 1) {
+                LOG_INFO("用户按 Esc 结束长截图, frame={}", i + 1);
+                m_running = false;
+                break;
+            }
+        }
     }
 
     m_running = false;
@@ -157,11 +188,13 @@ void ScrollCapture::appendFrame(const cv::Mat& frame) {
             m_segments.push_back(frame(cv::Rect(0, offset, frame.cols, remaining)).clone());
         }
     }
-    m_lastFrame = frame.clone();
+    // cv::Mat is reference counted and the captured frame is immutable here;
+    // retaining it avoids another full-frame copy on every scroll step.
+    m_lastFrame = frame;
     ++m_frameCount;
 
     if (m_progressCb) {
-        m_progressCb(buildStitchedImage(), m_frameCount);
+        m_progressCb(buildRecentPreview(std::max(frame.rows, frame.rows * 2)), m_frameCount);
     }
 }
 
@@ -170,6 +203,21 @@ cv::Mat ScrollCapture::buildStitchedImage() const {
     cv::Mat stitched;
     cv::vconcat(m_segments, stitched);
     return stitched;
+}
+
+cv::Mat ScrollCapture::buildRecentPreview(int maxRows) const {
+    if (m_segments.empty() || maxRows <= 0) return {};
+    std::vector<cv::Mat> pieces;
+    int remaining = maxRows;
+    for (auto it = m_segments.rbegin(); it != m_segments.rend() && remaining > 0; ++it) {
+        const int rows = std::min(it->rows, remaining);
+        pieces.push_back((*it)(cv::Rect(0, it->rows - rows, it->cols, rows)));
+        remaining -= rows;
+    }
+    std::reverse(pieces.begin(), pieces.end());
+    cv::Mat preview;
+    cv::vconcat(pieces, preview);
+    return preview;
 }
 
 void ScrollCapture::deliverCompletion(const std::string& error) {
@@ -183,6 +231,8 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
     if (!result.success && result.errorMessage.empty()) {
         result.errorMessage = m_frameCount == 0 ? "没有捕获到任何帧" : "图像拼接失败";
     }
+    if (m_captureBackend) m_captureBackend->shutdown();
+    m_captureBackend.reset();
     if (m_completionCb) m_completionCb(result);
     if (result.success) {
         LOG_INFO("长截图拼接完成: {}x{}, 帧数={}", result.stitchedImage.cols,
@@ -190,7 +240,6 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
     }
     m_segments.clear();
     m_lastFrame.release();
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -200,32 +249,29 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
 cv::Mat ScrollCapture::captureRegion(const RECT& rect) {
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
-    if (w <= 0 || h <= 0) return {};
+    if (w <= 0 || h <= 0 || !m_captureBackend) return {};
 
-    HDC screenDC = GetDC(nullptr);
-    HDC memDC = CreateCompatibleDC(screenDC);
-    HBITMAP hBitmap = CreateCompatibleBitmap(screenDC, w, h);
-    HGDIOBJ oldBitmap = SelectObject(memDC, hBitmap);
+    CaptureFrameView captured;
+    std::string error;
+    if (!m_captureBackend->capture(captured, error)) {
+        LOG_ERROR("长截图帧捕获失败: backend={}, error={}",
+                  m_captureBackend->info().id, error);
+        return {};
+    }
+    struct ReleaseGuard {
+        ICaptureBackend* backend;
+        ~ReleaseGuard() { backend->releaseFrame(); }
+    } guard{m_captureBackend.get()};
 
-    BitBlt(memDC, 0, 0, w, h, screenDC, rect.left, rect.top, SRCCOPY);
-
-    BITMAPINFOHEADER bi{};
-    bi.biSize = sizeof(bi);
-    bi.biWidth = w;
-    bi.biHeight = -h;
-    bi.biPlanes = 1;
-    bi.biBitCount = 24;
-    bi.biCompression = BI_RGB;
-
-    cv::Mat image(h, w, CV_8UC3);
-    GetDIBits(memDC, hBitmap, 0, h, image.data,
-              reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
-
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(hBitmap);
-    DeleteDC(memDC);
-    ReleaseDC(nullptr, screenDC);
-
+    const int type = captured.format == CapturePixelFormat::Bgra32 ? CV_8UC4 : CV_8UC3;
+    const cv::Mat source(captured.height, captured.width, type,
+                         captured.data, static_cast<std::size_t>(captured.stride));
+    cv::Mat image;
+    if (captured.format == CapturePixelFormat::Bgra32) {
+        cv::cvtColor(source, image, cv::COLOR_BGRA2BGR);
+    } else {
+        source.copyTo(image);
+    }
     return image;
 }
 
@@ -238,7 +284,8 @@ bool ScrollCapture::isAtBottom(const cv::Mat& current, const cv::Mat& previous) 
 
     cv::Mat diff;
     cv::absdiff(current, previous, diff);
-    double meanDiff = cv::mean(diff)[0];
+    const auto means = cv::mean(diff);
+    const double meanDiff = (means[0] + means[1] + means[2]) / 3.0;
 
     // 如果平均差异小于 1（几乎相同），则认为到达底部
     return meanDiff < 1.0;

@@ -9,24 +9,26 @@
 
 import { type ReactNode, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp, History } from 'lucide-react';
+import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp, History, Boxes } from 'lucide-react';
 import './Sidebar.css';
 
-export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'history' | 'general' | 'about';
+export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'history' | 'plugins' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
   icon: ReactNode;
-  labelKey: 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.history' | 'nav.ocr' | 'nav.settings' | 'nav.about';
+  labelKey: 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.history' | 'nav.ocr' | 'nav.plugins' | 'nav.settings' | 'nav.about';
+  requiresPlugin?: 'gesture' | 'capture';
 }
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'stats',   icon: <BarChart3 size={20} strokeWidth={2.2} />, labelKey: 'nav.stats' },
-  { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture' },
-  { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner' },
-  { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture' },
-  { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history' },
-  { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr' },
+  { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture', requiresPlugin: 'gesture' },
+  { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner', requiresPlugin: 'gesture' },
+  { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
+  { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history', requiresPlugin: 'capture' },
+  { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr', requiresPlugin: 'capture' },
+  { id: 'plugins', icon: <Boxes size={20} strokeWidth={2.2} />, labelKey: 'nav.plugins' },
   { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
   { id: 'about',   icon: <Info size={20} strokeWidth={2.2} />, labelKey: 'nav.about' },
 ];
@@ -36,9 +38,10 @@ interface SidebarProps {
   onNavigate: (id: NavId) => void;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
+  activePlugins?: ReadonlySet<string>;
 }
 
-export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onToggleTheme }) => {
+export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onToggleTheme, activePlugins }) => {
   const { t } = useTranslation();
 
   return (
@@ -53,19 +56,22 @@ export const Sidebar: FC<SidebarProps> = ({ activeNav, onNavigate, theme, onTogg
 
       {/* ── 导航列表 ──────────────────────────────────────────────── */}
       <nav className="sidebar__nav">
-        {NAV_ITEMS.map((item) => (
-          <button
+        {NAV_ITEMS.map((item) => {
+          const unavailable = Boolean(item.requiresPlugin && activePlugins && !activePlugins.has(item.requiresPlugin));
+          return <button
             key={item.id}
             id={`nav-${item.id}`}
             className={`sidebar__item ${activeNav === item.id ? 'sidebar__item--active' : ''}`}
             onClick={() => onNavigate(item.id)}
+            disabled={unavailable}
+            title={unavailable ? t('sidebar.pluginDisabled') : undefined}
             aria-current={activeNav === item.id ? 'page' : undefined}
           >
             <span className="sidebar__item-indicator" />
             <span className="sidebar__item-icon">{item.icon}</span>
             <span className="sidebar__item-label">{t(item.labelKey)}</span>
-          </button>
-        ))}
+          </button>;
+        })}
       </nav>
 
       {/* ── 底部操作区 ────────────────────────────────────────────── */}

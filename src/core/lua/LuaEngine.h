@@ -36,11 +36,15 @@ public:
     /// 释放虚拟机。
     void shutdown();
 
-    /// 执行一段 Lua 源码。成功返回 true；失败记录错误日志并返回 false。
-    bool executeScript(const std::string& script);
+    /// 执行一段 Lua 源码。支持超时限制与取消令牌。成功返回 true；失败记录错误日志并返回 false。
+    bool executeScript(const std::string& script,
+                       std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+                       std::atomic<bool>* cancelToken = nullptr);
 
-    /// 执行磁盘上的 Lua 脚本文件 (UTF-8 路径)。
-    bool executeFile(const std::string& utf8Path);
+    /// 执行磁盘上的 Lua 脚本文件 (UTF-8 路径)。支持超时限制与取消令牌。
+    bool executeFile(const std::string& utf8Path,
+                     std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+                     std::atomic<bool>* cancelToken = nullptr);
 
 private:
     LuaEngine() = default;
@@ -48,9 +52,11 @@ private:
     LuaEngine(const LuaEngine&) = delete;
     LuaEngine& operator=(const LuaEngine&) = delete;
 
-    // 在锁内执行已加载/编译好的可调用对象，统一错误处理。
+    // 在锁内执行已加载/编译好的可调用对象，统一错误处理与安全超时限制。
     bool runProtected(const std::function<sol::protected_function_result()>& fn,
-                      const char* context);
+                      const char* context,
+                      std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+                      std::atomic<bool>* cancelToken = nullptr);
 
     // ── API 绑定 (按命名空间拆分，便于维护) ─────────────────────────────────
     void bindApi();

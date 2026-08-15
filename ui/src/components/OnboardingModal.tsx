@@ -8,7 +8,7 @@
  *   4. 完成
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, type FC } from 'react';
+import { useEffect, useRef, useState, type FC } from 'react';
 import { Button } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import {
@@ -26,6 +26,50 @@ const TOTAL_STEPS = 4;
 export const OnboardingModal: FC<Props> = ({ onComplete }) => {
   const { t } = useTranslation();
   const [step, setStep] = useState(0);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const titleRefs = useRef<Array<HTMLHeadingElement | null>>([]);
+
+  useEffect(() => {
+    titleRefs.current[step]?.focus();
+  }, [step]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
+    const initialFocusFrame = requestAnimationFrame(() => titleRefs.current[0]?.focus());
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onComplete();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setStep((current) => Math.min(TOTAL_STEPS - 1, current + 1));
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setStep((current) => Math.max(0, current - 1));
+      } else if (event.key === 'Tab' && cardRef.current) {
+        const focusable = Array.from(
+          cardRef.current.querySelectorAll<HTMLElement>(focusableSelector));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(initialFocusFrame);
+      window.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onComplete]);
 
   const next = () => {
     if (step < TOTAL_STEPS - 1) setStep(step + 1);
@@ -44,16 +88,22 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
 
   return (
     <div className="onboarding">
-      <div className="onboarding__card">
-        <div className="onboarding__glow" />
+      <div
+        ref={cardRef}
+        className="onboarding__card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`onboarding-step-${step}-title`}
+      >
+        <div className="onboarding__glow" aria-hidden="true" />
         <button className="onboarding__skip" onClick={onComplete}>
           {t('onboarding.skip')}
         </button>
 
         <div className="onboarding__body">
           {/* ── Step 0: 欢迎 ──────────────────────────────────── */}
-          <div className={getStepClass(0)}>
-            <h2 className="onboarding__title">{t('onboarding.welcomeTitle')}</h2>
+          <div className={getStepClass(0)} aria-hidden={step !== 0}>
+            <h2 id="onboarding-step-0-title" ref={(node) => { titleRefs.current[0] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.welcomeTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.welcomeSubtitle')}</p>
             <div className="onboarding__features">
               <div className="onboarding__feature-card">
@@ -81,8 +131,8 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
           </div>
 
           {/* ── Step 1: 核心快捷键 ───────────────────────────── */}
-          <div className={getStepClass(1)}>
-            <h2 className="onboarding__title">{t('onboarding.shortcutsTitle')}</h2>
+          <div className={getStepClass(1)} aria-hidden={step !== 1}>
+            <h2 id="onboarding-step-1-title" ref={(node) => { titleRefs.current[1] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.shortcutsTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.shortcutsSubtitle')}</p>
             <div className="onboarding__shortcuts">
               <div className="onboarding__shortcut-row">
@@ -105,8 +155,8 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
           </div>
 
           {/* ── Step 2: 手势入门 ──────────────────────────────── */}
-          <div className={getStepClass(2)}>
-            <h2 className="onboarding__title">{t('onboarding.gestureTitle')}</h2>
+          <div className={getStepClass(2)} aria-hidden={step !== 2}>
+            <h2 id="onboarding-step-2-title" ref={(node) => { titleRefs.current[2] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.gestureTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.gestureSubtitle')}</p>
             <div className="onboarding__gestures">
               <div className="onboarding__gesture-card">
@@ -129,11 +179,11 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
           </div>
 
           {/* ── Step 3: 完成 ──────────────────────────────────── */}
-          <div className={getStepClass(3)}>
+          <div className={getStepClass(3)} aria-hidden={step !== 3}>
             <div className="onboarding__complete-icon">
               <Sparkles size={32} />
             </div>
-            <h2 className="onboarding__title">{t('onboarding.completeTitle')}</h2>
+            <h2 id="onboarding-step-3-title" ref={(node) => { titleRefs.current[3] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.completeTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.completeSubtitle')}</p>
           </div>
         </div>
@@ -146,7 +196,8 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
                 key={i}
                 className={`onboarding__dot ${i === step ? 'onboarding__dot--active' : ''}`}
                 onClick={() => setStep(i)}
-                aria-label={`Step ${i + 1}`}
+                aria-label={t('onboarding.stepLabel', { current: i + 1, total: TOTAL_STEPS })}
+                aria-current={i === step ? 'step' : undefined}
               />
             ))}
           </div>

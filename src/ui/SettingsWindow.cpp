@@ -10,12 +10,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "ui/SettingsWindow.h"
+#include "ui/WebViewWindowStyle.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/events/MainThreadDispatcher.h"
 #include "core/config/ConfigManager.h"
+#include "core/stats/PerformanceMonitor.h"
 #include "ui/WebViewEnvironmentManager.h"
 
 // WebView2 SDK 头文件
@@ -52,6 +55,7 @@ SettingsWindow& SettingsWindow::instance() {
 
 void SettingsWindow::show(HINSTANCE hInstance) {
     easy::core::TraceId::Scope scope;
+    m_showRequestedAt = std::chrono::steady_clock::now();
 
     if (m_hwnd && IsWindow(m_hwnd)) {
         // 窗口已存在，直接显示并激活
@@ -65,6 +69,13 @@ void SettingsWindow::show(HINSTANCE hInstance) {
             RECT bounds;
             GetClientRect(m_hwnd, &bounds);
             m_controller->put_Bounds(bounds);
+        }
+        if (m_webViewReady) {
+            easy::core::PerformanceMonitor::instance().recordLatency(
+                "settings.open",
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - m_showRequestedAt).count());
+            m_showRequestedAt = {};
         }
         
         LOG_INFO("设置窗口已激活（复用已有窗口）");
@@ -91,6 +102,7 @@ void SettingsWindow::preload(HINSTANCE hInstance) {
     }
 
     if (createWindow(hInstance)) {
+        m_initializationStartedAt = std::chrono::steady_clock::now();
         initializeWebView2(); // 初始化 WebView2，但不调用 ShowWindow，实现静默预热
         LOG_INFO("设置窗口后台静默预热完成");
     } else {
@@ -107,8 +119,7 @@ void SettingsWindow::hide() {
             m_controller->put_IsVisible(FALSE);
         }
         
-        easy::core::WinUtils::trimWorkingSet();
-        LOG_DEBUG("设置窗口已隐藏并收缩工作集物理内存");
+        LOG_DEBUG("设置窗口已隐藏");
     }
 }
 
@@ -153,23 +164,37 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 
     RegisterClassExW(&wc);  // 重复注册会返回 0，忽略即可
 
-    // 获取 DPI 缩放比例
-    float scale = easy::core::WinUtils::getDpiScale();
-    int scaledWidth = static_cast<int>(m_config.width * scale);
-    int scaledHeight = static_cast<int>(m_config.height * scale);
+    // Per-Monitor DPI Awareness V2: 依据当前活动显示器工作区与 DPI 计算初始自适应布局
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const RECT work = easy::core::dpi::workArea(monitor);
+    const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+    const float scale = easy::core::dpi::scaleForDpi(dpi);
 
-    // 计算居中位置
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int x = m_config.startCentered ? (screenW - scaledWidth) / 2 : CW_USEDEFAULT;
-    int y = m_config.startCentered ? (screenH - scaledHeight) / 2 : CW_USEDEFAULT;
+    SIZE targetSize = (m_config.width == SettingsWindowStyle::BaseWidth &&
+                       m_config.height == SettingsWindowStyle::BaseHeight)
+        ? SettingsWindowStyle::windowSizeForDpi(dpi)
+        : SIZE{easy::core::dpi::scaleMetric(m_config.width, scale),
+               easy::core::dpi::scaleMetric(m_config.height, scale)};
+
+    const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
+    const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - margin * 2);
+    const int maxH = (std::max)(1, static_cast<int>(work.bottom - work.top) - margin * 2);
+    targetSize.cx = (std::min)(targetSize.cx, static_cast<LONG>(maxW));
+    targetSize.cy = (std::min)(targetSize.cy, static_cast<LONG>(maxH));
+
+    const int x = m_config.startCentered
+        ? work.left + (work.right - work.left - targetSize.cx) / 2
+        : CW_USEDEFAULT;
+    const int y = m_config.startCentered
+        ? work.top + (work.bottom - work.top - targetSize.cy) / 2
+        : CW_USEDEFAULT;
 
     m_hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         SETTINGS_WINDOW_CLASS,
         L"EasyTools 设置",
         WS_OVERLAPPEDWINDOW,
-        x, y, scaledWidth, scaledHeight,
+        x, y, targetSize.cx, targetSize.cy,
         nullptr, nullptr, hInstance, this  // 传递 this 指针
     );
 
@@ -184,10 +209,9 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     DWORD backdropType = DWMSBT_MAINWINDOW; // Mica 材质
     DwmSetWindowAttribute(m_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
 
-    // 设置 DPI 感知的最小窗口尺寸
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
-    LOG_DEBUG("Win32 设置窗口已创建, size={}x{}", m_config.width, m_config.height);
+    LOG_DEBUG("Win32 设置窗口已创建, size={}x{} on DPI {}", targetSize.cx, targetSize.cy, dpi);
     return true;
 }
 
@@ -196,6 +220,9 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void SettingsWindow::initializeWebView2() {
+    if (m_initializationStartedAt == std::chrono::steady_clock::time_point{}) {
+        m_initializationStartedAt = std::chrono::steady_clock::now();
+    }
     const uint64_t generation = ++m_generation;
     WebViewEnvironmentManager::instance().acquire(
         [this, generation](HRESULT result, ICoreWebView2Environment* environment) {
@@ -348,6 +375,22 @@ void SettingsWindow::onWebView2Ready() {
                 BOOL success;
                 args->get_IsSuccess(&success);
                 if (success) {
+                    m_webViewReady = true;
+                    const auto now = std::chrono::steady_clock::now();
+                    if (m_initializationStartedAt != std::chrono::steady_clock::time_point{}) {
+                        easy::core::PerformanceMonitor::instance().recordLatency(
+                            "settings.navigation",
+                            std::chrono::duration<double, std::milli>(
+                                now - m_initializationStartedAt).count());
+                        m_initializationStartedAt = {};
+                    }
+                    if (m_showRequestedAt != std::chrono::steady_clock::time_point{}) {
+                        easy::core::PerformanceMonitor::instance().recordLatency(
+                            "settings.open",
+                            std::chrono::duration<double, std::milli>(
+                                now - m_showRequestedAt).count());
+                        m_showRequestedAt = {};
+                    }
                     LOG_INFO("WebView2 导航成功: {}", entryUrl);
                 } else {
                     COREWEBVIEW2_WEB_ERROR_STATUS status;
@@ -360,7 +403,6 @@ void SettingsWindow::onWebView2Ready() {
 
     m_webView->Navigate(wUrl.c_str());
 
-    m_webViewReady = true;
     LOG_INFO("WebView2 正在加载前端 UI: {}", entryUrl);
 }
 
@@ -453,11 +495,34 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
             return 0;  // 不调用 DestroyWindow
         }
 
+        case WM_DPICHANGED: {
+            const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+            if (suggested) {
+                SetWindowPos(hwnd, nullptr,
+                             suggested->left, suggested->top,
+                             suggested->right - suggested->left,
+                             suggested->bottom - suggested->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if (self && self->m_controller) {
+                RECT bounds{};
+                GetClientRect(hwnd, &bounds);
+                self->m_controller->put_Bounds(bounds);
+            }
+            return 0;
+        }
+
         case WM_GETMINMAXINFO: {
-            float scale = easy::core::WinUtils::getDpiScale(hwnd);
+            const unsigned dpi = easy::core::dpi::effectiveDpiForWindow(hwnd);
+            const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            const RECT work = easy::core::dpi::workArea(monitor);
+            const int workW = (std::max)(1, static_cast<int>(work.right - work.left));
+            const int workH = (std::max)(1, static_cast<int>(work.bottom - work.top));
+
+            const SIZE minSize = SettingsWindowStyle::minWindowSizeForDpi(dpi);
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
-            mmi->ptMinTrackSize.x = static_cast<int>(800 * scale);
-            mmi->ptMinTrackSize.y = static_cast<int>(600 * scale);
+            mmi->ptMinTrackSize.x = (std::min)(minSize.cx, static_cast<LONG>(workW * 0.9f));
+            mmi->ptMinTrackSize.y = (std::min)(minSize.cy, static_cast<LONG>(workH * 0.9f));
             return 0;
         }
 

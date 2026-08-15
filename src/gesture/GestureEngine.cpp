@@ -51,7 +51,10 @@ bool GestureEngine::start() {
 
     // 初始化手势轨迹覆盖层
     auto& trail = GestureTrailOverlay::instance();
-    trail.initialize(GetModuleHandleW(nullptr));
+    if (!trail.initialize(GetModuleHandleW(nullptr))) {
+        m_trailVisible = false;
+        LOG_WARN("手势轨迹覆盖层不可用，手势识别与动作执行将继续运行");
+    }
 
     m_state = GestureState::Idle;
     const auto defaultProfile = getProfile("default");
@@ -116,13 +119,9 @@ bool GestureEngine::setPaused(bool paused) {
                 cancelTracking();
             }
         }
-        // 深度释放手势全屏位图与 D2D 渲染资源，并主动修剪工作集归还系统物理内存
+        // 深度释放手势全屏位图与 D2D 渲染资源
         GestureTrailOverlay::instance().hide();
         GestureTrailOverlay::instance().releaseD2DResources();
-        easy::core::WinUtils::trimWorkingSet();
-    } else {
-        // 恢复时按需重新初始化 Direct2D 与内存 DC
-        GestureTrailOverlay::instance().createD2DResources();
     }
     LOG_INFO("手势引擎暂停状态: paused={}", paused);
     return true;
@@ -152,7 +151,9 @@ std::string GestureEngine::triggerButton() const {
 void GestureEngine::setTrailVisible(bool visible) {
     m_trailVisible = visible;
     if (!visible) {
-        GestureTrailOverlay::instance().hide();
+        auto& trail = GestureTrailOverlay::instance();
+        trail.hide();
+        trail.releaseD2DResources();
     }
     LOG_INFO("手势轨迹显示状态: visible={}", visible);
 }
@@ -276,16 +277,14 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
                 } else if (event.type == m_activeTriggerUp) {
                     endTracking(event);
                     return true; // 拦截触发按键的抬起事件
-                } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::RightDown) {
-                    // 如果在手势过程中按下了其他键，可能是取消手势
+                } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::LeftUp || event.type == MouseEventType::RightDown) {
+                    // 如果在手势过程中按下了其他键（如左键），立即取消手势并放行按键
                     if (event.type != m_activeTriggerDown) {
                         cancelTracking();
-                        // 取消时，可以将当前按键透传
                         return false;
                     }
                 }
-                // 追踪期间拦截滚轮等其他事件也可以
-                return true; 
+                return false;
 
             case GestureState::Executing:
                 // 动作执行中，忽略事件但不一定拦截，如果拦截可能会影响脚本的输入注入
@@ -308,6 +307,8 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_recognizer.addPoint(event.position.x, event.position.y);
     m_gestureStartWindow = event.foregroundWindow;
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
+    m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
+    m_lastRecognizedDirections.clear();
     m_state = GestureState::Tracking;
 
     // 开始轨迹可视化
@@ -324,12 +325,57 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
 void GestureEngine::updateTracking(const MouseEvent& event) {
     m_recognizer.addPoint(event.position.x, event.position.y);
 
-    // 实时轨迹可视化
+    // 实时轨迹与按键回显样式动作可视化
     if (m_trailVisible.load()) {
-        GestureTrailOverlay::instance().addPoint(
+        auto& trail = GestureTrailOverlay::instance();
+        trail.addPoint(
             static_cast<float>(event.position.x),
             static_cast<float>(event.position.y)
         );
+
+        const auto dirs = m_recognizer.currentDirections();
+        if (dirs != m_lastRecognizedDirections) {
+            m_lastRecognizedDirections = dirs;
+
+            std::string liveLabel;
+            if (!dirs.empty()) {
+                std::string modPrefix;
+                if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
+                if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
+                if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
+
+                std::string bareCode = directionsToCode(dirs);
+                std::string fullCode = modPrefix + bareCode;
+                std::string arrows = directionsToArrowString(dirs);
+
+                std::optional<GestureAction> action;
+                if (m_activeProfile) {
+                    if (!modPrefix.empty()) {
+                        action = m_activeProfile->findAction(fullCode);
+                        if (!action && m_activeProfile->name() != "default") {
+                            if (const auto fallback = getProfile("default")) {
+                                action = fallback->findAction(fullCode);
+                            }
+                        }
+                    }
+                    if (!action) {
+                        action = m_activeProfile->findAction(bareCode);
+                        if (!action && m_activeProfile->name() != "default") {
+                            if (const auto fallback = getProfile("default")) {
+                                action = fallback->findAction(bareCode);
+                            }
+                        }
+                    }
+                }
+
+                if (action) {
+                    liveLabel = modPrefix + arrows + "  " + action->name;
+                } else {
+                    liveLabel = modPrefix + arrows;
+                }
+            }
+            trail.setLiveAction(liveLabel);
+        }
     }
 
     // 回调（如有注册）
@@ -345,6 +391,10 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
 }
 
 void GestureEngine::endTracking(const MouseEvent& event) {
+    MouseHook::instance().resetTriggerState();
+    m_activeProfile.reset();
+    m_lastRecognizedDirections.clear();
+
     // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
     easy::core::TraceId::setCurrent(m_gestureTraceId);
 
@@ -502,6 +552,9 @@ void GestureEngine::reinjectTriggerClick() {
 }
 
 void GestureEngine::cancelTracking() {
+    MouseHook::instance().resetTriggerState();
+    m_activeProfile.reset();
+    m_lastRecognizedDirections.clear();
     if (m_trailVisible.load()) {
         GestureTrailOverlay::instance().hide();
     }

@@ -267,6 +267,28 @@ bool LuaEngine::initialize() {
     }
 }
 
+namespace {
+
+struct ExecutionGuard {
+    std::chrono::steady_clock::time_point startTime;
+    std::chrono::milliseconds timeout{5000};
+    std::atomic<bool>* cancelToken = nullptr;
+};
+static thread_local ExecutionGuard s_currentGuard;
+
+static void luaTimeoutHook(lua_State* L, lua_Debug*) {
+    auto now = std::chrono::steady_clock::now();
+    if (s_currentGuard.timeout.count() > 0 &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - s_currentGuard.startTime) > s_currentGuard.timeout) {
+        luaL_error(L, "Lua 脚本执行超时 (已触发沙箱安全中断)");
+    }
+    if (s_currentGuard.cancelToken && s_currentGuard.cancelToken->load(std::memory_order_relaxed)) {
+        luaL_error(L, "Lua 脚本已被取消");
+    }
+}
+
+}  // namespace
+
 void LuaEngine::shutdown() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_lua.reset();
@@ -274,32 +296,50 @@ void LuaEngine::shutdown() {
 }
 
 bool LuaEngine::runProtected(const std::function<sol::protected_function_result()>& fn,
-                             const char* context) {
+                             const char* context,
+                             std::chrono::milliseconds timeout,
+                             std::atomic<bool>* cancelToken) {
     if (!m_lua) {
         LOG_ERROR("[Lua] 引擎未初始化, 无法执行 {}", context);
         return false;
     }
+    lua_State* L = m_lua->lua_state();
+    s_currentGuard.startTime = std::chrono::steady_clock::now();
+    s_currentGuard.timeout = timeout;
+    s_currentGuard.cancelToken = cancelToken;
+
+    // 每执行 1000 条 Lua 字节码指令检查一次超时与取消
+    lua_sethook(L, luaTimeoutHook, LUA_MASKCOUNT, 1000);
+
+    bool ok = false;
     try {
         sol::protected_function_result r = fn();
         if (!r.valid()) {
             sol::error err = r;
             LOG_ERROR("[Lua] {} 执行错误: {}", context, err.what());
-            return false;
+        } else {
+            ok = true;
         }
-        return true;
     } catch (const std::exception& e) {
         LOG_ERROR("[Lua] {} 运行时异常: {}", context, e.what());
-        return false;
     }
+
+    lua_sethook(L, nullptr, 0, 0);
+    s_currentGuard.cancelToken = nullptr;
+    return ok;
 }
 
-bool LuaEngine::executeScript(const std::string& script) {
+bool LuaEngine::executeScript(const std::string& script,
+                              std::chrono::milliseconds timeout,
+                              std::atomic<bool>* cancelToken) {
     std::lock_guard<std::mutex> lock(m_mutex);
     return runProtected([&] { return m_lua->safe_script(script, sol::script_pass_on_error); },
-                        "executeScript");
+                        "executeScript", timeout, cancelToken);
 }
 
-bool LuaEngine::executeFile(const std::string& utf8Path) {
+bool LuaEngine::executeFile(const std::string& utf8Path,
+                            std::chrono::milliseconds timeout,
+                            std::atomic<bool>* cancelToken) {
     std::ifstream f(WinUtils::utf8ToWstring(utf8Path).c_str(), std::ios::binary);
     if (!f) {
         LOG_ERROR("[Lua] 无法打开脚本文件: {}", utf8Path);
@@ -307,7 +347,7 @@ bool LuaEngine::executeFile(const std::string& utf8Path) {
     }
     std::stringstream buf;
     buf << f.rdbuf();
-    return executeScript(buf.str());
+    return executeScript(buf.str(), timeout, cancelToken);
 }
 
 // ── API 绑定 ──────────────────────────────────────────────────────────────────

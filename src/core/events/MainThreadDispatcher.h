@@ -23,6 +23,7 @@ public:
     bool postDeferred(Task task);
     void drain();
     bool isOwnerThread() const;
+    bool isInitialized() const;
 
 private:
     MainThreadDispatcher() = default;

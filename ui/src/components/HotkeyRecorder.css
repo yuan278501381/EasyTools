@@ -8,13 +8,18 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 /* ── 容器 ─────────────────────────────────────────────────────────────────── */
+.hotkey-recorder-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
 .hotkey-recorder {
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-width: 180px;
-  min-height: 36px;
-  padding: 4px 10px;
+  min-width: 184px;
+  min-height: 42px;
+  padding: 5px 12px;
   border: 1.5px solid var(--input-border);
   border-radius: var(--radius-sm);
   background: var(--input-bg);
@@ -25,6 +30,8 @@
     background var(--transition-fast);
   user-select: none;
   outline: none;
+  color: var(--text-primary);
+  font: inherit;
 }
 
 .hotkey-recorder:hover {
@@ -45,7 +52,7 @@
 
 /* ── 占位文字 ─────────────────────────────────────────────────────────────── */
 .hotkey-recorder__placeholder {
-  font-size: 0.84rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
@@ -64,7 +71,7 @@
 .hotkey-recorder__keys {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
@@ -73,14 +80,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 10px;
-  min-width: 28px;
-  height: 26px;
+  padding: 3px 11px;
+  min-width: 32px;
+  height: 30px;
   border-radius: var(--radius-full);
   background: var(--bg-elevated);
   border: 1px solid var(--card-border);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.03em;
@@ -110,7 +117,7 @@
 
 /* ── 加号分隔符 ───────────────────────────────────────────────────────────── */
 .hotkey-recorder__separator {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   margin: 0 1px;
   font-weight: 500;
@@ -140,8 +147,8 @@
   line-height: 1;
 }
 
-.hotkey-recorder:hover .hotkey-recorder__clear,
-.hotkey-recorder--recording .hotkey-recorder__clear {
+.hotkey-recorder-wrap:hover .hotkey-recorder__clear,
+.hotkey-recorder-wrap:focus-within .hotkey-recorder__clear {
   opacity: 1;
 }
 

@@ -39,7 +39,7 @@ struct TrailStyle {
     float fadeOutMs     = 350.0f;   // 淡出时间(毫秒)
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
-    float resultFontSize = 14.0f;   // 结果文字大小
+    float resultFontSize = 20.0f;   // 结果文字大小 (按键回显质感尺寸)
 };
 
 class GestureTrailOverlay {
@@ -58,6 +58,9 @@ public:
     /// 添加轨迹点
     void addPoint(float x, float y);
 
+    /// 实时更新当前手势识别到的动作名称（按键回显风格）
+    void setLiveAction(const std::string& actionText);
+
     /// 结束手势轨迹，显示识别结果（如 "← 后退"）
     void endTrail(const std::string& resultText = "");
 
@@ -74,7 +77,7 @@ public:
     void hide();
 
     /// 设置样式
-    void setStyle(const TrailStyle& style) { m_style = style; }
+    void setStyle(const TrailStyle& style);
 
     /// 是否正在显示
     bool isVisible() const { return m_visible.load(); }
@@ -87,6 +90,7 @@ private:
 
     /// 创建 Layered Window
     bool createOverlayWindow(HINSTANCE hInstance);
+    bool updateTextFormat(float dpiScale);
 
     /// 渲染帧
     void render();
@@ -126,9 +130,12 @@ private:
     HBITMAP m_oldBitmap = nullptr;
     int m_width = 0;
     int m_height = 0;
+    float m_dpiScale = 1.0f;
+    float m_textScale = 0.0f;
     
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_lineBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBgBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBorderBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;

@@ -1,7 +1,9 @@
 #include "ui/TrayWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewWindowStyle.h"
 #include <wrl/event.h>
 #include <filesystem>
 #include <fstream>
@@ -18,42 +20,26 @@ static constexpr UINT WM_TRAY_VERIFY_DEACTIVATED = WM_APP + 41;
 
 namespace {
 
-RECT monitorWorkAreaForPoint(POINT point) {
-    RECT workArea{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
-    MONITORINFO monitorInfo{sizeof(monitorInfo)};
-    const HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-    if (monitor && GetMonitorInfoW(monitor, &monitorInfo)) {
-        workArea = monitorInfo.rcWork;
-    }
-    return workArea;
-}
-
-SIZE getTrayWindowSize(HWND hwnd = nullptr) {
-    float scale = 1.0f;
-    if (hwnd && IsWindow(hwnd)) {
-        UINT dpi = GetDpiForWindow(hwnd);
-        if (dpi > 0) scale = static_cast<float>(dpi) / 96.0f;
-    } else {
-        HDC screen = GetDC(nullptr);
-        if (screen) {
-            int dpi = GetDeviceCaps(screen, LOGPIXELSX);
-            ReleaseDC(nullptr, screen);
-            if (dpi > 0) scale = static_cast<float>(dpi) / 96.0f;
-        }
-    }
-    return {
-        static_cast<LONG>(190 * scale),
-        static_cast<LONG>(215 * scale)
-    };
+SIZE getTrayWindowSize(POINT anchor) {
+    const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
+    return TrayWindowStyle::windowSizeForDpi(
+        easy::core::dpi::effectiveDpiForMonitor(monitor));
 }
 
 POINT trayWindowOrigin(int x, int y, int width, int height) {
-    const RECT workArea = monitorWorkAreaForPoint({x, y});
-    const LONG maxX = std::max(workArea.left, workArea.right - static_cast<LONG>(width) - 10);
-    const LONG maxY = std::max(workArea.top, workArea.bottom - static_cast<LONG>(height) - 10);
+    const POINT anchor{x, y};
+    const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
+    const RECT workArea = easy::core::dpi::workArea(monitor);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    const LONG margin = easy::core::dpi::scaleMetric(
+        TrayWindowStyle::BaseScreenMargin, scale);
+    const LONG maxX = std::max(
+        workArea.left + margin, workArea.right - static_cast<LONG>(width) - margin);
+    const LONG maxY = std::max(
+        workArea.top + margin, workArea.bottom - static_cast<LONG>(height) - margin);
     return {
-        std::clamp<LONG>(static_cast<LONG>(x - width / 2), workArea.left + 10, maxX),
-        std::clamp<LONG>(static_cast<LONG>(y - height - 10), workArea.top + 10, maxY)
+        std::clamp<LONG>(static_cast<LONG>(x - width / 2), workArea.left + margin, maxX),
+        std::clamp<LONG>(static_cast<LONG>(y - height - margin), workArea.top + margin, maxY)
     };
 }
 
@@ -65,12 +51,10 @@ TrayWindow& TrayWindow::instance() {
 }
 
 void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
+    m_anchor = {x, y};
     if (m_hwnd && IsWindow(m_hwnd)) {
-        // 更新位置 (DPI 自适应)
-        const SIZE sz = getTrayWindowSize(m_hwnd);
-        const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
-        
-        SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, sz.cx, sz.cy, SWP_SHOWWINDOW);
+        updatePlacement();
+        ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
         m_visible = true;
 
@@ -101,7 +85,6 @@ void TrayWindow::hide() {
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
         }
-        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
@@ -136,7 +119,7 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
     wc.lpszClassName = TRAY_WINDOW_CLASS;
     RegisterClassExW(&wc);
 
-    const SIZE sz = getTrayWindowSize();
+    const SIZE sz = getTrayWindowSize({x, y});
     const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
 
     m_hwnd = CreateWindowExW(
@@ -154,6 +137,17 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
     SetLayeredWindowAttributes(m_hwnd, RGB(255, 0, 255), 255, LWA_COLORKEY);
 
     return true;
+}
+
+void TrayWindow::updatePlacement() {
+    if (!m_hwnd || m_updatingPlacement) return;
+    m_updatingPlacement = true;
+    const SIZE size = getTrayWindowSize(m_anchor);
+    const POINT origin = trayWindowOrigin(
+        m_anchor.x, m_anchor.y, size.cx, size.cy);
+    SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, size.cx, size.cy,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    m_updatingPlacement = false;
 }
 
 void TrayWindow::initializeWebView2() {
@@ -312,6 +306,12 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 }
             }
             break;
+        case WM_DPICHANGED:
+        case WM_DISPLAYCHANGE:
+            if (!inst.m_updatingPlacement && IsWindowVisible(hwnd)) {
+                inst.updatePlacement();
+            }
+            return 0;
         case WM_ACTIVATE:
             if (LOWORD(wParam) == WA_INACTIVE) {
                 PostMessageW(hwnd, WM_TRAY_VERIFY_DEACTIVATED, 0, 0);

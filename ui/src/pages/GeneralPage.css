@@ -28,6 +28,14 @@
   color: var(--text-primary);
 }
 
+.general-page__hotkey-warning {
+  display: block;
+  margin-top: 2px;
+  color: var(--warning);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
 .general-page__hotkey-control {
   width: min(250px, 48%);
 }

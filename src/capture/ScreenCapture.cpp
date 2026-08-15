@@ -8,17 +8,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/ScreenCapture.h"
+#include "capture/CaptureBackend.h"
 #include "core/events/EventBus.h"
 #include "core/events/MainThreadDispatcher.h"
 #include "capture/CaptureOverlay.h"
 #include "core/logger/Logger.h"
+#include "core/stats/PerformanceMonitor.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include "ocr/OcrEngine.h"
 #include "ocr/OcrResultWindow.h"
 #include "capture/ScrollCapture.h"
+#include "capture/ScrollCaptureOverlay.h"
 #include "capture/CaptureHistory.h"
+#include "capture/ShortcutHintOverlay.h"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -42,7 +46,8 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
     auto& overlay = CaptureOverlay::instance();
     overlay.initialize(hInstance);
     overlay.setClosedCallback([this]() { m_capturing.store(false); });
-    overlay.setCallback([this](const CaptureRegion& region, const cv::Mat& markedImage) {
+    overlay.setCallback([this](const CaptureRegion& region, const cv::Mat& markedImage,
+                               const CaptureCompletion& completion) {
         easy::core::TraceId::Scope scope;
         CaptureResult result;
         result.region = region;
@@ -50,18 +55,29 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
         result.imageHeight = markedImage.rows;
 
         // 复制到剪贴板
-        if (m_activeOptions.copyToClipboard && !markedImage.empty()) {
+        if ((m_activeOptions.copyToClipboard ||
+             completion.action == CaptureCompletionAction::Copy) &&
+            !markedImage.empty()) {
             copyToClipboard(markedImage);
             easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"截图已复制到剪贴板"});
         }
 
-        if (m_activeOptions.saveToFile && !markedImage.empty()) {
-            auto encoded = encodeImage(markedImage, m_activeOptions.format, m_activeOptions.quality);
+        const bool explicitSave = completion.action == CaptureCompletionAction::SaveAs &&
+                                  !completion.filePath.empty();
+        if ((explicitSave || m_activeOptions.saveToFile) && !markedImage.empty()) {
+            const auto format = explicitSave ? completion.format : m_activeOptions.format;
+            auto encoded = encodeImage(markedImage, format, m_activeOptions.quality);
             if (!encoded.empty()) {
-                std::string path = m_activeOptions.savePath.empty()
-                    ? generateSavePath(m_activeOptions.format)
-                    : m_activeOptions.savePath;
-                result.filePath = saveToFile(encoded, path, m_activeOptions.format);
+                const std::string path = explicitSave
+                    ? completion.filePath
+                    : m_activeOptions.savePath.empty()
+                        ? generateSavePath(format)
+                        : m_activeOptions.savePath;
+                result.filePath = saveToFile(encoded, path, format);
+                if (explicitSave) {
+                    easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{
+                        result.filePath.empty() ? L"截图保存失败" : L"截图已保存"});
+                }
             }
         }
 
@@ -128,10 +144,19 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
         });
     });
 
+    ScrollCapture::instance().setProgressCallback([](const cv::Mat& preview, int frameCount) {
+        ScrollCaptureOverlay::instance().updatePreview(preview, frameCount);
+    });
     ScrollCapture::instance().setCompletionCallback([this](const ScrollCaptureResult& result) {
         easy::core::TraceId::Scope scope;
+        ShortcutHintOverlay::instance().hide();
+        easy::core::MainThreadDispatcher::instance().post([] {
+            ScrollCaptureOverlay::instance().hide();
+        });
         if (!result.success || result.stitchedImage.empty()) {
             LOG_ERROR("长截图失败: {}", result.errorMessage);
+            easy::core::EventBus::instance().publish(
+                easy::core::ShowToastEvent{L"长截图失败，请重试"});
             return;
         }
 
@@ -167,6 +192,7 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
 
 void ScreenCapture::shutdown() {
     ScrollCapture::instance().shutdown();
+    ScrollCaptureOverlay::instance().hide();
     if (m_ocrWorker.joinable()) m_ocrWorker.join();
     m_ocrRunning.store(false);
     CaptureOverlay::instance().shutdown();
@@ -233,16 +259,18 @@ CaptureResult ScreenCapture::captureRegion(const CaptureRegion& region, const Ca
     easy::core::TraceId::Scope scope;
     CaptureResult result;
 
-    if (!region.isValid()) {
+    if (!region.isValid() || region.width > 32768 || region.height > 32768) {
         result.errorMessage = "无效的截图区域";
         LOG_ERROR("截图失败: {}", result.errorMessage);
         return result;
     }
 
     // 截取屏幕
-    auto image = captureScreenBitBlt(region);
+    easy::core::PerfTimer captureTimer("screenshot");
+    auto image = captureScreen(region);
+    captureTimer.stop();
     if (!image || image->empty()) {
-        result.errorMessage = "BitBlt 截图失败";
+        result.errorMessage = "屏幕截图失败";
         LOG_ERROR("截图失败: {}", result.errorMessage);
         return result;
     }
@@ -282,52 +310,95 @@ CaptureResult ScreenCapture::captureRegion(const CaptureRegion& region, const Ca
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 统一屏幕截取策略（加速后端 + 降级方案）
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::unique_ptr<cv::Mat> ScreenCapture::captureScreen(const CaptureRegion& region) {
+    auto backend = createCaptureBackend();
+    std::string backendError;
+    if (backend && backend->initialize(region, backendError)) {
+        CaptureFrameView frame;
+        if (backend->capture(frame, backendError) && frame.data && frame.width > 0 && frame.height > 0) {
+            auto mat = std::make_unique<cv::Mat>();
+            if (frame.format == CapturePixelFormat::Bgr24) {
+                *mat = cv::Mat(frame.height, frame.width, CV_8UC3, frame.data, frame.stride).clone();
+            } else {
+                cv::Mat bgra(frame.height, frame.width, CV_8UC4, frame.data, frame.stride);
+                cv::cvtColor(bgra, *mat, cv::COLOR_BGRA2BGR);
+            }
+            backend->releaseFrame();
+            backend->shutdown();
+            return mat;
+        }
+        backend->releaseFrame();
+        backend->shutdown();
+    }
+    return captureScreenBitBlt(region);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BitBlt 屏幕截取
 // ─────────────────────────────────────────────────────────────────────────────
 
 std::unique_ptr<cv::Mat> ScreenCapture::captureScreenBitBlt(const CaptureRegion& region) {
-    HDC screenDC = GetDC(nullptr);
-    HDC memDC = CreateCompatibleDC(screenDC);
-    HBITMAP hBitmap = CreateCompatibleBitmap(screenDC, region.width, region.height);
-    HGDIOBJ oldBitmap = SelectObject(memDC, hBitmap);
+    struct GdiCaptureGuard {
+        HDC screen = nullptr;
+        HDC memory = nullptr;
+        HBITMAP bitmap = nullptr;
+        HGDIOBJ previous = nullptr;
+        ~GdiCaptureGuard() {
+            if (memory && previous && previous != HGDI_ERROR) SelectObject(memory, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (memory) DeleteDC(memory);
+            if (screen) ReleaseDC(nullptr, screen);
+        }
+    } resources;
+
+    resources.screen = GetDC(nullptr);
+    if (!resources.screen) {
+        LOG_ERROR("获取屏幕 DC 失败, error={}", GetLastError());
+        return nullptr;
+    }
+    resources.memory = CreateCompatibleDC(resources.screen);
+    if (!resources.memory) {
+        LOG_ERROR("创建截图内存 DC 失败, error={}", GetLastError());
+        return nullptr;
+    }
+
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = region.width;
+    bitmapInfo.bmiHeader.biHeight = -region.height; // top-down，避免后续翻转
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 24;           // 直接得到 OpenCV BGR
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    resources.bitmap = CreateDIBSection(
+        resources.screen, &bitmapInfo, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    if (!resources.bitmap || !pixels) {
+        LOG_ERROR("创建截图 DIBSection 失败, error={}", GetLastError());
+        return nullptr;
+    }
+    resources.previous = SelectObject(resources.memory, resources.bitmap);
+    if (!resources.previous || resources.previous == HGDI_ERROR) {
+        LOG_ERROR("选择截图位图失败, error={}", GetLastError());
+        return nullptr;
+    }
 
     // BitBlt 截取屏幕区域
-    BOOL ok = BitBlt(memDC, 0, 0, region.width, region.height,
-                     screenDC, region.x, region.y, SRCCOPY | CAPTUREBLT);
+    BOOL ok = BitBlt(resources.memory, 0, 0, region.width, region.height,
+                     resources.screen, region.x, region.y, SRCCOPY | CAPTUREBLT);
 
     if (!ok) {
-        SelectObject(memDC, oldBitmap);
-        DeleteObject(hBitmap);
-        DeleteDC(memDC);
-        ReleaseDC(nullptr, screenDC);
         LOG_ERROR("BitBlt 失败, error={}", GetLastError());
         return nullptr;
     }
 
-    // 将 HBITMAP 数据读入 cv::Mat
-    BITMAPINFOHEADER bi{};
-    bi.biSize = sizeof(bi);
-    bi.biWidth = region.width;
-    bi.biHeight = -region.height;  // 负值 = top-down
-    bi.biPlanes = 1;
-    bi.biBitCount = 32;  // BGRA
-    bi.biCompression = BI_RGB;
-
-    auto image = std::make_unique<cv::Mat>(region.height, region.width, CV_8UC4);
-
-    GetDIBits(memDC, hBitmap, 0, region.height, image->data,
-              reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
-
-    // 清理 GDI 资源
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(hBitmap);
-    DeleteDC(memDC);
-    ReleaseDC(nullptr, screenDC);
-
-    // 转为 BGR（去掉 Alpha 通道，OpenCV 标准格式）
-    cv::Mat bgr;
-    cv::cvtColor(*image, bgr, cv::COLOR_BGRA2BGR);
-    *image = bgr;
+    // DIBSection 已经是顶向 BGR。由于位图内存随 HBITMAP 销毁，返回前仅需
+    // 一次紧凑 clone；相比旧路径省去 32 位临时图和 BGRA→BGR 颜色转换。
+    const size_t stride = (static_cast<size_t>(region.width) * 3U + 3U) & ~size_t{3U};
+    const cv::Mat dibView(region.height, region.width, CV_8UC3, pixels, stride);
+    auto image = std::make_unique<cv::Mat>(dibView.clone());
 
     return image;
 }

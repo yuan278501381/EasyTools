@@ -15,6 +15,10 @@ class CaptureRenderer {
 public:
     bool initialize(HWND hwnd, CaptureState& state);
     void shutdown();
+    /// Release HWND/render-target resources while retaining thread-safe,
+    /// device-independent factories for the next capture.
+    void releaseWindowResources();
+    bool updateDpiScale(float scale);
     
     void render(CaptureState& state);
     void invalidate() {
@@ -32,7 +36,6 @@ public:
     ID2D1HwndRenderTarget* getRenderTarget() const { return m_renderTarget.Get(); }
 private:
     bool createRenderResources(CaptureState& state);
-    void releaseRenderResources();
 
     void drawDimOverlay(const D2D1_RECT_F& selectionRect, CaptureState& state);
     void drawSelection(const D2D1_RECT_F& rect, CaptureState& state);
@@ -67,6 +70,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_infoTextFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textInputFormat;
+    float m_textScale = 0.0f;
 };
 
 } // namespace easy::capture

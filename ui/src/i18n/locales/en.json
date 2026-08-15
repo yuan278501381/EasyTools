@@ -30,11 +30,13 @@
     "gesture": "Mouse Gesture",
     "hotcorner": "Hot Corners",
     "stats": "Statistics",
+    "plugins": "Modules",
     "settings": "Settings",
     "about": "About"
   },
   "navSubtitle": {
     "stats": "Keystrokes and mouse usage activity",
+    "plugins": "Enable only the features you need",
     "gesture": "Configure gesture mappings and scopes",
     "hotcorner": "Trigger actions by moving mouse to screen corners",
     "capture": "Settings for screen capture and recording",
@@ -95,12 +97,55 @@
     "shortcutPinToggle": "Toggle click-through for the pin under the pointer",
     "shortcutPinPaste": "Create a pin from the clipboard",
     "shortcutPinHideAll": "Hide or show all pins",
-    "shortcutPinArrange": "Arrange all pins"
+    "shortcutPinArrange": "Arrange all pins",
+    "shortcutMuteSystemAudio": "Mute system audio while recording",
+    "shortcutMuteMicrophone": "Mute microphone while recording",
+    "shortcutUnavailable": "Currently unavailable; choose another combination"
+  },
+  "plugins": {
+    "capabilities": "Module capabilities",
+    "permissions": "View system access",
+    "abi": "ABI {{version}}",
+    "loadFailed": "Could not load module status",
+    "saveFailed": "Could not save the module setting",
+    "enabledSaved": "Module will be enabled after restart",
+    "disabledSaved": "Module will be disabled after restart",
+    "restartTitle": "Module changes are ready",
+    "restartHint": "Quit and reopen EasyTools. The current runtime state is unchanged until then.",
+    "resourceActive": "Loaded for this session",
+    "resourceInactive": "Not loaded this session",
+    "empty": "No modules were discovered",
+    "state": {
+      "running": "Running",
+      "disabled": "Disabled",
+      "pendingRestart": "Restart needed",
+      "failed": "Load failed"
+    },
+    "items": {
+      "gesture": {
+        "name": "Mouse Gestures",
+        "description": "Global mouse gestures, app scopes, hot corners, trails, and radial menus."
+      },
+      "capture": {
+        "name": "Capture & Recording",
+        "description": "Capture markup, pins, scrolling capture, screen recording, history, and offline OCR."
+      },
+      "search": {
+        "name": "Quick File Search",
+        "description": "Low-latency file lookup and reveal powered by the background NTFS index service."
+      },
+      "keycast": {
+        "name": "Keycast Overlay",
+        "description": "Show shortcuts on screen for tutorials, presentations, and live streams."
+      }
+    }
   },
   "capture": {
     "title": "Screen Capture Settings",
     "shortcut": "Capture Shortcut",
     "shortcutDesc": "Global hotkey to start screen capture",
+    "tryCapture": "Try capture",
+    "startFailed": "Could not start capture",
     "copyToClipboard": "Auto Copy",
     "copyToClipboardDesc": "Copy the image to clipboard automatically after capture",
     "saveToFile": "Auto Save",
@@ -115,6 +160,8 @@
     "showCrosshairDesc": "Display crosshair guides during capture",
     "autoDetectWindow": "Auto Detect Window",
     "autoDetectWindowDesc": "Highlight window boundaries on hover, click to capture the window",
+    "showShortcutHints": "Show contextual shortcut hints",
+    "showShortcutHintsDesc": "Show a subtle lower-left guide during capture, markup, scrolling capture, and recording",
     "formatPng": "PNG (Lossless)",
     "formatJpg": "JPEG (Compressed)",
     "formatWebp": "WebP (Efficient)",
@@ -140,12 +187,36 @@
     "title": "Recording Settings",
     "shortcut": "Recording Shortcut",
     "shortcutDesc": "Global hotkey to start/stop screen recording",
+    "pauseShortcut": "Pause or resume recording",
+    "pauseShortcutDesc": "Global hotkey that controls recording without using the floating toolbar",
     "format": "Recording Format",
     "formatDesc": "Output video format for screen recording",
     "fps": "Frame Rate",
     "fpsDesc": "Frame rate for screen recording",
     "bitrate": "Bitrate",
     "bitrateDesc": "Video bitrate (Mbps)",
+    "countdown": "Start countdown",
+    "countdownDesc": "Get ready after selecting a region; cancellation leaves no output file",
+    "countdownOff": "Start immediately",
+    "countdownSeconds": "{{count}} seconds",
+    "includeCursor": "Record mouse pointer",
+    "includeCursorDesc": "Composite the system pointer clearly into the video",
+    "showClickEffects": "Show click feedback",
+    "showClickEffectsDesc": "Display a subtle ripple when the left mouse button is clicked",
+    "captureSystemAudio": "Record system audio",
+    "captureSystemAudioDesc": "Capture speaker output; recording continues without the track if unavailable",
+    "captureMicrophone": "Record microphone",
+    "captureMicrophoneDesc": "Mix the microphone with system audio; device failure never stops video",
+    "systemAudioDevice": "System audio device",
+    "systemAudioDeviceDesc": "Choose an output device, or follow the Windows default automatically",
+    "microphoneDevice": "Microphone device",
+    "microphoneDeviceDesc": "Choose an input device, or follow the default communications device",
+    "defaultAudioDevice": "Follow system default",
+    "currentDefault": "Current default",
+    "unavailableAudioDevice": "Previous device unavailable (uses default when recording)",
+    "systemAudioVolume": "System audio level",
+    "microphoneVolume": "Microphone level",
+    "audioVolumeDesc": "Changes apply during recording; values above 100% may clip",
     "formatMp4H264": "MP4 (H.264)",
     "formatMp4H265": "MP4 (H.265/HEVC)",
     "formatGif": "GIF (Animated)",
@@ -399,7 +470,8 @@
   "sidebar": {
     "themeToggleLight": "Switch to light theme",
     "themeToggleDark": "Switch to dark theme",
-    "mainNav": "Main navigation"
+    "mainNav": "Main navigation",
+    "pluginDisabled": "This module is not loaded. Enable it under Modules, then restart."
   },
   "onboarding": {
     "welcomeTitle": "Welcome to EasyTools",
@@ -427,11 +499,13 @@
     "startButton": "Get Started",
     "next": "Next",
     "prev": "Previous",
-    "skip": "Skip"
+    "skip": "Skip",
+    "stepLabel": "Step {{current}} of {{total}}"
   },
   "hotkey": {
     "pressKeys": "Press a key combination...",
-    "bindFailed": "Could not apply this hotkey"
+    "bindFailed": "Could not apply this hotkey",
+    "clearBinding": "Clear hotkey binding"
   },
   "search": {
     "title": "Quick file search",

@@ -31,7 +31,9 @@
 
 #include <any>
 #include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <typeindex>
@@ -67,6 +69,7 @@ struct GestureRecognizedEvent {
 struct RecordingStateChangedEvent {
     int state = 0;       // 0=Idle, 1=Recording, 2=Paused
     int frameCount = 0;
+    int droppedFrameCount = 0;
     double durationSec = 0.0;
     std::string outputPath;
 };
@@ -131,14 +134,10 @@ public:
     /// @return 订阅 ID，用于取消订阅
     template <typename TEvent>
     SubscriptionId subscribe(std::function<void(const TEvent&)> handler) {
-        std::lock_guard lock(m_mutex);
         SubscriptionId id = m_nextId.fetch_add(1);
-
-        auto typeId = std::type_index(typeid(TEvent));
-        auto& subscribers = m_subscribers[typeId];
-
-        // 用 std::any 包装类型擦除后的 handler
-        auto wrappedHandler = [handler = std::move(handler)](const std::any& event) {
+        auto subscription = std::make_shared<Subscription>();
+        subscription->id = id;
+        subscription->handler = [handler = std::move(handler)](const std::any& event) {
             try {
                 handler(std::any_cast<const TEvent&>(event));
             } catch (const std::bad_any_cast& e) {
@@ -149,9 +148,12 @@ public:
                 LOG_ERROR("EventBus: 事件处理器未知异常");
             }
         };
-
-        subscribers.push_back({id, std::move(wrappedHandler)});
-        m_idToType.insert_or_assign(id, typeId);
+        {
+            std::lock_guard lock(m_mutex);
+            auto typeId = std::type_index(typeid(TEvent));
+            m_subscribers[typeId].push_back(std::move(subscription));
+            m_idToType.insert_or_assign(id, typeId);
+        }
 
         LOG_TRACE("EventBus: 订阅事件 [{}], subId={}", typeid(TEvent).name(), id);
         return id;
@@ -160,10 +162,13 @@ public:
     /// 取消订阅
     void unsubscribe(SubscriptionId id);
 
+    /// 取消订阅并等待正在执行的回调结束。插件卸载前必须使用此接口。
+    void unsubscribeAndWait(SubscriptionId id);
+
     /// 发布事件（同步分发给所有订阅者）
     template <typename TEvent>
     void publish(const TEvent& event) {
-        std::vector<Subscription> subscribersCopy;
+        std::vector<std::shared_ptr<Subscription>> subscribersCopy;
         {
             std::lock_guard lock(m_mutex);
             auto typeId = std::type_index(typeid(TEvent));
@@ -176,7 +181,26 @@ public:
 
         std::any wrappedEvent = event;
         for (const auto& sub : subscribersCopy) {
-            sub.handler(wrappedEvent);
+            bool acquired = false;
+            {
+                std::lock_guard lock(sub->stateMutex);
+                if (sub->accepting && sub->handler) {
+                    ++sub->activeCalls;
+                    acquired = true;
+                }
+            }
+            if (!acquired) continue;
+            try {
+                sub->handler(wrappedEvent);
+            } catch (...) {
+                std::lock_guard lock(sub->stateMutex);
+                if (--sub->activeCalls == 0) sub->idle.notify_all();
+                throw;
+            }
+            {
+                std::lock_guard lock(sub->stateMutex);
+                if (--sub->activeCalls == 0) sub->idle.notify_all();
+            }
         }
     }
 
@@ -198,12 +222,19 @@ private:
     EventBus& operator=(const EventBus&) = delete;
 
     struct Subscription {
-        SubscriptionId id;
+        SubscriptionId id = 0;
         std::function<void(const std::any&)> handler;
+        std::mutex stateMutex;
+        std::condition_variable idle;
+        size_t activeCalls = 0;
+        bool accepting = true;
     };
 
+    std::shared_ptr<Subscription> detach(SubscriptionId id);
+    static void retire(const std::shared_ptr<Subscription>& subscription, bool wait);
+
     mutable std::mutex m_mutex;
-    std::unordered_map<std::type_index, std::vector<Subscription>> m_subscribers;
+    std::unordered_map<std::type_index, std::vector<std::shared_ptr<Subscription>>> m_subscribers;
     std::unordered_map<SubscriptionId, std::type_index> m_idToType;
     std::atomic<SubscriptionId> m_nextId{1};
 };

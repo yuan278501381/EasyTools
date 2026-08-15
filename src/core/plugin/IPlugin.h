@@ -4,6 +4,7 @@
 #define EASYTOOLS_CORE_PLUGIN_IPLUGIN_H
 
 #include "core/utils/Export.h"
+#include "core/plugin/PluginManifest.h"
 
 namespace easy::core {
 
@@ -28,5 +29,6 @@ public:
 
 // 每个插件 DLL 必须实现并导出此函数
 // extern "C" __declspec(dllexport) easy::core::IPlugin* CreatePlugin();
+// extern "C" __declspec(dllexport) std::uint32_t GetPluginAbiVersion();
 
 #endif // EASYTOOLS_CORE_PLUGIN_IPLUGIN_H

@@ -19,6 +19,9 @@
 #include <functional>
 #include <atomic>
 #include <thread>
+#include <memory>
+
+#include "capture/CaptureBackend.h"
 
 namespace easy::capture {
 
@@ -46,8 +49,8 @@ struct ScrollCaptureResult {
     std::string errorMessage;
 };
 
-/// 进度回调
-using ScrollProgressCallback = std::function<void(const cv::Mat& currentStitched, int currentFrame)>;
+/// 进度回调仅传递最近的有界预览，避免每帧重建整张长图。
+using ScrollProgressCallback = std::function<void(const cv::Mat& recentPreview, int currentFrame)>;
 
 class ScrollCapture {
 public:
@@ -100,6 +103,7 @@ private:
 
     void appendFrame(const cv::Mat& frame);
     cv::Mat buildStitchedImage() const;
+    cv::Mat buildRecentPreview(int maxRows) const;
     void deliverCompletion(const std::string& error = {});
 
     std::atomic<bool> m_running{false};
@@ -107,6 +111,7 @@ private:
     ScrollCaptureOptions m_options;
     std::vector<cv::Mat> m_segments;
     cv::Mat m_lastFrame;
+    std::unique_ptr<ICaptureBackend> m_captureBackend;
     int m_frameCount = 0;
     std::atomic<bool> m_completionDelivered{false};
     std::atomic<bool> m_suppressCompletion{false};

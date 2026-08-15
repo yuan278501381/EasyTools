@@ -75,6 +75,9 @@ public:
     /// 钩子是否已安装
     bool isInstalled() const { return m_hookHandle != nullptr; }
 
+    /// 显式复位触发键状态（防止取消或异常时按键状态失步）
+    void resetTriggerState() noexcept;
+
 private:
     MouseHook() = default;
     MouseHook(const MouseHook&) = delete;

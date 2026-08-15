@@ -27,6 +27,8 @@ private:
     ~KeycastOverlay() = default;
 
     bool createResources();
+    void discardResources();
+    bool updatePlacement();
     void render();
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -45,6 +47,8 @@ private:
     HBITMAP m_oldBitmap = nullptr;
     int m_width = 800;
     int m_height = 160;
+    float m_dpiScale = 1.0f;
+    bool m_updatingPlacement = false;
 
     std::string m_currentText;
     std::string m_rawLastKey;

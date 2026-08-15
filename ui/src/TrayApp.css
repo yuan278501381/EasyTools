@@ -17,7 +17,7 @@
   --tray-border: rgba(0, 0, 0, 0.10);
 }
 
-body {
+html[data-surface="tray"] body {
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -25,7 +25,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-#root {
+html[data-surface="tray"] #root {
   padding: 4px;
   height: 100%;
   box-sizing: border-box;

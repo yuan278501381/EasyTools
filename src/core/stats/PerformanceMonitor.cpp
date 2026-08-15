@@ -8,8 +8,11 @@
 
 #include <windows.h>
 #include <psapi.h>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iomanip>
+#include <numeric>
 #include <sstream>
 
 namespace easy::core {
@@ -23,6 +26,12 @@ nlohmann::json PerfMetrics::toJson() const {
     j["memoryMB"]            = memoryMB;
     j["privateMemoryMB"]     = privateMemoryMB;
     j["cpuPercent"]          = cpuPercent;
+    j["handleCount"]         = handleCount;
+    j["gdiObjectCount"]      = gdiObjectCount;
+    j["userObjectCount"]     = userObjectCount;
+    j["ioReadBytes"]         = ioReadBytes;
+    j["ioWriteBytes"]        = ioWriteBytes;
+    j["uptimeSec"]           = uptimeSec;
     j["screenshotLatencyMs"] = screenshotLatencyMs;
     j["gestureLatencyMs"]    = gestureLatencyMs;
     j["uiRenderLatencyMs"]   = uiRenderLatencyMs;
@@ -33,6 +42,18 @@ nlohmann::json PerfMetrics::toJson() const {
         plugins[name] = ms;
     }
     j["pluginInitMs"] = plugins;
+
+    nlohmann::json latencyJson = nlohmann::json::object();
+    for (const auto& [name, summary] : latencies) {
+        latencyJson[name] = {
+            {"lastMs", summary.lastMs},
+            {"meanMs", summary.meanMs},
+            {"p95Ms", summary.p95Ms},
+            {"maxMs", summary.maxMs},
+            {"sampleCount", summary.sampleCount}
+        };
+    }
+    j["latencies"] = std::move(latencyJson);
     return j;
 }
 
@@ -78,10 +99,11 @@ PerformanceMonitor::~PerformanceMonitor() {
 }
 
 void PerformanceMonitor::start(int intervalMs) {
-    if (m_running.load()) return;
+    bool expected = false;
+    if (!m_running.compare_exchange_strong(expected, true)) return;
 
-    m_intervalMs = intervalMs;
-    m_running = true;
+    m_intervalMs = std::clamp(intervalMs, 250, 60'000);
+    m_startedAt = std::chrono::steady_clock::now();
 
     // 初始化 CPU 计算基准
     FILETIME creation, exitTime, kernel, user;
@@ -95,23 +117,27 @@ void PerformanceMonitor::start(int intervalMs) {
     m_lastSampleTime = GetTickCount64();
 
     m_sampleThread = std::thread(&PerformanceMonitor::sampleLoop, this);
-    LOG_INFO("PerformanceMonitor: 启动, 采样间隔={}ms", intervalMs);
+    LOG_INFO("PerformanceMonitor: 启动, 采样间隔={}ms", m_intervalMs);
 }
 
 void PerformanceMonitor::stop() {
-    m_running = false;
+    const bool wasRunning = m_running.exchange(false);
+    m_wakeCv.notify_all();
     if (m_sampleThread.joinable()) {
         m_sampleThread.join();
     }
-    LOG_INFO("PerformanceMonitor: 已停止");
+    if (wasRunning) LOG_INFO("PerformanceMonitor: 已停止");
 }
 
 PerfMetrics PerformanceMonitor::getMetrics() const {
     std::lock_guard lock(m_mutex);
-    return m_currentMetrics;
+    auto metrics = m_currentMetrics;
+    metrics.latencies = latencySummariesLocked();
+    return metrics;
 }
 
 void PerformanceMonitor::recordLatency(const std::string& subsystem, double ms) {
+    if (subsystem.empty() || subsystem.size() > 128 || !std::isfinite(ms) || ms < 0.0) return;
     std::lock_guard lock(m_mutex);
     if (subsystem == "screenshot") {
         m_currentMetrics.screenshotLatencyMs = ms;
@@ -120,6 +146,10 @@ void PerformanceMonitor::recordLatency(const std::string& subsystem, double ms) 
     } else if (subsystem == "ui_render") {
         m_currentMetrics.uiRenderLatencyMs = ms;
     }
+    auto& samples = m_latencySamples[subsystem];
+    samples.push_back(ms);
+    if (samples.size() > MAX_LATENCY_SAMPLES) samples.pop_front();
+    ++m_latencySampleCounts[subsystem];
     LOG_TRACE("PerformanceMonitor: 记录延迟 [{}] = {:.2f} ms", subsystem, ms);
 }
 
@@ -139,10 +169,11 @@ std::vector<PerfMetrics> PerformanceMonitor::getHistory(int count) const {
 void PerformanceMonitor::sampleLoop() {
     while (m_running.load()) {
         sampleOnce();
-        // 使用小步休眠以快速响应 stop()
-        for (int elapsed = 0; elapsed < m_intervalMs && m_running.load(); elapsed += 100) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        // One waitable sleep per interval keeps idle wakeups and battery use low,
+        // while stop() can still wake the thread immediately.
+        std::unique_lock wakeLock(m_wakeMutex);
+        m_wakeCv.wait_for(wakeLock, std::chrono::milliseconds(m_intervalMs),
+                          [this] { return !m_running.load(); });
     }
 }
 
@@ -151,6 +182,11 @@ void PerformanceMonitor::sampleOnce() {
 
     sampleMemory(metrics);
     sampleCpu(metrics);
+    sampleProcessResources(metrics);
+    if (m_startedAt != std::chrono::steady_clock::time_point{}) {
+        metrics.uptimeSec = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - m_startedAt).count();
+    }
 
     // 时间戳
     auto now = std::chrono::system_clock::now();
@@ -168,6 +204,7 @@ void PerformanceMonitor::sampleOnce() {
         metrics.gestureLatencyMs    = m_currentMetrics.gestureLatencyMs;
         metrics.uiRenderLatencyMs   = m_currentMetrics.uiRenderLatencyMs;
         metrics.pluginInitMs        = m_currentMetrics.pluginInitMs;
+        metrics.latencies           = latencySummariesLocked();
 
         m_currentMetrics = metrics;
 
@@ -176,6 +213,31 @@ void PerformanceMonitor::sampleOnce() {
             m_history.erase(m_history.begin());
         }
     }
+}
+
+std::unordered_map<std::string, LatencySummary>
+PerformanceMonitor::latencySummariesLocked() const {
+    std::unordered_map<std::string, LatencySummary> summaries;
+    summaries.reserve(m_latencySamples.size());
+    for (const auto& [name, samples] : m_latencySamples) {
+        if (samples.empty()) continue;
+        std::vector<double> sorted(samples.begin(), samples.end());
+        std::sort(sorted.begin(), sorted.end());
+        const auto rank = static_cast<std::size_t>(
+            std::ceil(sorted.size() * 0.95));
+        LatencySummary summary;
+        summary.lastMs = samples.back();
+        summary.meanMs = std::accumulate(samples.begin(), samples.end(), 0.0) /
+                         static_cast<double>(samples.size());
+        summary.p95Ms = sorted[std::min(sorted.size() - 1, std::max<std::size_t>(1, rank) - 1)];
+        summary.maxMs = sorted.back();
+        if (const auto count = m_latencySampleCounts.find(name);
+            count != m_latencySampleCounts.end()) {
+            summary.sampleCount = count->second;
+        }
+        summaries.emplace(name, summary);
+    }
+    return summaries;
 }
 
 void PerformanceMonitor::sampleMemory(PerfMetrics& metrics) {
@@ -220,6 +282,21 @@ void PerformanceMonitor::sampleCpu(PerfMetrics& metrics) {
     m_lastKernelTime = k.QuadPart;
     m_lastUserTime   = u.QuadPart;
     m_lastSampleTime = currentTime;
+}
+
+void PerformanceMonitor::sampleProcessResources(PerfMetrics& metrics) {
+    DWORD handleCount = 0;
+    if (GetProcessHandleCount(GetCurrentProcess(), &handleCount)) {
+        metrics.handleCount = handleCount;
+    }
+    metrics.gdiObjectCount = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    metrics.userObjectCount = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+
+    IO_COUNTERS io{};
+    if (GetProcessIoCounters(GetCurrentProcess(), &io)) {
+        metrics.ioReadBytes = io.ReadTransferCount;
+        metrics.ioWriteBytes = io.WriteTransferCount;
+    }
 }
 
 }  // namespace easy::core

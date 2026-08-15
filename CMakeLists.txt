@@ -38,6 +38,25 @@ function(easytools_add_version_resource TARGET DESCRIPTION ORIGINAL_FILENAME FIL
     target_sources(${TARGET} PRIVATE "${EASYTOOLS_VERSION_RESOURCE}")
 endfunction()
 
+# Generate a metadata sidecar next to each plugin DLL. The host reads this file
+# before LoadLibrary, so disabled or incompatible plugins never map their heavy
+# dependencies into the process.
+function(easytools_add_plugin_manifest TARGET)
+    set(MANIFEST_OUTPUT "${CMAKE_BINARY_DIR}/bin/plugins/${TARGET}.plugin.json")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/plugins/${TARGET}.plugin.json.in"
+        "${MANIFEST_OUTPUT}"
+        @ONLY
+    )
+    add_custom_command(TARGET ${TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MANIFEST_OUTPUT}"
+            "$<TARGET_FILE_DIR:${TARGET}>/${TARGET}.plugin.json"
+        COMMENT "Deploying ${TARGET} plugin manifest..."
+    )
+    install(FILES "${MANIFEST_OUTPUT}" DESTINATION bin/plugins)
+endfunction()
+
 # ── 输出目录 ──────────────────────────────────────────────────────────────────
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -119,16 +138,18 @@ target_link_libraries(EasyCore PUBLIC
 # ── 2. Plugin_Gesture (动态库) ────────────────────────────────────────────────
 add_library(Plugin_Gesture SHARED ${GESTURE_SOURCES})
 easytools_add_version_resource(Plugin_Gesture "EasyTools Gesture Plugin" "Plugin_Gesture.dll" VFT_DLL)
+easytools_add_plugin_manifest(Plugin_Gesture)
 target_compile_definitions(Plugin_Gesture PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Gesture PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Gesture PRIVATE EasyCore
-    d2d1 dwrite windowscodecs user32 shell32
+    d2d1 dwrite windowscodecs user32 shell32 shcore
 )
 set_target_properties(Plugin_Gesture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
 # ── 3. Plugin_Capture (动态库) ────────────────────────────────────────────────
 add_library(Plugin_Capture SHARED ${CAPTURE_SOURCES} ${OCR_SOURCES})
 easytools_add_version_resource(Plugin_Capture "EasyTools Capture Plugin" "Plugin_Capture.dll" VFT_DLL)
+easytools_add_plugin_manifest(Plugin_Capture)
 target_compile_definitions(Plugin_Capture PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Capture PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Capture PRIVATE EasyCore
@@ -148,16 +169,18 @@ set_target_properties(Plugin_Capture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAK
 # ── 3.5. Plugin_Keycast (动态库) ────────────────────────────────────────────────
 add_library(Plugin_Keycast SHARED ${KEYCAST_SOURCES})
 easytools_add_version_resource(Plugin_Keycast "EasyTools Keycast Plugin" "Plugin_Keycast.dll" VFT_DLL)
+easytools_add_plugin_manifest(Plugin_Keycast)
 target_compile_definitions(Plugin_Keycast PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Keycast PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Keycast PRIVATE EasyCore
-    d2d1 dwrite msimg32 user32 shell32
+    d2d1 dwrite msimg32 user32 shell32 shcore
 )
 set_target_properties(Plugin_Keycast PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
 # ── 3.6. Plugin_Search (动态库) ────────────────────────────────────────────────
 add_library(Plugin_Search SHARED ${SEARCH_SOURCES})
 easytools_add_version_resource(Plugin_Search "EasyTools Search Plugin" "Plugin_Search.dll" VFT_DLL)
+easytools_add_plugin_manifest(Plugin_Search)
 target_compile_definitions(Plugin_Search PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Search PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog)
@@ -169,7 +192,32 @@ add_executable(EasyTools WIN32 ${HOST_SOURCES})
 easytools_add_version_resource(EasyTools "EasyTools Desktop Productivity Toolkit" "EasyTools.exe" VFT_APP)
 target_include_directories(EasyTools PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(EasyTools PRIVATE EasyCore
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore
+)
+
+# A runnable host build must contain the same validated plugin bundle that the
+# installer ships. Depending on every plugin also prevents stale DLLs from a
+# previous build being paired with missing or outdated manifests.
+add_dependencies(EasyTools Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search)
+add_custom_command(TARGET EasyTools POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:EasyTools>/plugins"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:Plugin_Gesture>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_Gesture>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:Plugin_Gesture>/Plugin_Gesture.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_Gesture.plugin.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:Plugin_Capture>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_Capture>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:Plugin_Capture>/Plugin_Capture.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_Capture.plugin.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:Plugin_Keycast>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_Keycast>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:Plugin_Keycast>/Plugin_Keycast.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_Keycast.plugin.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:Plugin_Search>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_Search>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:Plugin_Search>/Plugin_Search.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_Search.plugin.json"
+    COMMENT "Deploying validated plugin bundle beside EasyTools..."
 )
 
 if(EXISTS "${WEBVIEW2_DIR}")
@@ -192,13 +240,43 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(EasyToolsTests
         tests/unit/test_main.cpp
+        src/capture/AudioCapture.cpp
+        src/capture/CaptureBackend.cpp
+        src/capture/CaptureToolbarLayout.cpp
+        src/capture/CursorOverlay.cpp
+        src/capture/ScreenRecorder.cpp
+        src/capture/ScrollCapture.cpp
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
         src/service/PinyinEngine.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore user32 shell32)
+    target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore user32 shell32 gdi32 d3d11 dxgi ole32
+        ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
+        ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)
+
+    # Manual visual QA helper. It uses the production Direct2D renderer, writes
+    # a bitmap preview, and verifies repeated show/hide does not leak GDI/USER
+    # objects. EXCLUDE_FROM_ALL keeps it out of normal builds and installers.
+    add_executable(EasyToolsShortcutHintPreview EXCLUDE_FROM_ALL
+        tests/visual/shortcut_hint_preview.cpp
+        src/capture/ShortcutHintOverlay.cpp
+    )
+    target_include_directories(EasyToolsShortcutHintPreview PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(EasyToolsShortcutHintPreview PRIVATE EasyCore
+        d2d1 dwrite shcore user32 gdi32 dwmapi)
+
+    add_executable(EasyToolsNativeOverlayPreview EXCLUDE_FROM_ALL
+        tests/visual/native_overlay_preview.cpp
+        src/keycast/KeycastOverlay.cpp
+        src/ocr/OcrResultWindow.cpp
+        src/ui/ToastOverlay.cpp
+    )
+    target_include_directories(EasyToolsNativeOverlayPreview PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(EasyToolsNativeOverlayPreview PRIVATE EasyCore
+        d2d1 dwrite shcore user32 gdi32 dwmapi msimg32)
 endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")

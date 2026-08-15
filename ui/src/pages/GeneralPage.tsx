@@ -17,8 +17,6 @@ interface GeneralSettings {
   autoStart: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
-  keycastEnabled: boolean;
-  keycastOnlyShortcuts: boolean;
   language: string;
   logLevel: string;
   theme: string;
@@ -27,6 +25,7 @@ interface GeneralSettings {
 interface HotkeyEntry {
   name: string;
   shortcut: string;
+  registered?: boolean;
 }
 
 interface OperationResult {
@@ -41,8 +40,6 @@ export const GeneralPage: FC = () => {
     autoStart: false,
     minimizeToTray: true,
     checkUpdates: true,
-    keycastEnabled: false,
-    keycastOnlyShortcuts: true,
     language: 'auto',
     logLevel: 'info',
     theme: 'dark',
@@ -147,6 +144,7 @@ export const GeneralPage: FC = () => {
   const hotkeyNameMap: Record<string, string> = {
     Screenshot: t('onboarding.shortcutCapture'),
     Record: t('onboarding.shortcutRecord'),
+    'Record Pause': t('recording.pauseShortcut'),
     OCR: t('onboarding.shortcutOcr'),
     'Pause Gestures': t('onboarding.shortcutGesturePause'),
     'Toggle Search': t('search.title'),
@@ -154,6 +152,8 @@ export const GeneralPage: FC = () => {
     'Pin Paste': t('general.shortcutPinPaste'),
     'Pin Hide All': t('general.shortcutPinHideAll'),
     'Pin Arrange': t('general.shortcutPinArrange'),
+    'Mute System Audio': t('general.shortcutMuteSystemAudio'),
+    'Mute Microphone': t('general.shortcutMuteMicrophone'),
     capture: t('onboarding.shortcutCapture'),
     recording: t('onboarding.shortcutRecord'),
     ocr: t('onboarding.shortcutOcr'),
@@ -162,6 +162,7 @@ export const GeneralPage: FC = () => {
 
   const rebindHotkey = async (entry: HotkeyEntry, shortcut: string) => {
     const previous = entry.shortcut;
+    const previousRegistered = entry.registered;
     setHotkeys(items => items.map(item =>
       item.name === entry.name ? { ...item, shortcut } : item));
     try {
@@ -170,12 +171,13 @@ export const GeneralPage: FC = () => {
         hotkey: shortcut,
       });
       if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
+      const applied = result.shortcut ?? shortcut;
       setHotkeys(items => items.map(item =>
-        item.name === entry.name ? { ...item, shortcut: result.shortcut || shortcut } : item));
+        item.name === entry.name ? { ...item, shortcut: applied, registered: Boolean(applied) } : item));
     } catch (error) {
       setHotkeys(items => items.map(item =>
         item.name === entry.name && item.shortcut === shortcut
-          ? { ...item, shortcut: previous }
+          ? { ...item, shortcut: previous, registered: previousRegistered }
           : item));
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
     }
@@ -215,22 +217,6 @@ export const GeneralPage: FC = () => {
 
       <SettingGroup title={t('general.uiAndLang')} icon={<Globe size={20} strokeWidth={2.5} />}>
         <Card>
-          <Toggle
-            id="keycast"
-            label={t('general.keycast')}
-            description={t('general.keycastDesc')}
-            checked={settings.keycastEnabled}
-            onChange={(v) => updateSetting('keycastEnabled', v)}
-          />
-          {settings.keycastEnabled && (
-            <Toggle
-              id="keycastOnlyShortcuts"
-              label={t('general.keycastOnlyShortcuts')}
-              description={t('general.keycastOnlyShortcutsDesc')}
-              checked={settings.keycastOnlyShortcuts}
-              onChange={(v) => updateSetting('keycastOnlyShortcuts', v)}
-            />
-          )}
           <SettingRow label={t('general.language')} description={t('general.languageDesc')}>
             <Select
               id="language"
@@ -288,11 +274,17 @@ export const GeneralPage: FC = () => {
                 <div key={hk.name} className="general-page__hotkey-item">
                   <span className="general-page__hotkey-name">
                     {hotkeyNameMap[hk.name] ?? hk.name}
+                    {hk.shortcut && hk.registered === false && (
+                      <span className="general-page__hotkey-warning" role="status">
+                        {t('general.shortcutUnavailable')}
+                      </span>
+                    )}
                   </span>
                   <div className="general-page__hotkey-control">
                     <HotkeyRecorder
                       id={`general-hotkey-${hk.name.replace(/\s+/g, '-').toLowerCase()}`}
                       value={hk.shortcut}
+                      ariaLabel={hotkeyNameMap[hk.name] ?? hk.name}
                       onChange={(value) => void rebindHotkey(hk, value)}
                     />
                   </div>

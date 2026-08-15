@@ -1,11 +1,21 @@
 #include "ScrollCaptureOverlay.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
+#include "core/utils/WinUtils.h"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
+#include <cmath>
 
 #pragma comment(lib, "d2d1.lib")
 
 namespace easy::capture {
+
+namespace {
+float scrollOverlayDpiScale(const RECT& rect) {
+    POINT center{(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2};
+    return easy::core::dpi::scaleAtPoint(center);
+}
+}  // namespace
 
 bool ScrollCaptureOverlay::initialize() {
     if (m_hwnd) return true;
@@ -35,8 +45,10 @@ bool ScrollCaptureOverlay::initialize() {
 
     if (!m_hwnd) return false;
 
-    // VERY IMPORTANT: Exclude from screen capture so it doesn't pollute the scroll capture frames!
-    SetWindowDisplayAffinity(m_hwnd, WDA_EXCLUDEFROMCAPTURE);
+    // Exclude the preview and progress chrome from the scroll-capture source.
+    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
+        LOG_WARN("当前 Windows 版本无法从捕获中排除长截图预览: error={}", GetLastError());
+    }
 
     if (!createResources()) return false;
     
@@ -76,12 +88,14 @@ bool ScrollCaptureOverlay::createResources() {
 }
 
 void ScrollCaptureOverlay::show(RECT captureRect) {
-    if (!initialize()) return;
     m_captureRect = captureRect;
+    m_dpiScale = scrollOverlayDpiScale(captureRect);
+    if (!initialize()) return;
     
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_stitched = cv::Mat();
+        m_preview.release();
+        m_previewDirty = false;
         m_d2dBitmap.Reset();
         m_frameCount = 0;
         m_lastFlashTime = GetTickCount64();
@@ -96,15 +110,35 @@ void ScrollCaptureOverlay::show(RECT captureRect) {
 
 void ScrollCaptureOverlay::updatePreview(const cv::Mat& stitched, int frameCount) {
     if (!m_hwnd) return;
-    
+    cv::Mat previewBgra;
+    if (!stitched.empty()) {
+        const int targetWidth = std::max(1, static_cast<int>(std::lround(200.0f * m_dpiScale)));
+        const int maxHeight = std::max(
+            static_cast<int>(std::lround(120.0f * m_dpiScale)), std::min(
+            static_cast<int>(std::lround(480.0f * m_dpiScale)),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN) -
+                static_cast<int>(std::lround(80.0f * m_dpiScale))));
+        const int sourceRows = std::max(1, maxHeight * stitched.cols / targetWidth);
+        const int rows = std::min(stitched.rows, sourceRows);
+        const cv::Mat recent = stitched(cv::Rect(0, stitched.rows - rows, stitched.cols, rows));
+        const double scale = std::min(
+            static_cast<double>(targetWidth) / recent.cols,
+            static_cast<double>(maxHeight) / recent.rows);
+        cv::Mat resized;
+        cv::resize(recent, resized, cv::Size(
+            std::max(1, static_cast<int>(recent.cols * scale)),
+            std::max(1, static_cast<int>(recent.rows * scale))), 0, 0, cv::INTER_AREA);
+        cv::cvtColor(resized, previewBgra, cv::COLOR_BGR2BGRA);
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (!stitched.empty()) {
-            cv::cvtColor(stitched, m_stitched, cv::COLOR_BGR2BGRA);
-        }
+        m_preview = std::move(previewBgra);
         m_frameCount = frameCount;
         m_lastFlashTime = GetTickCount64();
-        m_d2dBitmap.Reset(); // forces recreate in render
+        // D2D resources belong to the window thread. render() consumes this flag
+        // and recreates the bitmap there instead of releasing COM state here.
+        m_previewDirty = true;
     }
 }
 
@@ -156,7 +190,7 @@ void ScrollCaptureOverlay::render() {
     );
 
     // Draw border
-    m_renderTarget->DrawRectangle(&cRect, m_brushBorder.Get(), 3.0f);
+    m_renderTarget->DrawRectangle(&cRect, m_brushBorder.Get(), 3.0f * m_dpiScale);
 
     // Draw Flash
     if (flashOpacity > 0.01f) {
@@ -166,28 +200,32 @@ void ScrollCaptureOverlay::render() {
 
     // Draw thumbnail preview on the right side of the capture rect
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_stitched.empty()) {
+    if (!m_preview.empty()) {
+        if (m_previewDirty) {
+            m_d2dBitmap.Reset();
+            m_previewDirty = false;
+        }
         if (!m_d2dBitmap) {
             D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
                 D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
             );
             m_renderTarget->CreateBitmap(
-                D2D1::SizeU(m_stitched.cols, m_stitched.rows),
-                m_stitched.data,
-                m_stitched.step,
+                D2D1::SizeU(m_preview.cols, m_preview.rows),
+                m_preview.data,
+                static_cast<UINT32>(m_preview.step),
                 &props,
                 &m_d2dBitmap
             );
         }
 
         if (m_d2dBitmap) {
-            float thumbWidth = 200.0f;
-            float scale = thumbWidth / m_stitched.cols;
-            float thumbHeight = m_stitched.rows * scale;
+            float thumbWidth = 200.0f * m_dpiScale;
+            float scale = thumbWidth / m_preview.cols;
+            float thumbHeight = m_preview.rows * scale;
             
-            float thumbX = cRect.right + 20.0f;
+            float thumbX = cRect.right + 20.0f * m_dpiScale;
             if (thumbX + thumbWidth > width) {
-                thumbX = cRect.left - thumbWidth - 20.0f; // try left side
+                thumbX = cRect.left - thumbWidth - 20.0f * m_dpiScale; // try left side
             }
             float thumbY = cRect.top;
 
@@ -195,7 +233,11 @@ void ScrollCaptureOverlay::render() {
             
             // Draw background for thumbnail
             D2D1_ROUNDED_RECT rRect = D2D1::RoundedRect(
-                D2D1::RectF(tRect.left - 5, tRect.top - 5, tRect.right + 5, tRect.bottom + 5), 8.0f, 8.0f
+                D2D1::RectF(tRect.left - 5.0f * m_dpiScale,
+                            tRect.top - 5.0f * m_dpiScale,
+                            tRect.right + 5.0f * m_dpiScale,
+                            tRect.bottom + 5.0f * m_dpiScale),
+                8.0f * m_dpiScale, 8.0f * m_dpiScale
             );
             m_renderTarget->FillRoundedRectangle(&rRect, m_brushBg.Get());
             
@@ -203,7 +245,8 @@ void ScrollCaptureOverlay::render() {
             m_renderTarget->DrawBitmap(m_d2dBitmap.Get(), &tRect);
             
             // Draw thumbnail border
-            m_renderTarget->DrawRoundedRectangle(&rRect, m_brushBorder.Get(), 2.0f);
+            m_renderTarget->DrawRoundedRectangle(
+                &rRect, m_brushBorder.Get(), 2.0f * m_dpiScale);
         }
     }
 

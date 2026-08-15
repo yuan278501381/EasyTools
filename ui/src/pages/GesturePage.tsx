@@ -102,7 +102,7 @@ export const GesturePage: FC = () => {
         if (defaultProfile) setMappings(defaultProfile.mappings);
         if (radialRes?.items) setRadialItems(radialRes.items);
         const pauseBinding = hotkeys.find((entry) => entry.name === 'Pause Gestures');
-        if (pauseBinding?.shortcut) setPauseHotkey(pauseBinding.shortcut);
+        if (pauseBinding) setPauseHotkey(pauseBinding.shortcut);
       } catch (err) {
         console.error('Failed to load gesture config:', err);
         toast.error(t('gesture.loadFailed'));

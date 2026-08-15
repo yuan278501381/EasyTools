@@ -15,6 +15,7 @@ namespace easy::core {
 // ── HotkeyDef 序列化 ────────────────────────────────────────────────────────
 
 std::string HotkeyDef::toString() const {
+    if (virtualKey == 0) return {};
     std::string result;
     auto mods = static_cast<UINT>(modifiers);
     if (mods & MOD_CONTROL) result += "Ctrl+";
@@ -121,7 +122,7 @@ void HotkeyManager::initialize(HWND messageWindow) {
 void HotkeyManager::shutdown() {
     std::lock_guard lock(m_mutex);
     for (const auto& [name, entry] : m_hotkeys) {
-        UnregisterHotKey(m_hwnd, entry.id);
+        if (entry.registered) UnregisterHotKey(m_hwnd, entry.id);
         LOG_DEBUG("注销快捷键: name={}, def={}", name, entry.def.toString());
     }
     m_hotkeys.clear();
@@ -136,25 +137,33 @@ bool HotkeyManager::registerHotkey(const std::string& name, const HotkeyDef& def
     // 检查名称冲突
     if (m_hotkeys.contains(name)) {
         LOG_WARN("快捷键名称已存在, 将先注销旧绑定: name={}", name);
-        UnregisterHotKey(m_hwnd, m_hotkeys[name].id);
+        if (m_hotkeys[name].registered) UnregisterHotKey(m_hwnd, m_hotkeys[name].id);
         m_idToName.erase(m_hotkeys[name].id);
         m_hotkeys.erase(name);
     }
 
     int id = generateId();
+    if (def.virtualKey == 0) {
+        m_hotkeys.emplace(name, HotkeyEntry{id, def, name, std::move(callback), false});
+        LOG_INFO("快捷键已禁用: name={}", name);
+        return true;
+    }
     UINT mods = static_cast<UINT>(def.modifiers) | MOD_NOREPEAT;
 
-    if (!RegisterHotKey(m_hwnd, id, mods, def.virtualKey)) {
+    const bool registered = RegisterHotKey(m_hwnd, id, mods, def.virtualKey) != FALSE;
+    HotkeyEntry entry{id, def, name, std::move(callback), registered};
+    m_hotkeys[name] = std::move(entry);
+    if (!registered) {
         DWORD err = GetLastError();
         LOG_ERROR("注册快捷键失败: name={}, def={}, error={}", name, def.toString(), err);
         if (err == ERROR_HOTKEY_ALREADY_REGISTERED) {
             LOG_ERROR("快捷键 {} 已被其他程序占用", def.toString());
         }
+        // Retain the entry and callback. The settings UI can now display the
+        // conflict and let the user choose a different combination at runtime.
         return false;
     }
 
-    HotkeyEntry entry{id, def, name, std::move(callback)};
-    m_hotkeys[name] = std::move(entry);
     m_idToName[id] = name;
 
     LOG_INFO("注册快捷键成功: name={}, def={}, id={}", name, def.toString(), id);
@@ -168,13 +177,14 @@ void HotkeyManager::unregisterHotkey(const std::string& name) {
         LOG_WARN("尝试注销不存在的快捷键: name={}", name);
         return;
     }
-    UnregisterHotKey(m_hwnd, it->second.id);
+    if (it->second.registered) UnregisterHotKey(m_hwnd, it->second.id);
     m_idToName.erase(it->second.id);
     m_hotkeys.erase(it);
     LOG_INFO("已注销快捷键: name={}", name);
 }
 
 bool HotkeyManager::rebindHotkey(const std::string& name, const HotkeyDef& newDef) {
+    if (newDef.virtualKey == 0) return clearHotkey(name);
     std::lock_guard lock(m_mutex);
     auto it = m_hotkeys.find(name);
     if (it == m_hotkeys.end()) {
@@ -182,28 +192,51 @@ bool HotkeyManager::rebindHotkey(const std::string& name, const HotkeyDef& newDe
         return false;
     }
 
-    // 先注销旧的
-    UnregisterHotKey(m_hwnd, it->second.id);
+    const auto oldDef = it->second.def;
+    const bool oldRegistered = it->second.registered;
+    if (oldRegistered) {
+        UnregisterHotKey(m_hwnd, it->second.id);
+        m_idToName.erase(it->second.id);
+    }
 
     // 注册新的
     UINT mods = static_cast<UINT>(newDef.modifiers) | MOD_NOREPEAT;
     if (!RegisterHotKey(m_hwnd, it->second.id, mods, newDef.virtualKey)) {
         LOG_ERROR("重绑定快捷键失败: name={}, newDef={}", name, newDef.toString());
-        // 尝试恢复旧绑定
-        UINT oldMods = static_cast<UINT>(it->second.def.modifiers) | MOD_NOREPEAT;
-        RegisterHotKey(m_hwnd, it->second.id, oldMods, it->second.def.virtualKey);
+        it->second.registered = false;
+        if (oldRegistered && oldDef.virtualKey != 0) {
+            UINT oldMods = static_cast<UINT>(oldDef.modifiers) | MOD_NOREPEAT;
+            if (RegisterHotKey(m_hwnd, it->second.id, oldMods, oldDef.virtualKey)) {
+                it->second.registered = true;
+                m_idToName[it->second.id] = name;
+            }
+        }
         return false;
     }
 
     LOG_INFO("快捷键重绑定成功: name={}, {} → {}", name, it->second.def.toString(), newDef.toString());
     it->second.def = newDef;
+    it->second.registered = true;
+    m_idToName[it->second.id] = name;
+    return true;
+}
+
+bool HotkeyManager::clearHotkey(const std::string& name) {
+    std::lock_guard lock(m_mutex);
+    auto it = m_hotkeys.find(name);
+    if (it == m_hotkeys.end()) return false;
+    if (it->second.registered) UnregisterHotKey(m_hwnd, it->second.id);
+    m_idToName.erase(it->second.id);
+    it->second.def = {};
+    it->second.registered = false;
+    LOG_INFO("快捷键已禁用: name={}", name);
     return true;
 }
 
 bool HotkeyManager::isConflict(const HotkeyDef& def) const {
     std::lock_guard lock(m_mutex);
     for (const auto& [name, entry] : m_hotkeys) {
-        if (entry.def == def) return true;
+        if (entry.registered && def.virtualKey != 0 && entry.def == def) return true;
     }
     return false;
 }

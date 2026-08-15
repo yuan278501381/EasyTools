@@ -17,6 +17,7 @@
 #include <tlhelp32.h>
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 namespace easy::core {
 
@@ -32,13 +33,11 @@ public:
     /// 获取 AppData/Local/EasyTools 目录（自动创建）
     static std::filesystem::path getAppDataDirectory() {
         wchar_t path[MAX_PATH] = {};
-        // 使用 FOLDERID_LocalAppData
         if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path))) {
             auto dir = std::filesystem::path(path) / L"EasyTools";
             std::filesystem::create_directories(dir);
             return dir;
         }
-        // fallback: 使用 exe 目录
         return getExeDirectory() / L"data";
     }
 
@@ -62,8 +61,6 @@ public:
     }
 
     /// 由 PID 取得进程可执行文件名 (仅文件名, 如 "chrome.exe")。
-    /// 用 QueryFullProcessImageNameW 直接查询, 避免 Toolhelp 快照枚举全部进程
-    /// (后者在低级鼠标钩子热路径上代价过高)。
     static std::wstring processNameFromPid(DWORD pid) {
         if (pid == 0) return {};
         HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
@@ -143,7 +140,6 @@ public:
         if (len == 0) return "";
         std::string result(len, '\0');
         CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, result.data(), &len);
-        // 去除尾部的 null 字符
         if (!result.empty() && result.back() == '\0') {
             result.pop_back();
         }
@@ -157,21 +153,50 @@ public:
         return str;
     }
 
-    /// 复制文本到剪贴板
-    static bool copyToClipboard(const std::string& text) {
-        if (!OpenClipboard(nullptr)) return false;
+    /// 复制宽文本到剪贴板（支持剪贴板占用重试与异常内存释放保护）
+    static bool copyToClipboard(const std::wstring& wtext, HWND owner = nullptr) {
+        if (wtext.empty()) return false;
+
+        // 剪贴板可能被其他进程瞬时独占（如剪贴板管理器、Office），进行有界重试
+        bool opened = false;
+        for (int retry = 0; retry < 5; ++retry) {
+            if (OpenClipboard(owner)) {
+                opened = true;
+                break;
+            }
+            Sleep(10);
+        }
+        if (!opened) return false;
+
         EmptyClipboard();
-        std::wstring wtext = utf8ToWstring(text);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (wtext.length() + 1) * sizeof(wchar_t));
+        const size_t byteCount = (wtext.length() + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, byteCount);
         if (!hMem) {
             CloseClipboard();
             return false;
         }
-        memcpy(GlobalLock(hMem), wtext.c_str(), (wtext.length() + 1) * sizeof(wchar_t));
+
+        void* dest = GlobalLock(hMem);
+        if (!dest) {
+            GlobalFree(hMem);
+            CloseClipboard();
+            return false;
+        }
+        memcpy(dest, wtext.c_str(), byteCount);
         GlobalUnlock(hMem);
-        SetClipboardData(CF_UNICODETEXT, hMem);
+
+        if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
+            GlobalFree(hMem);
+            CloseClipboard();
+            return false;
+        }
         CloseClipboard();
         return true;
+    }
+
+    /// 复制 UTF-8 文本到剪贴板
+    static bool copyToClipboard(const std::string& text, HWND owner = nullptr) {
+        return copyToClipboard(utf8ToWstring(text), owner);
     }
 
     /// 启用全局高分屏 (DPI) 感知
@@ -212,6 +237,15 @@ public:
     static float getDpiScale(HWND hwnd = nullptr) {
         UINT dpi = hwnd ? GetDpiForWindow(hwnd) : GetDpiForSystem();
         return dpi / 96.0f;
+    }
+
+    /// Prevent a top-level EasyTools control window from appearing in screenshots
+    /// and recordings. This intentionally does not fall back to WDA_MONITOR,
+    /// which would leave an opaque rectangle in captured output on older systems.
+    static bool excludeWindowFromCapture(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) return false;
+        SetLastError(ERROR_SUCCESS);
+        return SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) != FALSE;
     }
 
     /// 判断系统界面语言是否为中文

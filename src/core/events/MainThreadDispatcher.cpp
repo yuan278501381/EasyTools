@@ -42,6 +42,10 @@ bool MainThreadDispatcher::isOwnerThread() const {
     return m_impl && m_impl->ownerThread.load(std::memory_order_acquire) == GetCurrentThreadId();
 }
 
+bool MainThreadDispatcher::isInitialized() const {
+    return m_impl && m_impl->ownerThread.load(std::memory_order_acquire) != 0;
+}
+
 bool MainThreadDispatcher::post(Task task) {
     if (!task) return false;
     if (isOwnerThread()) {

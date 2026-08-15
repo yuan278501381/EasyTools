@@ -26,6 +26,7 @@ private:
 
     bool createWindow(HINSTANCE hInstance);
     void initializeWebView2();
+    void updatePlacement();
 
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -36,6 +37,7 @@ private:
 
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;
+    bool m_updatingPlacement = false;
     std::atomic<uint64_t> m_generation{0};
 };
 

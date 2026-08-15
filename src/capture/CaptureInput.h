@@ -11,7 +11,9 @@ namespace easy::capture {
 
 class CaptureInput {
 public:
-    void initialize(HWND hwnd, CaptureState& state, CaptureRenderer& renderer, std::function<void()> cancelCb, std::function<void()> confirmCb);
+    void initialize(HWND hwnd, CaptureState& state, CaptureRenderer& renderer,
+                    std::function<void()> cancelCb,
+                    std::function<void(CaptureCompletion)> confirmCb);
     LRESULT handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 private:
@@ -41,7 +43,7 @@ private:
     CaptureState* m_state = nullptr;
     CaptureRenderer* m_renderer = nullptr;
     std::function<void()> m_cancelCb;
-    std::function<void()> m_confirmCb;
+    std::function<void(CaptureCompletion)> m_confirmCb;
     
     void enableIME(bool enable);
     HIMC m_defaultImc = nullptr;

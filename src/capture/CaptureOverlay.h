@@ -26,6 +26,8 @@ public:
     void setOcrCallback(std::function<void(const CaptureRegion& region, const cv::Mat& cropped)> callback) { m_state.ocrCallback = std::move(callback); }
 
     OverlayState state() const { return m_state.state.load(); }
+    OverlayMode mode() const { return m_state.mode; }
+    void setShortcutHintsEnabled(bool enabled);
 
 private:
     CaptureOverlay() = default;
@@ -43,10 +45,12 @@ private:
     CaptureRenderer m_renderer;
     CaptureInput m_input;
     std::function<void()> m_closedCallback;
+    HBITMAP m_frozenBitmap = nullptr;
 
     void realCancel();
-    void confirmSelection();
+    void confirmSelection(CaptureCompletion completion = {});
     bool freezeScreen();
+    void releaseFrozenSurface();
 };
 
 } // namespace easy::capture

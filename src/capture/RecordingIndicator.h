@@ -50,6 +50,8 @@ public:
     /// 设置回调
     void onPause(IndicatorAction action) { m_onPause = std::move(action); }
     void onStop(IndicatorAction action) { m_onStop = std::move(action); }
+    void onSystemAudioMute(IndicatorAction action) { m_onSystemAudioMute = std::move(action); }
+    void onMicrophoneMute(IndicatorAction action) { m_onMicrophoneMute = std::move(action); }
 
 private:
     RecordingIndicator() = default;
@@ -69,16 +71,33 @@ private:
     bool m_paused = false;
     double m_duration = 0.0;
     int m_frames = 0;
+    float m_systemAudioPeak = 0.0f;
+    float m_microphonePeak = 0.0f;
+    bool m_systemAudioActive = false;
+    bool m_microphoneActive = false;
+    bool m_systemAudioMuted = false;
+    bool m_microphoneMuted = false;
+    bool m_countingDown = false;
+    int m_countdownRemaining = 0;
+    bool m_storageWarning = false;
+    std::int64_t m_estimatedRemainingSec = -1;
+    bool m_performanceLimited = false;
+    double m_effectiveFps = 0.0;
     bool m_isDragging = false;
     POINT m_dragOffset{};
     DWORD m_blinkTick = 0;    // 红点闪烁计时
+    float m_dpiScale = 1.0f;
 
     // 按钮区域
     RECT m_pauseBtn{};
     RECT m_stopBtn{};
+    RECT m_systemAudioBtn{};
+    RECT m_microphoneBtn{};
 
     IndicatorAction m_onPause;
     IndicatorAction m_onStop;
+    IndicatorAction m_onSystemAudioMute;
+    IndicatorAction m_onMicrophoneMute;
 
     // D2D
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
@@ -88,6 +107,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_redDotBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_btnBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_btnHoverBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_audioBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_btnTextFormat;

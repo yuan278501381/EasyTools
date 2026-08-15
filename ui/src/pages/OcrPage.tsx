@@ -43,7 +43,7 @@ export const OcrPage: FC = () => {
     ]).then(([data, status, hotkeys]) => {
       setSettings(prev => ({ ...prev, ...data }));
       setAvailable(status.available);
-      setShortcut(hotkeys.find(item => item.name === 'OCR')?.shortcut || 'Ctrl+Shift+O');
+      setShortcut(hotkeys.find(item => item.name === 'OCR')?.shortcut ?? 'Ctrl+Shift+O');
     }).catch((error) => {
       console.error(error);
       toast.error(t('ocr.loadFailed'));
@@ -64,7 +64,7 @@ export const OcrPage: FC = () => {
     try {
       const result = await bridgeRequest<OperationResult>('hotkey.rebind', { name: 'OCR', hotkey: value });
       if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
-      setShortcut(result.shortcut || value);
+      setShortcut(result.shortcut ?? value);
     } catch (error) {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
     }

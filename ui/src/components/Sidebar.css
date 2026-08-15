@@ -71,6 +71,16 @@
   color: var(--text-primary);
 }
 
+.sidebar__item:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.sidebar__item:disabled:hover {
+  background: transparent;
+}
+
 .sidebar__item--active {
   background: var(--primary-dim);
   color: var(--primary);

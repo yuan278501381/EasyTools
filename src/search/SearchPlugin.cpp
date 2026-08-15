@@ -185,6 +185,7 @@ public:
 
     void shutdown() override {
         LOG_INFO("SearchPlugin: 关闭");
+        easy::core::MessageBridge::instance().unregisterHandlersByPrefix("search.");
     }
 };
 
@@ -193,4 +194,8 @@ public:
 extern "C" __declspec(dllexport) easy::core::IPlugin* CreatePlugin() {
     static easy::search::SearchPlugin instance;
     return &instance;
+}
+
+extern "C" __declspec(dllexport) std::uint32_t GetPluginAbiVersion() {
+    return easy::core::CurrentPluginAbiVersion;
 }

@@ -12,13 +12,14 @@
  *   └──────────┴──────────────────────────────┘
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar, type NavId } from './components/Sidebar';
 import { GesturePage } from './pages/GesturePage';
 import { CapturePage } from './pages/CapturePage';
 import { OcrPage } from './pages/OcrPage';
 import { GeneralPage } from './pages/GeneralPage';
 import { AboutPage } from './pages/AboutPage';
+import { PluginsPage, type PluginStatus } from './pages/PluginsPage';
 import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
@@ -33,13 +34,13 @@ import './App.css';
 type Theme = 'dark' | 'light';
 type ThemePreference = Theme | 'system';
 
-const NAV_TITLE_KEYS: Record<NavId, 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.ocr' | 'nav.history' | 'nav.settings' | 'nav.about'> = {
+const NAV_TITLE_KEYS: Record<NavId, 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.ocr' | 'nav.history' | 'nav.plugins' | 'nav.settings' | 'nav.about'> = {
   stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
-  ocr: 'nav.ocr', history: 'nav.history', general: 'nav.settings', about: 'nav.about',
+  ocr: 'nav.ocr', history: 'nav.history', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
 };
-const NAV_SUBTITLE_KEYS: Record<NavId, 'navSubtitle.stats' | 'navSubtitle.gesture' | 'navSubtitle.hotcorner' | 'navSubtitle.capture' | 'navSubtitle.ocr' | 'navSubtitle.history' | 'navSubtitle.general' | 'navSubtitle.about'> = {
+const NAV_SUBTITLE_KEYS: Record<NavId, 'navSubtitle.stats' | 'navSubtitle.gesture' | 'navSubtitle.hotcorner' | 'navSubtitle.capture' | 'navSubtitle.ocr' | 'navSubtitle.history' | 'navSubtitle.plugins' | 'navSubtitle.general' | 'navSubtitle.about'> = {
   stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
-  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', general: 'navSubtitle.general', about: 'navSubtitle.about',
+  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
 };
 
 function App() {
@@ -52,6 +53,18 @@ function App() {
   const [themePreference, setThemePreference] = useState<ThemePreference>('system');
   const theme: Theme = themePreference === 'system' ? systemTheme : themePreference;
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [plugins, setPlugins] = useState<PluginStatus[]>([]);
+  const pageTitleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const applyPlugins = (items: PluginStatus[]) => setPlugins(Array.isArray(items) ? items : []);
+    void bridgeRequest<PluginStatus[]>('plugins.getAll').then(applyPlugins).catch(console.error);
+    const handleChange = (event: Event) => applyPlugins((event as CustomEvent<PluginStatus[]>).detail);
+    window.addEventListener('easytools:plugins-changed', handleChange);
+    return () => window.removeEventListener('easytools:plugins-changed', handleChange);
+  }, []);
+
+  const activePlugins = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
 
   useEffect(() => {
     bridgeRequest<{ theme?: string; language?: string }>('general.getSettings')
@@ -109,6 +122,12 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (showOnboarding) return;
+    const frame = requestAnimationFrame(() => pageTitleRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [activeNav, showOnboarding]);
+
+  useEffect(() => {
     const handlePreference = (event: Event) => {
       const preference = (event as CustomEvent<ThemePreference>).detail;
       if (preference === 'system' || preference === 'dark' || preference === 'light') {
@@ -128,6 +147,7 @@ function App() {
       case 'capture':   return <CapturePage />;
       case 'ocr':       return <OcrPage />;
       case 'history':   return <HistoryPage />;
+      case 'plugins':   return <PluginsPage initialPlugins={plugins} />;
       case 'general':   return <GeneralPage />;
       case 'about':     return <AboutPage />;
       default:          return <KeyStatsPage />;
@@ -141,13 +161,14 @@ function App() {
         onNavigate={setActiveNav}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        activePlugins={plugins.length > 0 ? activePlugins : undefined}
       />
-      <main className="app__main">
+      <main className="app__main" aria-labelledby="app-page-title">
         <Toaster position="bottom-right" theme={theme} richColors expand={true} />
         {/* ── 页面头部 ────────────────────────────────────── */}
         <header className="app__header">
           <div className="app__header-text">
-            <h1 className="app__header-title">{t(NAV_TITLE_KEYS[activeNav])}</h1>
+            <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(NAV_TITLE_KEYS[activeNav])}</h1>
             <p className="app__header-subtitle">{t(NAV_SUBTITLE_KEYS[activeNav])}</p>
           </div>
         </header>

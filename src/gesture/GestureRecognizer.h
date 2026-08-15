@@ -62,6 +62,25 @@ inline std::string directionToArrow(Direction dir) {
     }
 }
 
+/// 方向序列 → 字符串编码 (如 "L-D")
+inline std::string directionsToCode(const std::vector<Direction>& dirs) {
+    std::string code;
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        if (i > 0) code += "-";
+        code += directionToCode(dirs[i]);
+    }
+    return code;
+}
+
+/// 方向序列 → 显示用箭头组合 (如 "←↓")
+inline std::string directionsToArrowString(const std::vector<Direction>& dirs) {
+    std::string result;
+    for (const auto& dir : dirs) {
+        result += directionToArrow(dir);
+    }
+    return result;
+}
+
 /// 轨迹点
 struct TrackPoint {
     int x;

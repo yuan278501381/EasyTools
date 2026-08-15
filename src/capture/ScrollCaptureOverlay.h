@@ -35,8 +35,10 @@ private:
     RECT m_captureRect = {};
     
     std::mutex m_mutex;
-    cv::Mat m_stitched;
+    cv::Mat m_preview;
+    bool m_previewDirty = false;
     int m_frameCount = 0;
+    float m_dpiScale = 1.0f;
     
     uint64_t m_lastFlashTime = 0;
 

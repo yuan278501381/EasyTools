@@ -38,6 +38,7 @@ private:
 
     bool createWindow(HINSTANCE hInstance, int x, int y);
     void initializeWebView2();
+    void updatePlacement();
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 private:
@@ -45,6 +46,8 @@ private:
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
     std::atomic<uint64_t> m_generation{0};
+    POINT m_anchor{};
+    bool m_updatingPlacement = false;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;

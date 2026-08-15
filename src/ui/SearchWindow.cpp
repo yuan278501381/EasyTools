@@ -1,7 +1,9 @@
 #include "ui/SearchWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewWindowStyle.h"
 #include <WebView2.h>
 #include <wrl/event.h>
 #include <filesystem>
@@ -18,18 +20,6 @@ static constexpr UINT WM_SEARCH_VERIFY_DEACTIVATED = WM_APP + 42;
 
 namespace {
 
-RECT activeMonitorWorkArea() {
-    POINT point{};
-    GetCursorPos(&point);
-    RECT workArea{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
-    MONITORINFO monitorInfo{sizeof(monitorInfo)};
-    const HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-    if (monitor && GetMonitorInfoW(monitor, &monitorInfo)) {
-        workArea = monitorInfo.rcWork;
-    }
-    return workArea;
-}
-
 }  // namespace
 
 SearchWindow& SearchWindow::instance() {
@@ -39,9 +29,11 @@ SearchWindow& SearchWindow::instance() {
 
 void SearchWindow::show(HINSTANCE hInstance) {
     if (m_hwnd && IsWindow(m_hwnd)) {
+        updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
         m_visible = true;
+        if (m_controller) m_controller->put_IsVisible(TRUE);
         return;
     }
 
@@ -60,6 +52,7 @@ void SearchWindow::hide() {
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
+        if (m_controller) m_controller->put_IsVisible(FALSE);
     }
 }
 
@@ -94,18 +87,24 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
     wc.lpszClassName = SEARCH_WINDOW_CLASS;
     RegisterClassExW(&wc);
 
-    int width = 800;
-    int height = 600;
-    const RECT workArea = activeMonitorWorkArea();
-    int x = workArea.left + (workArea.right - workArea.left - width) / 2;
-    int y = workArea.top + (workArea.bottom - workArea.top - height) / 2;
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const RECT workArea = easy::core::dpi::workArea(monitor);
+    const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+    const float scale = easy::core::dpi::scaleForDpi(dpi);
+    SIZE size = SearchWindowStyle::windowSizeForDpi(dpi);
+    const int margin = easy::core::dpi::scaleMetric(
+        SearchWindowStyle::BaseScreenMargin, scale);
+    size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
+    size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
+    const int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
+    const int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
         SEARCH_WINDOW_CLASS,
         L"EasyTools Search",
         WS_POPUP, // Borderless
-        x, y, width, height,
+        x, y, size.cx, size.cy,
         nullptr, nullptr, hInstance, nullptr
     );
 
@@ -115,6 +114,25 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
     SetLayeredWindowAttributes(m_hwnd, RGB(255, 0, 255), 255, LWA_COLORKEY);
 
     return true;
+}
+
+void SearchWindow::updatePlacement() {
+    if (!m_hwnd || m_updatingPlacement) return;
+    m_updatingPlacement = true;
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const RECT workArea = easy::core::dpi::workArea(monitor);
+    const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+    const float scale = easy::core::dpi::scaleForDpi(dpi);
+    SIZE size = SearchWindowStyle::windowSizeForDpi(dpi);
+    const int margin = easy::core::dpi::scaleMetric(
+        SearchWindowStyle::BaseScreenMargin, scale);
+    size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
+    size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
+    const int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
+    const int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
+    SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, size.cx, size.cy,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    m_updatingPlacement = false;
 }
 
 void SearchWindow::initializeWebView2() {
@@ -140,6 +158,7 @@ void SearchWindow::initializeWebView2() {
                             }
                             m_controller = controller;
                             m_controller->get_CoreWebView2(&m_webView);
+                            m_controller->put_IsVisible(m_visible.load() ? TRUE : FALSE);
 
                             Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
                             m_webView->get_Settings(&settings);
@@ -248,6 +267,19 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 inst.m_controller->put_Bounds(bounds);
             }
             break;
+        case WM_DPICHANGED: {
+            if (!inst.m_updatingPlacement && lParam) {
+                const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                             suggested->right - suggested->left,
+                             suggested->bottom - suggested->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            return 0;
+        }
+        case WM_DISPLAYCHANGE:
+            if (IsWindowVisible(hwnd)) inst.updatePlacement();
+            return 0;
         case WM_ACTIVATE:
             if (LOWORD(wParam) == WA_INACTIVE) {
                 PostMessageW(hwnd, WM_SEARCH_VERIFY_DEACTIVATED, 0, 0);

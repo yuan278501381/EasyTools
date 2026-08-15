@@ -5,13 +5,21 @@
 #include "capture/CaptureHistory.h"
 #include "capture/PinWindow.h"
 #include "capture/ScrollCapture.h"
+#include "capture/ScrollCaptureOverlay.h"
+#include "capture/ShortcutHintOverlay.h"
+#include "capture/CaptureToolbarLayout.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 #include "core/events/EventBus.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <imm.h>
-#include <ShellScalingApi.h>
+#include <array>
+#include <cwchar>
+#include <cwctype>
+#include <cmath>
+#include <filesystem>
 
 namespace easy::capture {
 
@@ -36,8 +44,43 @@ static HCURSOR cursorForArea(HitArea area) {
     }
 }
 
+static DWORD filterIndexForFormat(ImageFormat format) {
+    switch (format) {
+        case ImageFormat::JPEG: return 2;
+        case ImageFormat::BMP: return 3;
+        case ImageFormat::WebP: return 4;
+        default: return 1;
+    }
+}
 
-void CaptureInput::initialize(HWND hwnd, CaptureState& state, CaptureRenderer& renderer, std::function<void()> cancelCb, std::function<void()> confirmCb) {
+static const wchar_t* extensionForFormat(ImageFormat format) {
+    switch (format) {
+        case ImageFormat::JPEG: return L"jpg";
+        case ImageFormat::BMP: return L"bmp";
+        case ImageFormat::WebP: return L"webp";
+        default: return L"png";
+    }
+}
+
+static ImageFormat formatForSavePath(const std::filesystem::path& path, DWORD filterIndex) {
+    auto extension = path.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+    if (extension == L".jpg" || extension == L".jpeg") return ImageFormat::JPEG;
+    if (extension == L".bmp") return ImageFormat::BMP;
+    if (extension == L".webp") return ImageFormat::WebP;
+    if (extension == L".png") return ImageFormat::PNG;
+    switch (filterIndex) {
+        case 2: return ImageFormat::JPEG;
+        case 3: return ImageFormat::BMP;
+        case 4: return ImageFormat::WebP;
+        default: return ImageFormat::PNG;
+    }
+}
+
+
+void CaptureInput::initialize(HWND hwnd, CaptureState& state, CaptureRenderer& renderer,
+                              std::function<void()> cancelCb,
+                              std::function<void(CaptureCompletion)> confirmCb) {
     m_hwnd = hwnd;
     m_state = &state;
     m_renderer = &renderer;
@@ -77,7 +120,9 @@ HitArea CaptureInput::hitTestSelectionBox(POINT point) const {
     auto r = currentSelectionRect();
     if (r.right - r.left < 1.0f || r.bottom - r.top < 1.0f) return HitArea::None;
 
-    const float hw = 9.0f;   // 控制点命中半径
+    const float dpiScale = std::clamp(
+        m_state->dpiScale > 0.0f ? m_state->dpiScale : 1.0f, 1.0f, 5.0f);
+    const float hw = 9.0f * dpiScale;   // 控制点命中半径
     float cx = (r.left + r.right) * 0.5f;
     float cy = (r.top + r.bottom) * 0.5f;
 
@@ -95,7 +140,7 @@ HitArea CaptureInput::hitTestSelectionBox(POINT point) const {
     }
 
     // 边框带（用于整体移动）：靠近任意一条边即可拖动整块选区
-    const float band = 6.0f;
+    const float band = 6.0f * dpiScale;
     bool insideX = px >= r.left - band && px <= r.right + band;
     bool insideY = py >= r.top - band && py <= r.bottom + band;
     bool nearLeft   = std::abs(px - r.left)   <= band && insideY;
@@ -190,91 +235,9 @@ ToolbarButton* CaptureInput::hitTestToolbar(POINT point) {
 }
 
 void CaptureInput::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
-    m_state->toolbarButtons.clear();
     if (!m_renderer->getRenderTarget()) return;
-
-    struct ToolSpec {
-        MarkupTool tool;
-        const wchar_t* label;
-    };
-
-    static constexpr std::array<ToolSpec, 12> tools{{
-        {MarkupTool::Rectangle, L"□"},
-        {MarkupTool::Arrow, L"↗"},
-        {MarkupTool::Ellipse, L"○"},
-        {MarkupTool::Pen, L"✎"},
-        {MarkupTool::Highlight, L"▰"},
-        {MarkupTool::Mosaic, L"▦"},
-        {MarkupTool::Text, L"T"},
-        {MarkupTool::Number, L"①"},
-        {MarkupTool::Magnifier, L"⌕"},
-        {MarkupTool::Spotlight, L"🔆"},
-        {MarkupTool::Watermark, L"©"},
-        {MarkupTool::Inpaint, L"✨"},
-    }};
-
-    static const std::array<MarkupColor, 5> colors{{
-        MarkupColor::Red(), MarkupColor::Yellow(), MarkupColor::Green(),
-        MarkupColor::Blue(), MarkupColor::White(),
-    }};
-
-    auto size = m_renderer->getRenderTarget()->GetSize();
-    const float buttonSize = 30.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f);
-    const float gap = 4.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f);
-    const float toolbarHeight = 42.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f);
-    const float padding = 8.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f);
-    const float btnGapY = 6.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f);
-    bool isRecord = (m_state->mode == OverlayMode::RecordRegion);
-    // 非录屏: 9 工具 + 5 颜色 + 8 命令(撤销/重做/清除/OCR/贴图/长截图/取消/确认)
-    const int buttonCount = isRecord ? 2
-        : static_cast<int>(tools.size()) + static_cast<int>(colors.size()) + 8;
-    const float toolbarWidth = padding * 2.0f + buttonCount * buttonSize + (buttonCount - 1) * gap + (isRecord ? 20.0f : 0.0f);
-    float maxX = std::max(8.0f, size.width - toolbarWidth - 8.0f);
-    float toolbarX = std::clamp(selectionRect.left, 8.0f, maxX);
-    float toolbarY = selectionRect.bottom + 8.0f;
-    if (toolbarY + toolbarHeight > size.height - 8.0f) {
-        toolbarY = selectionRect.top - toolbarHeight - 8.0f;
-    }
-    toolbarY = std::max(8.0f, toolbarY);
-
-    float x = toolbarX + padding;
-    auto addButton = [&](ToolbarCommand command, MarkupTool tool, std::wstring label, float width) {
-        ToolbarButton button;
-        button.command = command;
-        button.tool = tool;
-        button.label = std::move(label);
-        button.rect = D2D1::RectF(x, toolbarY + btnGapY, x + width, toolbarY + btnGapY + buttonSize);
-        m_state->toolbarButtons.push_back(std::move(button));
-        x += width + gap;
-    };
-
-    bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
-
-    if (isRecord) {
-        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, isZh ? L"🔴 录制" : L"🔴 Rec", 65.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f));
-        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, isZh ? L"✖ 取消" : L"✖ Cancel", 75.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f));
-    } else {
-        for (const auto& tool : tools) {
-            addButton(ToolbarCommand::SelectTool, tool.tool, tool.label, buttonSize);
-        }
-        // 颜色色板
-        for (const auto& c : colors) {
-            ToolbarButton button;
-            button.command = ToolbarCommand::SelectColor;
-            button.color = c;
-            button.rect = D2D1::RectF(x, toolbarY + btnGapY, x + buttonSize, toolbarY + btnGapY + buttonSize);
-            m_state->toolbarButtons.push_back(std::move(button));
-            x += buttonSize + gap;
-        }
-        addButton(ToolbarCommand::Undo, MarkupTool::Rectangle, L"↩", buttonSize);
-        addButton(ToolbarCommand::Redo, MarkupTool::Rectangle, L"↪", buttonSize);
-        addButton(ToolbarCommand::Clear, MarkupTool::Rectangle, L"🗑", buttonSize);
-        addButton(ToolbarCommand::ExtractText, MarkupTool::Rectangle, isZh ? L"文" : L"T", buttonSize);
-        addButton(ToolbarCommand::PinWindow, MarkupTool::Rectangle, L"📌", buttonSize);
-        addButton(ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, isZh ? L"长" : L"⇊", buttonSize);
-        addButton(ToolbarCommand::Cancel, MarkupTool::Rectangle, L"✖", buttonSize);
-        addButton(ToolbarCommand::Confirm, MarkupTool::Rectangle, L"✓", buttonSize);
-    }
+    rebuildCaptureToolbar(*m_state, selectionRect,
+                          m_renderer->getRenderTarget()->GetSize());
 }
 
 void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
@@ -322,6 +285,9 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
                     roi &= cv::Rect(0, 0, m_state->frozenScreen.cols, m_state->frozenScreen.rows);
                     if (roi.area() > 0) m_state->frozenScreen(roi).copyTo(cropped);
                 }
+                if (cropped.channels() == 4) {
+                    cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
+                }
 
                 int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
                 int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -344,6 +310,9 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
                 cv::Rect roi(x1, y1, w, h);
                 roi &= cv::Rect(0, 0, m_state->frozenScreen.cols, m_state->frozenScreen.rows);
                 if (roi.area() > 0) m_state->frozenScreen(roi).copyTo(cropped);
+            }
+            if (cropped.channels() == 4) {
+                cv::cvtColor(cropped, cropped, cv::COLOR_BGRA2BGR);
             }
 
             int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -375,12 +344,20 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
             ScrollCaptureOptions opts;
             opts.captureRect = capRect;
             opts.mode = ScrollMode::Auto;
+            ScrollCaptureOverlay::instance().show(capRect);
             ScrollCapture::instance().start(opts);
+            if (ScrollCapture::instance().isRunning()) {
+                ShortcutHintOverlay::instance().show(
+                    ShortcutHintContext::ScrollCapture,
+                    {(capRect.left + capRect.right) / 2, (capRect.top + capRect.bottom) / 2});
+                easy::core::EventBus::instance().publish(
+                    easy::core::ShowToastEvent{L"正在长截图，按 Esc 停止"});
+            }
             break;
         }
 
         case ToolbarCommand::Confirm:
-            if(m_confirmCb) m_confirmCb();
+            if(m_confirmCb) m_confirmCb({});
             break;
 
         case ToolbarCommand::Cancel:
@@ -658,6 +635,12 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             m_state->dragEnd = m_state->dragStart;
             m_state->dragging = true;
             m_state->state = OverlayState::Selecting;
+            if (m_state->options.showShortcutHints) {
+                ShortcutHintOverlay::instance().show(
+                    m_state->mode == OverlayMode::RecordRegion
+                        ? ShortcutHintContext::RecordSelecting
+                        : ShortcutHintContext::CaptureSelecting);
+            }
             return 0;
         }
 
@@ -665,11 +648,20 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (!this) break;
             m_state->currentCursor = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
-            // 获取当前鼠标所在显示器的 DPI 缩放比例
-            HMONITOR hMon = MonitorFromPoint({m_state->currentCursor.x, m_state->currentCursor.y}, MONITOR_DEFAULTTONEAREST);
-            UINT dpiX = 96, dpiY = 96;
-            GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-            m_state->dpiScale = dpiX / 96.0f;
+            // Mouse coordinates are client-relative while monitor APIs require
+            // virtual-desktop screen coordinates (which may also be negative).
+            POINT screenPoint = m_state->currentCursor;
+            ClientToScreen(hwnd, &screenPoint);
+            HMONITOR hMon = MonitorFromPoint(screenPoint, MONITOR_DEFAULTTONEAREST);
+            const UINT dpiX = easy::core::dpi::effectiveDpiForMonitor(hMon);
+            const float newScale = easy::core::dpi::scaleForDpi(dpiX);
+            if (std::abs(newScale - m_state->dpiScale) >= 0.01f) {
+                m_state->dpiScale = newScale;
+                if (!m_renderer->updateDpiScale(newScale)) {
+                    LOG_WARN("截图覆盖层 DPI 文本资源更新失败: dpi={}", dpiX);
+                }
+                m_renderer->invalidate();
+            }
 
             if (m_state->isAdjustingSelection) {
                 int dx = m_state->currentCursor.x - m_state->selAdjustLast.x;
@@ -744,6 +736,12 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (w > 3 && h > 3) {
                 m_state->state = OverlayState::Selected;
                 prepareMarkupBase();
+                if (m_state->options.showShortcutHints) {
+                    ShortcutHintOverlay::instance().show(
+                        m_state->mode == OverlayMode::RecordRegion
+                            ? ShortcutHintContext::RecordSelecting
+                            : ShortcutHintContext::CaptureSelected);
+                }
             } else {
                 // 拖拽太小，视为点击——吸附到检测的窗口
                 if (m_state->detectedWindow.right > m_state->detectedWindow.left &&
@@ -754,6 +752,12 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                                        static_cast<LONG>(m_state->detectedWindow.bottom)};
                     m_state->state = OverlayState::Selected;
                     prepareMarkupBase();
+                    if (m_state->options.showShortcutHints) {
+                        ShortcutHintOverlay::instance().show(
+                            m_state->mode == OverlayMode::RecordRegion
+                                ? ShortcutHintContext::RecordSelecting
+                                : ShortcutHintContext::CaptureSelected);
+                    }
                 } else {
                     if (m_cancelCb) m_cancelCb();
                 }
@@ -768,7 +772,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     m_state->activeElement->isEditing = true;
                     return 0;
                 }
-                if (m_confirmCb) m_confirmCb();
+                if (m_confirmCb) m_confirmCb({});
             }
             return 0;
         }
@@ -940,17 +944,23 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 m_state->state = OverlayState::Selected;
                 prepareMarkupBase();
                 m_renderer->invalidate();
+                if (m_state->options.showShortcutHints) {
+                    ShortcutHintOverlay::instance().show(
+                        m_state->mode == OverlayMode::RecordRegion
+                            ? ShortcutHintContext::RecordSelecting
+                            : ShortcutHintContext::CaptureSelected);
+                }
                 return 0;
             }
 
             // 全局命令
             switch (wParam) {
                 case VK_RETURN:
-                    if (hasSelection) if (m_confirmCb) m_confirmCb();
+                    if (hasSelection) if (m_confirmCb) m_confirmCb({});
                     return 0;
                 case 'C':
                     if (ctrl && hasSelection) {
-                        if (m_confirmCb) m_confirmCb();
+                        if (m_confirmCb) m_confirmCb({CaptureCompletionAction::Copy});
                         return 0;
                     }
                     break;
@@ -964,35 +974,33 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     break;
                 case 'S':
                     if (ctrl && hasSelection) {
-                        int x1 = std::min(m_state->dragStart.x, m_state->dragEnd.x);
-                        int y1 = std::min(m_state->dragStart.y, m_state->dragEnd.y);
-                        int w = std::abs(m_state->dragEnd.x - m_state->dragStart.x);
-                        int h = std::abs(m_state->dragEnd.y - m_state->dragStart.y);
-                        if (w > 0 && h > 0) {
-                            cv::Mat cropped;
-                            if (m_state->markup.elementCount() > 0) cropped = m_state->markup.getCompositeImage();
-                            else {
-                                cv::Rect roi(x1, y1, w, h);
-                                roi &= cv::Rect(0, 0, m_state->frozenScreen.cols, m_state->frozenScreen.rows);
-                                if (roi.area() > 0) m_state->frozenScreen(roi).copyTo(cropped);
+                        std::array<wchar_t, 32768> fileBuffer{};
+                        const auto defaultExtension = extensionForFormat(m_state->options.format);
+                        const auto defaultName = std::wstring(L"EasyTools_Screenshot.") + defaultExtension;
+                        wcsncpy_s(fileBuffer.data(), fileBuffer.size(), defaultName.c_str(), _TRUNCATE);
+                        OPENFILENAMEW ofn{};
+                        ofn.lStructSize = sizeof(ofn);
+                        ofn.hwndOwner = hwnd;
+                        ofn.lpstrFile = fileBuffer.data();
+                        ofn.nMaxFile = static_cast<DWORD>(fileBuffer.size());
+                        ofn.lpstrFilter = L"PNG Image (*.png)\0*.png\0JPEG Image (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0Bitmap (*.bmp)\0*.bmp\0WebP Image (*.webp)\0*.webp\0";
+                        ofn.nFilterIndex = filterIndexForFormat(m_state->options.format);
+                        ofn.lpstrDefExt = defaultExtension;
+                        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST |
+                                    OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+                        if (GetSaveFileNameW(&ofn)) {
+                            std::filesystem::path selected(fileBuffer.data());
+                            if (!selected.has_extension()) {
+                                selected += L".";
+                                selected += extensionForFormat(formatForSavePath(selected, ofn.nFilterIndex));
                             }
-                            if (!cropped.empty()) {
-                                OPENFILENAMEW ofn{};
-                                wchar_t szFile[MAX_PATH] = L"EasyTools_Screenshot.png";
-                                ofn.lStructSize = sizeof(ofn);
-                                ofn.hwndOwner = hwnd;
-                                ofn.lpstrFile = szFile;
-                                ofn.nMaxFile = sizeof(szFile);
-                                ofn.lpstrFilter = L"PNG Image (*.png)\0*.png\0JPEG Image (*.jpg)\0*.jpg\0Bitmap (*.bmp)\0*.bmp\0All Files (*.*)\0*.*\0";
-                                ofn.nFilterIndex = 1;
-                                ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
-                                if (GetSaveFileNameW(&ofn)) {
-                                    std::string u8path = easy::core::WinUtils::wstringToUtf8(ofn.lpstrFile);
-                                    cv::imwrite(u8path, cropped);
-                                }
+                            if (m_confirmCb) {
+                                m_confirmCb({
+                                    CaptureCompletionAction::SaveAs,
+                                    easy::core::WinUtils::wstringToUtf8(selected.wstring()),
+                                    formatForSavePath(selected, ofn.nFilterIndex)});
                             }
                         }
-                        if (m_confirmCb) m_confirmCb();
                         return 0;
                     }
                     break;

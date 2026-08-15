@@ -18,7 +18,17 @@ BuiltinCommandDispatcher& BuiltinCommandDispatcher::instance() {
 }
 
 void BuiltinCommandDispatcher::registerHandler(BuiltinCommand cmd, Handler handler) {
+    std::unique_lock lock(m_mutex);
     m_handlers[cmd] = std::move(handler);
+}
+
+void BuiltinCommandDispatcher::clearHandlers() {
+    decltype(m_handlers) handlers;
+    {
+        std::unique_lock lock(m_mutex);
+        handlers.swap(m_handlers);
+    }
+    handlers.clear();
 }
 
 namespace {
@@ -75,9 +85,15 @@ void toggleTransparency(HWND hwnd) {
 }  // namespace
 
 bool BuiltinCommandDispatcher::dispatchAppCommand(BuiltinCommand cmd) const {
-    auto it = m_handlers.find(cmd);
-    if (it != m_handlers.end() && it->second) {
-        it->second();
+    Handler handler;
+    {
+        std::shared_lock lock(m_mutex);
+        if (const auto it = m_handlers.find(cmd); it != m_handlers.end()) {
+            handler = it->second;
+        }
+    }
+    if (handler) {
+        handler();
         return true;
     }
     LOG_WARN("应用级内置命令未注册 Handler: cmd={}", static_cast<int>(cmd));

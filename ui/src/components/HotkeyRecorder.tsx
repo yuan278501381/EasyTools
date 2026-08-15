@@ -12,6 +12,7 @@
 
 import { useState, useCallback, useRef, useEffect, type FC, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useControlA11y } from './ControlA11yContext';
 import './HotkeyRecorder.css';
 
 /** 特殊键名标准化映射 */
@@ -34,10 +35,12 @@ interface HotkeyRecorderProps {
   placeholder?: string;
   /** 唯一标识 */
   id: string;
+  ariaLabel?: string;
 }
 
-export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, placeholder, id }) => {
+export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, placeholder, id, ariaLabel }) => {
   const { t } = useTranslation();
+  const a11y = useControlA11y();
   const [recording, setRecording] = useState(false);
   const [activeKeys, setActiveKeys] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -177,39 +180,48 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
   const recordingPlaceholder = t('hotkey.pressKeys');
 
   return (
-    <div
-      ref={containerRef}
-      id={id}
-      className={`hotkey-recorder ${recording ? 'hotkey-recorder--recording' : ''}`}
-      onClick={() => !recording && startRecording()}
-      onKeyDown={(e: ReactKeyboardEvent) => {
-        // 阻止 Tab 键导致焦点移动
-        if (recording && e.key === 'Tab') e.preventDefault();
-      }}
-      tabIndex={0}
-      role="button"
-      aria-label={value || defaultPlaceholder}
-    >
-      {recording ? (
-        activeKeys.length > 0 ? renderKeys(activeKeys) : (
-          <span className="hotkey-recorder__placeholder">{recordingPlaceholder}</span>
-        )
-      ) : (
-        parsedKeys.length > 0 ? renderKeys(parsedKeys) : (
-          <span className="hotkey-recorder__placeholder">{defaultPlaceholder}</span>
-        )
-      )}
-
-      {/* 清除按钮 (有值时显示) */}
+    <div ref={containerRef} className="hotkey-recorder-wrap">
+      <button
+        id={id}
+        type="button"
+        className={`hotkey-recorder ${recording ? 'hotkey-recorder--recording' : ''}`}
+        onClick={() => !recording && startRecording()}
+        onKeyDown={(e: ReactKeyboardEvent) => {
+          if (!recording && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            startRecording();
+            return;
+          }
+          if (recording && e.key === 'Tab') e.preventDefault();
+        }}
+        aria-pressed={recording}
+        aria-labelledby={!ariaLabel && a11y.labelledBy ? `${a11y.labelledBy} ${id}-value` : undefined}
+        aria-describedby={a11y.describedBy}
+        aria-label={ariaLabel
+          ? `${ariaLabel}: ${recording ? recordingPlaceholder : (value || defaultPlaceholder)}`
+          : a11y.labelledBy ? undefined : (value || defaultPlaceholder)}
+      >
+        <span id={`${id}-value`} className="sr-only">
+          {recording ? recordingPlaceholder : (value || defaultPlaceholder)}
+        </span>
+        <span aria-hidden="true">
+          {recording ? (
+            activeKeys.length > 0 ? renderKeys(activeKeys) : (
+              <span className="hotkey-recorder__placeholder">{recordingPlaceholder}</span>
+            )
+          ) : (
+            parsedKeys.length > 0 ? renderKeys(parsedKeys) : (
+              <span className="hotkey-recorder__placeholder">{defaultPlaceholder}</span>
+            )
+          )}
+        </span>
+      </button>
       {value && !recording && (
         <button
+          type="button"
           className="hotkey-recorder__clear"
-          onClick={(e) => {
-            e.stopPropagation();
-            onChange('');
-          }}
-          aria-label="Clear"
-          tabIndex={-1}
+          onClick={() => onChange('')}
+          aria-label={t('hotkey.clearBinding')}
         >
           ×
         </button>

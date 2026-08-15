@@ -10,6 +10,7 @@
 #include "capture/PinWindow.h"
 #include "core/events/EventBus.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 
 #include <opencv2/imgcodecs.hpp>
@@ -88,7 +89,6 @@ void PinWindow::close() {
                        [](const auto& p) { return !p->isAlive(); }),
         s_instances.end()
     );
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 void PinWindow::closeAll() {
@@ -103,8 +103,7 @@ void PinWindow::closeAll() {
     }
     s_instances.clear();
     s_allHidden = false;
-    easy::core::WinUtils::trimWorkingSet();
-    LOG_INFO("所有贴图窗口已关闭并释放物理内存");
+    LOG_INFO("所有贴图窗口已关闭并释放资源");
 }
 
 void PinWindow::toggleHideAll() {
@@ -196,11 +195,13 @@ void PinWindow::updateHoverAnimation() {
 void PinWindow::drawHoverToolbar() {
     if (!m_renderTarget) return;
     auto size = m_renderTarget->GetSize();
-    
+
+    const float dpiScale = easy::core::dpi::scaleForWindow(m_hwnd);
+
     // Position toolbar at top right
-    float tbWidth = 80.0f;
-    float tbHeight = 32.0f;
-    float tbPadding = 8.0f;
+    float tbWidth = 80.0f * dpiScale;
+    float tbHeight = 32.0f * dpiScale;
+    float tbPadding = 8.0f * dpiScale;
     float tx = size.width - tbWidth - tbPadding;
     float ty = tbPadding;
     
@@ -214,43 +215,43 @@ void PinWindow::drawHoverToolbar() {
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.75f * m_hoverAlpha), bgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f * m_hoverAlpha), borderBrush.GetAddressOf());
     
-    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(m_toolbarRect, 6.0f, 6.0f);
+    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(m_toolbarRect, 6.0f * dpiScale, 6.0f * dpiScale);
     if (bgBrush) m_renderTarget->FillRoundedRectangle(&rrect, bgBrush.Get());
-    if (borderBrush) m_renderTarget->DrawRoundedRectangle(&rrect, borderBrush.Get(), 1.0f);
+    if (borderBrush) m_renderTarget->DrawRoundedRectangle(&rrect, borderBrush.Get(), 1.0f * dpiScale);
     
     // Layout buttons
-    float btnW = 32.0f;
-    float btnH = 24.0f;
+    float btnW = 32.0f * dpiScale;
+    float btnH = 24.0f * dpiScale;
+    float btnPad = 4.0f * dpiScale;
     float by = ty + (tbHeight - btnH) / 2.0f;
     
-    m_btnSaveRect = D2D1::RectF(tx + 4.0f, by, tx + 4.0f + btnW, by + btnH);
-    m_btnCloseRect = D2D1::RectF(tx + tbWidth - 4.0f - btnW, by, tx + tbWidth - 4.0f, by + btnH);
+    m_btnSaveRect = D2D1::RectF(tx + btnPad, by, tx + btnPad + btnW, by + btnH);
+    m_btnCloseRect = D2D1::RectF(tx + tbWidth - btnPad - btnW, by, tx + tbWidth - btnPad, by + btnH);
     
     ComPtr<ID2D1SolidColorBrush> btnHoverBrush, textBrush;
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f * m_hoverAlpha), btnHoverBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f * m_hoverAlpha), textBrush.GetAddressOf());
     
-    if (m_hoverSave && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnSaveRect, 4.0f, 4.0f), btnHoverBrush.Get());
-    if (m_hoverClose && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCloseRect, 4.0f, 4.0f), btnHoverBrush.Get());
+    if (m_hoverSave && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnSaveRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
+    if (m_hoverClose && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCloseRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     
-    // Draw icons (using simple text for now)
-    // You could use DirectWrite here, but for simplicity we can just draw lines for save and close
     // Save icon (down arrow + line)
-    float sx = m_btnSaveRect.left + btnW/2;
-    float sy = m_btnSaveRect.top + btnH/2;
+    float sx = m_btnSaveRect.left + btnW / 2.0f;
+    float sy = m_btnSaveRect.top + btnH / 2.0f;
+    const float stroke = 1.5f * dpiScale;
     if (textBrush) {
-        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3, sy), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3, sy), D2D1::Point2F(sx, sy + 3), textBrush.Get(), 1.5f);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5, sy + 6), D2D1::Point2F(sx + 5, sy + 6), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5.0f * dpiScale), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5.0f * dpiScale, sy + 6.0f * dpiScale), D2D1::Point2F(sx + 5.0f * dpiScale, sy + 6.0f * dpiScale), textBrush.Get(), stroke);
     }
     
     // Close icon (X)
-    float cx = m_btnCloseRect.left + btnW/2;
-    float cy = m_btnCloseRect.top + btnH/2;
+    float cx = m_btnCloseRect.left + btnW / 2.0f;
+    float cy = m_btnCloseRect.top + btnH / 2.0f;
     if (textBrush) {
-        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4, cy - 4), D2D1::Point2F(cx + 4, cy + 4), textBrush.Get(), 1.5f);
-        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4, cy + 4), D2D1::Point2F(cx + 4, cy - 4), textBrush.Get(), 1.5f);
+        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * dpiScale, cy - 4.0f * dpiScale), D2D1::Point2F(cx + 4.0f * dpiScale, cy + 4.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * dpiScale, cy + 4.0f * dpiScale), D2D1::Point2F(cx + 4.0f * dpiScale, cy - 4.0f * dpiScale), textBrush.Get(), stroke);
     }
 }
 
@@ -419,6 +420,28 @@ void PinWindow::setScale(float scale) {
         }
         render();
     }
+}
+
+void PinWindow::rotate(int angleDeg) {
+    if (m_sourceImage.empty() || !m_hwnd) return;
+    if (angleDeg == 90) {
+        cv::rotate(m_sourceImage, m_sourceImage, cv::ROTATE_90_CLOCKWISE);
+        std::swap(m_origWidth, m_origHeight);
+    } else if (angleDeg == 180) {
+        cv::rotate(m_sourceImage, m_sourceImage, cv::ROTATE_180);
+    } else if (angleDeg == 270 || angleDeg == -90) {
+        cv::rotate(m_sourceImage, m_sourceImage, cv::ROTATE_90_COUNTERCLOCKWISE);
+        std::swap(m_origWidth, m_origHeight);
+    }
+    createRenderResources(m_sourceImage);
+    setScale(m_scale);
+}
+
+void PinWindow::flip(bool horizontal) {
+    if (m_sourceImage.empty() || !m_hwnd) return;
+    cv::flip(m_sourceImage, m_sourceImage, horizontal ? 1 : 0);
+    createRenderResources(m_sourceImage);
+    render();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,26 +641,34 @@ bool PinWindow::initWindow(HINSTANCE hInstance, int x, int y, int w, int h) {
 bool PinWindow::createRenderResources(const cv::Mat& image) {
     HRESULT hr;
 
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    if (FAILED(hr)) return false;
+    if (!m_d2dFactory) {
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+        if (FAILED(hr)) return false;
+    }
 
-    RECT rc;
+    RECT rc{};
     GetClientRect(m_hwnd, &rc);
+    const UINT targetW = static_cast<UINT>((std::max)(1L, rc.right - rc.left));
+    const UINT targetH = static_cast<UINT>((std::max)(1L, rc.bottom - rc.top));
 
-    auto rtProps = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_DEFAULT,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-    );
-    auto hwndProps = D2D1::HwndRenderTargetProperties(
-        m_hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top),
-        D2D1_PRESENT_OPTIONS_IMMEDIATELY
-    );
+    if (!m_renderTarget) {
+        auto rtProps = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+        );
+        auto hwndProps = D2D1::HwndRenderTargetProperties(
+            m_hwnd, D2D1::SizeU(targetW, targetH),
+            D2D1_PRESENT_OPTIONS_IMMEDIATELY
+        );
 
-    hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
-    if (FAILED(hr)) return false;
+        hr = m_d2dFactory->CreateHwndRenderTarget(rtProps, hwndProps, m_renderTarget.GetAddressOf());
+        if (FAILED(hr)) return false;
 
-    // 禁用 D2D 的自动 DPI 缩放
-    m_renderTarget->SetDpi(96.0f, 96.0f);
+        // 禁用 D2D 的自动 DPI 缩放
+        m_renderTarget->SetDpi(96.0f, 96.0f);
+    } else {
+        m_renderTarget->Resize(D2D1::SizeU(targetW, targetH));
+    }
 
     // 转为 BGRA 并创建 D2D Bitmap
     cv::Mat bgra;
@@ -653,6 +684,7 @@ bool PinWindow::createRenderResources(const cv::Mat& image) {
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
     );
 
+    m_bitmap.Reset();
     hr = m_renderTarget->CreateBitmap(
         D2D1::SizeU(bgra.cols, bgra.rows),
         bgra.data, bgra.cols * 4,
@@ -676,10 +708,10 @@ void PinWindow::render() {
         drawHoverToolbar();
     }
 
-    // 边框：选中态用紫色强调 2px 内描边，否则 1px 灰色
+    // 边框：选中态用 Fluent 蓝色强调 2px 内描边，否则 1px 半透明中性灰
     ComPtr<ID2D1SolidColorBrush> borderBrush;
     if (m_focused) {
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.95f), borderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.478f, 0.800f, 0.95f), borderBrush.GetAddressOf());
         m_renderTarget->DrawRectangle(D2D1::RectF(1, 1, size.width - 1, size.height - 1), borderBrush.Get(), 2.0f);
     } else {
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.5f, 0.5f, 0.5f), borderBrush.GetAddressOf());
@@ -728,11 +760,27 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 
         case WM_KEYDOWN: {
             if (!self) break;
-            bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
             // Esc / Ctrl+W: 优雅关闭当前贴图
             if (wParam == VK_ESCAPE || (ctrl && wParam == 'W')) {
                 self->close();
+                return 0;
+            }
+            // R / Shift+R: 顺时针 / 逆时针旋转 90 度
+            if (wParam == 'R' && !ctrl) {
+                self->rotate(shift ? 270 : 90);
+                return 0;
+            }
+            // H: 水平镜像翻转
+            if (wParam == 'H' && !ctrl) {
+                self->flip(true);
+                return 0;
+            }
+            // V: 垂直镜像翻转
+            if (wParam == 'V' && !ctrl) {
+                self->flip(false);
                 return 0;
             }
             // Ctrl+C: 复制原图到剪贴板
@@ -756,11 +804,11 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             }
             // [/] 键: 透明度微调
             if (wParam == VK_OEM_4) { // '['
-                self->setOpacity(std::max(0.1f, self->m_opacity - 0.1f));
+                self->setOpacity((std::max)(0.1f, self->m_opacity - 0.1f));
                 return 0;
             }
             if (wParam == VK_OEM_6) { // ']'
-                self->setOpacity(std::min(1.0f, self->m_opacity + 0.1f));
+                self->setOpacity((std::min)(1.0f, self->m_opacity + 0.1f));
                 return 0;
             }
             // 0 或 1: 恢复 100% 原始尺寸
@@ -851,8 +899,13 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             if (!self) break;
             HMENU menu = CreatePopupMenu();
             bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
-            AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板" : L"Copy to Clipboard");
-            AppendMenuW(menu, MF_STRING, 10, isZh ? L"保存图片..." : L"Save Image...");
+            AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板  (Ctrl+C)" : L"Copy to Clipboard  (Ctrl+C)");
+            AppendMenuW(menu, MF_STRING, 10, isZh ? L"保存图片...  (Ctrl+S)" : L"Save Image...  (Ctrl+S)");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, 11, isZh ? L"顺时针旋转 90°  (R)" : L"Rotate Right 90°  (R)");
+            AppendMenuW(menu, MF_STRING, 12, isZh ? L"逆时针旋转 90°  (Shift+R)" : L"Rotate Left 90°  (Shift+R)");
+            AppendMenuW(menu, MF_STRING, 13, isZh ? L"水平翻转  (H)" : L"Flip Horizontal  (H)");
+            AppendMenuW(menu, MF_STRING, 14, isZh ? L"垂直翻转  (V)" : L"Flip Vertical  (V)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%" : L"Opacity 100%");
             AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%" : L"Opacity 75%");
@@ -865,7 +918,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             AppendMenuW(menu, MF_STRING, 8, isZh ? L"隐藏全部贴图  (Ctrl+Alt+Shift+H 显示)"
                                                : L"Hide All Pins  (Ctrl+Alt+Shift+H shows)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 5, isZh ? L"关闭" : L"Close");
+            AppendMenuW(menu, MF_STRING, 5, isZh ? L"关闭  (Esc / 双击)" : L"Close  (Esc / Double Click)");
             AppendMenuW(menu, MF_STRING, 6, isZh ? L"关闭全部贴图" : L"Close All Pins");
 
             POINT pt;
@@ -874,16 +927,19 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             DestroyMenu(menu);
 
             switch (cmd) {
-                case 1: copyImageToClipboard(self->m_sourceImage); break;  // 修复：原先 cmd 1 未处理
+                case 1: copyImageToClipboard(self->m_sourceImage); break;
                 case 10: savePinnedImage(hwnd, self->m_sourceImage); break;
+                case 11: self->rotate(90); break;
+                case 12: self->rotate(270); break;
+                case 13: self->flip(true); break;
+                case 14: self->flip(false); break;
                 case 2: self->setOpacity(1.0f); break;
                 case 3: self->setOpacity(0.75f); break;
                 case 4: self->setOpacity(0.5f); break;
                 case 5: self->close(); break;
                 case 6: PinWindow::closeAll(); break;
-                // 菜单只负责开启穿透（开启后窗口收不到右键），关闭走全局快捷键
                 case 7: self->setClickThrough(true); break;
-                case 8: PinWindow::toggleHideAll(); break;  // 隐藏后靠快捷键恢复
+                case 8: PinWindow::toggleHideAll(); break;
                 case 9: PinWindow::arrangeAll(); break;
             }
             return 0;

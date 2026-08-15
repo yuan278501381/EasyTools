@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "abiVersion": 1,
+  "id": "search",
+  "name": "Search",
+  "version": "@PROJECT_VERSION@",
+  "minimumHostVersion": "1.0.0",
+  "entryPoint": "CreatePlugin",
+  "capabilities": ["file-search"],
+  "permissions": ["file-read", "launch-process", "service-ipc"]
+}

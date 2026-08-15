@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // ScreenCapture — 屏幕截图核心引擎
 //
@@ -55,6 +55,7 @@ struct CaptureOptions {
     bool autoNumber = false;           // 标注时自动编号
     bool showCrosshair = true;         // 选区前显示十字准星/取色放大镜
     bool autoDetectWindow = true;      // 光标悬停时检测并吸附窗口
+    bool showShortcutHints = true;     // 操作期间在当前显示器左下角显示轻量快捷键提示
 };
 
 /// 截图结果
@@ -104,6 +105,9 @@ private:
     ScreenCapture() = default;
     ScreenCapture(const ScreenCapture&) = delete;
     ScreenCapture& operator=(const ScreenCapture&) = delete;
+
+    /// 统一屏幕捕获（优先硬件加速后端 DXGI / WGC，自动回退到 GDI BitBlt）
+    std::unique_ptr<cv::Mat> captureScreen(const CaptureRegion& region);
 
     /// 使用 BitBlt 截取屏幕区域（兼容性方案）
     std::unique_ptr<cv::Mat> captureScreenBitBlt(const CaptureRegion& region);

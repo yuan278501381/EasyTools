@@ -1,6 +1,11 @@
 #include "ui/ToastOverlay.h"
+#include "ui/ToastStyle.h"
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
+
+#include <algorithm>
+#include <cmath>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -28,47 +33,63 @@ bool ToastOverlay::initialize(HINSTANCE hInstance) {
     wc.lpszClassName = TOAST_CLASS;
     RegisterClassExW(&wc);
 
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    
-    float scale = easy::core::WinUtils::getDpiScale();
-    int width = static_cast<int>(600 * scale);
-    int height = static_cast<int>(80 * scale);
-    int x = (screenW - width) / 2;
-    int y = static_cast<int>(80 * scale); // 顶部留白
-
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         TOAST_CLASS, L"",
         WS_POPUP,
-        x, y, width, height,
+        0, 0, 1, 1,
         nullptr, nullptr, hInstance, nullptr
     );
 
     if (!m_hwnd) return false;
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
+        LOG_WARN("当前 Windows 版本无法从捕获中排除通知窗口: error={}", GetLastError());
+    }
 
-    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
+    if (FAILED(D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf())) ||
+        FAILED(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())))) {
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+        m_d2dFactory.Reset();
+        m_dwriteFactory.Reset();
+        return false;
+    }
 
-    LOG_INFO("按键回显 Overlay 初始化完成");
+    updatePlacement();
+    ShowWindow(m_hwnd, SW_HIDE);
+    LOG_INFO("系统通知 Overlay 初始化完成");
     return true;
 }
 
 void ToastOverlay::shutdown() {
+    discardResources();
     if (m_hwnd) {
+        KillTimer(m_hwnd, TIMER_ID);
+        KillTimer(m_hwnd, FADE_TIMER_ID);
+        KillTimer(m_hwnd, FADE_IN_TIMER_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
-    discardResources();
-    m_dwriteFactory = nullptr;
-    m_d2dFactory = nullptr;
+    m_dwriteFactory.Reset();
+    m_d2dFactory.Reset();
 }
 
 void ToastOverlay::setEnabled(bool enabled) {
     m_enabled = enabled;
     if (!enabled && m_hwnd) {
+        KillTimer(m_hwnd, TIMER_ID);
+        KillTimer(m_hwnd, FADE_TIMER_ID);
+        KillTimer(m_hwnd, FADE_IN_TIMER_ID);
         ShowWindow(m_hwnd, SW_HIDE);
+        std::lock_guard lock(m_mutex);
+        m_opacity = 0.0f;
+        m_fadingIn = false;
+        m_fadingOut = false;
     }
 }
 
@@ -77,7 +98,9 @@ bool ToastOverlay::isEnabled() const {
 }
 
 void ToastOverlay::showToast(const std::string& text) {
-    if (!m_enabled || !m_hwnd) return;
+    if (!m_enabled || !m_hwnd || text.empty()) return;
+
+    updatePlacement();
 
     {
         std::lock_guard lock(m_mutex);
@@ -97,7 +120,9 @@ void ToastOverlay::showToast(const std::string& text) {
 
     KillTimer(m_hwnd, TIMER_ID);
     KillTimer(m_hwnd, FADE_TIMER_ID);
-    
+    KillTimer(m_hwnd, FADE_IN_TIMER_ID);
+
+    render();  // Replace retained layered-window pixels before showing again.
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
     
     if (m_fadingIn) {
@@ -108,13 +133,17 @@ void ToastOverlay::showToast(const std::string& text) {
     }
 }
 
-void ToastOverlay::createResources() {
+bool ToastOverlay::createResources() {
     if (!m_renderTarget && m_d2dFactory) {
         D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_DEFAULT,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
         );
-        m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget);
+        if (FAILED(m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget)) ||
+            !m_renderTarget) {
+            return false;
+        }
+        m_renderTarget->SetDpi(96.0f, 96.0f);
 
         if (m_renderTarget) {
             // 背景: 圆角深色半透明
@@ -126,46 +155,115 @@ void ToastOverlay::createResources() {
         }
 
         if (m_dwriteFactory && !m_textFormat) {
-            float scale = easy::core::WinUtils::getDpiScale(m_hwnd);
-            m_dwriteFactory->CreateTextFormat(
+            const HRESULT hr = m_dwriteFactory->CreateTextFormat(
                 L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, 18.0f * scale, L"zh-cn", &m_textFormat
+                DWRITE_FONT_STRETCH_NORMAL,
+                ToastStyle::BaseFontSize * m_dpiScale, L"zh-cn", &m_textFormat
             );
+            if (FAILED(hr) || !m_textFormat) return false;
             m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         }
     }
+    if (!m_bgBrush || !m_strokeBrush || !m_textBrush) {
+        discardResources();
+        return false;
+    }
+    return m_renderTarget && m_textFormat;
 }
 
 void ToastOverlay::discardResources() {
-    m_renderTarget = nullptr;
-    m_bgBrush = nullptr;
-    m_strokeBrush = nullptr;
-    m_textBrush = nullptr;
-    m_textFormat = nullptr;
+    m_textBrush.Reset();
+    m_strokeBrush.Reset();
+    m_bgBrush.Reset();
+    m_textFormat.Reset();
+    m_renderTarget.Reset();
+    releaseSurface();
+}
+
+void ToastOverlay::releaseSurface() {
+    if (m_memoryDC && m_oldBitmap) {
+        SelectObject(m_memoryDC, m_oldBitmap);
+    }
+    m_oldBitmap = nullptr;
+    if (m_memoryBitmap) DeleteObject(m_memoryBitmap);
+    if (m_memoryDC) DeleteDC(m_memoryDC);
+    m_memoryBitmap = nullptr;
+    m_memoryDC = nullptr;
+    m_surfaceWidth = 0;
+    m_surfaceHeight = 0;
+}
+
+bool ToastOverlay::ensureSurface(int width, int height) {
+    if (m_memoryDC && m_memoryBitmap &&
+        m_surfaceWidth == width && m_surfaceHeight == height) {
+        return true;
+    }
+    releaseSurface();
+    if (width <= 0 || height <= 0) return false;
+
+    HDC screen = GetDC(nullptr);
+    if (!screen) return false;
+    HDC memory = CreateCompatibleDC(screen);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    HBITMAP bitmap = CreateDIBSection(
+        screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    ReleaseDC(nullptr, screen);
+    if (!memory || !bitmap || !pixels) {
+        if (bitmap) DeleteObject(bitmap);
+        if (memory) DeleteDC(memory);
+        return false;
+    }
+
+    m_memoryDC = memory;
+    m_memoryBitmap = bitmap;
+    m_oldBitmap = static_cast<HBITMAP>(SelectObject(memory, bitmap));
+    m_surfaceWidth = width;
+    m_surfaceHeight = height;
+    return true;
+}
+
+void ToastOverlay::updatePlacement() {
+    if (!m_hwnd || m_updatingPlacement) return;
+    m_updatingPlacement = true;
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const float newScale = easy::core::dpi::scaleForMonitor(monitor);
+    if (std::abs(newScale - m_dpiScale) >= 0.01f) {
+        m_dpiScale = newScale;
+        discardResources();
+    }
+    const RECT work = easy::core::dpi::workArea(monitor);
+    const int width = easy::core::dpi::scaleMetric(ToastStyle::BaseWidth, m_dpiScale);
+    const int height = easy::core::dpi::scaleMetric(ToastStyle::BaseHeight, m_dpiScale);
+    const int x = work.left + ((work.right - work.left) - width) / 2;
+    const int y = work.top + easy::core::dpi::scaleMetric(
+        ToastStyle::BaseTopMargin, m_dpiScale);
+    SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, width, height,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    m_updatingPlacement = false;
 }
 
 void ToastOverlay::render() {
     if (!m_hwnd) return;
-    createResources();
-    if (!m_renderTarget) return;
+    if (!createResources()) return;
 
     RECT rc;
     GetWindowRect(m_hwnd, &rc);
     int width = rc.right - rc.left;
     int height = rc.bottom - rc.top;
 
-    HDC hdc = GetDC(m_hwnd);
-    HDC memDC = CreateCompatibleDC(hdc);
-    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, width, height);
-    HBITMAP oldBitmap = static_cast<HBITMAP>(SelectObject(memDC, memBitmap));
+    if (!ensureSurface(width, height)) return;
 
     RECT clientRc = {0, 0, width, height};
-    m_renderTarget->BindDC(memDC, &clientRc);
-    
-    // 获取 DPI 以按比例缩放绘制
-    float scale = easy::core::WinUtils::getDpiScale(m_hwnd);
-    m_renderTarget->SetDpi(96.0f * scale, 96.0f * scale);
+    if (FAILED(m_renderTarget->BindDC(m_memoryDC, &clientRc))) return;
+    m_renderTarget->SetDpi(96.0f, 96.0f);
 
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
@@ -183,10 +281,13 @@ void ToastOverlay::render() {
     if (!text.empty() && alpha > 0.0f) {
         std::wstring wText = easy::core::WinUtils::utf8ToWstring(text);
         
-        float cx = (width / scale) / 2.0f;
-        float cy = (height / scale) / 2.0f;
-        float textWidth = static_cast<float>(wText.length() * 20.0f + 60.0f); 
-        float rectHeight = 60.0f;
+        const float cx = width / 2.0f;
+        const float cy = height / 2.0f;
+        const float margin = 8.0f * m_dpiScale;
+        float textWidth = static_cast<float>(wText.length() * 20.0f + 60.0f) *
+                          m_dpiScale;
+        textWidth = std::min(textWidth, std::max(1.0f, width - 2.0f * margin));
+        const float rectHeight = 60.0f * m_dpiScale;
 
         // 应用进场缩放动画
         D2D1::Matrix3x2F transform = D2D1::Matrix3x2F::Scale(scaleAnim, scaleAnim, D2D1::Point2F(cx, cy));
@@ -196,33 +297,36 @@ void ToastOverlay::render() {
         
         m_bgBrush->SetOpacity(alpha);
         // 绘制圆角背景
-        D2D1_ROUNDED_RECT roundedRect = D2D1::RoundedRect(bgRect, 8.0f * scale, 8.0f * scale);
+        D2D1_ROUNDED_RECT roundedRect = D2D1::RoundedRect(
+            bgRect, 8.0f * m_dpiScale, 8.0f * m_dpiScale);
         m_renderTarget->FillRoundedRectangle(roundedRect, m_bgBrush.Get());
-        m_renderTarget->DrawRoundedRectangle(roundedRect, m_strokeBrush.Get(), 1.5f * scale);
+        m_renderTarget->DrawRoundedRectangle(
+            roundedRect, m_strokeBrush.Get(), 1.5f * m_dpiScale);
 
         m_textBrush->SetOpacity(alpha);
         m_renderTarget->DrawTextW(
             wText.c_str(), static_cast<UINT32>(wText.length()), m_textFormat.Get(),
-            D2D1::RectF(0, 0, width / scale, height / scale),
+            D2D1::RectF(0, 0, static_cast<float>(width), static_cast<float>(height)),
             m_textBrush.Get()
         );
     }
 
     HRESULT hr = m_renderTarget->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
+    if (FAILED(hr)) {
         discardResources();
+        return;
     }
 
     POINT ptSrc = {0, 0};
     SIZE size = {width, height};
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
     
-    UpdateLayeredWindow(m_hwnd, hdc, nullptr, &size, memDC, &ptSrc, 0, &blend, ULW_ALPHA);
-
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(memBitmap);
-    DeleteDC(memDC);
-    ReleaseDC(m_hwnd, hdc);
+    HDC screen = GetDC(nullptr);
+    if (screen) {
+        UpdateLayeredWindow(
+            m_hwnd, screen, nullptr, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
+        ReleaseDC(nullptr, screen);
+    }
 }
 
 LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -279,8 +383,17 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                 }
                 return 0;
             }
+            case WM_DPICHANGED:
+            case WM_DISPLAYCHANGE:
+                if (self && IsWindowVisible(hwnd)) {
+                    self->updatePlacement();
+                    self->render();
+                }
+                return 0;
             case WM_DESTROY:
-                PostQuitMessage(0);
+                KillTimer(hwnd, TIMER_ID);
+                KillTimer(hwnd, FADE_TIMER_ID);
+                KillTimer(hwnd, FADE_IN_TIMER_ID);
                 return 0;
         }
     } catch (const std::exception& e) {

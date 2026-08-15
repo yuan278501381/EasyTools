@@ -19,6 +19,7 @@ interface CaptureSettings {
   copyToClipboard: boolean;
   showCrosshair: boolean;
   autoDetectWindow: boolean;
+  showShortcutHints: boolean;
   shortcut?: string;
   saveDirectory?: string;
 }
@@ -28,34 +29,62 @@ interface RecordingSettings {
   fps: number;
   bitrate: number;
   saveDirectory?: string;
+  includeCursor: boolean;
+  showClickEffects: boolean;
+  captureSystemAudio: boolean;
+  captureMicrophone: boolean;
+  systemAudioDeviceId: string;
+  microphoneDeviceId: string;
+  systemAudioVolume: number;
+  microphoneVolume: number;
+  countdownSeconds: number;
 }
 
+interface AudioDeviceInfo {
+  id: string;
+  name: string;
+  systemAudio: boolean;
+  defaultDevice: boolean;
+}
+
+interface RecordingCapabilities { audioDevices: AudioDeviceInfo[] }
+
 interface OperationResult { success: boolean; error?: string; shortcut?: string }
-interface HotkeyEntry { name: string; shortcut: string }
+interface HotkeyEntry { name: string; shortcut: string; registered?: boolean }
 
 export const CapturePage: FC = () => {
   const { t } = useTranslation();
   const [capture, setCapture] = useState<CaptureSettings>({
     format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
-    showCrosshair: true, autoDetectWindow: true,
+    showCrosshair: true, autoDetectWindow: true, showShortcutHints: true,
   });
   const [recording, setRecording] = useState<RecordingSettings>({
-    format: 'mp4_h264', fps: 30, bitrate: 8,
+    format: 'mp4_h264', fps: 30, bitrate: 8, includeCursor: true, showClickEffects: false,
+    captureSystemAudio: false, captureMicrophone: false,
+    systemAudioDeviceId: '', microphoneDeviceId: '',
+    systemAudioVolume: 100, microphoneVolume: 100,
+    countdownSeconds: 3,
   });
+  const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [screenshotHotkey, setScreenshotHotkey] = useState('Ctrl+Shift+A');
   const [recordHotkey, setRecordHotkey] = useState('Ctrl+Shift+R');
+  const [recordPauseHotkey, setRecordPauseHotkey] = useState('Ctrl+Shift+P');
 
   useEffect(() => {
     Promise.all([
       bridgeRequest<CaptureSettings>('capture.getSettings'),
       bridgeRequest<RecordingSettings>('recording.getSettings'),
       bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
-    ]).then(([capData, recData, hotkeyData]) => {
+      bridgeRequest<RecordingCapabilities>('recording.getCapabilities')
+        .catch(() => ({ audioDevices: [] })),
+    ]).then(([capData, recData, hotkeyData, capabilities]) => {
       setCapture(prev => ({ ...prev, ...capData }));
       setRecording(prev => ({ ...prev, ...recData }));
-      setScreenshotHotkey(hotkeyData.find(item => item.name === 'Screenshot')?.shortcut || 'Ctrl+Shift+A');
-      setRecordHotkey(hotkeyData.find(item => item.name === 'Record')?.shortcut || 'Ctrl+Shift+R');
+      setScreenshotHotkey(hotkeyData.find(item => item.name === 'Screenshot')?.shortcut ?? 'Ctrl+Shift+A');
+      setRecordHotkey(hotkeyData.find(item => item.name === 'Record')?.shortcut ?? 'Ctrl+Shift+R');
+      setRecordPauseHotkey(hotkeyData.find(item => item.name === 'Record Pause')?.shortcut ?? 'Ctrl+Shift+P');
+      setAudioDevices(capabilities.audioDevices || []);
     }).catch((error) => {
       console.error(error);
       toast.error(t('capture.loadFailed'));
@@ -82,12 +111,13 @@ export const CapturePage: FC = () => {
       });
   }, [t]);
 
-  const rebindHotkey = async (name: 'Screenshot' | 'Record', value: string) => {
+  const rebindHotkey = async (name: 'Screenshot' | 'Record' | 'Record Pause', value: string) => {
     try {
       const result = await bridgeRequest<OperationResult>('hotkey.rebind', { name, hotkey: value });
       if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
-      if (name === 'Screenshot') setScreenshotHotkey(result.shortcut || value);
-      else setRecordHotkey(result.shortcut || value);
+      if (name === 'Screenshot') setScreenshotHotkey(result.shortcut ?? value);
+      else if (name === 'Record') setRecordHotkey(result.shortcut ?? value);
+      else setRecordPauseHotkey(result.shortcut ?? value);
     } catch (error) {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
     }
@@ -111,6 +141,38 @@ export const CapturePage: FC = () => {
     }
   };
 
+  const handleTryCapture = async () => {
+    try {
+      const result = await bridgeRequest<OperationResult>('capture.triggerScreenshot');
+      if (!result.success) throw new Error(result.error || t('capture.startFailed'));
+    } catch (error) {
+      toast.error(t('capture.startFailed'), { description: String(error) });
+    }
+  };
+
+  const audioDeviceOptions = (systemAudio: boolean, selectedId: string) => {
+    const devices = audioDevices.filter(device => device.systemAudio === systemAudio);
+    const options = [
+      { value: '', label: t('recording.defaultAudioDevice') },
+      ...devices.map(device => ({
+        value: device.id,
+        label: device.defaultDevice
+          ? `${device.name} · ${t('recording.currentDefault')}` : device.name,
+      })),
+    ];
+    if (selectedId && !devices.some(device => device.id === selectedId)) {
+      options.push({ value: selectedId, label: t('recording.unavailableAudioDevice') });
+    }
+    return options;
+  };
+
+  const audioVolumeOptions = (current: number) => {
+    const values = [0, 25, 50, 75, 100, 125, 150, 200];
+    if (!values.includes(current)) values.push(current);
+    return values.sort((left, right) => left - right)
+      .map(value => ({ value: String(value), label: `${value}%` }));
+  };
+
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
   }
@@ -120,11 +182,16 @@ export const CapturePage: FC = () => {
       <SettingGroup title={t('capture.title')} icon={<Camera size={20} strokeWidth={2.5} />}>
         <Card>
           <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
-            <HotkeyRecorder
-              id="capture-shortcut"
-              value={screenshotHotkey}
-              onChange={(v) => void rebindHotkey('Screenshot', v)}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <HotkeyRecorder
+                id="capture-shortcut"
+                value={screenshotHotkey}
+                onChange={(v) => void rebindHotkey('Screenshot', v)}
+              />
+              <Button variant="ghost" onClick={() => void handleTryCapture()}>
+                {t('capture.tryCapture')}
+              </Button>
+            </div>
           </SettingRow>
           <Toggle
             id="capture-copy-clipboard"
@@ -147,7 +214,7 @@ export const CapturePage: FC = () => {
                   <TextInput
                     id="saveDir"
                     value={capture.saveDirectory || ''}
-                    disabled
+                    readOnly
                     onChange={() => {}}
                   />
                 </div>
@@ -194,6 +261,13 @@ export const CapturePage: FC = () => {
             checked={capture.autoDetectWindow}
             onChange={(v) => updateCapture('autoDetectWindow', v)}
           />
+          <Toggle
+            id="capture-shortcut-hints"
+            label={t('capture.showShortcutHints')}
+            description={t('capture.showShortcutHintsDesc')}
+            checked={capture.showShortcutHints}
+            onChange={(v) => updateCapture('showShortcutHints', v)}
+          />
         </Card>
       </SettingGroup>
 
@@ -206,9 +280,16 @@ export const CapturePage: FC = () => {
               onChange={(v) => void rebindHotkey('Record', v)}
             />
           </SettingRow>
+          <SettingRow label={t('recording.pauseShortcut')} description={t('recording.pauseShortcutDesc')}>
+            <HotkeyRecorder
+              id="recording-pause-shortcut"
+              value={recordPauseHotkey}
+              onChange={(v) => void rebindHotkey('Record Pause', v)}
+            />
+          </SettingRow>
           <SettingRow label={t('recording.saveDir')} description={t('recording.saveDirDesc')}>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <TextInput id="recordSaveDir" value={recording.saveDirectory || ''} disabled onChange={() => {}} />
+              <TextInput id="recordSaveDir" value={recording.saveDirectory || ''} readOnly onChange={() => {}} />
               <Button variant="ghost" onClick={handleBrowseRecordingDir}>{t('capture.browse')}</Button>
             </div>
           </SettingRow>
@@ -250,6 +331,101 @@ export const CapturePage: FC = () => {
               ]}
             />
           </SettingRow>
+          <SettingRow label={t('recording.countdown')} description={t('recording.countdownDesc')}>
+            <Select
+              id="record-countdown"
+              value={String(recording.countdownSeconds)}
+              onChange={(v) => updateRecording('countdownSeconds', parseInt(v))}
+              options={[
+                { value: '0', label: t('recording.countdownOff') },
+                { value: '3', label: t('recording.countdownSeconds', { count: 3 }) },
+                { value: '5', label: t('recording.countdownSeconds', { count: 5 }) },
+                { value: '10', label: t('recording.countdownSeconds', { count: 10 }) },
+              ]}
+            />
+          </SettingRow>
+          <Toggle
+            id="record-include-cursor"
+            label={t('recording.includeCursor')}
+            description={t('recording.includeCursorDesc')}
+            checked={recording.includeCursor}
+            onChange={(v) => updateRecording('includeCursor', v)}
+          />
+          <Toggle
+            id="record-click-effects"
+            label={t('recording.showClickEffects')}
+            description={t('recording.showClickEffectsDesc')}
+            checked={recording.showClickEffects}
+            onChange={(v) => updateRecording('showClickEffects', v)}
+          />
+          <Toggle
+            id="record-system-audio"
+            label={t('recording.captureSystemAudio')}
+            description={t('recording.captureSystemAudioDesc')}
+            checked={recording.captureSystemAudio}
+            disabled={recording.format === 'gif'}
+            onChange={(v) => updateRecording('captureSystemAudio', v)}
+          />
+          {recording.captureSystemAudio && recording.format !== 'gif' && (
+            <>
+              <SettingRow
+                label={t('recording.systemAudioDevice')}
+                description={t('recording.systemAudioDeviceDesc')}
+              >
+                <Select
+                  id="record-system-audio-device"
+                  value={recording.systemAudioDeviceId}
+                  onChange={(v) => updateRecording('systemAudioDeviceId', v)}
+                  options={audioDeviceOptions(true, recording.systemAudioDeviceId)}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('recording.systemAudioVolume')}
+                description={t('recording.audioVolumeDesc')}
+              >
+                <Select
+                  id="record-system-audio-volume"
+                  value={String(recording.systemAudioVolume)}
+                  onChange={(v) => updateRecording('systemAudioVolume', parseInt(v))}
+                  options={audioVolumeOptions(recording.systemAudioVolume)}
+                />
+              </SettingRow>
+            </>
+          )}
+          <Toggle
+            id="record-microphone"
+            label={t('recording.captureMicrophone')}
+            description={t('recording.captureMicrophoneDesc')}
+            checked={recording.captureMicrophone}
+            disabled={recording.format === 'gif'}
+            onChange={(v) => updateRecording('captureMicrophone', v)}
+          />
+          {recording.captureMicrophone && recording.format !== 'gif' && (
+            <>
+              <SettingRow
+                label={t('recording.microphoneDevice')}
+                description={t('recording.microphoneDeviceDesc')}
+              >
+                <Select
+                  id="record-microphone-device"
+                  value={recording.microphoneDeviceId}
+                  onChange={(v) => updateRecording('microphoneDeviceId', v)}
+                  options={audioDeviceOptions(false, recording.microphoneDeviceId)}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('recording.microphoneVolume')}
+                description={t('recording.audioVolumeDesc')}
+              >
+                <Select
+                  id="record-microphone-volume"
+                  value={String(recording.microphoneVolume)}
+                  onChange={(v) => updateRecording('microphoneVolume', parseInt(v))}
+                  options={audioVolumeOptions(recording.microphoneVolume)}
+                />
+              </SettingRow>
+            </>
+          )}
         </Card>
       </SettingGroup>
     </div>

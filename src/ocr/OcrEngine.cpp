@@ -180,7 +180,6 @@ std::vector<OcrResult> OcrEngine::extractText(const cv::Mat& image) {
     } catch (const std::exception& e) {
         LOG_ERROR("OCR 异常: {}", e.what());
     }
-    easy::core::WinUtils::trimWorkingSet();
     return results;
 }
 

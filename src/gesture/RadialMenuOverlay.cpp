@@ -1,27 +1,26 @@
 #include "gesture/RadialMenuOverlay.h"
+#include "gesture/RadialMenuStyle.h"
 #include "gesture/BuiltinCommands.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 #include <cmath>
 #include <algorithm>
 #include <unordered_map>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 namespace easy::gesture {
 
 static const wchar_t* CLASS_NAME = L"EasyTools_RadialMenu";
-const int WINDOW_SIZE = 400; // 400x400
 const UINT_PTR TIMER_ID_ANIMATION = 1001;
+constexpr float PI_F = 3.14159265358979323846f;
 
 // 缓动函数
 static float easeOutBack(float x) {
     const float c1 = 1.70158f;
     const float c3 = c1 + 1.0f;
-    return 1.0f + c3 * std::pow(x - 1.0f, 3) + c1 * std::pow(x - 1.0f, 2);
+    const float delta = x - 1.0f;
+    return 1.0f + c3 * delta * delta * delta + c1 * delta * delta;
 }
 
 static float easeOutQuad(float x) {
@@ -65,6 +64,23 @@ void RadialMenuOverlay::setItems(const std::vector<RadialMenuItem>& items) {
 void RadialMenuOverlay::show(POINT centerPt) {
     if (m_items.empty()) return;
 
+    const float newScale = easy::core::dpi::scaleAtPoint(centerPt);
+    const auto metrics = RadialMenuStyle::metricsForDpi(
+        easy::core::dpi::effectiveDpiForMonitor(
+            easy::core::dpi::monitorAtPoint(centerPt)));
+    const int newWindowSize = metrics.windowSize;
+    if (std::abs(newScale - m_dpiScale) >= 0.01f || newWindowSize != m_windowSize) {
+        discardResources();
+        if (m_hBitmap) {
+            DeleteObject(m_hBitmap);
+            m_hBitmap = nullptr;
+            m_bits = nullptr;
+        }
+        m_dpiScale = newScale;
+        m_windowSize = newWindowSize;
+    }
+    m_radiusOuter = metrics.outerRadius;
+    m_radiusInner = metrics.innerRadius;
     m_centerPt = centerPt;
     m_hoverIndex = -1;
     m_popScale = 0.0f;
@@ -77,15 +93,23 @@ void RadialMenuOverlay::show(POINT centerPt) {
             WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             CLASS_NAME, L"RadialMenu",
             WS_POPUP,
-            centerPt.x - WINDOW_SIZE / 2, centerPt.y - WINDOW_SIZE / 2,
-            WINDOW_SIZE, WINDOW_SIZE,
+            centerPt.x - m_windowSize / 2, centerPt.y - m_windowSize / 2,
+            m_windowSize, m_windowSize,
             nullptr, nullptr, GetModuleHandle(nullptr), this
         );
+        if (m_hwnd && !easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
+            LOG_WARN("当前 Windows 版本无法从捕获中排除手势轮盘: error={}", GetLastError());
+        }
+    }
+
+    if (!m_hwnd || !createResources()) {
+        LOG_ERROR("手势轮盘高 DPI 渲染资源创建失败");
+        return;
     }
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, 
-                 centerPt.x - WINDOW_SIZE / 2, centerPt.y - WINDOW_SIZE / 2, 
-                 WINDOW_SIZE, WINDOW_SIZE, SWP_SHOWWINDOW);
+                 centerPt.x - m_windowSize / 2, centerPt.y - m_windowSize / 2,
+                 m_windowSize, m_windowSize, SWP_SHOWWINDOW | SWP_NOACTIVATE);
     
     // 捕获鼠标
     SetCapture(m_hwnd);
@@ -111,15 +135,22 @@ void RadialMenuOverlay::hide() {
             m_hBitmap = nullptr;
             m_bits = nullptr;
         }
-        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
-void RadialMenuOverlay::createResources() {
+bool RadialMenuOverlay::createResources() {
     if (!m_d2dFactory) {
         D2D1_FACTORY_OPTIONS options = {};
-        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), &options, (void**)m_d2dFactory.GetAddressOf());
-        DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)m_dwriteFactory.GetAddressOf());
+        if (FAILED(D2D1CreateFactory(
+                D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1),
+                &options, reinterpret_cast<void**>(m_d2dFactory.GetAddressOf())))) {
+            return false;
+        }
+    }
+    if (!m_dwriteFactory && FAILED(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())))) {
+        return false;
     }
 
     if (!m_renderTarget) {
@@ -128,17 +159,22 @@ void RadialMenuOverlay::createResources() {
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
             0, 0, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE, D2D1_FEATURE_LEVEL_DEFAULT
         );
-        m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget);
+        if (FAILED(m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget)) ||
+            !m_renderTarget) {
+            return false;
+        }
+        m_renderTarget->SetDpi(96.0f, 96.0f);
 
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.1f, 0.13f, 0.85f), &m_bgBrush);
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.45f, 0.9f, 0.95f), &m_hoverBrush);
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &m_textBrush);
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f), &m_borderBrush);
 
-        m_dwriteFactory->CreateTextFormat(
+        if (FAILED(m_dwriteFactory->CreateTextFormat(
             L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"en-us", &m_textFormat
-        );
+            DWRITE_FONT_STRETCH_NORMAL,
+            RadialMenuStyle::BaseFontSize * m_dpiScale, L"en-us", &m_textFormat
+        )) || !m_textFormat) return false;
         m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
@@ -146,13 +182,15 @@ void RadialMenuOverlay::createResources() {
     if (!m_hBitmap) {
         BITMAPINFO bmi = {};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = WINDOW_SIZE;
-        bmi.bmiHeader.biHeight = -WINDOW_SIZE;
+        bmi.bmiHeader.biWidth = m_windowSize;
+        bmi.bmiHeader.biHeight = -m_windowSize;
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
         m_hBitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &m_bits, nullptr, 0);
     }
+    return m_renderTarget && m_bgBrush && m_hoverBrush && m_textBrush &&
+           m_borderBrush && m_textFormat && m_hBitmap && m_bits;
 }
 
 void RadialMenuOverlay::discardResources() {
@@ -166,27 +204,35 @@ void RadialMenuOverlay::discardResources() {
 
 void RadialMenuOverlay::render() {
     if (!m_hwnd) return;
-    createResources();
+    if (!createResources()) return;
 
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) return;
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    if (!hdcMem) {
+        ReleaseDC(nullptr, hdcScreen);
+        return;
+    }
     HGDIOBJ hOldBmp = SelectObject(hdcMem, m_hBitmap);
 
-    RECT rc = {0, 0, WINDOW_SIZE, WINDOW_SIZE};
+    RECT rc = {0, 0, m_windowSize, m_windowSize};
     m_renderTarget->BindDC(hdcMem, &rc);
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
 
     // 缩放矩阵 (出场动画)
-    float cx = WINDOW_SIZE / 2.0f;
-    float cy = WINDOW_SIZE / 2.0f;
+    float cx = m_windowSize / 2.0f;
+    float cy = m_windowSize / 2.0f;
     m_renderTarget->SetTransform(D2D1::Matrix3x2F::Scale(m_popScale, m_popScale, D2D1::Point2F(cx, cy)));
 
     // 中心取消区域反馈
     if (m_hoverIndex == -1) {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> centerBrush;
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.4f, 0.4f, 0.5f), &centerBrush); // 淡红取消区
-        m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), m_radiusInner, m_radiusInner), centerBrush.Get());
+        const float innerRadius = static_cast<float>(m_radiusInner);
+        m_renderTarget->FillEllipse(
+            D2D1::Ellipse(D2D1::Point2F(cx, cy), innerRadius, innerRadius),
+            centerBrush.Get());
     }
 
     // 绘制轮盘
@@ -199,29 +245,30 @@ void RadialMenuOverlay::render() {
             float startAngle = offsetAngle + i * angleStep;
             float endAngle = startAngle + angleStep;
             
-            float startRad = startAngle * M_PI / 180.0f;
-            float endRad = endAngle * M_PI / 180.0f;
+            float startRad = startAngle * PI_F / 180.0f;
+            float endRad = endAngle * PI_F / 180.0f;
 
             // 应用当前扇区的额外扩展半径 (悬停动画)
             float outerR = m_radiusOuter + m_hoverRadii[i];
 
             Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
-            m_d2dFactory->CreatePathGeometry(&geometry);
+            if (FAILED(m_d2dFactory->CreatePathGeometry(&geometry)) || !geometry) continue;
             Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
-            geometry->Open(&sink);
+            if (FAILED(geometry->Open(&sink)) || !sink) continue;
 
-            D2D1_POINT_2F ptInnerStart = D2D1::Point2F(cx + m_radiusInner * cos(startRad), cy + m_radiusInner * sin(startRad));
-            D2D1_POINT_2F ptOuterStart = D2D1::Point2F(cx + outerR * cos(startRad), cy + outerR * sin(startRad));
-            D2D1_POINT_2F ptOuterEnd = D2D1::Point2F(cx + outerR * cos(endRad), cy + outerR * sin(endRad));
-            D2D1_POINT_2F ptInnerEnd = D2D1::Point2F(cx + m_radiusInner * cos(endRad), cy + m_radiusInner * sin(endRad));
+            const float innerRadius = static_cast<float>(m_radiusInner);
+            D2D1_POINT_2F ptInnerStart = D2D1::Point2F(cx + innerRadius * std::cos(startRad), cy + innerRadius * std::sin(startRad));
+            D2D1_POINT_2F ptOuterStart = D2D1::Point2F(cx + outerR * std::cos(startRad), cy + outerR * std::sin(startRad));
+            D2D1_POINT_2F ptOuterEnd = D2D1::Point2F(cx + outerR * std::cos(endRad), cy + outerR * std::sin(endRad));
+            D2D1_POINT_2F ptInnerEnd = D2D1::Point2F(cx + innerRadius * std::cos(endRad), cy + innerRadius * std::sin(endRad));
 
             sink->BeginFigure(ptInnerStart, D2D1_FIGURE_BEGIN_FILLED);
             sink->AddLine(ptOuterStart);
             sink->AddArc(D2D1::ArcSegment(ptOuterEnd, D2D1::SizeF(outerR, outerR), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
             sink->AddLine(ptInnerEnd);
-            sink->AddArc(D2D1::ArcSegment(ptInnerStart, D2D1::SizeF(m_radiusInner, m_radiusInner), 0.0f, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sink->AddArc(D2D1::ArcSegment(ptInnerStart, D2D1::SizeF(innerRadius, innerRadius), 0.0f, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
             sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-            sink->Close();
+            if (FAILED(sink->Close())) continue;
 
             // 填充背景
             if (i == m_hoverIndex) {
@@ -229,56 +276,57 @@ void RadialMenuOverlay::render() {
             } else {
                 m_renderTarget->FillGeometry(geometry.Get(), m_bgBrush.Get());
             }
-            m_renderTarget->DrawGeometry(geometry.Get(), m_borderBrush.Get(), 1.5f);
+            m_renderTarget->DrawGeometry(
+                geometry.Get(), m_borderBrush.Get(), 1.5f * m_dpiScale);
 
             // 绘制文字
             float midRad = (startRad + endRad) / 2.0f;
             float textRadius = m_radiusInner + (outerR - m_radiusInner) / 2.0f;
             D2D1_RECT_F textRect = D2D1::RectF(
-                cx + textRadius * cos(midRad) - 50,
-                cy + textRadius * sin(midRad) - 20,
-                cx + textRadius * cos(midRad) + 50,
-                cy + textRadius * sin(midRad) + 20
+                cx + textRadius * std::cos(midRad) - 50.0f * m_dpiScale,
+                cy + textRadius * std::sin(midRad) - 20.0f * m_dpiScale,
+                cx + textRadius * std::cos(midRad) + 50.0f * m_dpiScale,
+                cy + textRadius * std::sin(midRad) + 20.0f * m_dpiScale
             );
             
-            std::wstring wLabel(m_items[i].label.begin(), m_items[i].label.end());
-            m_renderTarget->DrawTextW(wLabel.c_str(), wLabel.length(), m_textFormat.Get(), textRect, m_textBrush.Get());
+            std::wstring wLabel = easy::core::WinUtils::utf8ToWstring(m_items[i].label);
+            m_renderTarget->DrawTextW(wLabel.c_str(), static_cast<UINT32>(wLabel.length()),
+                                      m_textFormat.Get(), textRect, m_textBrush.Get());
         }
     }
 
-    m_renderTarget->EndDraw();
+    if (FAILED(m_renderTarget->EndDraw())) {
+        discardResources();
+        SelectObject(hdcMem, hOldBmp);
+        DeleteDC(hdcMem);
+        ReleaseDC(nullptr, hdcScreen);
+        return;
+    }
 
-    updateLayeredWindow();
+    updateLayeredWindow(hdcScreen, hdcMem);
 
     SelectObject(hdcMem, hOldBmp);
     DeleteDC(hdcMem);
     ReleaseDC(nullptr, hdcScreen);
 }
 
-void RadialMenuOverlay::updateLayeredWindow() {
-    HDC hdcScreen = GetDC(nullptr);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HGDIOBJ hOldBmp = SelectObject(hdcMem, m_hBitmap);
-
+void RadialMenuOverlay::updateLayeredWindow(HDC hdcScreen, HDC hdcMem) {
+    if (!m_hwnd || !hdcScreen || !hdcMem || !m_hBitmap) return;
     POINT ptSrc = {0, 0};
-    SIZE size = {WINDOW_SIZE, WINDOW_SIZE};
+    SIZE size = {m_windowSize, m_windowSize};
     
     // 透明度由 m_popScale 控制，产生淡入效果
     BYTE alpha = static_cast<BYTE>(std::clamp(m_popScale * 255.0f, 0.0f, 255.0f));
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA};
 
     UpdateLayeredWindow(m_hwnd, hdcScreen, nullptr, &size, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
-
-    SelectObject(hdcMem, hOldBmp);
-    DeleteDC(hdcMem);
-    ReleaseDC(nullptr, hdcScreen);
 }
 
 int RadialMenuOverlay::hitTest(POINT pt) {
     if (m_items.empty()) return -1;
     
-    float dx = pt.x - (WINDOW_SIZE / 2.0f);
-    float dy = pt.y - (WINDOW_SIZE / 2.0f);
+    float dx = pt.x - (m_windowSize / 2.0f);
+    float dy = pt.y - (m_windowSize / 2.0f);
     float dist = sqrt(dx * dx + dy * dy);
 
     // 如果鼠标位于内圆中心区，视为取消 (不选中任何菜单)
@@ -288,7 +336,7 @@ int RadialMenuOverlay::hitTest(POINT pt) {
 
     // 容错度升级: 即使外圈无限长，只要超出了内圈，就锁定对应角度的扇区
     // 不再限制 dist > m_radiusOuter 会取消选中。
-    float angle = atan2(dy, dx) * 180.0f / M_PI; // -180 ~ 180
+    float angle = std::atan2(dy, dx) * 180.0f / PI_F; // -180 ~ 180
     
     int numItems = static_cast<int>(m_items.size());
     float angleStep = 360.0f / numItems;
@@ -374,8 +422,9 @@ LRESULT RadialMenuOverlay::handleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam
 
                 // 2. 悬停动画 (半径伸缩)
                 for (size_t i = 0; i < m_items.size(); ++i) {
-                    float targetRadii = (i == m_hoverIndex) ? 15.0f : 0.0f; // 悬停增加 15px 半径
-                    if (std::abs(m_hoverRadii[i] - targetRadii) > 0.5f) {
+                    float targetRadii = (i == m_hoverIndex)
+                        ? 15.0f * m_dpiScale : 0.0f;
+                    if (std::abs(m_hoverRadii[i] - targetRadii) > 0.5f * m_dpiScale) {
                         m_hoverRadii[i] += (targetRadii - m_hoverRadii[i]) * 15.0f * dt; // 平滑差值
                         needsRender = true;
                     } else {

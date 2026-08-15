@@ -13,6 +13,8 @@
 #include "capture/PinWindow.h"
 #include "capture/CaptureOverlay.h"
 #include "capture/CaptureHistory.h"
+#include "capture/ShortcutHintOverlay.h"
+#include "capture/ScrollCapture.h"
 #include <opencv2/imgcodecs.hpp>
 #include "ocr/OcrEngine.h"
 #include "ocr/OcrResultWindow.h"
@@ -36,6 +38,7 @@ easy::core::HotkeyDef configuredHotkey(const std::string& name,
                                        const easy::core::HotkeyDef& fallback) {
     const auto text = easy::core::ConfigManager::instance().get<std::string>(
         "/hotkeys/" + name, fallback.toString());
+    if (text.empty()) return {};
     return easy::core::HotkeyDef::fromString(text).value_or(fallback);
 }
 
@@ -80,6 +83,7 @@ CaptureOptions configuredCaptureOptions() {
     options.copyToClipboard = config.get<bool>("/capture/copyToClipboard", true);
     options.showCrosshair = config.get<bool>("/capture/showCrosshair", true);
     options.autoDetectWindow = config.get<bool>("/capture/autoDetectWindow", true);
+    options.showShortcutHints = config.get<bool>("/capture/showShortcutHints", true);
     const auto directory = config.get<std::string>(
         "/capture/saveDirectory", config.get<std::string>("/capture/savePath", ""));
     options.savePath = timestampedPath(directory, "EasyTools_", imageExtension(options.format));
@@ -112,6 +116,18 @@ RecordOptions configuredRecordOptions(const CaptureRegion& region) {
     options.format = recordFormatFromConfig(config.get<std::string>("/recording/format", "mp4_h264"));
     options.fps = std::clamp(config.get<int>("/recording/fps", 30), 1, 120);
     options.bitrateMbps = std::clamp(config.get<int>("/recording/bitrate", 8), 1, 100);
+    options.includeCursor = config.get<bool>("/recording/includeCursor", true);
+    options.showClickEffects = config.get<bool>("/recording/showClickEffects", false);
+    options.captureSystemAudio = config.get<bool>("/recording/captureSystemAudio", false);
+    options.captureMicrophone = config.get<bool>("/recording/captureMicrophone", false);
+    options.systemAudioDeviceId = config.get<std::string>("/recording/systemAudioDeviceId", "");
+    options.microphoneDeviceId = config.get<std::string>("/recording/microphoneDeviceId", "");
+    options.systemAudioVolume = std::clamp(
+        config.get<int>("/recording/systemAudioVolume", 100), 0, 200) / 100.0f;
+    options.microphoneVolume = std::clamp(
+        config.get<int>("/recording/microphoneVolume", 100), 0, 200) / 100.0f;
+    options.countdownSeconds = std::clamp(
+        config.get<int>("/recording/countdownSeconds", 3), 0, 10);
     const auto directory = config.get<std::string>(
         "/recording/saveDirectory", config.get<std::string>("/recording/savePath", ""));
     options.outputPath = timestampedPath(directory, "record_", recordExtension(options.format));
@@ -122,10 +138,31 @@ void configureRecorderStateCallback() {
     ScreenRecorder::instance().setStateCallback([](RecordState state, const RecordStats& stats) {
         easy::core::MainThreadDispatcher::instance().post([state, stats]() {
             auto& indicator = RecordingIndicator::instance();
-            if (state == RecordState::Idle) indicator.hide();
+            if (state == RecordState::Idle) {
+                indicator.hide();
+                ShortcutHintOverlay::instance().hide();
+                if (!stats.stopReason.empty() &&
+                    ScreenRecorder::instance().needsFinalization()) {
+                    const auto path = ScreenRecorder::instance().stopRecording();
+                    if (!path.empty()) {
+                        const bool diskFailure = stats.stopReason == "low_disk_space" ||
+                            stats.stopReason == "disk_space_query_failed";
+                        easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{
+                            diskFailure ? L"磁盘空间不足，录屏已安全保存"
+                                        : L"录屏异常停止，已保存可用内容"});
+                    } else {
+                        easy::core::EventBus::instance().publish(
+                            easy::core::ShowToastEvent{L"录屏已停止，未生成有效内容"});
+                    }
+                }
+            }
             else {
                 indicator.setPaused(state == RecordState::Paused);
                 indicator.update(stats.durationSec, stats.frameCount);
+                ShortcutHintOverlay::instance().show(
+                    state == RecordState::Paused
+                        ? ShortcutHintContext::RecordingPaused
+                        : ShortcutHintContext::Recording);
             }
         });
     });
@@ -134,12 +171,46 @@ void configureRecorderStateCallback() {
 void stopRecordingWithFeedback() {
     auto& indicator = RecordingIndicator::instance();
     indicator.hide();
+    ShortcutHintOverlay::instance().hide();
     const auto path = ScreenRecorder::instance().stopRecording();
     if (!path.empty()) {
         LOG_INFO("录屏已保存: {}", path);
         easy::core::EventBus::instance().publish(
             easy::core::ShowToastEvent{L"录屏已保存"});
     }
+}
+
+bool toggleRecordingPauseWithFeedback() {
+    auto& recorder = ScreenRecorder::instance();
+    if (recorder.state() == RecordState::Recording) {
+        recorder.pauseRecording();
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"录屏已暂停"});
+        return true;
+    }
+    if (recorder.state() == RecordState::Paused) {
+        recorder.resumeRecording();
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"录屏已继续"});
+        return true;
+    }
+    return false;
+}
+
+void toggleSystemAudioMuteWithFeedback() {
+    auto& recorder = ScreenRecorder::instance();
+    if (!recorder.toggleSystemAudioMuted()) return;
+    const auto muted = recorder.stats().systemAudioMuted;
+    easy::core::EventBus::instance().publish(
+        easy::core::ShowToastEvent{muted ? L"系统声音已静音" : L"系统声音已恢复"});
+}
+
+void toggleMicrophoneMuteWithFeedback() {
+    auto& recorder = ScreenRecorder::instance();
+    if (!recorder.toggleMicrophoneMuted()) return;
+    const auto muted = recorder.stats().microphoneMuted;
+    easy::core::EventBus::instance().publish(
+        easy::core::ShowToastEvent{muted ? L"麦克风已静音" : L"麦克风已恢复"});
 }
 
 void toggleRecording() {
@@ -150,9 +221,21 @@ void toggleRecording() {
             configureRecorderStateCallback();
             if (ScreenRecorder::instance().startRecording(configuredRecordOptions(region))) {
                 RecordingIndicator::instance().show();
+                ShortcutHintOverlay::instance().show(
+                    ShortcutHintContext::Recording,
+                    {region.x + region.width / 2, region.y + region.height / 2});
             } else {
+                const auto reason = ScreenRecorder::instance().stats().stopReason;
+                const auto message = reason == "output_directory_unavailable" ||
+                        reason == "output_directory_not_writable"
+                    ? L"无法写入录屏保存目录"
+                    : reason == "insufficient_disk_space"
+                        ? L"剩余空间不足，无法开始录屏"
+                        : reason == "disk_space_query_failed"
+                            ? L"无法检查保存目录的剩余空间"
+                            : L"无法开始录屏，请查看日志";
                 easy::core::EventBus::instance().publish(
-                    easy::core::ShowToastEvent{L"无法开始录屏，请查看日志"});
+                    easy::core::ShowToastEvent{message});
             }
         });
         overlay.startSelection(configuredCaptureOptions(), OverlayMode::RecordRegion);
@@ -252,13 +335,13 @@ public:
         auto& indicator = RecordingIndicator::instance();
         indicator.initialize(hMod);
         indicator.onPause([]() {
-            auto& recorder = ScreenRecorder::instance();
-            if (recorder.state() == RecordState::Recording) recorder.pauseRecording();
-            else if (recorder.state() == RecordState::Paused) recorder.resumeRecording();
+            toggleRecordingPauseWithFeedback();
         });
         indicator.onStop([]() {
             stopRecordingWithFeedback();
         });
+        indicator.onSystemAudioMute(toggleSystemAudioMuteWithFeedback);
+        indicator.onMicrophoneMute(toggleMicrophoneMuteWithFeedback);
 
         easy::ocr::OcrEngine::instance().initialize();
 
@@ -267,12 +350,12 @@ public:
         auto& bus = easy::core::EventBus::instance();
 
         // 订阅 EventBus 上的托盘/快捷键触发事件
-        bus.subscribe<easy::core::ActionTriggerScreenshotEvent>([](const easy::core::ActionTriggerScreenshotEvent&) {
+        m_screenshotSubscription = bus.subscribe<easy::core::ActionTriggerScreenshotEvent>([](const easy::core::ActionTriggerScreenshotEvent&) {
             g_ocrPending.store(false);
             easy::capture::ScreenCapture::instance().startCapture(configuredCaptureOptions());
         });
 
-        bus.subscribe<easy::core::ActionToggleRecordingEvent>([](const easy::core::ActionToggleRecordingEvent&) {
+        m_recordingSubscription = bus.subscribe<easy::core::ActionToggleRecordingEvent>([](const easy::core::ActionToggleRecordingEvent&) {
             toggleRecording();
         });
         
@@ -287,6 +370,10 @@ public:
             return {{"success", true}};
         });
 
+        mb.registerHandler("recording.togglePause", [](const nlohmann::json&) -> nlohmann::json {
+            return {{"success", toggleRecordingPauseWithFeedback()}};
+        });
+
         auto& hotkeys = easy::core::HotkeyManager::instance();
         hotkeys.registerHotkey("Screenshot", configuredHotkey("Screenshot", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'A'}), []() {
             g_ocrPending.store(false);
@@ -294,6 +381,9 @@ public:
         });
         hotkeys.registerHotkey("Record", configuredHotkey("Record", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'R'}), []() {
             toggleRecording();
+        });
+        hotkeys.registerHotkey("Record Pause", configuredHotkey("Record Pause", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'P'}), []() {
+            toggleRecordingPauseWithFeedback();
         });
         hotkeys.registerHotkey("OCR", configuredHotkey("OCR", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'O'}), []() {
             triggerOcrCapture();
@@ -310,6 +400,12 @@ public:
         hotkeys.registerHotkey("Pin Arrange", configuredHotkey("Pin Arrange", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'G'}), []() {
             easy::capture::PinWindow::arrangeAll();
         });
+        hotkeys.registerHotkey("Mute System Audio", configuredHotkey("Mute System Audio", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'S'}), []() {
+            toggleSystemAudioMuteWithFeedback();
+        });
+        hotkeys.registerHotkey("Mute Microphone", configuredHotkey("Mute Microphone", {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt | easy::core::ModKey::Shift, 'M'}), []() {
+            toggleMicrophoneMuteWithFeedback();
+        });
 
         mb.registerHandler("capture.getSettings", [](const nlohmann::json&) -> nlohmann::json {
             auto& config = easy::core::ConfigManager::instance();
@@ -321,14 +417,16 @@ public:
                 {"saveDirectory", config.get<std::string>(
                     "/capture/saveDirectory", config.get<std::string>("/capture/savePath", ""))},
                 {"showCrosshair", config.get<bool>("/capture/showCrosshair", true)},
-                {"autoDetectWindow", config.get<bool>("/capture/autoDetectWindow", true)}
+                {"autoDetectWindow", config.get<bool>("/capture/autoDetectWindow", true)},
+                {"showShortcutHints", config.get<bool>("/capture/showShortcutHints", true)}
             };
         });
 
         mb.registerHandler("capture.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
             static const std::unordered_set<std::string> formats = {"png", "jpg", "jpeg", "webp", "bmp"};
             static const std::unordered_set<std::string> boolKeys = {
-                "saveToFile", "copyToClipboard", "showCrosshair", "autoDetectWindow"
+                "saveToFile", "copyToClipboard", "showCrosshair", "autoDetectWindow",
+                "showShortcutHints"
             };
             if (!params.is_object() || params.empty()) return {{"success", false}, {"error", "no settings supplied"}};
             for (const auto& [key, value] : params.items()) {
@@ -345,6 +443,23 @@ public:
             }
             const bool saved = easy::core::ConfigManager::instance().mergePatch(
                 {{"capture", params}}, "/capture");
+            if (saved && params.contains("showShortcutHints")) {
+                const bool enabled = params.at("showShortcutHints").get<bool>();
+                easy::capture::CaptureOverlay::instance().setShortcutHintsEnabled(enabled);
+                if (!enabled) {
+                    ShortcutHintOverlay::instance().hide();
+                } else if (ScrollCapture::instance().isRunning()) {
+                    ShortcutHintOverlay::instance().show(ShortcutHintContext::ScrollCapture);
+                } else {
+                    const auto recordState = ScreenRecorder::instance().state();
+                    if (recordState == RecordState::Recording || recordState == RecordState::Paused) {
+                        ShortcutHintOverlay::instance().show(
+                            recordState == RecordState::Paused
+                                ? ShortcutHintContext::RecordingPaused
+                                : ShortcutHintContext::Recording);
+                    }
+                }
+            }
             return {{"success", saved}, {"error", saved ? "" : "failed to persist settings"}};
         });
 
@@ -354,13 +469,95 @@ public:
                 {"format", config.get<std::string>("/recording/format", "mp4_h264")},
                 {"fps", config.get<int>("/recording/fps", 30)},
                 {"bitrate", config.get<int>("/recording/bitrate", 8)},
+                {"includeCursor", config.get<bool>("/recording/includeCursor", true)},
+                {"showClickEffects", config.get<bool>("/recording/showClickEffects", false)},
+                {"captureSystemAudio", config.get<bool>("/recording/captureSystemAudio", false)},
+                {"captureMicrophone", config.get<bool>("/recording/captureMicrophone", false)},
+                {"systemAudioDeviceId", config.get<std::string>("/recording/systemAudioDeviceId", "")},
+                {"microphoneDeviceId", config.get<std::string>("/recording/microphoneDeviceId", "")},
+                {"systemAudioVolume", config.get<int>("/recording/systemAudioVolume", 100)},
+                {"microphoneVolume", config.get<int>("/recording/microphoneVolume", 100)},
+                {"countdownSeconds", config.get<int>("/recording/countdownSeconds", 3)},
                 {"saveDirectory", config.get<std::string>(
                     "/recording/saveDirectory", config.get<std::string>("/recording/savePath", ""))}
             };
         });
 
+        mb.registerHandler("recording.getStatus", [](const nlohmann::json&) -> nlohmann::json {
+            auto& recorder = easy::capture::ScreenRecorder::instance();
+            const auto stats = recorder.stats();
+            return {
+                {"state", static_cast<int>(recorder.state())},
+                {"frameCount", stats.frameCount},
+                {"droppedFrameCount", stats.droppedFrameCount},
+                {"durationSec", stats.durationSec},
+                {"countdownRemaining", stats.countdownRemaining},
+                {"diskFreeBytes", stats.diskFreeBytes},
+                {"estimatedRemainingSec", stats.estimatedRemainingSec},
+                {"storageWarning", stats.storageWarning},
+                {"captureLatencyMs", stats.captureLatencyMs},
+                {"conversionLatencyMs", stats.conversionLatencyMs},
+                {"encodeLatencyMs", stats.encodeLatencyMs},
+                {"pipelineLatencyMs", stats.pipelineLatencyMs},
+                {"effectiveFps", stats.effectiveFps},
+                {"adaptiveFrameStep", stats.adaptiveFrameStep},
+                {"performanceLimited", stats.performanceLimited},
+                {"stopReason", stats.stopReason},
+                {"fileSizeBytes", stats.fileSizeBytes},
+                {"captureBackend", stats.captureBackend},
+                {"encoderName", stats.encoderName},
+                {"hardwareEncoder", stats.hardwareEncoder},
+                {"audioEncoderName", stats.audioEncoderName},
+                {"systemAudioActive", stats.systemAudioActive},
+                {"microphoneActive", stats.microphoneActive},
+                {"droppedAudioFrames", stats.droppedAudioFrames},
+                {"audioDiscontinuities", stats.audioDiscontinuities},
+                {"audioReconnectAttempts", stats.audioReconnectAttempts},
+                {"audioReconnectSuccesses", stats.audioReconnectSuccesses},
+                {"systemAudioPeak", stats.systemAudioPeak},
+                {"microphonePeak", stats.microphonePeak},
+                {"mixedAudioPeak", stats.mixedAudioPeak},
+                {"systemAudioMuted", stats.systemAudioMuted},
+                {"microphoneMuted", stats.microphoneMuted},
+                {"audioError", stats.audioError}
+            };
+        });
+
+        mb.registerHandler("recording.getCapabilities", [](const nlohmann::json&) -> nlohmann::json {
+            const auto capabilities = easy::capture::ScreenRecorder::capabilities();
+            nlohmann::json backends = nlohmann::json::array();
+            for (const auto& backend : capabilities.captureBackends) {
+                backends.push_back({
+                    {"id", backend.id}, {"name", backend.name},
+                    {"available", backend.available}, {"accelerated", backend.accelerated},
+                    {"unavailableReason", backend.unavailableReason}
+                });
+            }
+            nlohmann::json encoders = nlohmann::json::array();
+            for (const auto& encoder : capabilities.encoders) {
+                encoders.push_back({
+                    {"format", encoder.format}, {"name", encoder.name},
+                    {"hardware", encoder.hardware}
+                });
+            }
+            nlohmann::json audioDevices = nlohmann::json::array();
+            for (const auto& device : capabilities.audioDevices) {
+                audioDevices.push_back({
+                    {"id", device.id}, {"name", device.name},
+                    {"systemAudio", device.systemAudio},
+                    {"defaultDevice", device.defaultDevice}
+                });
+            }
+            return {
+                {"captureBackends", std::move(backends)},
+                {"encoders", std::move(encoders)},
+                {"audioDevices", std::move(audioDevices)}
+            };
+        });
+
         mb.registerHandler("recording.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
             static const std::unordered_set<std::string> formats = {"mp4_h264", "mp4_h265", "webm_vp9", "gif"};
+            static const std::unordered_set<int> countdowns = {0, 3, 5, 10};
             if (!params.is_object() || params.empty()) return {{"success", false}, {"error", "no settings supplied"}};
             for (const auto& [key, value] : params.items()) {
                 if (key == "format" && (!value.is_string() || !formats.contains(value.get<std::string>())))
@@ -369,13 +566,38 @@ public:
                     return {{"success", false}, {"error", "fps must be between 1 and 120"}};
                 if (key == "bitrate" && (!value.is_number_integer() || value.get<int>() < 1 || value.get<int>() > 100))
                     return {{"success", false}, {"error", "bitrate must be between 1 and 100"}};
+                if (key == "countdownSeconds" && (!value.is_number_integer() ||
+                    !countdowns.contains(value.get<int>())))
+                    return {{"success", false}, {"error", "countdown must be 0, 3, 5, or 10 seconds"}};
                 if (key == "saveDirectory" && (!value.is_string() || value.get_ref<const std::string&>().size() > 32767))
                     return {{"success", false}, {"error", "invalid save directory"}};
-                if (key != "format" && key != "fps" && key != "bitrate" && key != "saveDirectory")
+                if ((key == "systemAudioDeviceId" || key == "microphoneDeviceId") &&
+                    (!value.is_string() || value.get_ref<const std::string&>().size() > 2048))
+                    return {{"success", false}, {"error", "invalid audio device id"}};
+                if ((key == "systemAudioVolume" || key == "microphoneVolume") &&
+                    (!value.is_number_integer() || value.get<int>() < 0 || value.get<int>() > 200))
+                    return {{"success", false}, {"error", "audio volume must be between 0 and 200"}};
+                if ((key == "includeCursor" || key == "showClickEffects" ||
+                     key == "captureSystemAudio" || key == "captureMicrophone") &&
+                    !value.is_boolean())
+                    return {{"success", false}, {"error", key + " must be boolean"}};
+                if (key != "format" && key != "fps" && key != "bitrate" && key != "saveDirectory" &&
+                    key != "countdownSeconds" &&
+                    key != "includeCursor" && key != "showClickEffects" &&
+                    key != "captureSystemAudio" && key != "captureMicrophone" &&
+                    key != "systemAudioDeviceId" && key != "microphoneDeviceId" &&
+                    key != "systemAudioVolume" && key != "microphoneVolume")
                     return {{"success", false}, {"error", "unsupported setting: " + key}};
             }
             const bool saved = easy::core::ConfigManager::instance().mergePatch(
                 {{"recording", params}}, "/recording");
+            if (saved && (params.contains("systemAudioVolume") ||
+                          params.contains("microphoneVolume"))) {
+                auto& config = easy::core::ConfigManager::instance();
+                ScreenRecorder::instance().setAudioVolumes(
+                    std::clamp(config.get<int>("/recording/systemAudioVolume", 100), 0, 200) / 100.0f,
+                    std::clamp(config.get<int>("/recording/microphoneVolume", 100), 0, 200) / 100.0f);
+            }
             return {{"success", saved}, {"error", saved ? "" : "failed to persist settings"}};
         });
 
@@ -492,17 +714,47 @@ public:
 
     void shutdown() override {
         LOG_INFO("CapturePlugin: 卸载截图/录屏引擎");
+        // 先关闭所有外部入口并等待在途回调归零，再停止内部线程和窗口。
+        auto& bridge = easy::core::MessageBridge::instance();
+        bridge.unregisterHandlersByPrefix("capture.");
+        bridge.unregisterHandlersByPrefix("recording.");
+        bridge.unregisterHandlersByPrefix("ocr.");
+        bridge.unregisterHandlersByPrefix("history.");
+
+        auto& hotkeys = easy::core::HotkeyManager::instance();
+        for (const char* name : {"Screenshot", "Record", "Record Pause", "OCR", "Pin Toggle",
+                                 "Pin Paste", "Pin Hide All", "Pin Arrange",
+                                 "Mute System Audio", "Mute Microphone"}) {
+            hotkeys.unregisterHotkey(name);
+        }
+        auto& bus = easy::core::EventBus::instance();
+        bus.unsubscribeAndWait(m_screenshotSubscription);
+        bus.unsubscribeAndWait(m_recordingSubscription);
+        m_screenshotSubscription = 0;
+        m_recordingSubscription = 0;
+
         g_ocrPending.store(false);
         if (g_ocrWorker.joinable()) g_ocrWorker.join();
         g_ocrRunning.store(false);
         PinWindow::closeAll();
+        RecordingIndicator::instance().onPause(nullptr);
+        RecordingIndicator::instance().onStop(nullptr);
+        RecordingIndicator::instance().onSystemAudioMute(nullptr);
+        RecordingIndicator::instance().onMicrophoneMute(nullptr);
         RecordingIndicator::instance().shutdown();
         ScreenRecorder::instance().shutdown();
+        ScreenRecorder::instance().setStateCallback(nullptr);
+        ShortcutHintOverlay::instance().shutdown();
         ScreenCapture::instance().shutdown();
+        ScreenCapture::instance().setCallback(nullptr);
         easy::ocr::OcrResultWindow::instance().cleanup();
         easy::ocr::OcrEngine::instance().shutdown();
         shutdownMarkupTextRenderer();
     }
+
+private:
+    easy::core::SubscriptionId m_screenshotSubscription = 0;
+    easy::core::SubscriptionId m_recordingSubscription = 0;
 };
 
 } // namespace easy::capture
@@ -510,4 +762,8 @@ public:
 PLUGIN_API easy::core::IPlugin* CreatePlugin() {
     static easy::capture::CapturePlugin instance;
     return &instance;
+}
+
+PLUGIN_API std::uint32_t GetPluginAbiVersion() {
+    return easy::core::CurrentPluginAbiVersion;
 }
