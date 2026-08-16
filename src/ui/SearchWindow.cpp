@@ -32,8 +32,15 @@ void SearchWindow::show(HINSTANCE hInstance) {
         updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
+        SetFocus(m_hwnd);
         m_visible = true;
-        if (m_controller) m_controller->put_IsVisible(TRUE);
+        if (m_controller) {
+            m_controller->put_IsVisible(TRUE);
+            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        }
+        if (m_webView) {
+            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+        }
         return;
     }
 
@@ -45,6 +52,8 @@ void SearchWindow::show(HINSTANCE hInstance) {
     initializeWebView2();
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
+    SetForegroundWindow(m_hwnd);
+    SetFocus(m_hwnd);
     m_visible = true;
 }
 
@@ -283,8 +292,23 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         case WM_ACTIVATE:
             if (LOWORD(wParam) == WA_INACTIVE) {
                 PostMessageW(hwnd, WM_SEARCH_VERIFY_DEACTIVATED, 0, 0);
+            } else {
+                if (inst.m_controller) {
+                    inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                }
+                if (inst.m_webView) {
+                    inst.m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+                }
             }
             break;
+        case WM_SETFOCUS:
+            if (inst.m_controller) {
+                inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            }
+            if (inst.m_webView) {
+                inst.m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+            }
+            return 0;
         case WM_SEARCH_VERIFY_DEACTIVATED: {
             const HWND foreground = GetForegroundWindow();
             if (foreground != hwnd && (!foreground || !IsChild(hwnd, foreground))) {

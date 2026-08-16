@@ -67,33 +67,36 @@ const SYNTAX_EXAMPLES = [
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp|gif|svg|ico)$/i;
 
-function renderFileIcon(name: string, isDirectory: boolean) {
+type SearchDensity = 'compact' | 'standard' | 'comfortable';
+
+function renderFileIcon(name: string, isDirectory: boolean, density: SearchDensity = 'standard') {
+  const iconSize = density === 'compact' ? 16 : density === 'comfortable' ? 24 : 20;
   if (isDirectory) {
-    return <Folder className="file-icon file-icon--folder" size={20} aria-hidden="true" />;
+    return <Folder className="file-icon file-icon--folder" size={iconSize} aria-hidden="true" />;
   }
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
   if (IMAGE_EXTENSIONS.test(ext)) {
-    return <FileImage className="file-icon file-icon--image" size={20} aria-hidden="true" />;
+    return <FileImage className="file-icon file-icon--image" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(zip|rar|7z|tar|gz|bz2|iso)$/i.test(ext)) {
-    return <FileArchive className="file-icon file-icon--archive" size={20} aria-hidden="true" />;
+    return <FileArchive className="file-icon file-icon--archive" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(exe|msi|bat|cmd|ps1|com)$/i.test(ext)) {
-    return <AppWindow className="file-icon file-icon--exe" size={20} aria-hidden="true" />;
+    return <AppWindow className="file-icon file-icon--exe" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(cpp|c|h|hpp|ts|tsx|js|jsx|json|py|rs|go|java|html|css|lua|sql|yml|yaml|xml)$/i.test(ext)) {
-    return <FileCode className="file-icon file-icon--code" size={20} aria-hidden="true" />;
+    return <FileCode className="file-icon file-icon--code" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(mp4|mkv|avi|mov|flv|webm|wmv)$/i.test(ext)) {
-    return <FileVideo className="file-icon file-icon--media" size={20} aria-hidden="true" />;
+    return <FileVideo className="file-icon file-icon--media" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(mp3|wav|flac|ogg|aac|m4a)$/i.test(ext)) {
-    return <FileAudio className="file-icon file-icon--audio" size={20} aria-hidden="true" />;
+    return <FileAudio className="file-icon file-icon--audio" size={iconSize} aria-hidden="true" />;
   }
   if (/\.(txt|md|pdf|doc|docx|xls|xlsx|ppt|pptx|log|csv)$/i.test(ext)) {
-    return <FileText className="file-icon file-icon--doc" size={20} aria-hidden="true" />;
+    return <FileText className="file-icon file-icon--doc" size={iconSize} aria-hidden="true" />;
   }
-  return <File className="file-icon" size={20} aria-hidden="true" />;
+  return <File className="file-icon" size={iconSize} aria-hidden="true" />;
 }
 
 export default function SearchApp() {
@@ -107,11 +110,50 @@ export default function SearchApp() {
   const [serviceAvailable, setServiceAvailable] = useState(true);
   const [actionError, setActionError] = useState('');
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
+  const [density, setDensity] = useState<SearchDensity>(() => {
+    const saved = localStorage.getItem('easytools_search_density');
+    if (saved === 'compact' || saved === 'standard' || saved === 'comfortable') {
+      return saved;
+    }
+    return 'standard';
+  });
   const inputRef = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
 
-  useEffect(() => {
+  const changeDensity = (newDensity: SearchDensity) => {
+    setDensity(newDensity);
+    localStorage.setItem('easytools_search_density', newDensity);
     inputRef.current?.focus();
+  };
+
+  useEffect(() => {
+    const doFocus = () => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    };
+    doFocus();
+    const t1 = setTimeout(doFocus, 50);
+    const t2 = setTimeout(doFocus, 150);
+    const t3 = setTimeout(doFocus, 300);
+
+    const onFocusEvt = () => doFocus();
+    window.addEventListener('easytools:focusSearch', onFocusEvt);
+    window.addEventListener('focus', onFocusEvt);
+    const onVisibilityChange = () => {
+      if (!document.hidden) doFocus();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      window.removeEventListener('easytools:focusSearch', onFocusEvt);
+      window.removeEventListener('focus', onFocusEvt);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -309,18 +351,47 @@ export default function SearchApp() {
           </button>
         </div>
 
-        {/* ── 分类筛选胶囊栏 ──────────────────────────────────────── */}
-        <div className="search-categories">
-          {CATEGORIES.map(cat => (
+        {/* ── 分类筛选与布局密度切换栏 ──────────────────────────────── */}
+        <div className="search-categories-bar">
+          <div className="search-categories">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                className={`category-pill ${activeCategory === cat.id ? 'category-pill--active' : ''}`}
+                onClick={() => selectCategory(cat)}
+                type="button"
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="search-density-toggle" role="group" aria-label="布局密度">
             <button
-              key={cat.id}
-              className={`category-pill ${activeCategory === cat.id ? 'category-pill--active' : ''}`}
-              onClick={() => selectCategory(cat)}
+              className={`density-pill ${density === 'compact' ? 'density-pill--active' : ''}`}
+              onClick={() => changeDensity('compact')}
+              title="紧凑布局（高信息密度，同屏显示更多文件）"
               type="button"
             >
-              {cat.label}
+              紧凑
             </button>
-          ))}
+            <button
+              className={`density-pill ${density === 'standard' ? 'density-pill--active' : ''}`}
+              onClick={() => changeDensity('standard')}
+              title="适中布局（默认平衡排版）"
+              type="button"
+            >
+              适中
+            </button>
+            <button
+              className={`density-pill ${density === 'comfortable' ? 'density-pill--active' : ''}`}
+              onClick={() => changeDensity('comfortable')}
+              title="宽松布局（大字体与舒适间距）"
+              type="button"
+            >
+              宽松
+            </button>
+          </div>
         </div>
 
         {/* ── 语法速查抽屉面板 ─────────────────────────────────────── */}
@@ -369,7 +440,7 @@ export default function SearchApp() {
         )}
 
         {results.length > 0 && (
-          <ul id="search-results" className="search-results" role="listbox">
+          <ul id="search-results" className={`search-results density-${density}`} role="listbox">
             {results.map((result, index) => (
               <li
                 id={`search-result-${index}`}
@@ -382,7 +453,7 @@ export default function SearchApp() {
                 onClick={() => setSelectedIndex(index)}
                 onDoubleClick={() => void openResult(result)}
               >
-                {renderFileIcon(result.name, result.isDirectory)}
+                {renderFileIcon(result.name, result.isDirectory, density)}
                 <span className="file-info">
                   <span className="file-name">{result.name}</span>
                   <span className="file-path">{result.path}</span>
