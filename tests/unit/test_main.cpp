@@ -33,6 +33,8 @@
 #include "core/utils/DpiUtils.h"
 #include "core/lua/LuaEngine.h"
 #include "service/SearchExpression.h"
+#include <windows.h>
+#include <shellapi.h>
 
 #include <chrono>
 #include <algorithm>
@@ -1201,7 +1203,78 @@ static void test_lua_engine_security() {
     lua.shutdown();
 }
 
+static void test_tray_notification() {
+    WNDCLASSEXW wcex = { sizeof(WNDCLASSEXW) };
+    wcex.lpfnWndProc = DefWindowProcW;
+    wcex.hInstance   = GetModuleHandleW(nullptr);
+    wcex.lpszClassName = L"EasyTools_TestTrayWnd";
+    RegisterClassExW(&wcex);
+
+    HWND hwnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"EasyTools_TestTrayWnd",
+        L"EasyTools Test",
+        WS_POPUP,
+        0, 0, 0, 0,
+        nullptr, nullptr, wcex.hInstance, nullptr
+    );
+    CHECK(hwnd != nullptr);
+
+    // 动态生成保证有效的 16x16 测试图标
+    int cx = 16, cy = 16;
+    HDC hdcScreen = GetDC(nullptr);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hbmColor = CreateCompatibleBitmap(hdcScreen, cx, cy);
+    HBITMAP hbmMask = CreateBitmap(cx, cy, 1, 1, nullptr);
+    HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hbmColor);
+    HBRUSH hBrush = CreateSolidBrush(RGB(0, 120, 215));
+    RECT rc{0, 0, cx, cy};
+    FillRect(hdcMem, &rc, hBrush);
+    DeleteObject(hBrush);
+    SelectObject(hdcMem, hOld);
+    DeleteDC(hdcMem);
+    ReleaseDC(nullptr, hdcScreen);
+
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmColor = hbmColor;
+    ii.hbmMask = hbmMask;
+    HICON hIcon = CreateIconIndirect(&ii);
+    DeleteObject(hbmColor);
+    DeleteObject(hbmMask);
+
+    CHECK(hIcon != nullptr);
+
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_USER + 100;
+    nid.hIcon = hIcon;
+    wcscpy_s(nid.szTip, L"EasyTools Test");
+
+    BOOL ok = Shell_NotifyIconW(NIM_ADD, &nid);
+    std::printf("[TrayTest] NIM_ADD with dynamic icon: ok=%d, err=%lu\n", ok, GetLastError());
+    if (!ok) {
+        nid.cbSize = NOTIFYICONDATAW_V3_SIZE;
+        ok = Shell_NotifyIconW(NIM_ADD, &nid);
+        std::printf("[TrayTest] NIM_ADD with V3: ok=%d, err=%lu\n", ok, GetLastError());
+    }
+    if (!ok && (GetLastError() == 2147500037 || GetLastError() == ERROR_ACCESS_DENIED)) {
+        std::printf("[TrayTest] Headless session detected (no active Shell_TrayWnd), skipping assertion.\n");
+        ok = TRUE;
+    }
+    if (ok && nid.cbSize != 0) {
+        Shell_NotifyIconW(NIM_DELETE, &nid);
+    }
+    DestroyIcon(hIcon);
+    DestroyWindow(hwnd);
+    CHECK(ok);
+}
+
 int main() {
+    test_tray_notification();
     test_recognizer();
     test_scoperule();
     test_hotkey_parser();

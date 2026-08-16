@@ -31,31 +31,91 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.cbSize = sizeof(NOTIFYICONDATAW);
     m_nid.hWnd = hwnd;
     m_nid.uID = 1;
-    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
+    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
-    // m_nid.uVersion = NOTIFYICON_VERSION_4; // 移除 V4，使用默认版本以接收标准鼠标消息
 
-    // 尝试使用传入的图标，如果没有则尝试加载资源中的图标，最后 fallback 到系统图标
+    // 优先加载适合托盘尺寸的标准小图标
     m_nid.hIcon = icon;
     if (!m_nid.hIcon) {
-        // 尝试加载应用程序资源中可能包含的主图标（ID = 101 或者默认的应用程序图标）
+        m_nid.hIcon = (HICON)LoadImageW(
+            GetModuleHandleW(nullptr),
+            MAKEINTRESOURCEW(101),
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR
+        );
+    }
+    if (!m_nid.hIcon) {
         m_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
     }
     if (!m_nid.hIcon) {
-        // IDI_APPLICATION 在某些系统和无窗口程序中会透明或不可见，这里改用 IDI_INFORMATION 避免空白占位
+        m_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
+    if (!m_nid.hIcon) {
         m_nid.hIcon = LoadIconW(nullptr, IDI_INFORMATION);
     }
+    if (!m_nid.hIcon) {
+        // GDI 动态生成保底图标句柄，确保绝不向 Shell 传递空句柄
+        int cx = GetSystemMetrics(SM_CXSMICON);
+        int cy = GetSystemMetrics(SM_CYSMICON);
+        if (cx <= 0) cx = 16;
+        if (cy <= 0) cy = 16;
+        HDC hdcScreen = GetDC(nullptr);
+        HDC hdcMem = CreateCompatibleDC(hdcScreen);
+        HBITMAP hbmColor = CreateCompatibleBitmap(hdcScreen, cx, cy);
+        HBITMAP hbmMask = CreateBitmap(cx, cy, 1, 1, nullptr);
+        HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hbmColor);
+        HBRUSH hBrush = CreateSolidBrush(RGB(0, 120, 215));
+        RECT rc{0, 0, cx, cy};
+        FillRect(hdcMem, &rc, hBrush);
+        DeleteObject(hBrush);
+        SelectObject(hdcMem, hOld);
+        DeleteDC(hdcMem);
+        ReleaseDC(nullptr, hdcScreen);
 
-    wcscpy_s(m_nid.szTip, isEnglishLocale() ? L"EasyTools - Desktop Utility" : L"EasyTools — 桌面效率工具");
+        ICONINFO ii{};
+        ii.fIcon = TRUE;
+        ii.hbmColor = hbmColor;
+        ii.hbmMask = hbmMask;
+        m_nid.hIcon = CreateIconIndirect(&ii);
+        DeleteObject(hbmColor);
+        DeleteObject(hbmMask);
+    }
 
-    if (!Shell_NotifyIconW(NIM_ADD, &m_nid)) {
+    wcsncpy_s(m_nid.szTip, isEnglishLocale() ? L"EasyTools - Desktop Utility" : L"EasyTools — 桌面效率工具", _TRUNCATE);
+
+    m_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    bool added = Shell_NotifyIconW(NIM_ADD, &m_nid);
+    if (!added) {
+        // 当某些 Windows 系统对完整结构体大小严格校验时，降级使用广泛兼容的 V3 / V2 结构体尺寸
+        m_nid.cbSize = NOTIFYICONDATAW_V3_SIZE;
+        added = Shell_NotifyIconW(NIM_ADD, &m_nid);
+    }
+    if (!added) {
+        m_nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+        added = Shell_NotifyIconW(NIM_ADD, &m_nid);
+    }
+    if (!added) {
+        // 尝试清理残留后重试
+        Shell_NotifyIconW(NIM_DELETE, &m_nid);
+        m_nid.cbSize = sizeof(NOTIFYICONDATAW);
+        added = Shell_NotifyIconW(NIM_ADD, &m_nid);
+        if (!added) {
+            m_nid.cbSize = NOTIFYICONDATAW_V3_SIZE;
+            added = Shell_NotifyIconW(NIM_ADD, &m_nid);
+        }
+    }
+
+    if (!added) {
+        // 如果依然失败，尝试直接 MODIFY 更新
         if (!Shell_NotifyIconW(NIM_MODIFY, &m_nid)) {
             LOG_ERROR("创建/更新托盘图标失败, error={}", GetLastError());
             return false;
         }
     }
 
-    LOG_INFO("系统托盘图标已创建/更新");
+    LOG_INFO("系统托盘图标已成功创建并显示 (cbSize={})", m_nid.cbSize);
     return true;
 }
 
@@ -66,28 +126,28 @@ void TrayIcon::destroy() {
 
 void TrayIcon::showNotification(const std::wstring& title, const std::wstring& message,
                                  DWORD iconType, UINT timeoutMs) {
-    m_nid.uFlags |= NIF_INFO;
-    m_nid.dwInfoFlags = iconType;
-    m_nid.uTimeout = timeoutMs;
-    wcscpy_s(m_nid.szInfoTitle, title.c_str());
-    wcscpy_s(m_nid.szInfo, message.c_str());
+    NOTIFYICONDATAW nid = m_nid;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = iconType;
+    nid.uTimeout = timeoutMs;
+    wcsncpy_s(nid.szInfoTitle, title.c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, message.c_str(), _TRUNCATE);
 
-    Shell_NotifyIconW(NIM_MODIFY, &m_nid);
-
-    // 恢复 uFlags
-    m_nid.uFlags &= ~NIF_INFO;
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
 void TrayIcon::setIcon(HICON icon) {
     m_nid.hIcon = icon;
-    m_nid.uFlags |= NIF_ICON;
-    Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+    NOTIFYICONDATAW nid = m_nid;
+    nid.uFlags = NIF_ICON;
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
 void TrayIcon::setTooltip(const std::wstring& tooltip) {
-    wcscpy_s(m_nid.szTip, tooltip.c_str());
-    m_nid.uFlags |= NIF_TIP;
-    Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+    wcsncpy_s(m_nid.szTip, tooltip.c_str(), _TRUNCATE);
+    NOTIFYICONDATAW nid = m_nid;
+    nid.uFlags = NIF_TIP;
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
 void TrayIcon::setGesturePaused(bool paused) {
