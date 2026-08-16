@@ -23,6 +23,7 @@ import { PluginsPage, type PluginStatus } from './pages/PluginsPage';
 import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
+import { SearchPage } from './pages/SearchPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { bridgeRequest } from './hooks/useBridge';
 import { Toaster } from 'sonner';
@@ -34,13 +35,13 @@ import './App.css';
 type Theme = 'dark' | 'light';
 type ThemePreference = Theme | 'system';
 
-const NAV_TITLE_KEYS: Record<NavId, 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.ocr' | 'nav.history' | 'nav.plugins' | 'nav.settings' | 'nav.about'> = {
+const NAV_TITLE_KEYS: Record<NavId, 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.ocr' | 'nav.history' | 'nav.search' | 'nav.plugins' | 'nav.settings' | 'nav.about'> = {
   stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
-  ocr: 'nav.ocr', history: 'nav.history', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
+  ocr: 'nav.ocr', history: 'nav.history', search: 'nav.search', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
 };
-const NAV_SUBTITLE_KEYS: Record<NavId, 'navSubtitle.stats' | 'navSubtitle.gesture' | 'navSubtitle.hotcorner' | 'navSubtitle.capture' | 'navSubtitle.ocr' | 'navSubtitle.history' | 'navSubtitle.plugins' | 'navSubtitle.general' | 'navSubtitle.about'> = {
+const NAV_SUBTITLE_KEYS: Record<NavId, 'navSubtitle.stats' | 'navSubtitle.gesture' | 'navSubtitle.hotcorner' | 'navSubtitle.capture' | 'navSubtitle.ocr' | 'navSubtitle.history' | 'navSubtitle.search' | 'navSubtitle.plugins' | 'navSubtitle.general' | 'navSubtitle.about'> = {
   stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
-  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
+  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', search: 'navSubtitle.search', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
 };
 
 function App() {
@@ -147,6 +148,7 @@ function App() {
       case 'capture':   return <CapturePage />;
       case 'ocr':       return <OcrPage />;
       case 'history':   return <HistoryPage />;
+      case 'search':    return <SearchPage />;
       case 'plugins':   return <PluginsPage initialPlugins={plugins} />;
       case 'general':   return <GeneralPage />;
       case 'about':     return <AboutPage />;

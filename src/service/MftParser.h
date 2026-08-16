@@ -1,4 +1,5 @@
 #pragma once
+#include "SearchExpression.h"
 #include <windows.h>
 #include <winioctl.h>
 #include <string>
@@ -9,16 +10,6 @@
 #include <shared_mutex>
 #include <thread>
 #include <atomic>
-
-struct FileRecord {
-    DWORDLONG fileReferenceNumber;
-    DWORDLONG parentFileReferenceNumber;
-    std::wstring fileName;
-    std::wstring normalizedName;
-    std::wstring pinyinInitials;
-    std::wstring pinyinFull;
-    bool isDirectory;
-};
 
 struct SearchResult {
     std::wstring fileName;

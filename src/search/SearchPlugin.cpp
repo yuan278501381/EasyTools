@@ -2,6 +2,7 @@
 #include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
 #include <windows.h>
 #include <shellapi.h>
@@ -229,6 +230,59 @@ public:
                 return {{"success", true}};
             }
             return {{"success", false}};
+        });
+
+        mb.registerHandler("search.getServiceStatus", [](const nlohmann::json&) -> nlohmann::json {
+            bool available = (WaitNamedPipeA(SearchPipe, 0) != FALSE);
+            if (!available) {
+                available = ensureSearchServiceRunning();
+            }
+            return {
+                {"available", available},
+                {"pipeName", SearchPipe}
+            };
+        });
+
+        mb.registerHandler("search.getSettings", [](const nlohmann::json&) -> nlohmann::json {
+            auto& cfg = easy::core::ConfigManager::instance();
+            std::string hotkey = cfg.get<std::string>("/hotkeys/Toggle Search", "Alt+Space");
+            int maxResults = cfg.get<int>("/search/maxResults", 50);
+            std::string defaultCategory = cfg.get<std::string>("/search/defaultCategory", "all");
+            bool caseSensitive = cfg.get<bool>("/search/caseSensitive", false);
+            bool matchPath = cfg.get<bool>("/search/matchPath", false);
+            bool pinyinEnabled = cfg.get<bool>("/search/pinyinEnabled", true);
+
+            return {
+                {"hotkey", hotkey},
+                {"maxResults", maxResults},
+                {"defaultCategory", defaultCategory},
+                {"caseSensitive", caseSensitive},
+                {"matchPath", matchPath},
+                {"pinyinEnabled", pinyinEnabled}
+            };
+        });
+
+        mb.registerHandler("search.saveSettings", [](const nlohmann::json& params) -> nlohmann::json {
+            auto& cfg = easy::core::ConfigManager::instance();
+            if (params.contains("hotkey") && params["hotkey"].is_string()) {
+                cfg.set("/hotkeys/Toggle Search", params["hotkey"].get<std::string>());
+            }
+            if (params.contains("maxResults") && params["maxResults"].is_number()) {
+                cfg.set("/search/maxResults", params["maxResults"].get<int>());
+            }
+            if (params.contains("defaultCategory") && params["defaultCategory"].is_string()) {
+                cfg.set("/search/defaultCategory", params["defaultCategory"].get<std::string>());
+            }
+            if (params.contains("caseSensitive") && params["caseSensitive"].is_boolean()) {
+                cfg.set("/search/caseSensitive", params["caseSensitive"].get<bool>());
+            }
+            if (params.contains("matchPath") && params["matchPath"].is_boolean()) {
+                cfg.set("/search/matchPath", params["matchPath"].get<bool>());
+            }
+            if (params.contains("pinyinEnabled") && params["pinyinEnabled"].is_boolean()) {
+                cfg.set("/search/pinyinEnabled", params["pinyinEnabled"].get<bool>());
+            }
+            return {{"success", true}};
         });
 
         return true;

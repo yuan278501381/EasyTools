@@ -10,79 +10,7 @@
 namespace {
 
 std::wstring normalize(std::wstring value) {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
-    return value;
-}
-
-bool matchWildcard(std::wstring_view pattern, std::wstring_view text) {
-    size_t p = 0, t = 0;
-    size_t starP = std::wstring_view::npos, starT = 0;
-    while (t < text.size()) {
-        if (p < pattern.size() && (pattern[p] == L'?' || pattern[p] == text[t])) {
-            p++;
-            t++;
-        } else if (p < pattern.size() && pattern[p] == L'*') {
-            starP = p++;
-            starT = t;
-        } else if (starP != std::wstring_view::npos) {
-            p = starP + 1;
-            t = ++starT;
-        } else {
-            return false;
-        }
-    }
-    while (p < pattern.size() && pattern[p] == L'*') p++;
-    return p == pattern.size();
-}
-
-struct SearchToken {
-    std::wstring text;
-    bool hasWildcard = false;
-    bool isPureAscii = false;
-};
-
-std::vector<SearchToken> parseQueryTokens(const std::wstring& query) {
-    std::vector<SearchToken> tokens;
-    size_t start = 0;
-    while (start < query.size()) {
-        while (start < query.size() && iswspace(query[start])) ++start;
-        if (start >= query.size()) break;
-        size_t end = start;
-        while (end < query.size() && !iswspace(query[end])) ++end;
-        std::wstring raw = query.substr(start, end - start);
-        std::wstring tokenText = normalize(raw);
-        if (!tokenText.empty()) {
-            bool hasWild = tokenText.find(L'*') != std::wstring::npos || tokenText.find(L'?') != std::wstring::npos;
-            bool asciiOnly = true;
-            for (wchar_t ch : tokenText) {
-                if (ch < L'a' || ch > L'z') {
-                    asciiOnly = false;
-                    break;
-                }
-            }
-            tokens.push_back({tokenText, hasWild, asciiOnly});
-        }
-        start = end;
-    }
-    return tokens;
-}
-
-bool matchToken(const SearchToken& token, const FileRecord& record) {
-    if (token.hasWildcard) {
-        if (matchWildcard(token.text, record.normalizedName)) return true;
-        if (matchWildcard(token.text, record.pinyinFull) || matchWildcard(token.text, record.pinyinInitials)) return true;
-        return false;
-    }
-
-    if (record.normalizedName.find(token.text) != std::wstring::npos) return true;
-    if (token.isPureAscii) {
-        if (record.pinyinInitials.find(token.text) != std::wstring::npos ||
-            record.pinyinFull.find(token.text) != std::wstring::npos) {
-            return true;
-        }
-    }
-    return false;
+    return SearchExpression::normalize(value);
 }
 
 }  // namespace
@@ -268,16 +196,16 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     if (query.empty() || limit <= 0) return results;
     limit = std::min(limit, 200);
 
-    const auto tokens = parseQueryTokens(query);
-    if (tokens.empty()) return results;
+    const SearchExpression expr = SearchExpression::parse(query);
+    if (expr.isEmpty()) return results;
 
-    const std::wstring lowerQuery = normalize(query);
+    const std::wstring lowerQuery = expr.getNormalizedQuery();
+    const bool needFullPath = expr.requiresFullPath();
 
-    auto matchesAllTokens = [&](const FileRecord& record) -> bool {
-        for (const auto& token : tokens) {
-            if (!matchToken(token, record)) return false;
-        }
-        return true;
+    auto testCandidate = [&](DWORDLONG id, const FileRecord& record) -> bool {
+        std::wstring fullPath;
+        if (needFullPath) fullPath = buildFullPath(id);
+        return expr.matches(record, static_cast<wchar_t>(m_DriveLetter), fullPath);
     };
 
     std::lock_guard cacheLock(m_SearchCacheMutex);
@@ -289,12 +217,12 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         candidates.reserve(m_CachedCandidates.size());
         for (const auto id : m_CachedCandidates) {
             const auto it = m_FileMap.find(id);
-            if (it != m_FileMap.end() && matchesAllTokens(*it->second)) candidates.push_back(id);
+            if (it != m_FileMap.end() && testCandidate(id, *it->second)) candidates.push_back(id);
         }
     } else {
         candidates.reserve(std::min<size_t>(m_FileMap.size(), 65536));
         for (const auto& [id, record] : m_FileMap) {
-            if (matchesAllTokens(*record)) candidates.push_back(id);
+            if (testCandidate(id, *record)) candidates.push_back(id);
         }
     }
 
@@ -309,14 +237,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         const auto it = m_FileMap.find(id);
         if (it == m_FileMap.end()) continue;
         const auto& record = *it->second;
-        int rank = 6;
-        if (record.normalizedName == lowerQuery) rank = 0;
-        else if (record.normalizedName.starts_with(lowerQuery)) rank = 1;
-        else if (record.pinyinFull.starts_with(lowerQuery)) rank = 2;
-        else if (record.pinyinInitials.starts_with(lowerQuery)) rank = 3;
-        else if (record.normalizedName.find(lowerQuery) != std::wstring::npos) rank = 4;
-        else if (record.pinyinFull.find(lowerQuery) != std::wstring::npos) rank = 5;
-        else if (record.pinyinInitials.find(lowerQuery) != std::wstring::npos) rank = 6;
+        int rank = expr.calculateRank(record);
         ranked.push_back({id, &record, rank});
     }
     const auto compareRank = [](const auto& a, const auto& b) {

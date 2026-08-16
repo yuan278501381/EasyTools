@@ -9,16 +9,16 @@
 
 import { type ReactNode, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp, History, Boxes } from 'lucide-react';
+import { BarChart3, MousePointer2, Camera, FileText, Settings, Info, Sun, Moon, Zap, MonitorUp, History, Boxes, Search } from 'lucide-react';
 import './Sidebar.css';
 
-export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'history' | 'plugins' | 'general' | 'about';
+export type NavId = 'stats' | 'gesture' | 'hotcorner' | 'capture' | 'ocr' | 'history' | 'search' | 'plugins' | 'general' | 'about';
 
 interface NavItem {
   id: NavId;
   icon: ReactNode;
-  labelKey: 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.history' | 'nav.ocr' | 'nav.plugins' | 'nav.settings' | 'nav.about';
-  requiresPlugin?: 'gesture' | 'capture';
+  labelKey: 'nav.stats' | 'nav.gesture' | 'nav.hotcorner' | 'nav.capture' | 'nav.history' | 'nav.ocr' | 'nav.search' | 'nav.plugins' | 'nav.settings' | 'nav.about';
+  requiresPlugin?: 'gesture' | 'capture' | 'search';
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
   { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history', requiresPlugin: 'capture' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr', requiresPlugin: 'capture' },
+  { id: 'search',  icon: <Search size={20} strokeWidth={2.2} />, labelKey: 'nav.search', requiresPlugin: 'search' },
   { id: 'plugins', icon: <Boxes size={20} strokeWidth={2.2} />, labelKey: 'nav.plugins' },
   { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
   { id: 'about',   icon: <Info size={20} strokeWidth={2.2} />, labelKey: 'nav.about' },

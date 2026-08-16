@@ -32,6 +32,7 @@
 #include "core/update/UpdateChecker.h"
 #include "core/utils/DpiUtils.h"
 #include "core/lua/LuaEngine.h"
+#include "service/SearchExpression.h"
 
 #include <chrono>
 #include <algorithm>
@@ -512,47 +513,68 @@ static void test_pinyin_engine() {
     CHECK(PinyinEngine::GetFullPinyin(L"EasyTools") == L"easytools");
 }
 
-static void test_search_wildcard_matching() {
-    auto matchWildcard = [](std::wstring_view pattern, std::wstring_view text) -> bool {
-        size_t p = 0, t = 0;
-        size_t starP = std::wstring_view::npos, starT = 0;
-        while (t < text.size()) {
-            if (p < pattern.size() && (pattern[p] == L'?' || pattern[p] == text[t])) {
-                p++;
-                t++;
-            } else if (p < pattern.size() && pattern[p] == L'*') {
-                starP = p++;
-                starT = t;
-            } else if (starP != std::wstring_view::npos) {
-                p = starP + 1;
-                t = ++starT;
-            } else {
-                return false;
-            }
-        }
-        while (p < pattern.size() && pattern[p] == L'*') p++;
-        return p == pattern.size();
-    };
+static void test_search_everything_expressions() {
+    FileRecord txtFile{1, 0, L"readme.txt", L"readme.txt", L"readme.txt", L"readme.txt", false};
+    FileRecord pngFile{2, 0, L"screenshot.png", L"screenshot.png", L"screenshot.png", L"screenshot.png", false};
+    FileRecord docDir{3, 0, L"Documents", L"documents", L"documents", L"documents", true};
+    FileRecord wxFile{4, 0, L"微信.exe", L"微信.exe", L"wx.exe", L"weixin.exe", false};
+    FileRecord cppFile{5, 0, L"test_main.cpp", L"test_main.cpp", L"test_main.cpp", L"test_main.cpp", false};
+    FileRecord logFile{6, 0, L"app_2026.log", L"app_2026.log", L"app_2026.log", L"app_2026.log", false};
 
-    // 1. 标准通配符 *.txt / *.png
-    CHECK(matchWildcard(L"*.txt", L"readme.txt"));
-    CHECK(matchWildcard(L"*.txt", L"test_document.txt"));
-    CHECK(!matchWildcard(L"*.txt", L"readme.txt.bak"));
-    CHECK(!matchWildcard(L"*.txt", L"readme.png"));
+    // 1. 标准通配符与扩展名
+    auto expr1 = SearchExpression::parse(L"*.txt");
+    CHECK(expr1.matches(txtFile, L'C', L"C:\\readme.txt"));
+    CHECK(!expr1.matches(pngFile, L'C', L"C:\\screenshot.png"));
 
-    // 2. 中间与前后通配符 *test* / report*
-    CHECK(matchWildcard(L"*test*", L"my_test_file.cpp"));
-    CHECK(matchWildcard(L"report*", L"report_2026_q3.pdf"));
-    CHECK(!matchWildcard(L"report*", L"annual_report.pdf"));
+    auto exprExt = SearchExpression::parse(L"ext:png;jpg;webp");
+    CHECK(exprExt.matches(pngFile, L'C', L"C:\\screenshot.png"));
+    CHECK(!exprExt.matches(txtFile, L'C', L"C:\\readme.txt"));
 
-    // 3. 问号单字符通配符
-    CHECK(matchWildcard(L"img_??.png", L"img_01.png"));
-    CHECK(!matchWildcard(L"img_??.png", L"img_001.png"));
+    // 2. 类型过滤器 (file: / folder: / dir:)
+    auto exprFile = SearchExpression::parse(L"file: *.txt");
+    CHECK(exprFile.matches(txtFile, L'C', L"C:\\readme.txt"));
+    CHECK(!exprFile.matches(docDir, L'C', L"C:\\Documents"));
 
-    // 4. 中文与拼音混合通配
-    CHECK(matchWildcard(L"*同心*", L"同心协力文档.docx"));
-    CHECK(matchWildcard(L"tx*", L"tx"));
-    CHECK(matchWildcard(L"tong*", L"tongxin"));
+    auto exprDir = SearchExpression::parse(L"folder: documents");
+    CHECK(exprDir.matches(docDir, L'C', L"C:\\Documents"));
+    CHECK(!exprDir.matches(txtFile, L'C', L"C:\\readme.txt"));
+
+    // 3. 逻辑与、或、非 (AND / OR / NOT)
+    auto exprNot = SearchExpression::parse(L"*.cpp !test");
+    FileRecord normalCpp{7, 0, L"main.cpp", L"main.cpp", L"main.cpp", L"main.cpp", false};
+    CHECK(!exprNot.matches(cppFile, L'C', L"C:\\test_main.cpp"));
+    CHECK(exprNot.matches(normalCpp, L'C', L"C:\\main.cpp"));
+
+    auto exprOr = SearchExpression::parse(L"ext:txt | ext:png");
+    CHECK(exprOr.matches(txtFile, L'C', L"C:\\readme.txt"));
+    CHECK(exprOr.matches(pngFile, L'C', L"C:\\screenshot.png"));
+    CHECK(!exprOr.matches(cppFile, L'C', L"C:\\test_main.cpp"));
+
+    // 4. 正则表达式 (regex: / r:)
+    auto exprRegex = SearchExpression::parse(L"regex:^app_[0-9]+\\.log$");
+    CHECK(exprRegex.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
+    CHECK(!exprRegex.matches(txtFile, L'C', L"C:\\readme.txt"));
+
+    // 5. 盘符与路径过滤 (c: / path: / parent:)
+    auto exprDrive = SearchExpression::parse(L"c: *.txt");
+    CHECK(exprDrive.matches(txtFile, L'C', L"C:\\readme.txt"));
+    CHECK(!exprDrive.matches(txtFile, L'D', L"D:\\readme.txt"));
+
+    auto exprPath = SearchExpression::parse(L"path:logs");
+    CHECK(exprPath.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
+    CHECK(!exprPath.matches(txtFile, L'C', L"C:\\readme.txt"));
+
+    // 6. 拼音检索与禁用拼音 (pinyin: / nopy:)
+    auto exprPy = SearchExpression::parse(L"wx");
+    CHECK(exprPy.matches(wxFile, L'C', L"C:\\微信.exe"));
+
+    auto exprNoPy = SearchExpression::parse(L"nopy:wx");
+    CHECK(!exprNoPy.matches(wxFile, L'C', L"C:\\微信.exe"));
+
+    // 7. 双引号带空格短语
+    auto exprQuote = SearchExpression::parse(L"\"test main\"");
+    FileRecord spaceFile{8, 0, L"test main.cpp", L"test main.cpp", L"test main.cpp", L"test main.cpp", false};
+    CHECK(exprQuote.matches(spaceFile, L'C', L"C:\\test main.cpp"));
 }
 
 static void test_winutils_fullscreen() {
@@ -1191,7 +1213,7 @@ int main() {
     test_perf_timer();
     test_update_version_comparison();
     test_pinyin_engine();
-    test_search_wildcard_matching();
+    test_search_everything_expressions();
     test_winutils_fullscreen();
     test_winutils_clipboard_and_encoding();
     test_pin_window_transform();

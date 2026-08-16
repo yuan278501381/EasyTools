@@ -4,19 +4,20 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding-top: 15vh;
+    padding-top: 12vh;
     background: transparent;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .search-container {
-    width: 600px;
-    background: rgba(30, 30, 30, 0.65);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    width: 660px;
+    max-width: 92vw;
+    background: rgba(30, 30, 30, 0.75);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
     overflow: hidden;
     animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -48,7 +49,8 @@
     width: 24px;
     height: 24px;
     color: rgba(255, 255, 255, 0.5);
-    margin-right: 16px;
+    margin-right: 14px;
+    flex-shrink: 0;
 }
 
 .search-input {
@@ -57,8 +59,31 @@
     border: none;
     outline: none;
     color: #fff;
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 300;
+}
+
+.search-help-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-left: 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.search-help-btn:hover,
+.search-help-btn--active {
+    background: var(--primary, #a855f7);
+    border-color: var(--primary, #a855f7);
+    color: #fff;
 }
 
 .search-loading {
@@ -69,6 +94,7 @@
     border-top-color: rgba(255, 255, 255, 0.85);
     border-radius: 50%;
     animation: search-spin 0.7s linear infinite;
+    flex-shrink: 0;
 }
 
 @keyframes search-spin {
@@ -77,29 +103,147 @@
 
 .search-input::placeholder {
     color: rgba(255, 255, 255, 0.3);
+    font-size: 16px;
 }
 
+/* 分类筛选胶囊 */
+.search-categories {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px 10px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.search-categories::-webkit-scrollbar {
+    display: none;
+}
+
+.category-pill {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.category-pill:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.category-pill--active {
+    background: rgba(168, 85, 247, 0.25);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #c084fc;
+    font-weight: 500;
+}
+
+/* 语法速查抽屉面板 */
+.search-syntax-drawer {
+    background: rgba(20, 20, 20, 0.95);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 12px 16px;
+    max-height: 280px;
+    overflow-y: auto;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.syntax-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.syntax-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #c084fc;
+}
+
+.syntax-drawer-close {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.syntax-drawer-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.syntax-drawer-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.syntax-example-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.syntax-example-item:hover {
+    background: rgba(168, 85, 247, 0.15);
+    border-color: rgba(168, 85, 247, 0.3);
+}
+
+.syntax-code {
+    font-family: monospace;
+    font-size: 12px;
+    color: #c084fc;
+    font-weight: 600;
+}
+
+.syntax-desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* 结果列表 */
 .search-results {
     list-style: none;
     margin: 0;
     padding: 8px;
-    max-height: 400px;
+    max-height: 380px;
     overflow-y: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .search-results::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
 }
 
 .search-results::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 .search-result-item {
     display: flex;
     align-items: center;
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-radius: 8px;
     cursor: pointer;
     color: rgba(255, 255, 255, 0.8);
@@ -107,7 +251,7 @@
 }
 
 .search-result-item.selected {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.12);
     color: #fff;
 }
 
@@ -133,7 +277,7 @@
 }
 
 .file-name {
-    font-size: 16px;
+    font-size: 15px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -144,7 +288,7 @@
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
 }
 
 .file-path {
@@ -175,25 +319,26 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 16px;
+    gap: 14px;
     padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.25);
     border-top: 1px solid rgba(255, 255, 255, 0.05);
+    flex-wrap: wrap;
 }
 
 .search-hint {
-    font-size: 12px;
+    font-size: 11px;
     color: rgba(255, 255, 255, 0.5);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
 }
 
 .search-hint kbd {
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    padding: 2px 6px;
+    padding: 2px 5px;
     font-family: inherit;
     font-size: 11px;
     color: rgba(255, 255, 255, 0.8);
