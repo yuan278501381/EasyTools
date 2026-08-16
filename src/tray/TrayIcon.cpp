@@ -25,17 +25,19 @@ TrayIcon& TrayIcon::instance() {
 }
 
 bool TrayIcon::create(HWND hwnd, HICON icon) {
-    m_hwnd = hwnd;
+    if (hwnd) m_hwnd = hwnd;
+    if (icon) m_icon = icon;
+    m_created = false;
 
     ZeroMemory(&m_nid, sizeof(m_nid));
     m_nid.cbSize = sizeof(NOTIFYICONDATAW);
-    m_nid.hWnd = hwnd;
+    m_nid.hWnd = m_hwnd;
     m_nid.uID = 1;
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
 
     // 优先加载适合托盘尺寸的标准小图标
-    m_nid.hIcon = icon;
+    m_nid.hIcon = m_icon;
     if (!m_nid.hIcon) {
         m_nid.hIcon = (HICON)LoadImageW(
             GetModuleHandleW(nullptr),
@@ -110,17 +112,38 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     if (!added) {
         // 如果依然失败，尝试直接 MODIFY 更新
         if (!Shell_NotifyIconW(NIM_MODIFY, &m_nid)) {
-            LOG_ERROR("创建/更新托盘图标失败, error={}", GetLastError());
+            LOG_WARN("创建/更新托盘图标未成功，启动自愈定时器, error={}", GetLastError());
+            if (m_hwnd && IsWindow(m_hwnd)) {
+                SetTimer(m_hwnd, TIMER_ID_TRAY_RETRY, 1000, nullptr);
+            }
             return false;
         }
     }
 
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        KillTimer(m_hwnd, TIMER_ID_TRAY_RETRY);
+    }
+    m_created = true;
     LOG_INFO("系统托盘图标已成功创建并显示 (cbSize={})", m_nid.cbSize);
     return true;
 }
 
+bool TrayIcon::ensureCreated(HWND hwnd) {
+    if (m_created) return true;
+    return create(hwnd ? hwnd : m_hwnd, m_icon);
+}
+
+void TrayIcon::recreate() {
+    m_created = false;
+    create(m_hwnd, m_icon);
+}
+
 void TrayIcon::destroy() {
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        KillTimer(m_hwnd, TIMER_ID_TRAY_RETRY);
+    }
     Shell_NotifyIconW(NIM_DELETE, &m_nid);
+    m_created = false;
     LOG_INFO("系统托盘图标已销毁");
 }
 

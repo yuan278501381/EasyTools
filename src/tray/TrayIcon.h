@@ -39,8 +39,17 @@ public:
 
     /// 创建托盘图标
     /// @param hwnd 消息窗口句柄
-    /// @param iconResId 图标资源 ID（或使用默认应用图标）
+    /// @param icon 图标句柄（可选）
     bool create(HWND hwnd, HICON icon = nullptr);
+
+    /// 确保托盘图标已成功创建，若尚未成功则尝试创建并返回状态
+    bool ensureCreated(HWND hwnd = nullptr);
+
+    /// 重建托盘图标（例如 Explorer 重启或被二次唤醒时）
+    void recreate();
+
+    /// 查询托盘图标是否已成功挂载
+    bool isCreated() const { return m_created; }
 
     /// 销毁托盘图标
     void destroy();
@@ -78,6 +87,8 @@ public:
     /// 触发菜单回调
     void fireCallback(TrayMenuId id);
 
+    static constexpr UINT TIMER_ID_TRAY_RETRY = 2001;
+
 private:
     TrayIcon() = default;
     TrayIcon(const TrayIcon&) = delete;
@@ -85,6 +96,8 @@ private:
 
     NOTIFYICONDATAW m_nid{};
     HWND m_hwnd = nullptr;
+    HICON m_icon = nullptr;
+    bool m_created = false;
     bool m_gesturePaused = false;
     std::unordered_map<TrayMenuId, TrayEventCallback> m_callbacks;
 

@@ -371,6 +371,7 @@ void shutdownSubsystems() {
 }
 
 void showSettingsWindow() {
+    easy::tray::TrayIcon::instance().ensureCreated();
     auto& settingsWnd = easy::ui::SettingsWindow::instance();
     easy::ui::SettingsWindowConfig config;
     config.width = 900;
@@ -400,6 +401,13 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return 0;
     }
 
+    if (msg == WM_TIMER) {
+        if (wParam == easy::tray::TrayIcon::TIMER_ID_TRAY_RETRY) {
+            easy::tray::TrayIcon::instance().ensureCreated(hwnd);
+            return 0;
+        }
+    }
+
     if (msg == WM_HOTKEY) {
         easy::core::HotkeyManager::instance().handleHotkeyMessage(wParam);
         return 0;
@@ -407,14 +415,14 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
     static UINT msgShowBroadcast = RegisterWindowMessageW(L"EasyTools_ShowSettings_Broadcast");
     if (msg == msgShowBroadcast || msg == WM_EASYTOOLS_SHOW_SETTINGS) {
+        easy::tray::TrayIcon::instance().ensureCreated(hwnd);
         showSettingsWindow();
-        easy::tray::TrayIcon::instance().create(hwnd);
         return 0;
     }
 
     if (g_wmTaskbarCreated != 0 && msg == g_wmTaskbarCreated) {
         LOG_INFO("检测到系统任务栏重建 (TaskbarCreated)，重新注册托盘图标");
-        easy::tray::TrayIcon::instance().create(hwnd);
+        easy::tray::TrayIcon::instance().recreate();
         return 0;
     }
 
