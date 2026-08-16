@@ -25,22 +25,6 @@ MftParser::~MftParser() {
     }
 }
 
-void MftParser::StartListening() {
-    if (m_IsListening) return;
-    m_IsListening = true;
-    m_ListenerThread = std::make_unique<std::thread>(&MftParser::UsnListenerLoop, this);
-    spdlog::info("USN Journal listener started.");
-}
-
-void MftParser::StopListening() {
-    if (m_IsListening) {
-        m_IsListening = false;
-        if (m_ListenerThread && m_ListenerThread->joinable()) {
-            m_ListenerThread->join();
-        }
-    }
-}
-
 void MftParser::UsnListenerLoop() {
     READ_USN_JOURNAL_DATA_V0 rujd = {0};
     rujd.StartUsn = m_UsnJournalData.NextUsn;
@@ -101,12 +85,28 @@ void MftParser::UsnListenerLoop() {
     }
 }
 
+void MftParser::StartListening() {
+    if (m_IsFallbackDirectoryWalk || m_hVolume == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    m_IsListening = true;
+    m_ListenerThread = std::make_unique<std::thread>(&MftParser::UsnListenerLoop, this);
+}
+
+void MftParser::StopListening() {
+    m_IsListening = false;
+    if (m_ListenerThread && m_ListenerThread->joinable()) {
+        m_ListenerThread->join();
+    }
+}
+
 bool MftParser::Initialize(char driveLetter) {
     m_DriveLetter = driveLetter;
     std::string volumePath = "\\\\.\\";
     volumePath += driveLetter;
     volumePath += ":";
 
+    // 优先尝试以直接 NTFS 卷设备句柄打开以实现 100ms 级 MFT 全盘枚举
     m_hVolume = CreateFileA(volumePath.c_str(), 
                             GENERIC_READ | GENERIC_WRITE, 
                             FILE_SHARE_READ | FILE_SHARE_WRITE, 
@@ -116,15 +116,28 @@ bool MftParser::Initialize(char driveLetter) {
                             NULL);
 
     if (m_hVolume == INVALID_HANDLE_VALUE) {
-        spdlog::error("Failed to open volume {}:, error: {}", driveLetter, GetLastError());
-        return false;
+        m_hVolume = CreateFileA(volumePath.c_str(), 
+                                GENERIC_READ, 
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, 
+                                NULL, 
+                                OPEN_EXISTING, 
+                                FILE_ATTRIBUTE_NORMAL, 
+                                NULL);
     }
 
-    if (!QueryUsnJournal()) {
-        spdlog::error("Failed to query USN journal.");
-        return false;
+    if (m_hVolume == INVALID_HANDLE_VALUE || !QueryUsnJournal()) {
+        if (m_hVolume != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_hVolume);
+            m_hVolume = INVALID_HANDLE_VALUE;
+        }
+        // 当以非管理员或便携模式运行时，自动启用极速目录树遍历作为优雅回退
+        m_IsFallbackDirectoryWalk = true;
+        spdlog::warn("Volume handle unavailable (Error: {}). Enabled DirectoryWalk fallback mode for drive {}:",
+                     GetLastError(), driveLetter);
+        return true;
     }
 
+    m_IsFallbackDirectoryWalk = false;
     return true;
 }
 
@@ -146,7 +159,102 @@ bool MftParser::QueryUsnJournal() {
     return true;
 }
 
+void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
+    spdlog::info("Starting high-speed directory walk enumeration for drive {}: ...", driveLetter);
+    std::wstring rootPath;
+    rootPath += static_cast<wchar_t>(driveLetter);
+    rootPath += L":\\";
+
+    uint64_t nextId = 1;
+    std::vector<std::pair<std::wstring, uint64_t>> dirsToScan;
+    dirsToScan.reserve(8192);
+    dirsToScan.push_back({rootPath, 0});
+
+    int count = 0;
+    std::vector<std::pair<DWORDLONG, std::unique_ptr<FileRecord>>> batch;
+    batch.reserve(2048);
+
+    auto flushBatch = [&]() {
+        if (batch.empty()) return;
+        std::unique_lock lock(m_MapMutex);
+        for (auto& item : batch) {
+            m_FileMap[item.first] = std::move(item.second);
+        }
+        batch.clear();
+        m_IndexGeneration.fetch_add(1, std::memory_order_release);
+    };
+
+    while (!dirsToScan.empty()) {
+        auto [currentDir, parentId] = std::move(dirsToScan.back());
+        dirsToScan.pop_back();
+
+        std::wstring searchPattern = currentDir;
+        if (searchPattern.back() != L'\\') searchPattern += L'\\';
+        searchPattern += L'*';
+
+        WIN32_FIND_DATAW findData;
+        HANDLE hFind = FindFirstFileExW(
+            searchPattern.c_str(),
+            FindExInfoBasic,
+            &findData,
+            FindExSearchNameMatch,
+            nullptr,
+            FIND_FIRST_EX_LARGE_FETCH
+        );
+
+        if (hFind == INVALID_HANDLE_VALUE) continue;
+
+        do {
+            if (findData.cFileName[0] == L'.' && 
+                (findData.cFileName[1] == L'\0' || (findData.cFileName[1] == L'.' && findData.cFileName[2] == L'\0'))) {
+                continue;
+            }
+
+            // 跳过 NTFS 重解析点/符号链接，防止目录循环与死锁
+            if (findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+                continue;
+            }
+
+            const bool isDir = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const uint64_t fileId = nextId++;
+
+            auto record = std::make_unique<FileRecord>();
+            record->fileReferenceNumber = fileId;
+            record->parentFileReferenceNumber = parentId;
+            record->isDirectory = isDir;
+            record->fileName = findData.cFileName;
+            record->normalizedName = normalize(record->fileName);
+            record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
+            record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+
+            if (isDir) {
+                std::wstring subDir = currentDir;
+                if (subDir.back() != L'\\') subDir += L'\\';
+                subDir += findData.cFileName;
+                dirsToScan.push_back({std::move(subDir), fileId});
+            }
+
+            batch.push_back({fileId, std::move(record)});
+            count++;
+
+            if (batch.size() >= 2048) {
+                flushBatch();
+            }
+        } while (FindNextFileW(hFind, &findData));
+
+        FindClose(hFind);
+    }
+
+    flushBatch();
+    spdlog::info("Directory walk enumeration completed. Indexed {} files on drive {}:", count, driveLetter);
+}
+
 void MftParser::EnumerateFiles() {
+    if (m_IsFallbackDirectoryWalk || m_hVolume == INVALID_HANDLE_VALUE) {
+        EnumerateFilesViaDirectoryWalk(m_DriveLetter);
+        return;
+    }
+
     spdlog::info("Starting MFT enumeration...");
     MFT_ENUM_DATA_V0 med;
     med.StartFileReferenceNumber = 0;

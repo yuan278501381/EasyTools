@@ -52,5 +52,8 @@ private:
     uint64_t m_CachedGeneration = 0;
 
     bool QueryUsnJournal();
+    void EnumerateFilesViaDirectoryWalk(char driveLetter);
     std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
+
+    bool m_IsFallbackDirectoryWalk{false};
 };

@@ -77,25 +77,25 @@ void IPCServerThread() {
     // to C:. Removable/network volumes are excluded because USN semantics and
     // availability are not stable enough for a resident service.
     const DWORD driveMask = GetLogicalDrives();
+    std::vector<std::thread> indexThreads;
     for (char drive = 'A'; drive <= 'Z' && g_IsRunning.load(); ++drive) {
         if (!(driveMask & (1u << (drive - 'A')))) continue;
         const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\', L'\0'};
-        if (GetDriveTypeW(root.c_str()) != DRIVE_FIXED) continue;
-        wchar_t fileSystem[MAX_PATH]{};
-        if (!GetVolumeInformationW(root.c_str(), nullptr, 0, nullptr, nullptr, nullptr,
-                                   fileSystem, MAX_PATH) || _wcsicmp(fileSystem, L"NTFS") != 0) {
-            continue;
-        }
+        UINT driveType = GetDriveTypeW(root.c_str());
+        if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOVABLE) continue;
 
         auto parser = std::make_unique<MftParser>();
         if (parser->Initialize(drive)) {
-            parser->EnumerateFiles();
-            parser->StartListening();
+            MftParser* pRaw = parser.get();
             g_MftParsers.push_back(std::move(parser));
-            spdlog::info("Indexed drive {}:", drive);
+            indexThreads.emplace_back([pRaw, drive]() {
+                pRaw->EnumerateFiles();
+                pRaw->StartListening();
+                spdlog::info("Indexed drive {}:", drive);
+            });
         }
     }
-    spdlog::info("Search index ready for {} volume(s)", g_MftParsers.size());
+    spdlog::info("Search index launched for {} volume(s)", g_MftParsers.size());
 
     PSECURITY_DESCRIPTOR pipeDescriptor = nullptr;
     SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
@@ -178,6 +178,9 @@ void IPCServerThread() {
         }
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
+    }
+    for (auto& t : indexThreads) {
+        if (t.joinable()) t.join();
     }
     for (auto& parser : g_MftParsers) parser->StopListening();
     g_MftParsers.clear();
