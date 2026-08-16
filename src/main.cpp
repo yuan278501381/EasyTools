@@ -74,12 +74,14 @@ void preloadSettingsWindow(HINSTANCE hInstance);
 
 // ── 全局状态 ─────────────────────────────────────────────────────────────────
 static HANDLE g_singleInstanceMutex = nullptr;
+static UINT g_wmTaskbarCreated = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WinMain — 程序入口
 // ─────────────────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     LPWSTR /*lpCmdLine*/, int /*nCmdShow*/) {
+    g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
     // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
     easy::core::WinUtils::enableHighDpiSupport();
@@ -186,18 +188,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 bool checkSingleInstance() {
     g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
     if (!g_singleInstanceMutex) {
-        MessageBoxW(nullptr, L"无法创建单实例锁，EasyTools 未启动。", L"EasyTools 错误",
-                    MB_OK | MB_ICONERROR);
         return false;
     }
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         CloseHandle(g_singleInstanceMutex);
         g_singleInstanceMutex = nullptr;
-        if (HWND existing = FindWindowW(WINDOW_CLASS_NAME, WINDOW_TITLE)) {
+
+        // 优先查找已存在的 EasyTools 消息窗口，直接通知其唤醒并显示主设置页面
+        HWND existing = FindWindowW(WINDOW_CLASS_NAME, nullptr);
+        if (!existing) {
+            existing = FindWindowW(nullptr, L"EasyTools - 设置");
+        }
+        if (existing) {
             PostMessageW(existing, WM_EASYTOOLS_SHOW_SETTINGS, 0, 0);
+            SetForegroundWindow(existing);
         } else {
-            MessageBoxW(nullptr, L"EasyTools 已在运行中。", L"EasyTools",
-                        MB_OK | MB_ICONINFORMATION);
+            // 通过广播消息通知已有实例唤醒
+            UINT msgShow = RegisterWindowMessageW(L"EasyTools_ShowSettings_Broadcast");
+            PostMessageW(HWND_BROADCAST, msgShow, 0, 0);
         }
         return false;
     }
@@ -397,8 +405,16 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return 0;
     }
 
-    if (msg == WM_EASYTOOLS_SHOW_SETTINGS) {
+    static UINT msgShowBroadcast = RegisterWindowMessageW(L"EasyTools_ShowSettings_Broadcast");
+    if (msg == msgShowBroadcast || msg == WM_EASYTOOLS_SHOW_SETTINGS) {
         showSettingsWindow();
+        easy::tray::TrayIcon::instance().create(hwnd);
+        return 0;
+    }
+
+    if (g_wmTaskbarCreated != 0 && msg == g_wmTaskbarCreated) {
+        LOG_INFO("检测到系统任务栏重建 (TaskbarCreated)，重新注册托盘图标");
+        easy::tray::TrayIcon::instance().create(hwnd);
         return 0;
     }
 

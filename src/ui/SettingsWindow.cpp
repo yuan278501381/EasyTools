@@ -59,7 +59,12 @@ void SettingsWindow::show(HINSTANCE hInstance) {
 
     if (m_hwnd && IsWindow(m_hwnd)) {
         // 窗口已存在，直接显示并激活
-        ShowWindow(m_hwnd, SW_SHOW);
+        if (IsIconic(m_hwnd)) {
+            ShowWindow(m_hwnd, SW_RESTORE);
+        } else {
+            ShowWindow(m_hwnd, SW_SHOW);
+        }
+        SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
         SetForegroundWindow(m_hwnd);
         m_visible = true;
         

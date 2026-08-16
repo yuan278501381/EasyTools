@@ -49,12 +49,13 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     wcscpy_s(m_nid.szTip, isEnglishLocale() ? L"EasyTools - Desktop Utility" : L"EasyTools — 桌面效率工具");
 
     if (!Shell_NotifyIconW(NIM_ADD, &m_nid)) {
-        LOG_ERROR("创建托盘图标失败, error={}", GetLastError());
-        return false;
+        if (!Shell_NotifyIconW(NIM_MODIFY, &m_nid)) {
+            LOG_ERROR("创建/更新托盘图标失败, error={}", GetLastError());
+            return false;
+        }
     }
 
-    // Shell_NotifyIconW(NIM_SETVERSION, &m_nid); // 移除版本设置
-    LOG_INFO("系统托盘图标已创建");
+    LOG_INFO("系统托盘图标已创建/更新");
     return true;
 }
 
