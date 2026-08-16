@@ -512,6 +512,49 @@ static void test_pinyin_engine() {
     CHECK(PinyinEngine::GetFullPinyin(L"EasyTools") == L"easytools");
 }
 
+static void test_search_wildcard_matching() {
+    auto matchWildcard = [](std::wstring_view pattern, std::wstring_view text) -> bool {
+        size_t p = 0, t = 0;
+        size_t starP = std::wstring_view::npos, starT = 0;
+        while (t < text.size()) {
+            if (p < pattern.size() && (pattern[p] == L'?' || pattern[p] == text[t])) {
+                p++;
+                t++;
+            } else if (p < pattern.size() && pattern[p] == L'*') {
+                starP = p++;
+                starT = t;
+            } else if (starP != std::wstring_view::npos) {
+                p = starP + 1;
+                t = ++starT;
+            } else {
+                return false;
+            }
+        }
+        while (p < pattern.size() && pattern[p] == L'*') p++;
+        return p == pattern.size();
+    };
+
+    // 1. 标准通配符 *.txt / *.png
+    CHECK(matchWildcard(L"*.txt", L"readme.txt"));
+    CHECK(matchWildcard(L"*.txt", L"test_document.txt"));
+    CHECK(!matchWildcard(L"*.txt", L"readme.txt.bak"));
+    CHECK(!matchWildcard(L"*.txt", L"readme.png"));
+
+    // 2. 中间与前后通配符 *test* / report*
+    CHECK(matchWildcard(L"*test*", L"my_test_file.cpp"));
+    CHECK(matchWildcard(L"report*", L"report_2026_q3.pdf"));
+    CHECK(!matchWildcard(L"report*", L"annual_report.pdf"));
+
+    // 3. 问号单字符通配符
+    CHECK(matchWildcard(L"img_??.png", L"img_01.png"));
+    CHECK(!matchWildcard(L"img_??.png", L"img_001.png"));
+
+    // 4. 中文与拼音混合通配
+    CHECK(matchWildcard(L"*同心*", L"同心协力文档.docx"));
+    CHECK(matchWildcard(L"tx*", L"tx"));
+    CHECK(matchWildcard(L"tong*", L"tongxin"));
+}
+
 static void test_winutils_fullscreen() {
     // 空句柄或无效句柄返回 false
     CHECK(!easy::core::WinUtils::isWindowFullscreen(nullptr));
@@ -1148,6 +1191,7 @@ int main() {
     test_perf_timer();
     test_update_version_comparison();
     test_pinyin_engine();
+    test_search_wildcard_matching();
     test_winutils_fullscreen();
     test_winutils_clipboard_and_encoding();
     test_pin_window_transform();
