@@ -183,7 +183,7 @@ easytools_add_version_resource(Plugin_Search "EasyTools Search Plugin" "Plugin_S
 easytools_add_plugin_manifest(Plugin_Search)
 target_compile_definitions(Plugin_Search PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Search PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog)
+target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog advapi32 shell32)
 set_target_properties(Plugin_Search PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
 # ── 4. EasyTools Host (可执行文件) ─────────────────────────────────────────────

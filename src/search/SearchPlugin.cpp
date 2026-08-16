@@ -32,11 +32,62 @@ bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
     return false;
 }
 
+static bool ensureSearchServiceRunning() {
+    if (WaitNamedPipeA(SearchPipe, 10)) {
+        return true;
+    }
+
+    // 1. 尝试通过 SCM 启动 Windows 服务 (如果已注册服务)
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (scm) {
+        SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_START | SERVICE_QUERY_STATUS);
+        if (service) {
+            SERVICE_STATUS_PROCESS ssp{};
+            DWORD bytesNeeded = 0;
+            if (QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded)) {
+                if (ssp.dwCurrentState != SERVICE_RUNNING && ssp.dwCurrentState != SERVICE_START_PENDING) {
+                    StartServiceW(service, 0, nullptr);
+                }
+            }
+            CloseServiceHandle(service);
+        }
+        CloseServiceHandle(scm);
+    }
+
+    if (WaitNamedPipeA(SearchPipe, 300)) {
+        return true;
+    }
+
+    // 2. 尝试寻找同目录下的 EasyTools_Service.exe 作为独立后台进程自启动 (免安装/便携版自动就绪)
+    wchar_t modulePath[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    std::filesystem::path exeDir = std::filesystem::path(modulePath).parent_path();
+    std::filesystem::path serviceExe = exeDir / L"EasyTools_Service.exe";
+
+    std::error_code ec;
+    if (std::filesystem::exists(serviceExe, ec)) {
+        STARTUPINFOW si{sizeof(si)};
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION pi{};
+        std::wstring cmd = L"\"" + serviceExe.wstring() + L"\"";
+        if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
+                           CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
+            if (pi.hProcess) CloseHandle(pi.hProcess);
+            if (pi.hThread) CloseHandle(pi.hThread);
+        }
+    }
+
+    return WaitNamedPipeA(SearchPipe, 800) != FALSE;
+}
+
 std::optional<std::string> querySearchService(const std::string& query, DWORD& error) {
     error = ERROR_SUCCESS;
-    if (!WaitNamedPipeA(SearchPipe, 100)) {
-        error = GetLastError();
-        return std::nullopt;
+    if (!WaitNamedPipeA(SearchPipe, 50)) {
+        if (!ensureSearchServiceRunning()) {
+            error = GetLastError();
+            return std::nullopt;
+        }
     }
 
     HANDLE pipe = CreateFileA(SearchPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr,

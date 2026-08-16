@@ -285,7 +285,15 @@ int main(int argc, char** argv) {
     };
     
     if (!StartServiceCtrlDispatcherW(ServiceTable)) {
-        spdlog::error("StartServiceCtrlDispatcher failed: {}. Use --debug to run in console.", GetLastError());
+        DWORD err = GetLastError();
+        if (err == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
+            // 当非 SCM 服务环境（如便携版、免安装模式或主程序子进程拉起）直接执行时，自动退化为独立后台管道服务进程
+            spdlog::info("Running in standalone background mode (named pipe server).");
+            g_IsRunning = true;
+            IPCServerThread();
+            return 0;
+        }
+        spdlog::error("StartServiceCtrlDispatcher failed: {}.", err);
         return 1;
     }
     return 0;
