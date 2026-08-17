@@ -6,7 +6,7 @@
 [Setup]
 AppName=EasyTools
 AppVersion={#EasyToolsVersion}
-AppPublisher=Yuan2
+AppPublisher=Yy1 (yuan278501381)
 AppPublisherURL=https://github.com/yuan278501381/easyTools
 AppSupportURL=https://github.com/yuan278501381/easyTools/issues
 AppUpdatesURL=https://github.com/yuan278501381/easyTools/releases

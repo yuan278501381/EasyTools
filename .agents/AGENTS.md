@@ -13,3 +13,8 @@
 
 ## Frontend (React/TypeScript) Development
 1. **i18next Dynamic Keys**: The project's `react-i18next` `t()` function uses strict TypeScript union types for keys. When passing dynamic variables as translation keys (e.g., from an array or config), cast the key `as any` (e.g., `t(item.key as any)`) to bypass `TS2345` type errors.
+
+## Copyright & Open Source Attribution Standards
+1. **Author Identity**: The official author identifier for the project is **`Yy1 (yuan278501381)`** (display format: `Yy1 (@yuan278501381)`).
+2. **GitHub Repository & Profile**: Author profile is `https://github.com/yuan278501381`, project repository is `https://github.com/yuan278501381/easyTools`.
+3. **License & Notice Enforcement**: The project is licensed under **MIT License**. All `LICENSE` files, UI About pages, Inno Setup `AppPublisher` metadata, and documentation must uniformly attribute `Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors`.

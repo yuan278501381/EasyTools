@@ -158,7 +158,7 @@ export const AboutPage: FC = () => {
                   <h2 className="about-hero__title">EasyTools</h2>
                   <Badge text={`v${version}`} variant="primary" />
                   <Badge text="C++20 & Direct2D" variant="success" />
-                  <Badge text={`作者 · Yy1`} variant="muted" />
+                  <Badge text={`作者 · Yy1 (@yuan278501381)`} variant="muted" />
                 </div>
                 <p className="about-hero__subtitle">{t('about.subtitle')}</p>
               </div>
@@ -188,7 +188,19 @@ export const AboutPage: FC = () => {
             <div className="about-meta-item">
               <User size={14} className="about-meta-icon" />
               <span className="about-meta-label">{t('about.author')}:</span>
-              <strong className="about-meta-val">Yy1</strong>
+              <a
+                href="https://github.com/yuan278501381"
+                className="about-meta-link"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void bridgeRequest('system.openFile', { path: 'https://github.com/yuan278501381' });
+                }}
+                title="访问原作者 GitHub 主页"
+              >
+                <strong className="about-meta-val">Yy1</strong>
+                <span className="about-meta-handle">(@yuan278501381)</span>
+                <ExternalLink size={12} className="about-meta-ext" />
+              </a>
             </div>
             <div className="about-meta-item">
               <ShieldCheck size={14} className="about-meta-icon" />
@@ -251,7 +263,7 @@ export const AboutPage: FC = () => {
       </SettingGroup>
 
       <div className="about-footer-copyright">
-        <p>Copyright © 2026 <strong>Yy1</strong> & EasyTools Contributors.</p>
+        <p>Copyright © 2026 <strong>Yy1 (yuan278501381)</strong> & EasyTools Contributors.</p>
         <p className="about-footer-sub">Licensed under the <strong>MIT License</strong>. Designed with passion for extreme productivity.</p>
       </div>
     </div>
