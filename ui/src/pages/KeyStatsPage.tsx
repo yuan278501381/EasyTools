@@ -230,7 +230,7 @@ const ActivityChart: FC<{ data: ChartPoint[]; label: string }> = ({ data, label 
       {/* 激活节点的高亮发光环 */}
       {activePt && (
         <g className="activity-chart__active-marker" pointerEvents="none">
-          <circle className="activity-chart__point-glow" cx={activePt.x} cy={activePt.y} r="10" />
+          <circle className="activity-chart__point-halo" cx={activePt.x} cy={activePt.y} r="9" />
           <circle className="activity-chart__point-active" cx={activePt.x} cy={activePt.y} r="5" />
         </g>
       )}
