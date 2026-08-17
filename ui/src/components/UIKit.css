@@ -467,25 +467,29 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--primary-dim);
-  border: 1px solid var(--primary-glow);
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   gap: 10px;
   margin-bottom: 12px;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
+}
+
+.app-picker-grabber-bar:hover {
+  border-color: var(--card-border-hover, rgba(255, 255, 255, 0.15));
 }
 
 .app-picker-grabber-bar.is-picking {
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.15);
-  box-shadow: 0 0 16px rgba(99, 102, 241, 0.25), inset 0 0 12px rgba(99, 102, 241, 0.1);
+  background: var(--primary-dim);
+  box-shadow: 0 0 16px var(--primary-glow);
   animation: picker-glow-pulse 1.5s infinite alternate ease-in-out;
 }
 
 .app-picker-grabber-bar.is-success {
   border-color: rgba(16, 185, 129, 0.6);
-  background: rgba(16, 185, 129, 0.12);
+  background: rgba(16, 185, 129, 0.1);
   box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
 }
 
@@ -500,9 +504,9 @@
 
 .picker-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover));
   transition: width 0.9s linear;
-  box-shadow: 0 0 8px rgba(168, 85, 247, 0.8);
+  box-shadow: 0 0 8px var(--primary-glow);
 }
 
 @keyframes picker-radar-spin {
@@ -527,72 +531,70 @@
 }
 
 @keyframes picker-glow-pulse {
-  0% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.2); }
-  100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.45); }
+  0% { box-shadow: 0 0 8px var(--primary-glow); }
+  100% { box-shadow: 0 0 20px var(--primary-glow); }
 }
 
 .just-picked-glow input,
 .just-picked-glow .uikit-text-input__input {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 3px var(--primary-glow), 0 0 12px rgba(99, 102, 241, 0.2) !important;
+  box-shadow: 0 0 0 3px var(--primary-glow), 0 0 12px var(--primary-glow) !important;
   transition: all 0.3s ease;
 }
 
+/* 主选项卡容器 (Running / Presets / Manual) */
 .app-picker-tabs-uikit {
   width: 100%;
   display: flex !important;
   margin-bottom: 8px;
   padding: 3px;
+  background: var(--bg-surface);
 }
 
 .app-picker-tabs-uikit .uikit-tab {
   flex: 1;
   justify-content: center;
-  padding: 5px 8px;
+  padding: 6px 8px;
   font-size: 0.76rem;
   gap: 5px;
-}
-
-/* ── Secondary Segmented Filter Subtabs ───────────────────────────────────── */
-.app-picker-subtabs {
-  display: flex;
-  gap: 3px;
-  background: var(--bg-surface);
-  padding: 3px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--card-border);
-  margin-bottom: 8px;
-}
-
-.app-picker-subtab-btn {
-  flex: 1;
-  padding: 5px 4px;
-  font-size: 0.76rem;
-  font-weight: 500;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  user-select: none;
   white-space: nowrap;
 }
 
-.app-picker-subtab-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface-hover, rgba(0, 0, 0, 0.04));
+/* 分类子选项卡容器 (All / Browser / Dev / Office / System) */
+.app-picker-subtabs-uikit {
+  width: 100%;
+  display: flex !important;
+  margin-bottom: 8px;
+  padding: 2px;
+  background: var(--bg-surface);
+  gap: 2px;
 }
 
-.app-picker-subtab-btn.active {
-  background: var(--primary-dim);
-  color: var(--primary);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+.app-picker-subtabs-uikit .uikit-tab {
+  flex: 1;
+  justify-content: center;
+  padding: 4px 6px;
+  font-size: 0.74rem;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 匹配目标分段器 (By Process vs By WindowClass) */
+.app-picker-kind-tabs-uikit {
+  width: 100%;
+  display: flex !important;
+  margin-top: 4px;
+  padding: 3px;
+  background: var(--bg-surface);
+}
+
+.app-picker-kind-tabs-uikit .uikit-tab {
+  flex: 1;
+  justify-content: center;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 /* ── Strategy Selection Cards (Replaces raw emoji dropdown) ────────────────── */
@@ -679,42 +681,6 @@
   border-radius: 50%;
   background: var(--primary);
   color: #fff;
-}
-
-/* ── Kind Tabs ───────────────────────────────────────────────────────────── */
-.app-picker-kind-tabs {
-  display: flex;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.app-picker-kind-tab {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.app-picker-kind-tab:hover {
-  border-color: var(--primary);
-  color: var(--text-primary);
-}
-
-.app-picker-kind-tab.active {
-  border-color: var(--primary);
-  background: var(--primary-dim);
-  color: var(--primary);
-  font-weight: 600;
 }
 
 .app-picker-grid {

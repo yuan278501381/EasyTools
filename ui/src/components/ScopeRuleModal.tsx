@@ -411,13 +411,13 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             tabs={[
               { id: 'all', label: '全部', icon: <LayoutGrid size={12} /> },
               { id: 'browser', label: '浏览器', icon: <Globe size={12} /> },
-              { id: 'dev', label: '开发设计', icon: <Code2 size={12} /> },
-              { id: 'office', label: '办公协作', icon: <FileText size={12} /> },
-              { id: 'system', label: '系统工具', icon: <SlidersHorizontal size={12} /> },
+              { id: 'dev', label: '开发', icon: <Code2 size={12} /> },
+              { id: 'office', label: '办公', icon: <FileText size={12} /> },
+              { id: 'system', label: '系统', icon: <SlidersHorizontal size={12} /> },
             ]}
             activeId={selectedCategory}
             onChange={(cat) => setSelectedCategory(cat)}
-            className="app-picker-tabs-uikit"
+            className="app-picker-subtabs-uikit"
           />
           <div className="app-picker-grid">
             {filteredPresets.map((preset) => {
@@ -436,7 +436,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
                   </div>
                   <div className="app-picker-item__info">
                     <span className="app-picker-item__name">{preset.name}</span>
-                    <span className="app-picker-item__proc">{preset.processName}</span>
+                    <span className="app-picker-item__proc">{targetKind === 'process' ? preset.processName : preset.windowClass}</span>
                   </div>
                 </div>
               );
@@ -445,12 +445,12 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
         </>
       )}
 
-      <div className={justPicked ? 'just-picked-glow' : ''}>
+      <div className={`app-picker-form ${justPicked ? 'just-picked-glow' : ''}`}>
         <Field label={t('scope.ruleName', '规则名称')} error={nameError}>
           <TextInput
             value={draft.name}
             onChange={(v) => set({ name: v })}
-            placeholder={t('scope.ruleNamePlaceholder', '例如 Chrome 浏览器 / Visual Studio Code')}
+            placeholder={t('scope.ruleNamePlaceholder', '例如 Google Chrome / VS Code / Dota 2')}
           />
         </Field>
 

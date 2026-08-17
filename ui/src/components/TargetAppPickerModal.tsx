@@ -386,13 +386,13 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             tabs={[
               { id: 'all', label: '全部', icon: <LayoutGrid size={12} /> },
               { id: 'browser', label: '浏览器', icon: <Globe size={12} /> },
-              { id: 'dev', label: '开发设计', icon: <Code2 size={12} /> },
-              { id: 'office', label: '办公协作', icon: <FileText size={12} /> },
-              { id: 'system', label: '系统工具', icon: <SlidersHorizontal size={12} /> },
+              { id: 'dev', label: '开发', icon: <Code2 size={12} /> },
+              { id: 'office', label: '办公', icon: <FileText size={12} /> },
+              { id: 'system', label: '系统', icon: <SlidersHorizontal size={12} /> },
             ]}
             activeId={selectedCategory}
             onChange={(cat) => setSelectedCategory(cat)}
-            className="app-picker-tabs-uikit"
+            className="app-picker-subtabs-uikit"
           />
           <div className="app-picker-grid">
             {filteredPresets.map((preset) => {
@@ -418,7 +418,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
         </>
       )}
 
-      <div className={justPicked ? 'just-picked-glow' : ''}>
+      <div className={`app-picker-form ${justPicked ? 'just-picked-glow' : ''}`}>
         <Field label={t('scope.ruleName', '应用/规则名称')} error={nameError}>
           <TextInput
             value={name}
@@ -427,25 +427,16 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
           />
         </Field>
 
-        <Field label={t('scope.matchTarget', '匹配方式')}>
-          <div className="app-picker-kind-tabs">
-            <button
-              type="button"
-              className={`app-picker-kind-tab ${targetKind === 'process' ? 'active' : ''}`}
-              onClick={() => setTargetKind('process')}
-            >
-              <Cpu size={14} />
-              <span>按进程名 (推荐，如 chrome.exe)</span>
-            </button>
-            <button
-              type="button"
-              className={`app-picker-kind-tab ${targetKind === 'class' ? 'active' : ''}`}
-              onClick={() => setTargetKind('class')}
-            >
-              <Layers size={14} />
-              <span>按窗口类名 (如 Chrome_WidgetWin_1)</span>
-            </button>
-          </div>
+        <Field label={t('scope.matchTarget', '匹配目标')}>
+          <Tabs
+            tabs={[
+              { id: 'process', label: '按进程名 (推荐，如 chrome.exe)', icon: <Cpu size={14} /> },
+              { id: 'class', label: '按窗口类名 (如 Chrome_WidgetWin_1)', icon: <Layers size={14} /> },
+            ]}
+            activeId={targetKind}
+            onChange={(kind) => setTargetKind(kind as TargetKind)}
+            className="app-picker-kind-tabs-uikit"
+          />
         </Field>
 
         <Field
