@@ -594,8 +594,9 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 避免后台常驻 Chromium 进程和数十 MB 内存。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
-    // 预热托盘微型菜单 WebView2 渲染宿主，确保首次右键 0 毫秒瞬间呼出，杜绝卡顿与初次落空
+    // 预热托盘微型菜单与全局搜索窗口 WebView2 渲染宿主，确保首次 0 毫秒瞬间呼出，杜绝卡顿与初次落空
     easy::ui::TrayWindow::instance().preload(GetModuleHandleW(nullptr));
+    easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
 
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);

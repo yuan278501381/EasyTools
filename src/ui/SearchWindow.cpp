@@ -63,12 +63,29 @@ std::pair<int, int> SearchWindow::getWindowSize() const {
     return {w, h};
 }
 
+void SearchWindow::preload(HINSTANCE hInstance) {
+    if (m_hwnd && IsWindow(m_hwnd)) return;
+    if (!createWindow(hInstance)) {
+        LOG_ERROR("SearchWindow: preload createWindow failed");
+        return;
+    }
+    initializeWebView2();
+}
+
 void SearchWindow::show(HINSTANCE hInstance) {
+    m_showTimeTick = GetTickCount64();
     if (m_hwnd && IsWindow(m_hwnd)) {
         if (m_visible) {
             updatePlacement();
             SetForegroundWindow(m_hwnd);
             SetFocus(m_hwnd);
+            if (m_controller) {
+                m_controller->put_IsVisible(TRUE);
+                m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            }
+            if (m_webView) {
+                m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
+            }
             return;
         }
         updatePlacement();
@@ -76,6 +93,10 @@ void SearchWindow::show(HINSTANCE hInstance) {
         SetForegroundWindow(m_hwnd);
         SetFocus(m_hwnd);
         m_visible = true;
+        if (m_controller) {
+            m_controller->put_IsVisible(TRUE);
+            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        }
         if (m_webView) {
             m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
         }
@@ -333,6 +354,9 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 RECT bounds;
                 GetClientRect(hwnd, &bounds);
                 inst.m_controller->put_Bounds(bounds);
+                if (IsWindowVisible(hwnd)) {
+                    inst.m_controller->put_IsVisible(TRUE);
+                }
             }
             break;
         case WM_DPICHANGED: {
@@ -353,6 +377,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 PostMessageW(hwnd, WM_SEARCH_VERIFY_DEACTIVATED, 0, 0);
             } else {
                 if (inst.m_controller) {
+                    inst.m_controller->put_IsVisible(TRUE);
                     inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
                 }
                 if (inst.m_webView) {
@@ -362,6 +387,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             break;
         case WM_SETFOCUS:
             if (inst.m_controller) {
+                inst.m_controller->put_IsVisible(TRUE);
                 inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
             }
             if (inst.m_webView) {
@@ -369,6 +395,12 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             }
             return 0;
         case WM_SEARCH_VERIFY_DEACTIVATED: {
+            if (!inst.m_visible.load()) break;
+            const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+            if (elapsed < 350) {
+                // 窗口刚打开 350ms 内不因初始焦点抖动或创建子窗口而意外关闭
+                break;
+            }
             const HWND foreground = GetForegroundWindow();
             if (foreground != hwnd && (!foreground || !IsChild(hwnd, foreground))) {
                 inst.hide();
