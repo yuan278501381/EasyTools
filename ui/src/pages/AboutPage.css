@@ -97,6 +97,36 @@
   letter-spacing: 0.01em;
 }
 
+.about-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding-top: 4px;
+  flex-wrap: wrap;
+}
+
+.about-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.about-meta-icon {
+  color: var(--primary);
+  opacity: 0.85;
+}
+
+.about-meta-label {
+  color: var(--text-muted);
+}
+
+.about-meta-val {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .about-update-spin {
   animation: about-update-spin 0.8s linear infinite;
 }

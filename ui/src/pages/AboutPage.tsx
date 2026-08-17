@@ -1,7 +1,7 @@
 import { useState, useEffect, type FC } from 'react';
 import { Card, SettingGroup, Badge, Toggle, Button } from '../components/UIKit';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, Info, Zap, Layers, Cpu, RefreshCw } from 'lucide-react';
+import { ExternalLink, Info, Zap, Layers, Cpu, RefreshCw, User, ShieldCheck } from 'lucide-react';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import './AboutPage.css';
@@ -158,6 +158,7 @@ export const AboutPage: FC = () => {
                   <h2 className="about-hero__title">EasyTools</h2>
                   <Badge text={`v${version}`} variant="primary" />
                   <Badge text="C++20 & Direct2D" variant="success" />
+                  <Badge text={`作者 · Yy1`} variant="muted" />
                 </div>
                 <p className="about-hero__subtitle">{t('about.subtitle')}</p>
               </div>
@@ -181,6 +182,19 @@ export const AboutPage: FC = () => {
             <p className="about-desc">
               {t('about.description')}
             </p>
+          </div>
+
+          <div className="about-meta-row">
+            <div className="about-meta-item">
+              <User size={14} className="about-meta-icon" />
+              <span className="about-meta-label">{t('about.author')}:</span>
+              <strong className="about-meta-val">Yy1</strong>
+            </div>
+            <div className="about-meta-item">
+              <ShieldCheck size={14} className="about-meta-icon" />
+              <span className="about-meta-label">{t('about.license')}:</span>
+              <strong className="about-meta-val">MIT License</strong>
+            </div>
           </div>
         </Card>
       </SettingGroup>

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Toggle } from '../components/UIKit';
+import { Badge, Button, Toggle, Tabs, type TabItem } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import './PluginsPage.css';
 
@@ -204,34 +204,31 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
 
   const pending = plugins.some((plugin) => plugin.restartRequired);
 
+  const tabs: TabItem<'installed' | 'marketplace'>[] = [
+    {
+      id: 'installed',
+      label: t('plugins.tabInstalled'),
+      icon: <Puzzle size={16} />,
+      badge: plugins.length,
+    },
+    {
+      id: 'marketplace',
+      label: t('plugins.tabMarketplace'),
+      icon: <Sparkles size={16} />,
+      badge: marketplace.length,
+    },
+  ];
+
   return (
     <div className="plugins-page">
       {/* 顶部 Tab 切换 */}
       <div className="plugins-tabs-header">
-        <div className="plugins-tabs-nav" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'installed'}
-            className={`plugins-tab-btn ${activeTab === 'installed' ? 'active' : ''}`}
-            onClick={() => setActiveTab('installed')}
-          >
-            <Puzzle size={16} />
-            {t('plugins.tabInstalled')}
-            <span className="plugins-tab-badge">{plugins.length}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'marketplace'}
-            className={`plugins-tab-btn ${activeTab === 'marketplace' ? 'active' : ''}`}
-            onClick={() => setActiveTab('marketplace')}
-          >
-            <Sparkles size={16} />
-            {t('plugins.tabMarketplace')}
-            <span className="plugins-tab-badge highlight">{marketplace.length}</span>
-          </button>
-        </div>
+        <Tabs
+          tabs={tabs}
+          activeId={activeTab}
+          onChange={(id) => setActiveTab(id as typeof activeTab)}
+          ariaLabel={t('plugins.title', '插件管理')}
+        />
 
         {activeTab === 'marketplace' && (
           <Button variant="secondary" size="sm" onClick={handleInstallLocal} className="plugins-import-btn">
