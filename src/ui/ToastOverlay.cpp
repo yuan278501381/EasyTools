@@ -3,6 +3,8 @@
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ThemeUtils.h"
+#include "core/config/ConfigManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -146,10 +148,12 @@ bool ToastOverlay::createResources() {
         m_renderTarget->SetDpi(96.0f, 96.0f);
 
         if (m_renderTarget) {
+            const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
+            const auto rgb = easy::core::getAccentColorRGB(accent);
             // 背景: 圆角深色半透明
-            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.16f, 0.9f), &m_bgBrush);
-            // 边框: 主题紫
-            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.54f, 0.36f, 0.96f, 0.8f), &m_strokeBrush);
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.16f, 0.92f), &m_bgBrush);
+            // 边框: 当前主题强调色
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.85f), &m_strokeBrush);
             // 文字: 白色
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_textBrush);
         }

@@ -234,6 +234,7 @@ function App() {
           } catch (e) {
             void e;
           }
+          bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
           window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
         }}
         activePlugins={plugins.length > 0 ? activePlugins : undefined}

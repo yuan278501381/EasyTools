@@ -3,6 +3,7 @@
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ThemeUtils.h"
 #include "core/config/ConfigManager.h"
 #include <algorithm>
 #include <vector>
@@ -153,10 +154,13 @@ bool KeycastOverlay::createResources() {
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
+    const auto rgb = easy::core::getAccentColorRGB(accent);
+
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushText);
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.88f), &m_brushBg);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.65f, 0.45f, 1.0f, 0.55f), &m_brushBorder);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.85f, 0.25f, 0.45f, 0.90f), &m_brushBadgeBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.70f), &m_brushBorder);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.90f), &m_brushBadgeBg);
 
     if (!m_brushText || !m_brushBg || !m_brushBorder || !m_brushBadgeBg) {
         discardResources();

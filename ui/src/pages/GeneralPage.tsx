@@ -70,6 +70,7 @@ export const GeneralPage: FC = () => {
     } catch (e) {
       void e;
     }
+    bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: id }).catch(console.error);
     window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: id }));
     toast.success(t('general.accentApplied', { name: label }));
   };

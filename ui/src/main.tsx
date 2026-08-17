@@ -45,6 +45,13 @@ const isSearch = window.location.pathname === '/search' || window.location.hash.
 const isTray = window.location.search.includes('tray=1');
 const isQuickLook = window.location.pathname === '/quicklook' || window.location.hash.includes('/quicklook') || window.location.search.includes('quicklook=1');
 
+try {
+  const initialAccent = localStorage.getItem('easytools:accent-color') || 'violet';
+  document.documentElement.setAttribute('data-accent', initialAccent);
+} catch (e) {
+  void e;
+}
+
 if (isTray) {
   document.documentElement.dataset.surface = 'tray';
 } else if (isSearch) {

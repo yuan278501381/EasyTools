@@ -120,6 +120,12 @@ struct ShowToastEvent {
     std::wstring message;
 };
 
+/// 主题模式与强调色变更事件
+struct ThemeChangedEvent {
+    std::string theme;       // "system" | "light" | "dark"
+    std::string accentColor; // "violet" | "cyan" | "amber" | "blue" | "mint" | "coral"
+};
+
 // =========================================================================
 // EventBus 实现
 // ─────────────────────────────────────────────────────────────────────────────

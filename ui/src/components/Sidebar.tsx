@@ -256,28 +256,28 @@ export const Sidebar: FC<SidebarProps> = ({
                 type="button"
                 className={`appearance-flyout__mode-btn ${themePreference === 'light' ? 'active' : ''}`}
                 onClick={() => onSelectThemePreference?.('light')}
-                title={t('general.themeLight')}
+                title={t('general.modeLight')}
               >
                 <Sun size={12} strokeWidth={2.2} />
-                <span>{t('general.themeLight')}</span>
+                <span>{t('general.modeLight')}</span>
               </button>
               <button
                 type="button"
                 className={`appearance-flyout__mode-btn ${themePreference === 'dark' ? 'active' : ''}`}
                 onClick={() => onSelectThemePreference?.('dark')}
-                title={t('general.themeDark')}
+                title={t('general.modeDark')}
               >
                 <Moon size={12} strokeWidth={2.2} />
-                <span>{t('general.themeDark')}</span>
+                <span>{t('general.modeDark')}</span>
               </button>
               <button
                 type="button"
                 className={`appearance-flyout__mode-btn ${themePreference === 'system' ? 'active' : ''}`}
                 onClick={() => onSelectThemePreference?.('system')}
-                title={t('general.themeSystem')}
+                title={t('general.modeSystem')}
               >
                 <Monitor size={12} strokeWidth={2.2} />
-                <span>{t('general.themeSystem')}</span>
+                <span>{t('general.modeSystem')}</span>
               </button>
             </div>
 

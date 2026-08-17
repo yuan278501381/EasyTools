@@ -12,6 +12,7 @@
 #include "core/stats/StatsManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
+#include "core/events/EventBus.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -702,6 +703,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"language", config.get<std::string>("/general/language", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
+            {"accentColor", config.get<std::string>("/general/accentColor", "violet")},
         };
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
@@ -710,6 +712,9 @@ void MessageBridge::registerBuiltinHandlers() {
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};
+        static const std::unordered_set<std::string> accents = {
+            "violet", "cyan", "amber", "blue", "mint", "coral"
+        };
         if (!params.is_object() || params.empty()) {
             return {{"success", false}, {"error", "no settings supplied"}};
         }
@@ -722,6 +727,9 @@ void MessageBridge::registerBuiltinHandlers() {
             if (key == "theme" && (!value.is_string() || !themes.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid theme"}};
             }
+            if (key == "accentColor" && (!value.is_string() || !accents.contains(value.get<std::string>()))) {
+                return {{"success", false}, {"error", "invalid accent color"}};
+            }
             if (key == "logLevel" && (!value.is_string() || !logLevels.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid log level"}};
             }
@@ -730,7 +738,7 @@ void MessageBridge::registerBuiltinHandlers() {
                 !languages.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid language"}};
             }
-            if (!boolKeys.contains(key) && key != "theme" && key != "logLevel" && key != "language") {
+            if (!boolKeys.contains(key) && key != "theme" && key != "accentColor" && key != "logLevel" && key != "language") {
                 return {{"success", false}, {"error", "unsupported setting: " + key}};
             }
         }
@@ -743,6 +751,12 @@ void MessageBridge::registerBuiltinHandlers() {
             return {{"success", false}, {"error", "failed to persist settings"}};
         }
         if (params.contains("logLevel")) applyLogLevel(params["logLevel"].get<std::string>());
+        if (params.contains("theme") || params.contains("accentColor")) {
+            EventBus::instance().publish(ThemeChangedEvent{
+                config.get<std::string>("/general/theme", "system"),
+                config.get<std::string>("/general/accentColor", "violet")
+            });
+        }
         return {{"success", true}};
     });
     registerHandler("capture.browseDirectory", [](const json&) -> json {

@@ -14,6 +14,10 @@ const applyTheme = (preference: ThemePreference) => {
   document.documentElement.style.colorScheme = theme;
 };
 
+const applyAccent = (accent: string) => {
+  document.documentElement.setAttribute('data-accent', accent || 'violet');
+};
+
 /** Keep auxiliary WebView surfaces aligned with the shared app appearance. */
 export function useAppearance() {
   const { i18n } = useTranslation();
@@ -26,15 +30,46 @@ export function useAppearance() {
       if (preference === 'system') applyTheme(preference);
     };
 
+    try {
+      const storedAccent = localStorage.getItem('easytools:accent-color');
+      if (storedAccent) applyAccent(storedAccent);
+    } catch (e) {
+      void e;
+    }
+
     applyTheme(preference);
     mediaQuery.addEventListener('change', onSystemThemeChanged);
 
-    void bridgeRequest<{ theme?: unknown; language?: unknown }>('general.getSettings')
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'easytools:accent-color' && e.newValue) {
+        applyAccent(e.newValue);
+      }
+    };
+    const onAccentChanged = (e: Event) => {
+      const newAccent = (e as CustomEvent<string>).detail;
+      if (newAccent) applyAccent(newAccent);
+    };
+    const onThemeChanged = (e: Event) => {
+      const newTheme = (e as CustomEvent<ThemePreference>).detail;
+      if (newTheme) {
+        preference = newTheme;
+        applyTheme(preference);
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('easytools:accent-changed', onAccentChanged);
+    window.addEventListener('easytools:theme-changed', onThemeChanged);
+
+    void bridgeRequest<{ theme?: unknown; language?: unknown; accentColor?: unknown }>('general.getSettings')
       .then((settings) => {
         if (disposed) return;
         if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
           preference = settings.theme;
           applyTheme(preference);
+        }
+        if (typeof settings.accentColor === 'string' && settings.accentColor) {
+          applyAccent(settings.accentColor);
         }
         if (typeof settings.language === 'string' && settings.language !== 'auto') {
           void i18n.changeLanguage(settings.language);
@@ -47,6 +82,9 @@ export function useAppearance() {
     return () => {
       disposed = true;
       mediaQuery.removeEventListener('change', onSystemThemeChanged);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('easytools:accent-changed', onAccentChanged);
+      window.removeEventListener('easytools:theme-changed', onThemeChanged);
     };
   }, [i18n]);
 }

@@ -14,6 +14,8 @@
 #include "core/utils/DpiUtils.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ThemeUtils.h"
+#include "core/config/ConfigManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -314,9 +316,12 @@ bool GestureTrailOverlay::createD2DResources() {
     float g = ((m_style.lineColor >> 8) & 0xFF) / 255.0f;
     float b = (m_style.lineColor & 0xFF) / 255.0f;
 
+    const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
+    const auto accentRgb = easy::core::getAccentColorRGB(accent);
+
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), m_lineBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.88f), m_textBgBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.929f, 0.60f), m_textBorderBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(accentRgb.r, accentRgb.g, accentRgb.b, 0.70f), m_textBorderBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.96f, 0.98f, 1.0f), m_textBrush.GetAddressOf());
 
     // 笔触样式 (使线段更平滑，具有圆头)

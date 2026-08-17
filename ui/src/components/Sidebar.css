@@ -198,20 +198,20 @@
 /* ── 悬浮外观微气泡舱 (Flyout Popover) ───────────────────────────────────────── */
 .sidebar__appearance-flyout {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 10px;
-  width: 200px;
-  background: var(--bg-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  bottom: calc(100% + 10px);
+  left: 8px;
+  width: 248px;
+  background: var(--card-bg);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  padding: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--card-border);
+  padding: 12px;
   z-index: 9999;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   animation: appearanceFlyoutIn 160ms cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: bottom left;
 }
@@ -237,7 +237,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -245,9 +245,9 @@
 /* ── 模式分段切换 (Modes Segmented Bar) ──────────────────────────────────────── */
 .appearance-flyout__modes {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   background: var(--bg-base);
-  padding: 2.5px;
+  padding: 3px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--card-border);
 }
@@ -257,9 +257,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px 2px;
-  font-size: 0.72rem;
+  gap: 5px;
+  padding: 6px 4px;
+  font-size: 0.75rem;
   font-weight: 500;
   border-radius: 5px;
   border: none;
