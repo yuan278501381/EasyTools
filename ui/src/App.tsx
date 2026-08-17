@@ -140,9 +140,21 @@ function App() {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
+  const [accent, setAccent] = useState<string>(() => {
+    try {
+      return localStorage.getItem('easytools:accent-color') || 'violet';
+    } catch {
+      return 'violet';
+    }
+  });
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-accent', accent);
+  }, [accent]);
 
   useEffect(() => {
     if (showOnboarding) return;
@@ -157,8 +169,23 @@ function App() {
         setThemePreference(preference);
       }
     };
+    const handleAccent = (event: Event) => {
+      const newAccent = (event as CustomEvent<string>).detail;
+      if (newAccent) {
+        setAccent(newAccent);
+        try {
+          localStorage.setItem('easytools:accent-color', newAccent);
+        } catch (e) {
+          void e;
+        }
+      }
+    };
     window.addEventListener('easytools:theme-changed', handlePreference);
-    return () => window.removeEventListener('easytools:theme-changed', handlePreference);
+    window.addEventListener('easytools:accent-changed', handleAccent);
+    return () => {
+      window.removeEventListener('easytools:theme-changed', handlePreference);
+      window.removeEventListener('easytools:accent-changed', handleAccent);
+    };
   }, []);
 
   const standardPluginIds = new Set(['gesture', 'capture', 'search', 'keycast']);

@@ -122,6 +122,91 @@
   --key-tooltip-text: #1e1e2a;
 }
 
+/* ── 强调色方案 (Theme Accent Colors) ────────────────────────────────────────── */
+[data-accent="violet"] {
+  --primary: #8b5cf6;
+  --primary-hover: #a78bfa;
+  --primary-dim: rgba(139, 92, 246, 0.18);
+  --primary-glow: rgba(139, 92, 246, 0.35);
+}
+[data-theme="light"][data-accent="violet"],
+[data-theme="light"] [data-accent="violet"] {
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-dim: rgba(124, 58, 237, 0.15);
+  --primary-glow: rgba(124, 58, 237, 0.25);
+}
+
+[data-accent="cyan"] {
+  --primary: #06b6d4;
+  --primary-hover: #22d3ee;
+  --primary-dim: rgba(6, 182, 212, 0.18);
+  --primary-glow: rgba(6, 182, 212, 0.35);
+}
+[data-theme="light"][data-accent="cyan"],
+[data-theme="light"] [data-accent="cyan"] {
+  --primary: #0891b2;
+  --primary-hover: #0e7490;
+  --primary-dim: rgba(8, 145, 178, 0.15);
+  --primary-glow: rgba(8, 145, 178, 0.25);
+}
+
+[data-accent="amber"] {
+  --primary: #f59e0b;
+  --primary-hover: #fbbf24;
+  --primary-dim: rgba(245, 158, 11, 0.18);
+  --primary-glow: rgba(245, 158, 11, 0.35);
+}
+[data-theme="light"][data-accent="amber"],
+[data-theme="light"] [data-accent="amber"] {
+  --primary: #d97706;
+  --primary-hover: #b45309;
+  --primary-dim: rgba(217, 119, 6, 0.15);
+  --primary-glow: rgba(217, 119, 6, 0.25);
+}
+
+[data-accent="blue"] {
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-dim: rgba(59, 130, 246, 0.18);
+  --primary-glow: rgba(59, 130, 246, 0.35);
+}
+[data-theme="light"][data-accent="blue"],
+[data-theme="light"] [data-accent="blue"] {
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-dim: rgba(37, 99, 235, 0.15);
+  --primary-glow: rgba(37, 99, 235, 0.25);
+}
+
+[data-accent="mint"] {
+  --primary: #10b981;
+  --primary-hover: #34d399;
+  --primary-dim: rgba(16, 185, 129, 0.18);
+  --primary-glow: rgba(16, 185, 129, 0.35);
+}
+[data-theme="light"][data-accent="mint"],
+[data-theme="light"] [data-accent="mint"] {
+  --primary: #059669;
+  --primary-hover: #047857;
+  --primary-dim: rgba(5, 150, 105, 0.15);
+  --primary-glow: rgba(5, 150, 105, 0.25);
+}
+
+[data-accent="coral"] {
+  --primary: #f43f5e;
+  --primary-hover: #fb7185;
+  --primary-dim: rgba(244, 63, 94, 0.18);
+  --primary-glow: rgba(244, 63, 94, 0.35);
+}
+[data-theme="light"][data-accent="coral"],
+[data-theme="light"] [data-accent="coral"] {
+  --primary: #e11d48;
+  --primary-hover: #be123c;
+  --primary-dim: rgba(225, 29, 72, 0.15);
+  --primary-glow: rgba(225, 29, 72, 0.25);
+}
+
 /* ── 全局重置 ────────────────────────────────────────────────────────────── */
 *,
 *::before,

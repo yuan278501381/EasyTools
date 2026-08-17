@@ -32,6 +32,15 @@ interface OperationResult {
   conflictWith?: string;
 }
 
+const ACCENT_PRESETS = [
+  { id: 'violet', labelKey: 'general.accentViolet', color: '#8b5cf6' },
+  { id: 'cyan',   labelKey: 'general.accentCyan',   color: '#06b6d4' },
+  { id: 'amber',  labelKey: 'general.accentAmber',  color: '#f59e0b' },
+  { id: 'blue',   labelKey: 'general.accentBlue',   color: '#3b82f6' },
+  { id: 'mint',   labelKey: 'general.accentMint',   color: '#10b981' },
+  { id: 'coral',  labelKey: 'general.accentCoral',  color: '#f43f5e' },
+] as const;
+
 export const GeneralPage: FC = () => {
   const [settings, setSettings] = useState<GeneralSettings>({
     autoStart: false,
@@ -44,8 +53,26 @@ export const GeneralPage: FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshingHotkeys, setRefreshingHotkeys] = useState(false);
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
+  const [accent, setAccent] = useState<string>(() => {
+    try {
+      return localStorage.getItem('easytools:accent-color') || 'violet';
+    } catch {
+      return 'violet';
+    }
+  });
 
   const { t, i18n } = useTranslation();
+
+  const handleAccentChange = (id: string, label: string) => {
+    setAccent(id);
+    try {
+      localStorage.setItem('easytools:accent-color', id);
+    } catch (e) {
+      void e;
+    }
+    window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: id }));
+    toast.success(t('general.accentApplied', { name: label }));
+  };
 
   // 初始化获取设置
   useEffect(() => {
@@ -259,6 +286,30 @@ export const GeneralPage: FC = () => {
                 { value: 'dark', label: t('general.themeDark') }
               ]}
             />
+          </SettingRow>
+          <SettingRow label={t('general.accentColor')} description={t('general.accentColorDesc')}>
+            <div className="general-accent-swatches">
+              {ACCENT_PRESETS.map((preset) => {
+                const isSelected = accent === preset.id;
+                const label = t(preset.labelKey);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`general-accent-btn ${isSelected ? 'active' : ''}`}
+                    onClick={() => handleAccentChange(preset.id, label)}
+                    style={{ '--accent-dot-color': preset.color } as React.CSSProperties}
+                    title={label}
+                  >
+                    <span
+                      className="general-accent-dot"
+                      style={{ color: preset.color, backgroundColor: preset.color }}
+                    />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </SettingRow>
         </Card>
       </SettingGroup>
