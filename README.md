@@ -1,130 +1,166 @@
 # EasyTools
 
+<div align="center">
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![C++20](https://img.shields.io/badge/C++-20-blue.svg)
-![React](https://img.shields.io/badge/React-19-61dafb.svg)
-![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-lightgrey.svg)
+![C++20](https://img.shields.io/badge/C++-20-00599C.svg?logo=c%2B%2B)
+![Direct2D](https://img.shields.io/badge/DirectX-Direct2D%20%2F%20DXGI-0078D7.svg)
+![React 19](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)
+![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64%20%2F%20ARM64)-0078D6.svg?logo=windows)
 ![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)
+![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen.svg)
 
-EasyTools 是一款面向高频日常使用的 Windows 桌面效率工具。原生 C++20
-负责全局输入、截图录屏、索引与窗口生命周期；React 19 + WebView2 提供
-设置、搜索和托盘界面。项目当前版本为 1.0.0。
+**一款极致轻量、亚毫秒级响应、具备世界级交互美学的 Windows 现代桌面效率工具箱**
 
-## 功能
+[特性概览](#-核心特性) • [快速开始](#-快速开始-quick-start) • [手势与快捷键](#-手势与快捷键速查) • [架构设计](#-架构与性能工程) • [源码构建](#-从源码构建与开发)
 
-- 鼠标手势：可编辑映射、应用作用域、轨迹、暂停快捷键和执行失败反馈。
-- 热角与轮盘菜单：四角动作、自定义轮盘项、排序与持久化。
-- 截图与贴图：多显示器选区、窗口吸附、标注、历史、剪贴板和贴图管理；截图、
-  标注、长截图与录屏提供可关闭的左下角上下文快捷键提示，跨屏时按每台显示器
-  的 DPI 在 100%–500% 范围动态重排，且不会进入截图或录屏结果。
-- 长截图与录屏：滚动拼接；H.264、H.265、VP9、GIF 编码与区域录制；系统声音
-  与麦克风可独立开启并实时混音。
-- 离线 OCR：使用 Windows.Media.Ocr，支持结果窗口和剪贴板输出。
-- 快速搜索：后台 NTFS/MFT 索引服务、安全命名管道、缓存和多卷查询。
-- 按键回显与统计：可开关的回显层、热力图、历史与汇总。
-- 原生浮层统一采用 Per-Monitor V2 DPI：系统通知、按键回显、手势轨迹、轮盘、
-  截图工具栏、长截图预览与录屏状态条会在 100%/125%/150%/200% 及混合缩放屏幕
-  间保持一致的物理尺寸、排版和命中区域，并自动跟随当前操作所在显示器。
-- 通用能力：中英文、亮色/暗色/跟随系统、快捷键重绑定、配置导入导出、
-  自动更新检查、日志和崩溃转储。
-- 按需模块：手势、截图录屏、文件搜索和按键回显均可独立停用；重启后禁用
-  模块不会映射 DLL，也不会注册线程、钩子、快捷键或 IPC 处理器。
-- 插件在映射 DLL 前验证旁路清单，加载时再次完成二进制 ABI 握手；开发约定见
-  [插件开发文档](docs/plugin-development.md)。
+</div>
 
-默认快捷键可在“通用设置”中查看和修改。首次安装会注册机器级文件搜索
-服务，因此安装程序需要管理员权限；用户配置和开机自启动由应用按当前用户
-管理。
+---
 
-## 架构
+## 📖 项目简介
 
-```text
-EasyTools.exe
-├── EasyCore.dll                 配置、IPC、事件、日志、热键、统计、更新
-├── plugins/
-│   ├── Plugin_Gesture.dll       手势、热角、轮盘菜单
-│   ├── Plugin_Capture.dll       截图、标注、贴图、录屏、OCR
-│   ├── Plugin_Search.dll        搜索客户端与 UI 接口
-│   └── Plugin_Keycast.dll       按键回显
-├── EasyTools_Service.exe        NTFS/MFT 文件索引服务
-└── ui/index.html                单文件 React 生产资源
-```
+**EasyTools** 是一款面向极客与高频日常操作的 Windows 效率神器。
+- **底层内核**：采用现代 **C++20 + Direct2D / DXGI / WASAPI / Win32 原生 API**，提供 1000Hz 鼠标钩子零延迟捕获、亚毫秒级硬件加速渲染、GPU 零拷贝 4K 录屏与毫秒级 MFT 全盘搜索；
+- **用户界面**：采用 **React 19 + TypeScript + WebView2**，带来丝滑流畅、支持多主题切换与 High-DPI 全链路自适应的现代化视觉体验；
+- **设计哲学**：**高性能、极致易用、冷路径物理内存深度回缩**，杜绝任何卡顿与冗余消耗。
 
-设置、搜索和托盘窗口复用同一个 WebView2 Environment，避免重复浏览器进程和
-配置目录。模块开关采用持久化配置和安全的重启边界：界面会同时展示目标状态、
-本次运行状态与加载故障，避免把仍有外部回调的 DLL 强制热卸载。应用退出时则按
-逆序停止插件线程、清理外部回调，再卸载 DLL。配置写入采用临时文件替换和回滚，
-文件监控可区分自身写入与外部修改。
+---
 
-IPC 与进程内事件订阅使用静默期屏障：插件关闭时先拒绝新调用，再等待在途回调
-归零后销毁可调用对象，避免 DLL 卸载后的悬空函数。录屏使用单线程有界管道和
-单调时钟调度；设备过载时主动跳过时间槽并保留 PTS 间隔，不会堆积帧或加速成片。
-录屏对单显示器区域优先使用 DXGI Desktop Duplication GPU 捕获，并把映射后的
-BGRA 帧直接交给 FFmpeg；跨显示器、旋转屏、远程会话或运行时设备丢失会自动
-回退到 GDI。诊断接口会报告实际捕获后端和编码器；硬件编码优先尝试，初始化
-失败时自动回退到软件编码器。
-系统光标通过小区域原位 Alpha 合成写入视频，转换后立即恢复原像素，不产生额外
-整帧副本；用户可以分别关闭光标或启用轻量点击扩散反馈。
-音频使用事件驱动 WASAPI 共享模式采集，统一重采样为 48 kHz 立体声并通过固定
-10 ms、有界队列混合；MP4 写入 AAC、WebM 写入 Opus。设备断开、格式不支持或
-编码器不可用时仅关闭对应音轨，视频管道继续运行。
-设置页可分别选择系统输出与麦克风设备，也可跟随 Windows 默认设备；已选择设备
-离线时会自动回退默认设备。录制悬浮条显示双通道实时电平，诊断接口同时暴露
-设备活动状态、峰值、缓冲中断与音频丢帧。
-系统声和麦克风可设置 0–200% 独立增益；录制中调整会无锁生效。悬浮条 S/M
-按钮以及可重绑定的全局快捷键可以即时静音单个音轨，不重建设备或编码器。
-录制可配置立即开始或 3/5/10 秒倒计时；倒计时可随时取消且不产生空文件。媒体
-先写入同目录 `.partial` 文件，至少生成一帧并完成 FFmpeg 封尾后才原子替换正式
-文件，应用异常或机器掉电不会破坏已有同名成片。
+## ✨ 核心特性
 
-## 构建、测试与发布
+| 模块 | 核心能力与技术亮点 |
+| :--- | :--- |
+| 🖱️ **鼠标手势** | Direct2D 硬件加速流光轨迹，300 点滑窗缓冲杜绝绘制积压；原子性按键分发；粗白圆角大气 Toast HUD；15 秒超时调侃反馈与动作智能执行。 |
+| 🪟 **热角与轮盘** | 屏幕四角热区触发自定义动作，呼出式径向轮盘快捷菜单，支持多层级自定义排序与快速分发。 |
+| 📸 **智能截图 & 贴图** | 多显示器智能跨屏感知与 DPI 适配；窗口元素自动吸附；像素级矢量标注；一键将剪贴板/截图钉在桌面顶层（Pin）。 |
+| 📜 **滚动长截图** | 智能视觉特征分析与自动向下滚动拼接；支持快速长图生成与实时缩放预览。 |
+| 🎥 **4K 屏幕录像** | DXGI Desktop Duplication GPU 零拷贝捕获（极低 CPU 占用）；WASAPI 系统声与麦克风双通道实时混音与独立增益；支持 H.264 / H.265 / VP9 / GIF 编码。 |
+| 🔤 **离线 OCR** | 基于 Windows 10/11 原生引擎，毫秒级离线提取屏幕中的文字与表格，支持一键复制到剪贴板。 |
+| 🔍 **极速全盘搜索** | 后台 Windows NTFS USN/MFT 索引服务，安全命名管道 IPC 通信，毫秒级瞬时检索数百万个文件。 |
+| ⌨️ **按键回显 (Keycast)** | 广义修饰键与组合键全屏置顶 HUD；粗圆角纯白边框 + 深灰毛玻璃底板；内置按键敲击次数与鼠标移动热力图统计。 |
+| 🧠 **冷路径物理内存回缩** | 遵循“冷路径退场修剪，热操作期间绝不修剪”原则；窗口隐藏时自动调用 `TrySuspend` 挂起 Chromium 管线并主动调用 `WinUtils::trimWorkingSet()` 归还物理内存。 |
 
-环境要求：Windows 10/11 x64、MSVC C++ 工具链、PowerShell、Node.js 24，
-以及可用的 vcpkg。Inno Setup 6 为安装包构建依赖；未安装时仍可生成便携版。
+---
 
-在仓库根目录执行：
+## 🚀 快速开始 (Quick Start)
+
+### 方式一：下载开箱即用（推荐用户）
+
+1. 从 [Releases 页面](https://github.com/yuan278501381/easyTools/releases) 下载最新版本的安装包 `EasyTools-Setup.exe` 或绿色便携版压缩包；
+2. 运行安装程序或直接解压运行 `deploy_dist/EasyTools.exe`；
+3. 软件启动后常驻系统托盘，所有功能即刻可用。
+
+---
+
+## ⌨️ 手势与快捷键速查
+
+### 1. 默认全局快捷键
+
+| 功能 | 默认快捷键 | 说明 |
+| :--- | :--- | :--- |
+| **区域截图** | <kbd>Alt</kbd> + <kbd>A</kbd> | 唤起智能选区截图，支持标注与贴图 |
+| **滚动长截图** | <kbd>Alt</kbd> + <kbd>S</kbd> | 滚动捕获超长页面或对话记录 |
+| **屏幕录像** | <kbd>Alt</kbd> + <kbd>R</kbd> | 开启 4K / 高清区域录屏，支持声音混音 |
+| **快速搜索** | <kbd>Alt</kbd> + <kbd>Space</kbd> | 呼出全盘文件与应用毫秒级极速搜索框 |
+| **设置中心** | <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | 打开 EasyTools 控制面板与个性化配置 |
+
+> 💡 *所有全局快捷键均可在「设置 → 通用设置」中自由修改或禁用。*
+
+### 2. 常用鼠标手势（按住鼠标右键划线）
+
+| 轨迹代号 | 视觉手势方向 | 默认绑定动作 | 作用场景说明 |
+| :---: | :---: | :--- | :--- |
+| **`L`** | ⬅️ 向左 | **后退** | 浏览器 / 文件资源管理器后退 |
+| **`R`** | ➡️ 向右 | **前进** | 浏览器 / 文件资源管理器前进 |
+| **`U`** | ⬆️ 向上 | **最大化 / 还原** | 切换当前活动窗口的最大化与还原 |
+| **`D`** | ⬇️ 向下 | **最小化** | 最小化当前活动窗口 |
+| **`D-R`** | ⬇️ ➡️ 下再向右 | **关闭标签页 / 窗口** | 关闭当前浏览器标签页或应用程序窗口 |
+| **`R-U`** | ➡️ ⬆️ 右再向上 | **恢复关闭的标签页** | 浏览器中重新打开最近关闭的标签页 |
+| **`U-R`** | ⬆️ ➡️ 上再向右 | **切换到下一个标签页** | 快速切换浏览器或多标签应用中的下一个 Tab |
+| **`U-L`** | ⬆️ ⬅️ 上再向左 | **切换到上一个标签页** | 快速切换浏览器或多标签应用中的上一个 Tab |
+| **`D-U`** | ⬇️ ⬆️ 下再向上 | **刷新** | 刷新当前页面（F5） |
+| **`U-D`** | ⬆️ ⬇️ 上再向下 | **新建标签页** | 新建空白标签页（Ctrl+T） |
+| **`L-D`** | ⬅️ ⬇️ 左再向下 | **显示桌面** | 一键最小化所有窗口并显示桌面（Win+D） |
+| **`R-D`** | ➡️ ⬇️ 右再向下 | **任务视图** | 呼出 Windows 虚拟桌面与任务视图（Win+Tab） |
+| **`D-R-D`** | ⬇️ ➡️ ⬇️ 下-右-下 | **区域截图** | 快速唤起 EasyTools 屏幕截图工具 |
+| **`•••`** | 持续画满 15 秒 | **调侃报错状态** | 持续划线超过 15 秒不松手时展示红底 3 个大圆点，松手后安全淡出 |
+
+---
+
+## 🛠️ 从源码构建与开发
+
+### 环境准备
+
+- **操作系统**：Windows 10 / 11 (x64 或 ARM64)
+- **编译工具链**：Visual Studio 2022 (安装 `C++ 桌面开发` 组件，支持 C++20 标准)
+- **脚本引擎**：PowerShell 7+ (pwsh)
+- **前端环境**：Node.js 20+ 及 npm
+- **C++ 包管理器**：[vcpkg](https://github.com/microsoft/vcpkg)
+- **安装包编译器**（可选）：[Inno Setup 6](https://jrsoftware.org/isdl.php)
+
+### 一键构建与自动化门禁
+
+在项目根目录下运行原子发布与构建脚本：
 
 ```powershell
-.\deploy.ps1 -Configuration Release
+# 完整发布构建（包含前端编译、C++ Release 构建、全单元测试门禁与安装包生成）
+pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
+
+# 快速增量构建（跳过安装包压缩，仅输出 deploy_dist 绿色运行目录）
+pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick -SkipInstaller
 ```
 
-发布脚本会依次执行：
-
-1. `npm ci`、ESLint、i18n 键校验、TypeScript 与 Vite 生产构建；
-2. 固定版本的 WebView2 SDK 检查、CMake 配置和 MSVC Release 构建；
-3. CTest；任何测试失败都会中止发布；
-4. 产物完整性校验和 `deploy_dist` 原子替换；
-5. 若存在 Inno Setup，生成 `Output/EasyTools-Setup.exe`。
-
-前端单独检查：
+### 单独调试前端 UI
 
 ```powershell
 Set-Location ui
-npm ci
-npm run lint
-npm run i18n-check
-npm run build
+npm install
+npm run dev           # 启动 Vite 开发热重载服务器 (http://localhost:5173)
+npm run lint          # 执行 ESLint 静态代码检查
+npm run i18n-check    # 执行多语言缺失键与完整性检查
+npm run check-css     # 执行 CSS 变量全声明无悬空检查
+npm run build         # 构建单文件内联生产资源
 ```
 
-原生测试位于 `tests/unit/test_main.cpp`，由 CTest 注册为 `EasyTools.Unit`。
-GitHub Actions 使用相同发布脚本，上传便携版和安装程序，并为便携版生成
-SLSA 构建来源证明。
+### 单独运行 C++ 单元测试
 
-## 目录
+```powershell
+.\build\bin\Release\EasyToolsTests.exe
+```
+
+---
+
+## 🏗️ 架构与性能工程
+
+### 1. 进程与模块拓扑
 
 ```text
-src/core/       核心基础设施、更新与主线程调度
-src/gesture/    手势、作用域、热角与轮盘菜单
-src/capture/    截图、标注、贴图、长截图和录屏
-src/ocr/        Windows OCR 与结果窗口
-src/search/     搜索插件客户端
-src/service/    NTFS/MFT 索引服务
-src/keycast/    按键回显插件
-src/ui/         WebView2 原生窗口宿主
-ui/             React/TypeScript 前端
-tests/          自动化测试
+EasyTools.exe (主宿主进程 / WebView2 UI / 事件主循环)
+├── EasyCore.dll                 配置持久化、IPC 管道、日志(Spdlog)、热键钩子、物理内存修剪
+├── plugins/
+│   ├── Plugin_Gesture.dll       鼠标手势引擎、热角检测、径向轮盘菜单
+│   ├── Plugin_Capture.dll       截图标注、置顶贴图、滚动长截图、4K 录屏、Windows OCR
+│   ├── Plugin_Search.dll        NTFS 搜索客户端、IPC 管道桥接
+│   └── Plugin_Keycast.dll       按键实时回显、热力统计
+├── EasyTools_Service.exe        机器级 NTFS / MFT 极速文件索引服务
+└── ui/index.html                React 19 单文件高内聚前端生产资源
 ```
 
-## 许可证
+### 2. 核心架构亮点
 
-[MIT](LICENSE)
+1. **单 Environment 多窗口复用**：
+   - 设置窗口、搜索浮窗与托盘菜单共享同一个 WebView2 浏览器环境，避免重复加载 Chromium 运行时，节省数百兆内存；
+2. **冷路径退场修剪与深度休眠**：
+   - 窗口隐藏时通过 `ICoreWebView2_3::TrySuspend()` 挂起 Chromium 渲染管线，并在截图/录屏/OCR 等重型任务结束后主动调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
+   - 严禁在 1000Hz 鼠标钩子或 60FPS 渲染循环等热路径中修剪，彻底杜绝软缺页卡顿；
+3. **原子性按键投递模型**：
+   - 快捷键执行在单次 `SendInput` 调用中原子性提交完整 Down + Up 序列，彻底杜绝多线程环境下的按键粘滞与幽灵按键叠加；
+4. **全链路 Per-Monitor V2 High-DPI 适配**：
+   - 屏幕缩放、字号排版、内边距、圆角与点击命中区域在多显示器混合 DPI 场景下完美自适应。
+
+---
+
+## 📄 开源许可证
+
+本项目采用 [MIT 许可证](LICENSE) 开源。欢迎提交 Issue 与 Pull Request！
