@@ -516,7 +516,7 @@
   "about": {
     "title": "关于 EasyTools",
     "version": "版本信息",
-    "description": "提供世界级的截图、OCR文本识别与手势交互的终极效率工具。",
+    "description": "一款极致轻量、原生可扩展的 Windows 桌面效率软件。深度整合 NTFS 毫秒文件搜索、QuickLook 空格极速预览、智能截图/贴图/滚动截屏、多格式录屏、高精度离线 OCR、全局鼠标手势、按键连击回显与生产力统计大盘；基于 C++20 与 Direct2D 原生架构构建，支持通过 C++ 插件与 Lua 脚本自由定制与无限扩展，毫秒响应，零感常驻。",
     "author": "开发者",
     "license": "开源协议",
     "components": "开源组件",
@@ -530,7 +530,7 @@
     "openRelease": "打开发布页面",
     "openReleaseFailed": "无法打开发布页面",
     "techStack": "技术栈",
-    "subtitle": "桌面效率工具",
+    "subtitle": "现代化 · 原生可扩展桌面效率套件",
     "depPurpose": {
       "cppStandard": "核心语言标准",
       "webview2": "设置界面渲染",

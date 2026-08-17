@@ -516,7 +516,7 @@
   "about": {
     "title": "About EasyTools",
     "version": "Version",
-    "description": "An ultimate efficiency tool providing world-class screen capture, OCR, and mouse gestures.",
+    "description": "An ultra-lightweight, natively extensible Windows productivity suite. Seamlessly integrating NTFS instant file search, QuickLook spacebar preview, smart capture, pinning, scroll stitching, multi-format screen recording, offline OCR, global mouse gestures, live keycast, and productivity analytics. Engineered with C++20 & Direct2D, supporting limitless customization and extensions via C++ plugins and Lua scripts.",
     "author": "Author",
     "license": "License",
     "components": "Open Source Components",
@@ -530,7 +530,7 @@
     "openRelease": "Open release page",
     "openReleaseFailed": "Unable to open the release page",
     "techStack": "Tech Stack",
-    "subtitle": "Desktop Efficiency Tool",
+    "subtitle": "Modern · Extensible Desktop Productivity Suite",
     "depPurpose": {
       "cppStandard": "Core Language Standard",
       "webview2": "Settings UI Rendering",
