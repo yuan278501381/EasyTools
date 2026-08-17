@@ -249,6 +249,11 @@ export const AboutPage: FC = () => {
           )}
         </Card>
       </SettingGroup>
+
+      <div className="about-footer-copyright">
+        <p>Copyright © 2026 <strong>Yy1</strong> & EasyTools Contributors.</p>
+        <p className="about-footer-sub">Licensed under the <strong>MIT License</strong>. Designed with passion for extreme productivity.</p>
+      </div>
     </div>
   );
 };

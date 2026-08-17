@@ -170,3 +170,31 @@
   color: var(--text-muted);
   margin-left: auto;
 }
+
+/* ── 底部版权署名 ───────────────────────────────────────────────────────────── */
+.about-footer-copyright {
+  margin-top: 24px;
+  padding: 16px 0 8px;
+  text-align: center;
+  border-top: 1px dashed var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-footer-copyright p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.about-footer-copyright strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.about-footer-sub {
+  font-size: 0.76rem !important;
+  color: var(--text-muted) !important;
+}
