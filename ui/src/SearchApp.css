@@ -1,3 +1,59 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * SearchApp.css — 全局极速搜索界面样式 (Dark / Light 完整设计系统)
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+    --search-bg: rgba(24, 24, 28, 0.98);
+    --search-border: rgba(255, 255, 255, 0.12);
+    --search-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --search-input-bottom: rgba(255, 255, 255, 0.08);
+    --search-text-main: #f8f8fc;
+    --search-text-sub: #9494a8;
+    --search-text-muted: #6b6b80;
+    --search-surface-pill: rgba(255, 255, 255, 0.06);
+    --search-surface-pill-border: rgba(255, 255, 255, 0.08);
+    --search-surface-pill-hover: rgba(255, 255, 255, 0.12);
+    --search-hover-bg: var(--primary-dim, rgba(139, 92, 246, 0.18));
+    --search-selected-bg: var(--primary-dim, rgba(139, 92, 246, 0.24));
+    --search-item-border: rgba(255, 255, 255, 0.05);
+    --search-footer-bg: rgba(18, 18, 22, 0.95);
+    --search-footer-border: rgba(255, 255, 255, 0.08);
+    --search-kbd-bg: rgba(255, 255, 255, 0.08);
+    --search-kbd-border: rgba(255, 255, 255, 0.15);
+    --search-kbd-text: #f1f5f9;
+    --search-drawer-bg: rgba(20, 20, 24, 0.98);
+    --search-drawer-border: rgba(255, 255, 255, 0.1);
+    --search-snippet-bg: rgba(0, 0, 0, 0.35);
+    --search-snippet-border: rgba(255, 255, 255, 0.07);
+    --search-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="light"] {
+    --search-bg: #ffffff;
+    --search-border: rgba(0, 0, 0, 0.12);
+    --search-shadow: 0 20px 50px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --search-input-bottom: rgba(0, 0, 0, 0.08);
+    --search-text-main: #111118;
+    --search-text-sub: #4b4b5e;
+    --search-text-muted: #78788a;
+    --search-surface-pill: rgba(0, 0, 0, 0.04);
+    --search-surface-pill-border: rgba(0, 0, 0, 0.08);
+    --search-surface-pill-hover: rgba(0, 0, 0, 0.08);
+    --search-hover-bg: var(--primary-dim, rgba(124, 58, 237, 0.12));
+    --search-selected-bg: var(--primary-dim, rgba(124, 58, 237, 0.16));
+    --search-item-border: rgba(0, 0, 0, 0.05);
+    --search-footer-bg: #f8f8fc;
+    --search-footer-border: rgba(0, 0, 0, 0.08);
+    --search-kbd-bg: rgba(0, 0, 0, 0.06);
+    --search-kbd-border: rgba(0, 0, 0, 0.12);
+    --search-kbd-text: #18181b;
+    --search-drawer-bg: #ffffff;
+    --search-drawer-border: rgba(0, 0, 0, 0.1);
+    --search-snippet-bg: rgba(0, 0, 0, 0.03);
+    --search-snippet-border: rgba(0, 0, 0, 0.06);
+    --search-scrollbar-thumb: rgba(0, 0, 0, 0.15);
+}
+
 html[data-surface="search"],
 html[data-surface="search"] body,
 html[data-surface="search"] #root {
@@ -28,12 +84,12 @@ html[data-surface="search"] #root {
     max-width: 100%;
     display: flex;
     flex-direction: column;
-    background: rgba(24, 24, 27, 0.98);
-    backdrop-filter: blur(32px);
-    -webkit-backdrop-filter: blur(32px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: var(--search-bg);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border: 1px solid var(--search-border);
     border-radius: 14px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    box-shadow: var(--search-shadow);
     overflow: hidden;
     animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -49,23 +105,24 @@ html[data-surface="search"] #root {
     }
 }
 
+/* ── 顶部输入栏 ────────────────────────────────────────── */
 .search-input-wrapper {
     display: flex;
     align-items: center;
-    padding: 16px 20px;
+    padding: 14px 20px;
     border-bottom: 1px solid transparent;
     transition: border-color 0.2s ease;
 }
 
 .search-container:focus-within .search-input-wrapper {
-    border-bottom-color: rgba(255, 255, 255, 0.1);
+    border-bottom-color: var(--search-input-bottom);
 }
 
 .search-icon {
-    width: 24px;
-    height: 24px;
-    color: rgba(255, 255, 255, 0.5);
-    margin-right: 14px;
+    width: 22px;
+    height: 22px;
+    color: var(--search-text-muted);
+    margin-right: 12px;
     flex-shrink: 0;
 }
 
@@ -74,9 +131,14 @@ html[data-surface="search"] #root {
     background: transparent;
     border: none;
     outline: none;
-    color: #fff;
-    font-size: 20px;
-    font-weight: 300;
+    color: var(--search-text-main);
+    font-size: 19px;
+    font-weight: 400;
+}
+
+.search-input::placeholder {
+    color: var(--search-text-muted);
+    font-size: 16px;
 }
 
 .search-help-btn {
@@ -87,18 +149,18 @@ html[data-surface="search"] #root {
     height: 32px;
     margin-left: 8px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    color: var(--search-text-sub);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.18s ease;
     flex-shrink: 0;
 }
 
 .search-help-btn:hover,
 .search-help-btn--active {
-    background: var(--primary, #a855f7);
-    border-color: var(--primary, #a855f7);
+    background: var(--primary);
+    border-color: var(--primary);
     color: #fff;
 }
 
@@ -106,8 +168,8 @@ html[data-surface="search"] #root {
     width: 16px;
     height: 16px;
     margin-left: 12px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: rgba(255, 255, 255, 0.85);
+    border: 2px solid var(--search-surface-pill-border);
+    border-top-color: var(--primary);
     border-radius: 50%;
     animation: search-spin 0.7s linear infinite;
     flex-shrink: 0;
@@ -117,12 +179,7 @@ html[data-surface="search"] #root {
     to { transform: rotate(360deg); }
 }
 
-.search-input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 16px;
-}
-
-/* 分类筛选与密度切换栏 */
+/* ── 分类筛选与密度切换栏 ──────────────────────────────────── */
 .search-categories-bar {
     display: flex;
     align-items: center;
@@ -147,18 +204,19 @@ html[data-surface="search"] #root {
 .category-pill {
     padding: 4px 10px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    color: var(--search-text-sub);
     font-size: 12px;
     cursor: pointer;
     white-space: nowrap;
     transition: all 0.15s ease;
+    user-select: none;
 }
 
 .category-pill:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+    background: var(--search-surface-pill-hover);
+    color: var(--search-text-main);
 }
 
 .category-pill--active {
@@ -168,12 +226,12 @@ html[data-surface="search"] #root {
     font-weight: 600;
 }
 
-/* 布局密度分段器 */
+/* ── 布局密度分段器 ────────────────────────────────────────── */
 .search-density-toggle {
     display: flex;
     align-items: center;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
     border-radius: 6px;
     padding: 2px;
     gap: 2px;
@@ -185,7 +243,7 @@ html[data-surface="search"] #root {
     border-radius: 4px;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-muted);
     font-size: 11px;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -193,24 +251,30 @@ html[data-surface="search"] #root {
 }
 
 .density-pill:hover {
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--search-text-main);
+    background: var(--search-surface-pill-hover);
 }
 
 .density-pill--active {
     background: var(--primary-dim);
     color: var(--primary);
     font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* 语法速查抽屉面板 */
+/* ── 语法速查抽屉面板 ──────────────────────────────────────── */
 .search-syntax-drawer {
-    background: rgba(20, 20, 20, 0.95);
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--search-drawer-bg);
+    border-top: 1px solid var(--search-drawer-border);
     padding: 12px 16px;
     max-height: 280px;
     overflow-y: auto;
     animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .syntax-drawer-header {
@@ -219,7 +283,7 @@ html[data-surface="search"] #root {
     justify-content: space-between;
     margin-bottom: 10px;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--search-item-border);
 }
 
 .syntax-drawer-title {
@@ -228,21 +292,21 @@ html[data-surface="search"] #root {
     gap: 6px;
     font-size: 13px;
     font-weight: 600;
-    color: #c084fc;
+    color: var(--primary);
 }
 
 .syntax-drawer-close {
     background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--search-text-muted);
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
 }
 
 .syntax-drawer-close:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--search-text-main);
+    background: var(--search-surface-pill-hover);
 }
 
 .syntax-drawer-list {
@@ -256,8 +320,8 @@ html[data-surface="search"] #root {
     flex-direction: column;
     gap: 2px;
     padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -277,15 +341,16 @@ html[data-surface="search"] #root {
 
 .syntax-desc {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-muted);
 }
 
-/* 结果列表基类 */
+/* ── 结果列表与项目 ────────────────────────────────────────── */
 .search-results {
     list-style: none;
     margin: 0;
+    padding: 0;
     overflow-y: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--search-item-border);
 }
 
 .search-results::-webkit-scrollbar {
@@ -293,7 +358,7 @@ html[data-surface="search"] #root {
 }
 
 .search-results::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--search-scrollbar-thumb);
     border-radius: 3px;
 }
 
@@ -301,18 +366,22 @@ html[data-surface="search"] #root {
     display: flex;
     align-items: center;
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--search-text-main);
+    border-bottom: 1px solid var(--search-item-border);
     transition: background 0.1s ease, color 0.1s ease;
 }
 
+.search-result-item:hover {
+    background: var(--search-hover-bg);
+}
+
 .search-result-item.selected {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+    background: var(--search-selected-bg);
 }
 
 .file-icon {
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-muted);
 }
 
 .file-icon--folder { color: #60a5fa; }
@@ -322,16 +391,10 @@ html[data-surface="search"] #root {
 .file-icon--code { color: #a78bfa; }
 .file-icon--media { color: #f87171; }
 .file-icon--audio { color: #38bdf8; }
-.file-icon--doc { color: #cbd5e1; }
+.file-icon--doc { color: #94a3b8; }
 
 .search-result-item.selected .file-icon {
-    filter: brightness(1.2);
-}
-
-.file-name {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    filter: brightness(1.15);
 }
 
 .file-info {
@@ -360,14 +423,14 @@ html[data-surface="search"] #root {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: #f1f5f9;
+    color: var(--search-text-main);
 }
 
 .file-path {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--search-text-sub);
     font-size: 11.5px;
     flex: 1;
 }
@@ -377,7 +440,7 @@ html[data-surface="search"] #root {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: rgba(255, 255, 255, 0.38);
+    color: var(--search-text-sub);
     font-size: 11.5px;
     flex: 1;
     min-width: 0;
@@ -395,20 +458,21 @@ html[data-surface="search"] #root {
     font-size: 11px;
     padding: 1px 6px;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    color: var(--search-text-sub);
     font-family: ui-monospace, monospace;
 }
 
 .meta-date-mod {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--search-text-muted);
     font-family: ui-monospace, monospace;
 }
 
 .meta-date-create {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--search-text-muted);
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
 }
@@ -495,7 +559,7 @@ html[data-surface="search"] #root {
 }
 .search-results.density-comfortable .file-path {
     font-size: 12.5px;
-    color: rgba(255, 255, 255, 0.48);
+    color: var(--search-text-sub);
 }
 
 .search-status {
@@ -505,13 +569,13 @@ html[data-surface="search"] #root {
     justify-content: center;
     gap: 10px;
     padding: 20px;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--search-text-sub);
     font-size: 14px;
     text-align: center;
 }
 
 .search-status--error {
-  color: #f87171;
+    color: var(--danger, #f87171);
 }
 
 .search-empty-container {
@@ -521,11 +585,11 @@ html[data-surface="search"] #root {
     justify-content: center;
     gap: 12px;
     padding: 24px 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--search-item-border);
 }
 
 .search-empty-text {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-sub);
     font-size: 13.5px;
 }
 
@@ -537,7 +601,7 @@ html[data-surface="search"] #root {
     background: var(--primary-dim);
     border: 1px solid var(--primary);
     border-radius: 8px;
-    color: var(--text-primary, #ffffff);
+    color: var(--primary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -552,34 +616,36 @@ html[data-surface="search"] #root {
     box-shadow: 0 4px 12px var(--primary-glow);
 }
 
+/* ── 底部快捷键状态栏 ──────────────────────────────────────── */
 .search-footer {
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 14px;
     padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.25);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--search-footer-bg);
+    border-top: 1px solid var(--search-footer-border);
+    color: var(--search-text-sub);
     flex-wrap: wrap;
 }
 
 .search-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-sub);
     display: flex;
     align-items: center;
     gap: 5px;
 }
 
 .search-hint kbd {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--search-kbd-bg);
+    border: 1px solid var(--search-kbd-border);
     border-radius: 4px;
     padding: 2px 5px;
     font-family: inherit;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.8);
-    box-shadow: 0 1px 1px rgba(0,0,0,0.2);
+    color: var(--search-kbd-text);
+    box-shadow: 0 1px 1px rgba(0,0,0,0.06);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -589,15 +655,15 @@ html[data-surface="search"] #root {
     }
 }
 
-/* ── Content Snippets 摘要高亮预览 ── */
+/* ── Content Snippets 摘要高亮预览 ────────────────────────── */
 .file-snippets-container {
     display: flex;
     flex-direction: column;
     gap: 4px;
     margin-top: 6px;
     padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: var(--search-snippet-bg);
+    border: 1px solid var(--search-snippet-border);
     border-radius: 6px;
     max-width: 100%;
 }
@@ -616,37 +682,47 @@ html[data-surface="search"] #root {
 
 .snippet-line-num {
     flex-shrink: 0;
-    color: #c084fc;
+    color: var(--primary);
     font-weight: 600;
-    background: rgba(192, 132, 252, 0.12);
+    background: var(--primary-dim);
     padding: 1px 4px;
     border-radius: 3px;
     font-size: 10.5px;
 }
 
 .snippet-text {
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--search-text-main);
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .snippet-highlight {
     background: rgba(234, 179, 8, 0.35);
-    color: #fef08a;
+    color: #ca8a04;
     font-weight: 600;
     padding: 1px 2px;
     border-radius: 2px;
+}
+
+[data-theme="dark"] .snippet-highlight {
+    background: rgba(234, 179, 8, 0.35);
+    color: #fef08a;
     border-bottom: 1.5px solid #facc15;
 }
 
-/* ── 视图与列定制抽屉面板 ──────────────────────────────── */
+/* ── 视图与列定制抽屉面板 ──────────────────────────────────── */
 .search-view-settings-drawer {
-    background: rgba(18, 18, 22, 0.98);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--search-drawer-bg);
+    border-bottom: 1px solid var(--search-drawer-border);
     animation: drawerSlide 0.2s ease;
     max-height: 48vh;
     overflow-y: auto;
     scrollbar-width: thin;
+}
+
+@keyframes drawerSlide {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .view-settings-header {
@@ -654,7 +730,7 @@ html[data-surface="search"] #root {
     align-items: center;
     justify-content: space-between;
     padding: 12px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--search-item-border);
 }
 
 .view-settings-title {
@@ -663,7 +739,7 @@ html[data-surface="search"] #root {
     gap: 8px;
     font-size: 13.5px;
     font-weight: 600;
-    color: #e2e8f0;
+    color: var(--search-text-main);
 }
 
 .view-settings-content {
@@ -685,7 +761,7 @@ html[data-surface="search"] #root {
     gap: 6px;
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--search-text-sub);
 }
 
 .view-section-header-row {
@@ -702,10 +778,10 @@ html[data-surface="search"] #root {
 
 .view-preset-btn {
     padding: 7px 10px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
     border-radius: 6px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--search-text-main);
     font-size: 12px;
     cursor: pointer;
     transition: all 0.18s ease;
@@ -714,8 +790,8 @@ html[data-surface="search"] #root {
 }
 
 .view-preset-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+    background: var(--search-surface-pill-hover);
+    color: var(--search-text-main);
 }
 
 .view-preset-btn--active {
@@ -734,7 +810,7 @@ html[data-surface="search"] #root {
 
 .slider-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--search-text-muted);
 }
 
 .view-ratio-slider {
@@ -750,7 +826,7 @@ html[data-surface="search"] #root {
     gap: 4px;
     background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-muted);
     font-size: 11.5px;
     cursor: pointer;
     padding: 2px 6px;
@@ -759,8 +835,8 @@ html[data-surface="search"] #root {
 }
 
 .view-reset-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--search-text-main);
+    background: var(--search-surface-pill-hover);
 }
 
 .view-columns-list {
@@ -774,8 +850,8 @@ html[data-surface="search"] #root {
     align-items: center;
     justify-content: space-between;
     padding: 6px 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
     border-radius: 6px;
     font-size: 12px;
 }
@@ -786,7 +862,7 @@ html[data-surface="search"] #root {
     gap: 8px;
     cursor: pointer;
     user-select: none;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--search-text-main);
 }
 
 .view-column-checkbox {
@@ -809,14 +885,14 @@ html[data-surface="search"] #root {
     border-radius: 4px;
     background: transparent;
     border: 1px solid transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--search-text-muted);
     cursor: pointer;
     transition: all 0.15s ease;
 }
 
 .view-reorder-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--search-surface-pill-hover);
+    color: var(--search-text-main);
 }
 
 .view-reorder-btn:disabled {
@@ -824,7 +900,7 @@ html[data-surface="search"] #root {
     cursor: not-allowed;
 }
 
-/* ── 窗口右下角拖拽拉伸手柄 ── */
+/* ── 窗口右下角拖拽拉伸手柄 ────────────────────────────────── */
 .search-resize-handle {
     position: absolute;
     right: 3px;
@@ -842,148 +918,4 @@ html[data-surface="search"] #root {
 
 .search-resize-handle:hover {
     opacity: 1;
-}
-
-/* ── 浅色主题 (Light Mode) 适配 ─────────────────────────────────────────── */
-[data-theme="light"] .search-container {
-    background: rgba(255, 255, 255, 0.97);
-    border-color: rgba(0, 0, 0, 0.12);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .search-input {
-    color: #18181b;
-}
-
-[data-theme="light"] .search-icon {
-    color: rgba(0, 0, 0, 0.45);
-}
-
-[data-theme="light"] .search-help-btn {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: rgba(0, 0, 0, 0.60);
-}
-
-[data-theme="light"] .search-help-btn:hover,
-[data-theme="light"] .search-help-btn--active {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: #ffffff;
-}
-
-[data-theme="light"] .category-pill {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: rgba(0, 0, 0, 0.65);
-}
-
-[data-theme="light"] .category-pill:hover {
-    background: rgba(0, 0, 0, 0.08);
-    color: #000000;
-}
-
-[data-theme="light"] .category-pill--active {
-    background: var(--primary-dim);
-    border-color: var(--primary);
-    color: var(--primary);
-}
-
-[data-theme="light"] .search-density-toggle {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="light"] .density-pill {
-    color: rgba(0, 0, 0, 0.55);
-}
-
-[data-theme="light"] .density-pill:hover {
-    color: rgba(0, 0, 0, 0.85);
-    background: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .density-pill--active {
-    background: var(--primary-dim);
-    color: var(--primary);
-    font-weight: 600;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .search-result-item {
-    border-bottom-color: rgba(0, 0, 0, 0.05);
-}
-
-[data-theme="light"] .search-result-item:hover,
-[data-theme="light"] .search-result-item--selected {
-    background: var(--primary-dim);
-}
-
-[data-theme="light"] .search-result-name {
-    color: #18181b;
-}
-
-[data-theme="light"] .search-result-path {
-    color: #71717a;
-}
-
-[data-theme="light"] .search-footer {
-    background: rgba(245, 245, 247, 0.95);
-    border-top-color: rgba(0, 0, 0, 0.08);
-    color: #71717a;
-}
-
-[data-theme="light"] .search-footer-kbd {
-    background: rgba(0, 0, 0, 0.06);
-    border-color: rgba(0, 0, 0, 0.12);
-    color: #18181b;
-}
-
-[data-theme="light"] .search-syntax-drawer,
-[data-theme="light"] .search-view-settings-drawer {
-    background: rgba(250, 250, 252, 0.98);
-    border-top-color: rgba(0, 0, 0, 0.1);
-}
-
-[data-theme="light"] .syntax-example-item {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .syntax-example-item:hover {
-    background: var(--primary-dim);
-    border-color: var(--primary);
-}
-
-[data-theme="light"] .syntax-desc {
-    color: rgba(0, 0, 0, 0.55);
-}
-
-[data-theme="light"] .view-preset-btn {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: rgba(0, 0, 0, 0.70);
-}
-
-[data-theme="light"] .view-preset-btn:hover {
-    background: rgba(0, 0, 0, 0.08);
-    color: #000;
-}
-
-[data-theme="light"] .view-column-item {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .view-column-left {
-    color: rgba(0, 0, 0, 0.85);
-}
-
-[data-theme="light"] .view-reorder-btn {
-    color: rgba(0, 0, 0, 0.5);
-}
-
-[data-theme="light"] .view-reorder-btn:hover:not(:disabled) {
-    background: rgba(0, 0, 0, 0.08);
-    color: #000;
 }

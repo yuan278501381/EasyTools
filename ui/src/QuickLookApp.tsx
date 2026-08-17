@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { bridgeRequest, useBridgeEvent } from './hooks/useBridge';
+import { useAppearance } from './hooks/useAppearance';
 import './QuickLookApp.css';
 
 interface FilePreviewData {
@@ -83,6 +84,7 @@ function highlightCode(code: string): string {
 }
 
 export default function QuickLookApp() {
+  useAppearance();
   const [data, setData] = useState<FilePreviewData | null>(null);
   const [codeWrap, setCodeWrap] = useState(true);
   const [fontSize, setFontSize] = useState(13);
