@@ -370,3 +370,46 @@ export const Modal: FC<ModalProps> = ({ open, title, onClose, children, footer }
     document.body
   );
 };
+
+/* ── Tabs / Segmented Control ─────────────────────────────────────────────── */
+
+export interface TabItem<T extends string = string> {
+  id: T;
+  label: ReactNode;
+  icon?: ReactNode;
+  badge?: ReactNode;
+  disabled?: boolean;
+}
+
+interface TabsProps<T extends string = string> {
+  tabs: TabItem<T>[];
+  activeId: T;
+  onChange: (id: T) => void;
+  className?: string;
+  ariaLabel?: string;
+}
+
+export function Tabs<T extends string = string>({ tabs, activeId, onChange, className = '', ariaLabel }: TabsProps<T>) {
+  return (
+    <div className={`uikit-tabs ${className}`} role="tablist" aria-label={ariaLabel}>
+      {tabs.map((tab) => {
+        const isActive = activeId === tab.id;
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            type="button"
+            aria-selected={isActive}
+            disabled={tab.disabled}
+            className={`uikit-tab ${isActive ? 'uikit-tab--active' : ''}`}
+            onClick={() => !tab.disabled && onChange(tab.id)}
+          >
+            {tab.icon && <span className="uikit-tab__icon">{tab.icon}</span>}
+            <span className="uikit-tab__label">{tab.label}</span>
+            {tab.badge && <span className="uikit-tab__badge">{tab.badge}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

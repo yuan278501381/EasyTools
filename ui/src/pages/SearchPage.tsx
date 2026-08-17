@@ -3,7 +3,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Select, Button, Tabs, type TabItem } from '../components/UIKit';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
 import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
@@ -126,47 +126,22 @@ export const SearchPage: FC = () => {
     void bridgeRequest('search.toggle').catch(console.error);
   };
 
+  const tabs: TabItem<'settings' | 'syntax' | 'regex' | 'status'>[] = [
+    { id: 'settings', label: t('searchPage.tabSettings', '基础与热键'), icon: <Search size={16} /> },
+    { id: 'syntax', label: t('searchPage.tabSyntax', '搜索语法手册'), icon: <BookOpen size={16} /> },
+    { id: 'regex', label: t('searchPage.tabRegex', '正则表达式语法'), icon: <Code2 size={16} /> },
+    { id: 'status', label: t('searchPage.tabStatus', '服务与索引'), icon: <HardDrive size={16} /> },
+  ];
+
   return (
     <div className="search-page">
       {/* ── 顶部选项卡 ─────────────────────────────────────────────── */}
-      <div className="search-page__tabs" role="tablist">
-        <button
-          role="tab"
-          aria-selected={activeTab === 'settings'}
-          className={`search-page__tab ${activeTab === 'settings' ? 'search-page__tab--active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Search size={16} />
-          <span>{t('searchPage.tabSettings', '基础与热键')}</span>
-        </button>
-        <button
-          role="tab"
-          aria-selected={activeTab === 'syntax'}
-          className={`search-page__tab ${activeTab === 'syntax' ? 'search-page__tab--active' : ''}`}
-          onClick={() => setActiveTab('syntax')}
-        >
-          <BookOpen size={16} />
-          <span>{t('searchPage.tabSyntax', '搜索语法手册')}</span>
-        </button>
-        <button
-          role="tab"
-          aria-selected={activeTab === 'regex'}
-          className={`search-page__tab ${activeTab === 'regex' ? 'search-page__tab--active' : ''}`}
-          onClick={() => setActiveTab('regex')}
-        >
-          <Code2 size={16} />
-          <span>{t('searchPage.tabRegex', '正则表达式语法')}</span>
-        </button>
-        <button
-          role="tab"
-          aria-selected={activeTab === 'status'}
-          className={`search-page__tab ${activeTab === 'status' ? 'search-page__tab--active' : ''}`}
-          onClick={() => setActiveTab('status')}
-        >
-          <HardDrive size={16} />
-          <span>{t('searchPage.tabStatus', '服务与索引')}</span>
-        </button>
-      </div>
+      <Tabs
+        tabs={tabs}
+        activeId={activeTab}
+        onChange={(id) => setActiveTab(id as typeof activeTab)}
+        ariaLabel={t('search.title', '文件搜索')}
+      />
 
       {/* ── 1. 基础设置 ────────────────────────────────────────────── */}
       {activeTab === 'settings' && (

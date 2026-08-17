@@ -829,3 +829,59 @@
   color: var(--text-muted);
   font-size: 0.78rem;
 }
+
+/* ── Tabs / Segmented Control ─────────────────────────────────────────────── */
+.uikit-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md, 10px);
+  width: fit-content;
+}
+
+.uikit-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm, 7px);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  user-select: none;
+}
+
+.uikit-tab:hover:not(.uikit-tab--active):not(:disabled) {
+  color: var(--text-primary);
+  background: var(--card-bg-hover, rgba(255, 255, 255, 0.05));
+}
+
+.uikit-tab--active {
+  color: var(--primary);
+  background: var(--primary-dim);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.uikit-tab--active:hover {
+  color: var(--primary-hover, var(--primary));
+  background: var(--primary-dim);
+}
+
+.uikit-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.uikit-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
