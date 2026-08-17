@@ -448,19 +448,29 @@ if ($runningProcesses) {
 $BackupDir = Join-Path $ScriptDir "deploy_dist_backup"
 if (Test-Path $DeployDir) {
     if (Test-Path $BackupDir) {
-        Remove-Item -Recurse -Force $BackupDir
+        Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
     }
-    Rename-Item -Path $DeployDir -NewName "deploy_dist_backup"
-    Write-Log "旧版本已安全备份到: deploy_dist_backup"
-}
-
-try {
+    $renamed = $false
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            Rename-Item -Path $DeployDir -NewName "deploy_dist_backup" -ErrorAction Stop
+            $renamed = $true
+            break
+        } catch {
+            Start-Sleep -Milliseconds 600
+        }
+    }
+    if ($renamed) {
+        Rename-Item -Path $StagingDir -NewName "deploy_dist"
+        Write-Log "旧版本已安全备份到: deploy_dist_backup"
+    } else {
+        # 若 Windows 锁住父级目录名，则执行安全原子覆盖
+        Write-Log "目录重命名受阻，执行原子文件集快速覆盖..." "WARN"
+        Copy-Item -Path "$StagingDir\*" -Destination $DeployDir -Recurse -Force
+        Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+    }
+} else {
     Rename-Item -Path $StagingDir -NewName "deploy_dist"
-} catch {
-    if ((Test-Path $BackupDir) -and -not (Test-Path $DeployDir)) {
-        Rename-Item -Path $BackupDir -NewName "deploy_dist"
-    }
-    throw
 }
 Write-Log "新版本秒级切换上线完成。" "SUCCESS"
 

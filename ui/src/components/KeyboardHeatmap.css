@@ -1,13 +1,60 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * KeyboardHeatmap.css — 世界级机械键盘热力图设计系统 (Dark / Light 双模支持)
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --key-frame-bg: rgba(20, 18, 30, 0.65);
+  --key-frame-border: rgba(255, 255, 255, 0.08);
+  --key-bg-idle: rgba(255, 255, 255, 0.035);
+  --key-border-idle: rgba(255, 255, 255, 0.07);
+  --key-shadow-idle: 0 2px 0 rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --key-text-idle: rgba(255, 255, 255, 0.45);
+  --key-text-level1: #e9d5ff;
+  --key-subtext-level1: rgba(233, 213, 255, 0.7);
+  --key-text-level2: #ffffff;
+  --key-subtext-level2: rgba(255, 255, 255, 0.85);
+  --key-tooltip-bg: rgba(24, 22, 34, 0.96);
+  --key-tooltip-text: #f8fafc;
+  --key-legend-bg: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="light"] {
+  --key-frame-bg: #f8f8fc;
+  --key-frame-border: rgba(0, 0, 0, 0.06);
+  --key-bg-idle: #ffffff;
+  --key-border-idle: rgba(0, 0, 0, 0.09);
+  --key-shadow-idle: 0 1.5px 0 rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.02);
+  --key-text-idle: #71717a;
+  --key-text-level1: #6b21a8;
+  --key-subtext-level1: #7e22ce;
+  --key-text-level2: #4c1d95;
+  --key-subtext-level2: #6b21a8;
+  --key-tooltip-bg: #ffffff;
+  --key-tooltip-text: #18181b;
+  --key-legend-bg: rgba(0, 0, 0, 0.03);
+}
+
+.keyboard-heatmap-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
 .keyboard-heatmap {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 16px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
+  padding: 18px 20px;
+  background: var(--key-frame-bg);
+  border: 1px solid var(--key-frame-border);
   border-radius: var(--radius-lg);
   user-select: none;
   width: 100%;
+  box-sizing: border-box;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.04);
 }
 
 .keyboard-heatmap__row {
@@ -19,23 +66,26 @@
 .keyboard-heatmap__key {
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 46px;
   flex: 1 1 0%;
   min-width: 0;
-  border-radius: var(--radius-sm);
-  background: var(--key-bg);
-  border: 1px solid var(--key-border);
-  color: var(--text-primary);
-  font-size: clamp(0.68rem, 0.95vw, 0.85rem);
-  font-weight: 500;
-  transition: all var(--transition-fast);
-  cursor: default;
-  overflow: hidden;
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Segoe UI', monospace;
+  font-size: clamp(0.72rem, 0.95vw, 0.88rem);
+  font-weight: 600;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease, border-color 0.16s ease;
+  cursor: pointer;
+  overflow: visible;
+  padding: 2px 4px;
+  box-sizing: border-box;
 }
 
-/* 键盘按键 15 单元格标准比例 */
+/* 键盘按键 15 单元格标准物理比例 */
 .key-width-125 { flex: 1.25 1 0%; }
 .key-width-150 { flex: 1.5 1 0%; }
 .key-width-175 { flex: 1.75 1 0%; }
@@ -45,57 +95,177 @@
 .key-width-275 { flex: 2.75 1 0%; }
 .key-width-space { flex: 6.25 1 0%; }
 
-/* The heat overlay */
-.keyboard-heatmap__heat {
-  position: absolute;
-  inset: 0;
-  background: var(--heat-color, transparent);
-  box-shadow: var(--heat-glow, none);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 1;
-}
-
 .keyboard-heatmap__label {
   position: relative;
   z-index: 2;
-  text-shadow: var(--key-text-shadow);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 2px;
+  line-height: 1.2;
 }
 
+.keyboard-heatmap__micro-count {
+  position: absolute;
+  right: 5px;
+  bottom: 2px;
+  font-size: 9px;
+  font-weight: 500;
+  font-family: ui-monospace, monospace;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.keyboard-heatmap__crown {
+  position: absolute;
+  top: -8px;
+  right: -4px;
+  font-size: 13px;
+  animation: crownBob 2s infinite ease-in-out;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.5));
+}
+
+@keyframes crownBob {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.15); }
+}
+
+/* 悬停弹性微升动效 */
 .keyboard-heatmap__key:hover {
-  transform: translateY(-2px) scale(1.05);
-  box-shadow: var(--key-hover-shadow);
-  border-color: var(--key-hover-border);
-  z-index: 5;
+  transform: translateY(-3px) scale(1.05);
+  z-index: 20;
+  border-color: var(--primary) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 12px var(--primary-glow) !important;
 }
 
-/* Tooltip container */
-.keyboard-heatmap__key .tooltip {
+/* 浮动提示卡片 (Floating Tooltip Badge) */
+.keyboard-heatmap__tooltip {
   visibility: hidden;
   position: absolute;
-  bottom: 120%;
+  bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%) translateY(8px) scale(0.95);
+  transform: translateX(-50%) translateY(6px) scale(0.96);
   background: var(--key-tooltip-bg);
   color: var(--key-tooltip-text);
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 8px;
   white-space: nowrap;
   opacity: 0;
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
-  z-index: 10;
+  z-index: 50;
   border: 1px solid var(--card-border);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.keyboard-heatmap__key:hover .tooltip {
+.tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-key-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tooltip-badge-peak {
+  font-size: 10px;
+  background: linear-gradient(135deg, #f43f5e, #f59e0b);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.tooltip-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.tooltip-count strong {
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.tooltip-pct {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.keyboard-heatmap__key:hover .keyboard-heatmap__tooltip {
   visibility: visible;
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
+}
+
+/* ── 底部图例栏 ─────────────────────────────────────────────── */
+.keyboard-heatmap__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.keyboard-heatmap__legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.legend-spectrum {
+  width: 140px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--key-legend-bg);
+  border: 1px solid var(--card-border);
+  overflow: hidden;
+}
+
+.spectrum-bar {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, 
+    rgba(139, 92, 246, 0.2) 0%, 
+    rgba(147, 51, 234, 0.6) 35%, 
+    rgba(236, 72, 153, 0.85) 70%, 
+    #f59e0b 100%
+  );
+}
+
+.keyboard-heatmap__top-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-dim);
+  border: 1px solid var(--primary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-primary);
+}
+
+.top-badge-icon {
+  font-size: 13px;
+}
+
+.top-badge-text strong {
+  color: var(--primary);
 }
