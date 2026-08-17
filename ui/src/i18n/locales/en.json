@@ -516,7 +516,7 @@
   "about": {
     "title": "About EasyTools",
     "version": "Version",
-    "description": "An ultra-lightweight, natively extensible Windows productivity suite. Seamlessly integrating NTFS instant file search, QuickLook spacebar preview, smart capture, pinning, scroll stitching, multi-format screen recording, offline OCR, global mouse gestures, live keycast, and productivity analytics. Engineered with C++20 & Direct2D, supporting limitless customization and extensions via C++ plugins and Lua scripts.",
+    "description": "An ultra-lightweight, natively extensible Windows productivity suite. Seamlessly integrating NTFS instant file search, QuickLook spacebar preview, smart capture, pinning, scroll stitching, multi-format screen recording, offline OCR, global mouse gestures, and live keycast. Engineered with C++20 & Direct2D, supporting limitless customization and extensions via C++ plugins and Lua scripts.",
     "author": "Author",
     "license": "License",
     "components": "Open Source Components",

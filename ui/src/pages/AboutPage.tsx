@@ -147,33 +147,40 @@ export const AboutPage: FC = () => {
   return (
     <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
       <SettingGroup title={t('about.title')} icon={<Info size={20} strokeWidth={2.5} />}>
-        <Card>
+        <Card className="about-card-hero">
           <div className="about-hero">
-            <span className="about-hero__icon"><Zap size={24} fill="var(--primary)" stroke="var(--primary)" /></span>
-            <div className="about-hero__info">
-              <h2 className="about-hero__title">EasyTools</h2>
-              <p className="about-hero__subtitle">{t('about.subtitle')}</p>
-              <div className="about-hero__badges">
-                <Badge text={`v${version}`} variant="primary" />
-                <Badge text="Windows 10+" variant="muted" />
-                <Badge text="C++ & React" variant="success" />
+            <div className="about-hero__brand">
+              <div className="about-hero__logo-box">
+                <Zap size={24} fill="var(--primary)" stroke="var(--primary)" />
+              </div>
+              <div className="about-hero__info">
+                <div className="about-hero__title-row">
+                  <h2 className="about-hero__title">EasyTools</h2>
+                  <Badge text={`v${version}`} variant="primary" />
+                  <Badge text="C++20 & Direct2D" variant="success" />
+                </div>
+                <p className="about-hero__subtitle">{t('about.subtitle')}</p>
               </div>
             </div>
-          </div>
-          <p className="about-desc">
-            {t('about.description')}
-          </p>
-          <div className="about-update-row">
-            <Button variant="ghost" onClick={() => void checkForUpdates()} disabled={checkingUpdate}>
-              <RefreshCw size={16} className={checkingUpdate ? 'about-update-spin' : undefined} />
-              <span>{checkingUpdate ? t('about.checkingUpdate') : t('about.checkUpdate')}</span>
-            </Button>
-            {updateResult?.status === 'available' && updateResult.releaseUrl && (
-              <Button variant="primary" onClick={() => void openReleasePage()}>
-                <ExternalLink size={16} />
-                <span>{t('about.openRelease')}</span>
+
+            <div className="about-hero__actions">
+              <Button variant="secondary" onClick={() => void checkForUpdates()} disabled={checkingUpdate}>
+                <RefreshCw size={14} className={checkingUpdate ? 'about-update-spin' : undefined} />
+                <span>{checkingUpdate ? t('about.checkingUpdate') : t('about.checkUpdate')}</span>
               </Button>
-            )}
+              {updateResult?.status === 'available' && updateResult.releaseUrl && (
+                <Button variant="primary" onClick={() => void openReleasePage()}>
+                  <ExternalLink size={14} />
+                  <span>{t('about.openRelease')}</span>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="about-desc-box">
+            <p className="about-desc">
+              {t('about.description')}
+            </p>
           </div>
         </Card>
       </SettingGroup>

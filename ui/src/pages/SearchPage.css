@@ -11,11 +11,11 @@
 
 .search-page__tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   padding: 4px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md, 10px);
   width: fit-content;
 }
 
@@ -23,26 +23,33 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm, 7px);
   background: transparent;
   border: none;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast, 0.15s ease);
+  user-select: none;
 }
 
-.search-page__tab:hover {
+.search-page__tab:hover:not(.search-page__tab--active) {
   color: var(--text-primary);
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.04));
+  background: var(--card-bg-hover, rgba(255, 255, 255, 0.05));
 }
 
 .search-page__tab--active {
   color: var(--primary);
-  background: var(--primary-subtle, rgba(168, 85, 247, 0.12));
+  background: var(--primary-dim);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.search-page__tab--active:hover {
+  color: var(--primary-hover, var(--primary));
+  background: var(--primary-dim);
 }
 
 .search-page__content {
