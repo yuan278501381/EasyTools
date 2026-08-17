@@ -136,16 +136,24 @@ void GestureEngine::setTriggerButton(const std::string& button) {
     if (button == "middle") {
         m_triggerDown = MouseEventType::MiddleDown;
         m_triggerUp = MouseEventType::MiddleUp;
+        MouseHook::instance().setTriggerMode(TriggerMode::MiddleOnly);
+    } else if (button == "both" || button == "all") {
+        m_triggerDown = MouseEventType::RightDown;
+        m_triggerUp = MouseEventType::RightUp;
+        MouseHook::instance().setTriggerMode(TriggerMode::Both);
     } else {
         m_triggerDown = MouseEventType::RightDown;
         m_triggerUp = MouseEventType::RightUp;
+        MouseHook::instance().setTriggerMode(TriggerMode::RightOnly);
     }
-    MouseHook::instance().setTriggerButton(m_triggerDown.load(std::memory_order_acquire));
     LOG_INFO("手势触发按钮已设置: {}", triggerButton());
 }
 
 std::string GestureEngine::triggerButton() const {
-    return m_triggerDown.load() == MouseEventType::MiddleDown ? "middle" : "right";
+    const auto mode = MouseHook::instance().triggerMode();
+    if (mode == TriggerMode::Both) return "both";
+    if (mode == TriggerMode::MiddleOnly) return "middle";
+    return "right";
 }
 
 void GestureEngine::setTrailVisible(bool visible) {
@@ -324,14 +332,8 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
-    // 追踪超时看门狗：如果超过 3 秒未结束，自动取消追踪并自愈，防止长时间占用状态机
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_trackingStartTime).count();
-    if (elapsed > 3000) {
-        LOG_WARN("手势追踪超过 3 秒超时，自动取消追踪以防止按键卡死");
-        cancelTracking();
-        return;
-    }
 
     m_recognizer.addPoint(event.position.x, event.position.y);
 
@@ -343,48 +345,59 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
             static_cast<float>(event.position.y)
         );
 
-        const auto dirs = m_recognizer.currentDirections();
-        if (dirs != m_lastRecognizedDirections) {
-            m_lastRecognizedDirections = dirs;
+        if (elapsed >= 15000) {
+            // 连续画了 15 秒仍未松手：弹出红底 3 个大圆点调侃状态，并持续停留，直到用户真正松手
+            trail.setRecognized(false);
+            trail.setLiveAction("•••");
+        } else {
+            const auto dirs = m_recognizer.currentDirections();
+            if (dirs != m_lastRecognizedDirections) {
+                m_lastRecognizedDirections = dirs;
 
-            std::string liveLabel;
-            if (!dirs.empty()) {
-                std::string modPrefix;
-                if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
-                if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
-                if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
+                std::string liveLabel;
+                if (!dirs.empty()) {
+                    std::string modPrefix;
+                    if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
+                    if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
+                    if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
 
-                std::string bareCode = directionsToCode(dirs);
-                std::string fullCode = modPrefix + bareCode;
-                std::string arrows = directionsToArrowString(dirs);
+                    std::string bareCode = directionsToCode(dirs);
+                    std::string fullCode = modPrefix + bareCode;
 
-                std::optional<GestureAction> action;
-                if (m_activeProfile) {
-                    if (!modPrefix.empty()) {
-                        action = m_activeProfile->findAction(fullCode);
-                        if (!action && m_activeProfile->name() != "default") {
-                            if (const auto fallback = getProfile("default")) {
-                                action = fallback->findAction(fullCode);
+                    std::optional<GestureAction> action;
+                    if (m_activeProfile) {
+                        if (!modPrefix.empty()) {
+                            action = m_activeProfile->findAction(fullCode);
+                            if (!action && m_activeProfile->name() != "default") {
+                                if (const auto fallback = getProfile("default")) {
+                                    action = fallback->findAction(fullCode);
+                                }
+                            }
+                        }
+                        if (!action) {
+                            action = m_activeProfile->findAction(bareCode);
+                            if (!action && m_activeProfile->name() != "default") {
+                                if (const auto fallback = getProfile("default")) {
+                                    action = fallback->findAction(bareCode);
+                                }
                             }
                         }
                     }
-                    if (!action) {
-                        action = m_activeProfile->findAction(bareCode);
-                        if (!action && m_activeProfile->name() != "default") {
-                            if (const auto fallback = getProfile("default")) {
-                                action = fallback->findAction(bareCode);
-                            }
-                        }
-                    }
-                }
 
-                if (action) {
-                    liveLabel = modPrefix + arrows + "  " + action->name;
+                    if (action) {
+                        // 识别成功：轨迹变为主体色，Toast 提示动作名称
+                        trail.setRecognized(true);
+                        liveLabel = action->name;
+                    } else {
+                        // 普通未识别到手势：轨迹保持高阶银灰色，不需要任何 Toast 提示
+                        trail.setRecognized(false);
+                        liveLabel.clear();
+                    }
                 } else {
-                    liveLabel = modPrefix + arrows;
+                    trail.setRecognized(false);
                 }
+                trail.setLiveAction(liveLabel);
             }
-            trail.setLiveAction(liveLabel);
         }
     }
 
@@ -408,13 +421,17 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
     easy::core::TraceId::setCurrent(m_gestureTraceId);
 
-    // 超时保护：手势耗时超过 3000ms 视为无效遗留操作，还原为普通点击
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_trackingStartTime).count();
-    if (elapsed > 3000) {
-        LOG_WARN("手势追踪已超时 ({}ms)，丢弃动作并还原右键点击", elapsed);
+
+    // 如果连续绘制超过 15 秒用户才松手：结束手势，红底 3 个大圆点闪现并平滑淡出，不执行任何动作
+    if (elapsed >= 15000) {
+        LOG_WARN("手势绘制超过 15 秒后松手结束 ({}ms)，红底调侃淡出", elapsed);
         m_state = GestureState::Idle;
-        if (m_trailVisible.load()) GestureTrailOverlay::instance().hide();
+        if (m_trailVisible.load()) {
+            GestureTrailOverlay::instance().setRecognized(false);
+            GestureTrailOverlay::instance().endTrail("•••");
+        }
         reinjectTriggerClick();
         return;
     }
@@ -482,8 +499,8 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         LOG_INFO("执行手势动作: gesture={}, matchedCode={}, action={}, profile={}",
                  result->toArrowString(), matchedCode, action->name, profile->name());
 
-        // 显示轨迹结果（带修饰键前缀时显示在箭头前面）
-        std::string resultLabel = modPrefix + result->toArrowString() + " " + action->name;
+        // 显示轨迹结果（仅显示手势动作名称，干净清晰）
+        std::string resultLabel = action->name;
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().endTrail(resultLabel);
         }
@@ -495,7 +512,7 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         // 把 TraceId 一并带入线程, 让动作执行日志与本次手势串在同一条链路上。
         enqueueAction(*action, m_gestureTraceId);
     } else {
-        // 有意义的手势但未绑定动作 → 按手势工具惯例直接消费 (不弹菜单)
+        // 未找到手势映射：直接隐藏，不显示任何 Toast
         LOG_DEBUG("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().hide();

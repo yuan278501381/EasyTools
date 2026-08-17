@@ -86,7 +86,20 @@ void KeyStroke::send() const {
         return;
     }
 
-    // 构造 INPUT 数组: 按下修饰键 → 主键 → 逆序释放
+    // 1. 确保前台窗口正常接收输入
+    HWND fg = GetForegroundWindow();
+    if (!fg) {
+        POINT pt;
+        GetCursorPos(&pt);
+        fg = WindowFromPoint(pt);
+        if (fg) fg = GetAncestor(fg, GA_ROOT);
+        if (fg) {
+            SetForegroundWindow(fg);
+        }
+    }
+
+    // 2. 构造原子性 INPUT 数组: 按下修饰键 → 主键按下 → 主键释放 → 逆序释放修饰键
+    // 必须在单次 SendInput 调用中原子性提交全部 Down 与 Up，绝不在中间插入 Sleep，彻底杜绝修饰键粘滞与幽灵按键问题
     std::vector<INPUT> inputs;
     inputs.reserve(10);
 
@@ -94,7 +107,14 @@ void KeyStroke::send() const {
         INPUT inp{};
         inp.type = INPUT_KEYBOARD;
         inp.ki.wVk = vk;
-        inp.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        inp.ki.wScan = 0;
+        inp.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0);
+        if (vk == VK_LWIN || vk == VK_RWIN || vk == VK_LEFT || vk == VK_RIGHT ||
+            vk == VK_UP || vk == VK_DOWN || vk == VK_DELETE || vk == VK_INSERT ||
+            vk == VK_HOME || vk == VK_END || vk == VK_PRIOR || vk == VK_NEXT ||
+            vk == VK_APPS) {
+            inp.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+        }
         inputs.push_back(inp);
     };
 
@@ -104,16 +124,21 @@ void KeyStroke::send() const {
         {MOD_SHIFT, VK_SHIFT},     {MOD_WIN, VK_LWIN},
     }};
 
+    // 按下修饰键
     for (auto [mod, vk] : kMods) {
         if (modifiers & mod) addKey(vk, /*up=*/false);
     }
+    // 按下主键
     addKey(virtualKey, /*up=*/false);
+
+    // 释放主键
     addKey(virtualKey, /*up=*/true);
     // 逆序释放修饰键
     for (auto it = kMods.rbegin(); it != kMods.rend(); ++it) {
         if (modifiers & it->first) addKey(it->second, /*up=*/true);
     }
 
+    // 原子性提交整组按键
     UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
     if (sent != inputs.size()) {
         LOG_WARN("SendInput 未完全发送: expected={}, sent={}, lastError={}",

@@ -72,6 +72,12 @@ void SettingsWindow::show(HINSTANCE hInstance) {
         m_visible = true;
         
         // 强制刷新 WebView2 尺寸和可见性（防御性编程）
+        if (m_webView) {
+            Microsoft::WRL::ComPtr<ICoreWebView2_3> webView3;
+            if (SUCCEEDED(m_webView.As(&webView3)) && webView3) {
+                webView3->Resume();
+            }
+        }
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
             RECT bounds;
@@ -130,6 +136,14 @@ void SettingsWindow::hide() {
         
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
+        }
+
+        // 挂起 Chromium 渲染管线以释放 GPU/DOM 显存与工作集
+        if (m_webView) {
+            Microsoft::WRL::ComPtr<ICoreWebView2_3> webView3;
+            if (SUCCEEDED(m_webView.As(&webView3)) && webView3) {
+                webView3->TrySuspend(nullptr);
+            }
         }
         
         LOG_DEBUG("设置窗口已隐藏");

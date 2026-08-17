@@ -154,13 +154,11 @@ bool KeycastOverlay::createResources() {
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-    const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
-    const auto rgb = easy::core::getAccentColorRGB(accent);
-
+    // 浮动文本 Toast 提示卡片：粗圆角矩形纯白色边框 + 透明深灰色底 + 白色按键文字
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushText);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.88f), &m_brushBg);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.70f), &m_brushBorder);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.90f), &m_brushBadgeBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.82f), &m_brushBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), &m_brushBorder);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.90f), &m_brushBadgeBg);
 
     if (!m_brushText || !m_brushBg || !m_brushBorder || !m_brushBadgeBg) {
         discardResources();
@@ -257,12 +255,10 @@ void KeycastOverlay::render() {
             DWRITE_TEXT_METRICS metrics;
             if (FAILED(layout->GetMetrics(&metrics))) return;
 
-            float paddingX = 36.0f * m_dpiScale;
+            float paddingX = 38.0f * m_dpiScale;
             float paddingY = 16.0f * m_dpiScale;
-            float boxW = metrics.width + paddingX * 2.0f;
-            float boxH = metrics.height + paddingY * 2.0f;
-            if (boxW < 90.0f * m_dpiScale) boxW = 90.0f * m_dpiScale;
-            if (boxH < 54.0f * m_dpiScale) boxH = 54.0f * m_dpiScale;
+            float boxW = (std::max)(metrics.width + paddingX * 2.0f, 136.0f * m_dpiScale);
+            float boxH = (std::max)(metrics.height + paddingY * 2.0f, 58.0f * m_dpiScale);
 
             float centerX = m_width / 2.0f;
             float centerY = m_height / 2.0f;
@@ -276,18 +272,18 @@ void KeycastOverlay::render() {
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f, centerX + boxW / 2.0f, centerY + boxH / 2.0f),
-                14.0f * m_dpiScale, 14.0f * m_dpiScale
+                16.0f * m_dpiScale, 16.0f * m_dpiScale
             );
 
-            // 1. 深色半透明卡片背景 (带当前动画透明度)
-            m_brushBg->SetOpacity(0.88f * currentOpacity);
+            // 1. 透明深灰色卡片背景
+            m_brushBg->SetOpacity(0.82f * currentOpacity);
             m_renderTarget->FillRoundedRectangle(&rrect, m_brushBg.Get());
 
-            // 2. 优雅细微紫色微发光边框
+            // 2. 粗圆角纯白色边框 (2.6px 粗边框)
             if (m_brushBorder) {
-                m_brushBorder->SetOpacity(0.55f * currentOpacity);
+                m_brushBorder->SetOpacity(0.95f * currentOpacity);
                 m_renderTarget->DrawRoundedRectangle(
-                    &rrect, m_brushBorder.Get(), 1.5f * m_dpiScale);
+                    &rrect, m_brushBorder.Get(), 2.6f * m_dpiScale);
             }
 
             // 3. 高质量文字排版

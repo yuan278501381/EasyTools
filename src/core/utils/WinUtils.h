@@ -269,6 +269,12 @@ public:
             return false;
         }
 
+        // 若具有标准标题栏（WS_CAPTION），说明是普通窗口或常规最大化窗口，非全屏独占模式
+        LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+        if ((style & WS_CAPTION) == WS_CAPTION) {
+            return false;
+        }
+
         // 获取窗口所在的显示器
         HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
         if (!hMon) return false;
@@ -280,7 +286,7 @@ public:
         RECT rcWindow{};
         if (!GetWindowRect(hwnd, &rcWindow)) return false;
 
-        // 判定窗口是否覆盖整个物理显示器区域
+        // 判定无边框窗口是否覆盖整个物理显示器区域（如 3D 游戏、F11全屏、全屏视频）
         return (rcWindow.left <= mi.rcMonitor.left &&
                 rcWindow.top <= mi.rcMonitor.top &&
                 rcWindow.right >= mi.rcMonitor.right &&

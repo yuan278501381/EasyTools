@@ -22,4 +22,23 @@ inline AccentColorRGB getAccentColorRGB(const std::string& accent) noexcept {
     return { 0.545f, 0.361f, 0.965f };                         // #8b5cf6 经典魅紫 (默认)
 }
 
+/**
+ * 解析用户自定义 HEX 颜色字符串为归一化 RGB 浮点数值
+ */
+inline AccentColorRGB parseHexColor(const std::string& hex) noexcept {
+    std::string h = hex;
+    if (!h.empty() && h[0] == '#') h = h.substr(1);
+    if (h.size() == 6) {
+        try {
+            unsigned long val = std::stoul(h, nullptr, 16);
+            return {
+                static_cast<float>((val >> 16) & 0xFF) / 255.0f,
+                static_cast<float>((val >> 8) & 0xFF) / 255.0f,
+                static_cast<float>(val & 0xFF) / 255.0f
+            };
+        } catch (...) {}
+    }
+    return { 0.545f, 0.361f, 0.965f };
+}
+
 }  // namespace easy::core

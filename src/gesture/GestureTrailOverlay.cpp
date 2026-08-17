@@ -3,10 +3,11 @@
 //
 // 核心原理:
 //   1. 创建 WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST 的全屏窗口
-//   2. 使用 Direct2D 绘制半透明轨迹线段
-//   3. 线段从起点到终点做渐变透明度变化
+//   2. 使用 Direct2D 绘制连续贝塞尔平滑轨迹，带双层霓虹微光流光特效
+//   3. 头部绘制发光能量微粒，提升绘制动感
 //   4. 手势绘制过程中及手势完成后显示按键回显风格的实时动作名称
 //   5. 窗口始终 click-through（WS_EX_TRANSPARENT），不影响用户操作
+//   6. 颜色支持独立自定义配置或动态联动系统主题强调色
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "gesture/GestureTrailOverlay.h"
@@ -47,8 +48,6 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
-    // 预热 D2D 与 DWrite 核心工厂库（消除首次 DLL/COM 加载延迟），
-    // 30MB 全屏 DIB 位图与 RenderTarget 在实际手势发生时按需生成并在退场时自动回收
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
     if (SUCCEEDED(hr)) {
         DWriteCreateFactory(
@@ -69,16 +68,135 @@ void GestureTrailOverlay::setStyle(const TrailStyle& style) {
     m_style = style;
     m_textScale = 0.0f;
     if (m_dwriteFactory) updateTextFormat(m_dpiScale);
-    if (m_renderTarget) {
-        const float r = ((m_style.lineColor >> 16) & 0xFF) / 255.0f;
-        const float g = ((m_style.lineColor >> 8) & 0xFF) / 255.0f;
-        const float b = (m_style.lineColor & 0xFF) / 255.0f;
-        ComPtr<ID2D1SolidColorBrush> brush;
-        if (SUCCEEDED(m_renderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(r, g, b, 1.0f), brush.GetAddressOf()))) {
-            m_lineBrush = std::move(brush);
+    reloadThemeColors();
+}
+
+void GestureTrailOverlay::reloadThemeColors() {
+    if (!m_renderTarget) return;
+
+    auto& cfg = easy::core::ConfigManager::instance();
+    const std::string colorMode = cfg.get<std::string>("/gesture/trailColorMode", "auto");
+    const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#8B5CF6");
+    m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 4.0f);
+
+    const std::string accent = cfg.get<std::string>("/general/accentColor", "violet");
+    const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
+
+    easy::core::AccentColorRGB trailRgb;
+    if (colorMode == "custom" && !customHex.empty()) {
+        trailRgb = easy::core::parseHexColor(customHex);
+    } else {
+        trailRgb = themeRgb;
+    }
+
+    // 主流光画笔（可自定义或跟随主题）
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(trailRgb.r, trailRgb.g, trailRgb.b, 1.0f),
+        m_lineBrush.ReleaseAndGetAddressOf()
+    );
+
+    // 外部柔光霓虹画笔
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(trailRgb.r, trailRgb.g, trailRgb.b, 0.40f),
+        m_glowBrush.ReleaseAndGetAddressOf()
+    );
+
+    // 检测是否为亮色主题
+    const std::string theme = cfg.get<std::string>("/general/theme", "system");
+    bool isLight = false;
+    if (theme == "light") {
+        isLight = true;
+    } else if (theme == "system") {
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            DWORD value = 1;
+            DWORD size = sizeof(value);
+            if (RegQueryValueExW(hKey, L"AppsUseLightTheme", nullptr, nullptr, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+                isLight = (value != 0);
+            }
+            RegCloseKey(hKey);
         }
     }
+
+    // 灰色画笔 (未匹配动作时使用的优雅高阶银灰色)
+    if (isLight) {
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.55f, 0.58f, 0.65f, 0.90f),
+            m_greyLineBrush.ReleaseAndGetAddressOf()
+        );
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.65f, 0.70f, 0.78f, 0.35f),
+            m_greyGlowBrush.ReleaseAndGetAddressOf()
+        );
+    } else {
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.60f, 0.65f, 0.75f, 0.85f),
+            m_greyLineBrush.ReleaseAndGetAddressOf()
+        );
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.40f, 0.45f, 0.55f, 0.30f),
+            m_greyGlowBrush.ReleaseAndGetAddressOf()
+        );
+    }
+
+    // 调侃红底画笔（亮色/暗色自适应）
+    if (isLight) {
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.92f, 0.18f, 0.24f, 0.94f),
+            m_excessiveBgBrush.ReleaseAndGetAddressOf()
+        );
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.78f, 0.10f, 0.16f, 0.85f),
+            m_excessiveBorderBrush.ReleaseAndGetAddressOf()
+        );
+    } else {
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.52f, 0.08f, 0.12f, 0.92f),
+            m_excessiveBgBrush.ReleaseAndGetAddressOf()
+        );
+        m_renderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0.96f, 0.28f, 0.36f, 0.85f),
+            m_excessiveBorderBrush.ReleaseAndGetAddressOf()
+        );
+    }
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f),
+        m_excessiveDotBrush.ReleaseAndGetAddressOf()
+    );
+
+    // 头部发光核心晶体画笔
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f),
+        m_headCoreBrush.ReleaseAndGetAddressOf()
+    );
+
+    // 浮动文本 Toast 提示卡片：粗圆角矩形白色边框 + (绘制中透明灰底 / 画完松手点亮主题色底) + 白色手势描述
+    // 1. 绘制过程中的透明灰色底 (半透明石墨灰毛玻璃底色)
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.82f),
+        m_textBgBrush.ReleaseAndGetAddressOf()
+    );
+    // 2. 画完松手执行时点亮的主题色底板
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.95f),
+        m_themeBgBrush.ReleaseAndGetAddressOf()
+    );
+    // 3. 粗圆角矩形纯白色边框
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f),
+        m_textBorderBrush.ReleaseAndGetAddressOf()
+    );
+    // 4. 白色手势描述文字
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f),
+        m_textBrush.ReleaseAndGetAddressOf()
+    );
+}
+
+void GestureTrailOverlay::setRecognized(bool recognized) {
+    m_isRecognized.store(recognized);
 }
 
 void GestureTrailOverlay::shutdown() {
@@ -115,14 +233,14 @@ void GestureTrailOverlay::clearCanvas() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
-    // 纯内存重置（< 1 微秒），严禁在钩子回调中做重型 D2D 重建或 UpdateLayeredWindow
     {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
         m_resultText.clear();
-        m_pathCache.clear();
+        m_smoothPathGeometry.Reset();
     }
 
+    m_isRecognized.store(false);
     m_fading = false;
     m_fadeAlpha = 1.0f;
 }
@@ -134,10 +252,18 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         if (!m_points.empty()) {
             float dx = x - m_points.back().x;
             float dy = y - m_points.back().y;
-            const float minimumDelta = 4.0f * m_dpiScale;
+            const float minimumDelta = 3.5f * m_dpiScale;
             if (dx * dx + dy * dy < minimumDelta * minimumDelta) return;
         }
         m_points.push_back({x, y, GetTickCount()});
+
+        // 关键性能防护：限制连续作画时的最大点数（300 点滑窗）
+        // 彻底杜绝连续绘制 15 秒以上由于点数上万导致的 Direct2D 样条计算积压与 2 秒延迟
+        constexpr size_t MAX_TRAIL_POINTS = 300;
+        if (m_points.size() > MAX_TRAIL_POINTS) {
+            m_points.erase(m_points.begin(), m_points.begin() + (m_points.size() - MAX_TRAIL_POINTS));
+        }
+
         hasVisibleTrail = m_points.size() >= 2;
     }
     if (hasVisibleTrail && m_hwnd) {
@@ -183,8 +309,9 @@ void GestureTrailOverlay::hide() {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
         m_resultText.clear();
-        m_pathCache.clear();
+        m_smoothPathGeometry.Reset();
     }
+    m_isRecognized.store(false);
     m_visible = false;
     m_fading = false;
     m_fadeAlpha = 1.0f;
@@ -202,51 +329,41 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = overlayWndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = nullptr;  // 透明
     wc.lpszClassName = OVERLAY_CLASS;
     RegisterClassExW(&wc);
 
-    // 覆盖整个虚拟屏幕（多显示器支持，使用物理边界防止高DPI错位）
-    RECT bounds = easy::core::WinUtils::getVirtualScreenPhysicalBounds();
-    int screenX = bounds.left;
-    int screenY = bounds.top;
-    int screenW = bounds.right - bounds.left;
-    int screenH = bounds.bottom - bounds.top;
-    m_originX = screenX;
-    m_originY = screenY;
-    m_width = screenW;
-    m_height = screenH;
+    m_originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    m_originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    m_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    m_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    // 创建隐藏的 Helper Owner 窗口，使覆盖层成为 Owned Window，杜绝 Windows Shell 派发顶层窗口通知导致任务栏图标跳动
     m_helperOwnerHwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-        L"STATIC", L"",
+        L"STATIC",
+        L"EasyTools_GestureTrailHelperOwner",
         WS_POPUP,
         0, 0, 0, 0,
         nullptr, nullptr, hInstance, nullptr
     );
 
     m_hwnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
         OVERLAY_CLASS,
-        L"",
+        L"EasyTools Gesture Trail",
         WS_POPUP,
-        screenX, screenY, screenW, screenH,
-        m_helperOwnerHwnd, nullptr, hInstance, this
+        m_originX, m_originY, m_width, m_height,
+        m_helperOwnerHwnd,
+        nullptr,
+        hInstance,
+        this
     );
 
     if (!m_hwnd) {
-        LOG_ERROR("CreateWindowExW 失败, error={}", GetLastError());
+        LOG_ERROR("创建手势轨迹窗口失败");
         return false;
     }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
-        LOG_WARN("当前 Windows 版本无法从捕获中排除手势轨迹: error={}", GetLastError());
-    }
-
-    LOG_DEBUG("轨迹覆盖层窗口已创建, screen={}x{} @ ({},{})", screenW, screenH, screenX, screenY);
     return true;
 }
 
@@ -256,24 +373,30 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
 
 bool GestureTrailOverlay::createD2DResources() {
     if (m_renderTarget && m_memoryDC && m_memoryBitmap && m_lineBrush && m_textBorderBrush) return true;
-    releaseD2DResources();
-    const auto fail = [this]() {
+
+    auto fail = [this]() {
         releaseD2DResources();
         return false;
     };
-    HRESULT hr;
+
+    HRESULT hr = S_OK;
 
     // D2D 工厂
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    if (FAILED(hr)) return fail();
+    if (!m_d2dFactory) {
+        D2D1_FACTORY_OPTIONS options{};
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, options, m_d2dFactory.GetAddressOf());
+        if (FAILED(hr)) return fail();
+    }
 
-    // DWrite 工厂
-    hr = DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())
-    );
-    if (FAILED(hr)) return fail();
+    // DirectWrite 工厂
+    if (!m_dwriteFactory) {
+        hr = DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())
+        );
+        if (FAILED(hr)) return fail();
+    }
 
     if (!updateTextFormat(m_dpiScale)) return fail();
 
@@ -308,23 +431,9 @@ bool GestureTrailOverlay::createD2DResources() {
     RECT memRect = { 0, 0, m_width, m_height };
     if (FAILED(m_renderTarget->BindDC(m_memoryDC, &memRect))) return fail();
 
-    // 禁用 D2D 的自动 DPI 缩放，使逻辑坐标 1:1 映射到物理像素 (因为输入坐标已是物理像素)
     m_renderTarget->SetDpi(96.0f, 96.0f);
 
-    // 画笔
-    float r = ((m_style.lineColor >> 16) & 0xFF) / 255.0f;
-    float g = ((m_style.lineColor >> 8) & 0xFF) / 255.0f;
-    float b = (m_style.lineColor & 0xFF) / 255.0f;
-
-    const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
-    const auto accentRgb = easy::core::getAccentColorRGB(accent);
-
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), m_lineBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.88f), m_textBgBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(accentRgb.r, accentRgb.g, accentRgb.b, 0.70f), m_textBorderBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.96f, 0.98f, 1.0f), m_textBrush.GetAddressOf());
-
-    // 笔触样式 (使线段更平滑，具有圆头)
+    // 笔触样式 (使线段更平滑，具有圆润笔头与圆角拐弯)
     D2D1_STROKE_STYLE_PROPERTIES strokeProps = D2D1::StrokeStyleProperties(
         D2D1_CAP_STYLE_ROUND,
         D2D1_CAP_STYLE_ROUND,
@@ -335,8 +444,12 @@ bool GestureTrailOverlay::createD2DResources() {
         0.0f
     );
     hr = m_d2dFactory->CreateStrokeStyle(strokeProps, nullptr, 0, m_strokeStyle.GetAddressOf());
+    if (FAILED(hr)) return fail();
 
-    if (FAILED(hr) || !m_lineBrush || !m_textBgBrush || !m_textBorderBrush || !m_textBrush) return fail();
+    // 动态加载画笔与强调色
+    reloadThemeColors();
+
+    if (!m_lineBrush || !m_textBgBrush || !m_textBorderBrush || !m_textBrush) return fail();
     return true;
 }
 
@@ -348,7 +461,7 @@ bool GestureTrailOverlay::updateTextFormat(float dpiScale) {
     const HRESULT hr = m_dwriteFactory->CreateTextFormat(
         L"Segoe UI",
         nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
         m_style.resultFontSize * dpiScale,
@@ -364,10 +477,18 @@ bool GestureTrailOverlay::updateTextFormat(float dpiScale) {
 }
 
 void GestureTrailOverlay::releaseD2DResources() {
-    m_pathCache.clear();
+    m_smoothPathGeometry.Reset();
+    m_headCoreBrush.Reset();
+    m_glowBrush.Reset();
+    m_greyGlowBrush.Reset();
+    m_greyLineBrush.Reset();
+    m_excessiveDotBrush.Reset();
+    m_excessiveBorderBrush.Reset();
+    m_excessiveBgBrush.Reset();
     m_textBrush.Reset();
     m_textBorderBrush.Reset();
     m_textBgBrush.Reset();
+    m_themeBgBrush.Reset();
     m_lineBrush.Reset();
     m_textFormat.Reset();
     m_textScale = 0.0f;
@@ -402,88 +523,93 @@ void GestureTrailOverlay::render() {
 
     std::lock_guard lock(m_trailMutex);
 
-    if (m_points.size() >= 2) {
-        size_t numSegments = m_points.size() - 1;
-        if (m_pathCache.size() < numSegments) {
-            m_pathCache.resize(numSegments);
-        }
+    // 根据识别状态动态切换线条画笔（没识别到为灰色，识别到为主体色）
+    ID2D1SolidColorBrush* activeGlow = m_isRecognized.load() ? m_glowBrush.Get() : m_greyGlowBrush.Get();
+    ID2D1SolidColorBrush* activeLine = m_isRecognized.load() ? m_lineBrush.Get() : m_greyLineBrush.Get();
 
-        // 仅重建缺少或需要更新的最后两段（因为新点的加入会影响前一段的结束点）
-        for (size_t i = 0; i < numSegments; ++i) {
-            bool isLast = (i == numSegments - 1);
-            bool isSecondLast = (i + 1 == numSegments - 1);
-            
-            if (m_pathCache[i] == nullptr || isLast || isSecondLast) {
-                if (FAILED(m_d2dFactory->CreatePathGeometry(
-                        m_pathCache[i].ReleaseAndGetAddressOf())) || !m_pathCache[i]) {
-                    continue;
-                }
-                
-                ComPtr<ID2D1GeometrySink> sink;
-                if (FAILED(m_pathCache[i]->Open(&sink)) || !sink) {
-                    m_pathCache[i].Reset();
-                    continue;
-                }
-                
+    if (m_points.size() >= 2 && m_d2dFactory) {
+        ComPtr<ID2D1PathGeometry> pathGeometry;
+        if (SUCCEEDED(m_d2dFactory->CreatePathGeometry(pathGeometry.GetAddressOf()))) {
+            ComPtr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(pathGeometry->Open(&sink))) {
                 auto getPt = [&](size_t idx) -> D2D1_POINT_2F {
                     return D2D1::Point2F(m_points[idx].x - m_originX, m_points[idx].y - m_originY);
                 };
-                
-                D2D1_POINT_2F p0 = getPt(i);
-                D2D1_POINT_2F p1 = getPt(i + 1);
-                
-                D2D1_POINT_2F startPt, ctrlPt, endPt;
-                if (i == 0) {
-                    startPt = p0;
+
+                D2D1_POINT_2F p0 = getPt(0);
+                sink->BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+
+                if (m_points.size() == 2) {
+                    sink->AddLine(getPt(1));
                 } else {
-                    startPt = D2D1::Point2F((p0.x + p1.x) / 2.0f, (p0.y + p1.y) / 2.0f);
-                }
-                
-                ctrlPt = p1;
-                
-                if (isLast) {
-                    endPt = p1;
-                } else {
-                    D2D1_POINT_2F p2 = getPt(i + 2);
-                    endPt = D2D1::Point2F((p1.x + p2.x) / 2.0f, (p1.y + p2.y) / 2.0f);
+                    // 中点连续平滑二次贝塞尔样条插值，消除直角折线感与接缝
+                    for (size_t i = 0; i < m_points.size() - 2; ++i) {
+                        D2D1_POINT_2F pCurr = getPt(i);
+                        D2D1_POINT_2F pNext = getPt(i + 1);
+                        D2D1_POINT_2F pAfter = getPt(i + 2);
+                        
+                        D2D1_POINT_2F startPt = (i == 0) ? pCurr : D2D1::Point2F((pCurr.x + pNext.x) / 2.0f, (pCurr.y + pNext.y) / 2.0f);
+                        D2D1_POINT_2F midPt = D2D1::Point2F((pNext.x + pAfter.x) / 2.0f, (pNext.y + pAfter.y) / 2.0f);
+                        
+                        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(pNext, midPt));
+                    }
+                    // 最后一笔顺滑收尾到终点
+                    sink->AddLine(getPt(m_points.size() - 1));
                 }
 
-                sink->BeginFigure(startPt, D2D1_FIGURE_BEGIN_HOLLOW);
-                sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(ctrlPt, endPt));
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);
-                if (FAILED(sink->Close())) m_pathCache[i].Reset();
+                sink->Close();
+
+                // 1. Pass 1: 绘制外部柔光霓虹 (Outer Neon Bloom)
+                if (activeGlow) {
+                    activeGlow->SetOpacity(0.25f * m_fadeAlpha);
+                    m_renderTarget->DrawGeometry(
+                        pathGeometry.Get(), activeGlow,
+                        (m_style.lineWidth * 2.5f) * m_dpiScale, m_strokeStyle.Get());
+                }
+
+                // 2. Pass 2: 绘制内部高亮核心线条 (Inner Solid Core)
+                if (activeLine) {
+                    activeLine->SetOpacity(0.92f * m_fadeAlpha);
+                    m_renderTarget->DrawGeometry(
+                        pathGeometry.Get(), activeLine,
+                        m_style.lineWidth * m_dpiScale, m_strokeStyle.Get());
+                }
             }
         }
 
-        // 绘制所有贝塞尔段（渐变透明度）
-        for (size_t i = 0; i < numSegments; ++i) {
-            float progress = static_cast<float>(i) / static_cast<float>(numSegments);
-            float alpha = m_style.startOpacity - progress * (m_style.startOpacity - m_style.endOpacity);
-            alpha *= m_fadeAlpha;
-
-            m_lineBrush->SetOpacity(alpha);
-
-            if (m_pathCache[i]) {
-                m_renderTarget->DrawGeometry(
-                    m_pathCache[i].Get(), m_lineBrush.Get(),
-                    m_style.lineWidth * m_dpiScale, m_strokeStyle.Get());
-            }
-        }
-
-        // 绘制轨迹头部发光点
-        if (!m_fading) {
+        // 3. Pass 3: 绘制笔尖发光能量微粒 (Luminous Head Bead)
+        if (!m_fading && !m_points.empty()) {
             const auto& lastPt = m_points.back();
-            m_lineBrush->SetOpacity(0.8f);
-            m_renderTarget->FillEllipse(
-                D2D1::Ellipse(
-                    D2D1::Point2F(lastPt.x - m_originX, lastPt.y - m_originY),
-                    5.0f * m_dpiScale, 5.0f * m_dpiScale),
-                m_lineBrush.Get()
-            );
+            D2D1_POINT_2F headPt = D2D1::Point2F(lastPt.x - m_originX, lastPt.y - m_originY);
+
+            // 外层环境光环
+            if (activeGlow) {
+                activeGlow->SetOpacity(0.40f * m_fadeAlpha);
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(headPt, 8.0f * m_dpiScale, 8.0f * m_dpiScale),
+                    activeGlow);
+            }
+
+            // 中层强调色光球
+            if (activeLine) {
+                activeLine->SetOpacity(0.95f * m_fadeAlpha);
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(headPt, 4.5f * m_dpiScale, 4.5f * m_dpiScale),
+                    activeLine);
+            }
+
+            // 核心晶体白点
+            if (m_headCoreBrush) {
+                m_headCoreBrush->SetOpacity(0.90f * m_fadeAlpha);
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(headPt, 2.0f * m_dpiScale, 2.0f * m_dpiScale),
+                    m_headCoreBrush.Get());
+            }
         }
     }
 
-    // 绘制识别结果与实时动作名称文字（按键回显风格浮动卡片）
+    // 绘制识别结果与实时动作名称文字（屏幕底部 82% 高度居中按键回显风格卡片）
     if (!m_resultText.empty() && !m_points.empty()) {
         POINT ptCursor;
         GetCursorPos(&ptCursor);
@@ -495,58 +621,111 @@ void GestureTrailOverlay::render() {
         float centerX = static_cast<float>(work.left + work.right) / 2.0f - m_originX;
         float centerY = work.top + static_cast<float>(work.bottom - work.top) * 0.82f - m_originY;
 
-        const std::wstring wText = hasTextFormat
-            ? easy::core::WinUtils::utf8ToWstring(m_resultText) : std::wstring{};
+        const bool isExcessive = (m_resultText == "•••");
 
-        if (hasTextFormat && !wText.empty() && m_dwriteFactory) {
-            ComPtr<IDWriteTextLayout> layout;
-            m_dwriteFactory->CreateTextLayout(
-                wText.c_str(), static_cast<UINT32>(wText.length()),
-                m_textFormat.Get(),
-                10000.0f, 1000.0f,
-                layout.GetAddressOf()
-            );
-
-            float boxW = 120.0f * resultScale;
-            float boxH = 48.0f * resultScale;
-            if (layout) {
-                layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-                layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-                DWRITE_TEXT_METRICS metrics{};
-                if (SUCCEEDED(layout->GetMetrics(&metrics))) {
-                    float paddingX = 28.0f * resultScale;
-                    float paddingY = 14.0f * resultScale;
-                    boxW = (std::max)(metrics.width + paddingX * 2.0f, 90.0f * resultScale);
-                    boxH = (std::max)(metrics.height + paddingY * 2.0f, 44.0f * resultScale);
-                }
-            }
+        if (isExcessive) {
+            // 调侃状态：红底卡片 + 3 个饱满圆滑的白色大圆点（更大气舒展的黄金比例）
+            float boxW = 126.0f * resultScale;
+            float boxH = 58.0f * resultScale;
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
                             centerX + boxW / 2.0f, centerY + boxH / 2.0f),
-                12.0f * resultScale, 12.0f * resultScale
+                16.0f * resultScale, 16.0f * resultScale
             );
 
-            // 1. 深色半透明卡片背景 (Keycast 风格)
-            m_textBgBrush->SetOpacity(0.88f * m_fadeAlpha);
-            m_renderTarget->FillRoundedRectangle(&rrect, m_textBgBrush.Get());
-
-            // 2. 优雅紫调微发光描边
-            if (m_textBorderBrush) {
-                m_textBorderBrush->SetOpacity(0.60f * m_fadeAlpha);
-                m_renderTarget->DrawRoundedRectangle(
-                    &rrect, m_textBorderBrush.Get(), 1.5f * resultScale);
+            // 1. 红底半透明背景 (调侃状态)
+            if (m_excessiveBgBrush) {
+                m_excessiveBgBrush->SetOpacity(0.94f * m_fadeAlpha);
+                m_renderTarget->FillRoundedRectangle(&rrect, m_excessiveBgBrush.Get());
             }
 
-            // 3. 高清居中文本渲染
-            m_textBrush->SetOpacity(m_fadeAlpha);
-            m_renderTarget->DrawText(
-                wText.c_str(),
-                static_cast<UINT32>(wText.size()),
-                m_textFormat.Get(),
-                D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
-                            centerX + boxW / 2.0f, centerY + boxH / 2.0f),
-                m_textBrush.Get());
+            // 2. 粗圆角边框 (2.6px 粗边框)
+            if (m_excessiveBorderBrush) {
+                m_excessiveBorderBrush->SetOpacity(0.95f * m_fadeAlpha);
+                m_renderTarget->DrawRoundedRectangle(
+                    &rrect, m_excessiveBorderBrush.Get(), 2.6f * resultScale);
+            }
+
+            // 3. 3 个大圆点（直径约 12px，饱满醒目可爱）
+            if (m_excessiveDotBrush) {
+                m_excessiveDotBrush->SetOpacity(m_fadeAlpha);
+                const float dotRadius = 6.0f * resultScale;
+                const float dotSpacing = 22.0f * resultScale;
+
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(centerX - dotSpacing, centerY), dotRadius, dotRadius),
+                    m_excessiveDotBrush.Get());
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(centerX, centerY), dotRadius, dotRadius),
+                    m_excessiveDotBrush.Get());
+                m_renderTarget->FillEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(centerX + dotSpacing, centerY), dotRadius, dotRadius),
+                    m_excessiveDotBrush.Get());
+            }
+        } else {
+            // 正常动作描述 Toast：粗圆角矩形白色边框 + (绘制中透明灰底 / 画完松手点亮主题色底) + 白色手势描述
+            const std::wstring wText = hasTextFormat
+                ? easy::core::WinUtils::utf8ToWstring(m_resultText) : std::wstring{};
+
+            if (hasTextFormat && !wText.empty() && m_dwriteFactory) {
+                ComPtr<IDWriteTextLayout> layout;
+                m_dwriteFactory->CreateTextLayout(
+                    wText.c_str(), static_cast<UINT32>(wText.length()),
+                    m_textFormat.Get(),
+                    10000.0f, 1000.0f,
+                    layout.GetAddressOf()
+                );
+
+                float boxW = 140.0f * resultScale;
+                float boxH = 58.0f * resultScale;
+                if (layout) {
+                    layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                    DWRITE_TEXT_METRICS metrics{};
+                    if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+                        // 黄金呼吸比例：更大更舒展的水平与垂直安全内边距，告别窄小拥挤
+                        float paddingX = 38.0f * resultScale;
+                        float paddingY = 16.0f * resultScale;
+                        boxW = (std::max)(metrics.width + paddingX * 2.0f, 136.0f * resultScale);
+                        boxH = (std::max)(metrics.height + paddingY * 2.0f, 58.0f * resultScale);
+                    }
+                }
+
+                D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
+                    D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
+                                centerX + boxW / 2.0f, centerY + boxH / 2.0f),
+                    16.0f * resultScale, 16.0f * resultScale
+                );
+
+                // 1. 底色：画完松手时变成主题色底，绘制过程中为透明灰色底
+                if (m_fading && m_themeBgBrush) {
+                    m_themeBgBrush->SetOpacity(0.95f * m_fadeAlpha);
+                    m_renderTarget->FillRoundedRectangle(&rrect, m_themeBgBrush.Get());
+                } else if (m_textBgBrush) {
+                    m_textBgBrush->SetOpacity(0.82f * m_fadeAlpha);
+                    m_renderTarget->FillRoundedRectangle(&rrect, m_textBgBrush.Get());
+                }
+
+                // 2. 粗圆角矩形纯白色边框 (2.6px 粗边框)
+                if (m_textBorderBrush) {
+                    m_textBorderBrush->SetOpacity(0.95f * m_fadeAlpha);
+                    m_renderTarget->DrawRoundedRectangle(
+                        &rrect, m_textBorderBrush.Get(), 2.6f * resultScale);
+                }
+
+                // 3. 白色手势描述文字
+                if (m_textBrush) {
+                    m_textBrush->SetOpacity(m_fadeAlpha);
+                    m_renderTarget->DrawText(
+                        wText.c_str(),
+                        static_cast<UINT32>(wText.size()),
+                        m_textFormat.Get(),
+                        D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
+                                    centerX + boxW / 2.0f, centerY + boxH / 2.0f),
+                        m_textBrush.Get());
+                }
+            }
         }
     }
 
@@ -596,13 +775,11 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
             if (!self) break;
 
             if (wParam == RENDER_TIMER_ID) {
-                // 实时渲染轨迹
                 self->render();
                 if (!self->m_visible.exchange(true)) {
                     ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
                 }
             } else if (wParam == FADE_TIMER_ID) {
-                // 淡出动画
                 DWORD elapsed = GetTickCount() - self->m_fadeStartTick;
                 float progress = static_cast<float>(elapsed) / self->m_style.fadeOutMs;
 
@@ -620,7 +797,6 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
         }
 
         case WM_DISPLAYCHANGE: {
-            // 显示器配置变化，重新调整窗口大小
             if (self && self->m_hwnd) {
                 int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
                 int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -632,7 +808,6 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                 self->m_height = h;
                 MoveWindow(self->m_hwnd, x, y, w, h, FALSE);
 
-                // 重建内存位图并重新绑定 DC
                 if (self->m_memoryDC) {
                     HDC hdcScreen = GetDC(nullptr);
                     BITMAPINFO bmi{};
@@ -669,7 +844,7 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
                     } else if (!replacement) {
                         self->releaseD2DResources();
                     }
-                    self->m_pathCache.clear();
+                    self->m_smoothPathGeometry.Reset();
                 }
             }
             return 0;

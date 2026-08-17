@@ -39,7 +39,7 @@ struct TrailStyle {
     float fadeOutMs     = 350.0f;   // 淡出时间(毫秒)
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
-    float resultFontSize = 20.0f;   // 结果文字大小 (按键回显质感尺寸)
+    float resultFontSize = 24.0f;   // 结果文字大小 (世界级大气醒目尺寸)
 };
 
 class GestureTrailOverlay {
@@ -61,6 +61,9 @@ public:
     /// 实时更新当前手势识别到的动作名称（按键回显风格）
     void setLiveAction(const std::string& actionText);
 
+    /// 设置当前手势是否已命中识别动作（未命中时显示灰色，命中时显示主题/设置颜色）
+    void setRecognized(bool recognized);
+
     /// 结束手势轨迹，显示识别结果（如 "← 后退"）
     void endTrail(const std::string& resultText = "");
 
@@ -75,6 +78,9 @@ public:
 
     /// 立即隐藏
     void hide();
+
+    /// 重新根据全局配置与主题加载画笔颜色
+    void reloadThemeColors();
 
     /// 设置样式
     void setStyle(const TrailStyle& style);
@@ -119,8 +125,8 @@ private:
     std::vector<TrailPoint> m_points;
     std::string m_resultText;
 
-    // 缓存每段的贝塞尔曲线 PathGeometry 以提升性能
-    std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> m_pathCache;
+    // 缓存平滑贝塞尔曲线 PathGeometry 以提升渲染性能
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> m_smoothPathGeometry;
 
     // Direct2D 资源
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
@@ -133,10 +139,20 @@ private:
     float m_dpiScale = 1.0f;
     float m_textScale = 0.0f;
     
+    std::atomic<bool> m_isRecognized{false};
+
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_lineBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_glowBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_greyLineBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_greyGlowBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_headCoreBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBgBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_themeBgBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBorderBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_excessiveBgBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_excessiveBorderBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_excessiveDotBrush;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> m_strokeStyle;

@@ -147,83 +147,87 @@ export const SearchPage: FC = () => {
       {activeTab === 'settings' && (
         <div className="search-page__content">
           <SettingGroup title={t('searchPage.hotkeyConfig', '快捷键与触发')} icon={<Sparkles size={18} />}>
-            <SettingRow
-              label={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{t('searchPage.toggleHotkey', '呼出/隐藏搜索框快捷键')}</span>
-                  <HotkeyStatusBadge entry={getHotkey('Toggle Search')} />
-                </div>
-              }
-              description={t('searchPage.toggleHotkeyDesc', '默认 Alt + Space，全局即刻唤起 Fluent 浮空搜索条')}
-            >
-              <HotkeyRecorder
-                id="search-toggle-hotkey"
-                value={settings.hotkey}
-                onChange={handleHotkeyChange}
-                placeholder="Alt+Space"
-              />
-            </SettingRow>
+            <Card>
+              <SettingRow
+                label={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>{t('searchPage.toggleHotkey', '呼出/隐藏搜索框快捷键')}</span>
+                    <HotkeyStatusBadge entry={getHotkey('Toggle Search')} />
+                  </div>
+                }
+                description={t('searchPage.toggleHotkeyDesc', '默认 Alt + Space，全局即刻唤起 Fluent 浮空搜索条')}
+              >
+                <HotkeyRecorder
+                  id="search-toggle-hotkey"
+                  value={settings.hotkey}
+                  onChange={handleHotkeyChange}
+                  placeholder="Alt+Space"
+                />
+              </SettingRow>
 
-            <SettingRow
-              label={t('searchPage.quickTest', '立即体验搜索')}
-              description={t('searchPage.quickTestDesc', '测试浮动搜索条的动画弹出与响应速度')}
-            >
-              <Button variant="primary" onClick={launchSearch}>
-                <Play size={14} style={{ marginRight: 6 }} />
-                {t('searchPage.openNow', '唤起搜索框')}
-              </Button>
-            </SettingRow>
+              <SettingRow
+                label={t('searchPage.quickTest', '立即体验搜索')}
+                description={t('searchPage.quickTestDesc', '测试浮动搜索条的动画弹出与响应速度')}
+              >
+                <Button variant="primary" onClick={launchSearch}>
+                  <Play size={14} style={{ marginRight: 6 }} />
+                  {t('searchPage.openNow', '唤起搜索框')}
+                </Button>
+              </SettingRow>
+            </Card>
           </SettingGroup>
 
           <SettingGroup title={t('searchPage.searchBehavior', '搜索偏好与行为')} icon={<FolderSearch size={18} />}>
-            <SettingRow
-              label={t('searchPage.pinyinTitle', '智能拼音搜索')}
-              description={t('searchPage.pinyinDesc', '支持中文拼音首字母（如 wx 搜微信）和全拼检索')}
-            >
-              <Toggle
-                id="search-pinyin-toggle"
-                checked={settings.pinyinEnabled}
-                onChange={v => saveSetting('pinyinEnabled', v)}
-              />
-            </SettingRow>
+            <Card>
+              <SettingRow
+                label={t('searchPage.pinyinTitle', '智能拼音搜索')}
+                description={t('searchPage.pinyinDesc', '支持中文拼音首字母（如 wx 搜微信）和全拼检索')}
+              >
+                <Toggle
+                  id="search-pinyin-toggle"
+                  checked={settings.pinyinEnabled}
+                  onChange={v => saveSetting('pinyinEnabled', v)}
+                />
+              </SettingRow>
 
-            <SettingRow
-              label={t('searchPage.matchPathTitle', '默认匹配完整路径')}
-              description={t('searchPage.matchPathDesc', '开启后搜索词将在文件绝对路径中检索，而非仅文件名')}
-            >
-              <Toggle
-                id="search-matchpath-toggle"
-                checked={settings.matchPath}
-                onChange={v => saveSetting('matchPath', v)}
-              />
-            </SettingRow>
+              <SettingRow
+                label={t('searchPage.matchPathTitle', '默认匹配完整路径')}
+                description={t('searchPage.matchPathDesc', '开启后搜索词将在文件绝对路径中检索，而非仅文件名')}
+              >
+                <Toggle
+                  id="search-matchpath-toggle"
+                  checked={settings.matchPath}
+                  onChange={v => saveSetting('matchPath', v)}
+                />
+              </SettingRow>
 
-            <SettingRow
-              label={t('searchPage.caseTitle', '区分大小写')}
-              description={t('searchPage.caseDesc', '默认不区分大小写；可随时在搜索词中使用 case: 前缀临时开启')}
-            >
-              <Toggle
-                id="search-case-toggle"
-                checked={settings.caseSensitive}
-                onChange={v => saveSetting('caseSensitive', v)}
-              />
-            </SettingRow>
+              <SettingRow
+                label={t('searchPage.caseTitle', '区分大小写')}
+                description={t('searchPage.caseDesc', '默认不区分大小写；可随时在搜索词中使用 case: 前缀临时开启')}
+              >
+                <Toggle
+                  id="search-case-toggle"
+                  checked={settings.caseSensitive}
+                  onChange={v => saveSetting('caseSensitive', v)}
+                />
+              </SettingRow>
 
-            <SettingRow
-              label={t('searchPage.maxResultsTitle', '最大返回结果数')}
-              description={t('searchPage.maxResultsDesc', '限制单次查询返回条目数以保证极致流畅度')}
-            >
-              <Select
-                value={String(settings.maxResults)}
-                options={[
-                  { value: '20', label: '20 条 (极速)' },
-                  { value: '50', label: '50 条 (推荐)' },
-                  { value: '100', label: '100 条' },
-                  { value: '200', label: '200 条 (完整)' },
-                ]}
-                onChange={v => saveSetting('maxResults', Number(v))}
-              />
-            </SettingRow>
+              <SettingRow
+                label={t('searchPage.maxResultsTitle', '最大返回结果数')}
+                description={t('searchPage.maxResultsDesc', '限制单次查询返回条目数以保证极致流畅度')}
+              >
+                <Select
+                  value={String(settings.maxResults)}
+                  options={[
+                    { value: '20', label: '20 条 (极速)' },
+                    { value: '50', label: '50 条 (推荐)' },
+                    { value: '100', label: '100 条' },
+                    { value: '200', label: '200 条 (完整)' },
+                  ]}
+                  onChange={v => saveSetting('maxResults', Number(v))}
+                />
+              </SettingRow>
+            </Card>
           </SettingGroup>
         </div>
       )}

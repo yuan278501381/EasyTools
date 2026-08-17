@@ -54,11 +54,16 @@ void MouseHook::setEventCallback(MouseEventCallback callback) {
     m_callback = std::move(callback);
 }
 
+void MouseHook::setTriggerMode(TriggerMode mode) {
+    m_configuredTriggerMode.store(mode, std::memory_order_release);
+    LOG_INFO("鼠标手势触发模式已更新: mode={}", static_cast<int>(mode));
+}
+
 void MouseHook::setTriggerButton(MouseEventType downEvent) {
-    if (downEvent != MouseEventType::RightDown &&
-        downEvent != MouseEventType::MiddleDown) {
-        LOG_WARN("忽略无效的鼠标手势触发键配置: {}", static_cast<int>(downEvent));
-        return;
+    if (downEvent == MouseEventType::MiddleDown) {
+        setTriggerMode(TriggerMode::MiddleOnly);
+    } else {
+        setTriggerMode(TriggerMode::RightOnly);
     }
     m_configuredTriggerDown.store(downEvent, std::memory_order_release);
 }
@@ -126,16 +131,6 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             switch (wParam) {
                 case WM_MOUSEMOVE: {
                     event.type = MouseEventType::Move;
-                    // 自愈检查：若标记为按下但物理按键已抬起，则立即自愈复位并通知引擎，防止状态失步导致假死
-                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
-                        int vKey = (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) ? VK_MBUTTON : VK_RBUTTON;
-                        if ((GetAsyncKeyState(vKey) & 0x8000) == 0) {
-                            self.m_triggerButtonDown.store(false, std::memory_order_release);
-                            MouseEvent cancelEvt = event;
-                            cancelEvt.type = (vKey == VK_MBUTTON) ? MouseEventType::MiddleUp : MouseEventType::RightUp;
-                            self.processEvent(cancelEvt);
-                        }
-                    }
 
                     // Idle mouse moves are the dominant system-wide hot path.
                     // Only enter the gesture engine while a possible trigger
@@ -156,17 +151,19 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     lastPt = data->pt;
                     break;
                 }
-                case WM_RBUTTONDOWN:
+                case WM_RBUTTONDOWN: {
                     event.type = MouseEventType::RightDown;
+                    const auto mode = self.m_configuredTriggerMode.load(std::memory_order_relaxed);
                     if (gestureEnabled &&
                         !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        self.m_configuredTriggerDown.load(std::memory_order_relaxed) == event.type) {
+                        (mode == TriggerMode::RightOnly || mode == TriggerMode::Both)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
                         shouldCapture = true;
                     }
                     easy::core::StatsManager::instance().recordRightClick();
                     break;
+                }
                 case WM_RBUTTONUP:
                     event.type = MouseEventType::RightUp;
                     if (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::RightDown) {
@@ -174,16 +171,18 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
                     }
                     break;
-                case WM_MBUTTONDOWN:
+                case WM_MBUTTONDOWN: {
                     event.type = MouseEventType::MiddleDown;
+                    const auto mode = self.m_configuredTriggerMode.load(std::memory_order_relaxed);
                     if (gestureEnabled &&
                         !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        self.m_configuredTriggerDown.load(std::memory_order_relaxed) == event.type) {
+                        (mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
                         shouldCapture = true;
                     }
                     break;
+                }
                 case WM_MBUTTONUP:
                     event.type = MouseEventType::MiddleUp;
                     if (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) {

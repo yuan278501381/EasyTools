@@ -32,6 +32,7 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/utils/DpiUtils.h"
+#include "core/utils/ThemeUtils.h"
 #include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
 #include "service/SearchExpression.h"
@@ -126,6 +127,30 @@ static void test_recognizer() {
 
     // 防抖: 位移小于最小段距离 → 无效手势
     CHECK_EQ(recognize({{0, 0}, {20, 0}}), "");
+
+    // 智能转弯圆角平滑消抖 (Corner Fillet Folding)
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Right})), "D-R");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::DownRight, Direction::Down})), "R-D");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownLeft, Direction::Left})), "D-L");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpRight, Direction::Right})), "U-R");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpLeft, Direction::Left})), "U-L");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::DownLeft, Direction::Down})), "L-D");
+    
+    // 孤立回弹微抖动消除 (Rebound Jitter Elimination)
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Down})), "D");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight, Direction::Right})), "R");
+
+    // 真正对角手势保留
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight})), "DR");
+    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "DR-R");
+
+    // HEX 颜色解析测试
+    auto parsed = easy::core::parseHexColor("#FF0000");
+    CHECK(parsed.r == 1.0f);
+    CHECK(parsed.g == 0.0f);
+    CHECK(parsed.b == 0.0f);
+    auto invalidHex = easy::core::parseHexColor("invalid");
+    CHECK(invalidHex.r > 0.0f);
 }
 
 static void test_scoperule() {

@@ -48,6 +48,8 @@ import {
   SlidersHorizontal,
   Folder,
   AppWindow,
+  Sparkles,
+  Palette,
 } from 'lucide-react';
 import './GesturePage.css';
 
@@ -62,7 +64,19 @@ interface GestureState {
   triggerButton: string;
   trailVisible: boolean;
   autoBypassFullscreen?: boolean;
+  trailColorMode?: 'auto' | 'custom';
+  trailColor?: string;
+  trailWidth?: number;
 }
+
+const TRAIL_COLOR_PRESETS = [
+  { name: '魅紫', hex: '#8B5CF6' },
+  { name: '极光青', hex: '#06B6D4' },
+  { name: '曜石金', hex: '#F59E0B' },
+  { name: '深海蓝', hex: '#3B82F6' },
+  { name: '薄荷绿', hex: '#10B981' },
+  { name: '暮霞珊瑚', hex: '#F43F5E' },
+];
 
 interface OperationResult {
   success: boolean;
@@ -80,6 +94,9 @@ export const GesturePage: FC = () => {
   const [trailVisible, setTrailVisible] = useState(true);
   const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(false);
   const [triggerButton, setTriggerButton] = useState('right');
+  const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
+  const [trailColor, setTrailColor] = useState('#8B5CF6');
+  const [trailWidth, setTrailWidth] = useState(4.0);
   
   // Profiles & Rules
   const [profiles, setProfiles] = useState<Record<string, GestureMapping[]>>({ default: [] });
@@ -139,6 +156,9 @@ export const GesturePage: FC = () => {
         setTriggerButton(state.triggerButton ?? 'right');
         setTrailVisible(state.trailVisible ?? true);
         setAutoBypassFullscreen(state.autoBypassFullscreen ?? false);
+        setTrailColorMode(state.trailColorMode ?? 'auto');
+        setTrailColor(state.trailColor ?? '#8B5CF6');
+        setTrailWidth(state.trailWidth ?? 4.0);
 
         const pMap: Record<string, GestureMapping[]> = {};
         if (Array.isArray(profileList)) {
@@ -362,6 +382,40 @@ export const GesturePage: FC = () => {
     }
   };
 
+  const handleToggleTrailColorMode = async (mode: 'auto' | 'custom') => {
+    setTrailColorMode(mode);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailColorMode: mode });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+    } catch (err) {
+      console.error('Failed to update trail color mode:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const handleTrailColorChange = async (color: string) => {
+    setTrailColor(color);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailColor: color });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+    } catch (err) {
+      console.error('Failed to update trail color:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const handleTrailWidthChange = async (widthStr: string) => {
+    const w = parseFloat(widthStr) || 4.0;
+    setTrailWidth(w);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailWidth: w });
+      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+    } catch (err) {
+      console.error('Failed to update trail width:', err);
+      toast.error(t('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
   const handleToggleAutoBypass = async (checked: boolean) => {
     setAutoBypassFullscreen(checked);
     try {
@@ -494,6 +548,118 @@ export const GesturePage: FC = () => {
             checked={trailVisible}
             onChange={handleToggleTrail}
           />
+          {trailVisible && (
+            <div className="gesture-trail-subgroup">
+              <SettingRow label={t('gesture.trailColorMode')} description={t('gesture.trailColorModeDesc')}>
+                <div className="gesture-trail-mode-segmented">
+                  <button
+                    type="button"
+                    className={`gesture-trail-mode-btn ${trailColorMode === 'auto' ? 'active' : ''}`}
+                    onClick={() => void handleToggleTrailColorMode('auto')}
+                  >
+                    <Sparkles size={14} />
+                    <span>{t('gesture.trailColorAuto')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`gesture-trail-mode-btn ${trailColorMode === 'custom' ? 'active' : ''}`}
+                    onClick={() => void handleToggleTrailColorMode('custom')}
+                  >
+                    <Palette size={14} />
+                    <span>{t('gesture.trailColorCustom')}</span>
+                  </button>
+                </div>
+              </SettingRow>
+
+              {trailColorMode === 'custom' && (
+                <SettingRow label={t('gesture.trailCustomColor')} description={t('gesture.trailCustomColorDesc')}>
+                  <div className="gesture-color-picker-row">
+                    <div className="gesture-color-swatches">
+                      {TRAIL_COLOR_PRESETS.map((preset) => (
+                        <button
+                          key={preset.hex}
+                          type="button"
+                          className={`gesture-color-swatch ${trailColor.toUpperCase() === preset.hex.toUpperCase() ? 'active' : ''}`}
+                          style={{ backgroundColor: preset.hex }}
+                          title={preset.name}
+                          onClick={() => void handleTrailColorChange(preset.hex)}
+                        />
+                      ))}
+                    </div>
+                    <div className="gesture-custom-color-input-wrapper">
+                      <input
+                        type="color"
+                        className="gesture-color-native-input"
+                        value={trailColor}
+                        onChange={(e) => void handleTrailColorChange(e.target.value)}
+                      />
+                      <span className="gesture-color-hex-label">{trailColor.toUpperCase()}</span>
+                    </div>
+                  </div>
+                </SettingRow>
+              )}
+
+              <SettingRow label={t('gesture.trailWidth')} description={t('gesture.trailWidthDesc')}>
+                <Select
+                  id="gesture-trail-width"
+                  value={String(trailWidth)}
+                  onChange={handleTrailWidthChange}
+                  options={[
+                    { value: '2.5', label: t('gesture.trailWidthFine') },
+                    { value: '4', label: t('gesture.trailWidthStandard') },
+                    { value: '6', label: t('gesture.trailWidthBold') },
+                  ]}
+                />
+              </SettingRow>
+
+              {/* 实时平滑霓虹流光轨迹预览条 */}
+              <div className="gesture-trail-preview-card">
+                <div className="gesture-trail-preview-label">轨迹流光渲染预览</div>
+                <svg className="gesture-trail-preview-svg" viewBox="0 0 400 50" preserveAspectRatio="none">
+                  {/* 外层霓虹光晕 */}
+                  <path
+                    d="M 20 25 Q 110 5, 200 25 T 370 25"
+                    fill="none"
+                    stroke={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
+                    strokeWidth={trailWidth * 2.4}
+                    strokeOpacity="0.30"
+                    strokeLinecap="round"
+                  />
+                  {/* 核心流光曲线 */}
+                  <path
+                    d="M 20 25 Q 110 5, 200 25 T 370 25"
+                    fill="none"
+                    stroke={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
+                    strokeWidth={trailWidth}
+                    strokeOpacity="0.95"
+                    strokeLinecap="round"
+                  />
+                  {/* 头部发光粒子 */}
+                  <circle
+                    cx="370"
+                    cy="25"
+                    r={trailWidth * 1.8}
+                    fill={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
+                    fillOpacity="0.4"
+                  />
+                  <circle
+                    cx="370"
+                    cy="25"
+                    r={trailWidth * 0.9}
+                    fill={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
+                    fillOpacity="1"
+                  />
+                  <circle
+                    cx="370"
+                    cy="25"
+                    r={trailWidth * 0.4}
+                    fill="#FFFFFF"
+                    fillOpacity="0.9"
+                  />
+                </svg>
+              </div>
+            </div>
+          )}
           <Toggle
             id="gesture-bypass-fullscreen"
             label={t('gesture.autoBypassFullscreen')}
@@ -502,15 +668,21 @@ export const GesturePage: FC = () => {
             onChange={handleToggleAutoBypass}
           />
           <SettingRow label={t('gesture.triggerButton')} description={t('gesture.triggerButtonDesc')}>
-            <Select
-              id="gesture-trigger"
-              value={triggerButton}
-              onChange={handleTriggerChange}
-              options={[
-                { value: 'right', label: t('gesture.btnRight') },
-                { value: 'middle', label: t('gesture.btnMiddle') },
-              ]}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '380px' }}>
+              <Select
+                id="gesture-trigger"
+                value={triggerButton}
+                onChange={handleTriggerChange}
+                options={[
+                  { value: 'both', label: t('gesture.btnBoth') },
+                  { value: 'right', label: t('gesture.btnRight') },
+                  { value: 'middle', label: t('gesture.btnMiddle') },
+                ]}
+              />
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                {t('gesture.triggerAdaptiveHint')}
+              </div>
+            </div>
           </SettingRow>
 
           <GestureGuide />

@@ -11,6 +11,7 @@
 #include "gesture/BuiltinCommands.h"
 #include "gesture/HotCornerEngine.h"
 #include "gesture/RadialMenuOverlay.h"
+#include "gesture/GestureTrailOverlay.h"
 #include "EasyToolsVersion.h"
 #include <algorithm>
 #include <array>
@@ -260,12 +261,16 @@ public:
 
         mb.registerHandler("gesture.getState", [](const nlohmann::json&) -> nlohmann::json {
             auto& engine = easy::gesture::GestureEngine::instance();
+            auto& config = easy::core::ConfigManager::instance();
             return {
                 {"paused", engine.isPaused()},
                 {"enabled", !engine.isPaused()},
                 {"triggerButton", engine.triggerButton()},
                 {"trailVisible", engine.trailVisible()},
-                {"autoBypassFullscreen", engine.autoBypassFullscreen()}
+                {"autoBypassFullscreen", engine.autoBypassFullscreen()},
+                {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
+                {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
+                {"trailWidth", config.get<float>("/gesture/trailWidth", 4.0f)}
             };
         });
 
@@ -276,7 +281,8 @@ public:
                 return {{"success", false}, {"error", "no gesture settings supplied"}};
             }
             static const std::unordered_set<std::string> allowed = {
-                "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen"
+                "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen",
+                "trailColorMode", "trailColor", "trailWidth"
             };
             for (const auto& [key, value] : params.items()) {
                 if (!allowed.contains(key)) {
@@ -286,8 +292,11 @@ public:
             if ((params.contains("enabled") && !params["enabled"].is_boolean()) ||
                 (params.contains("paused") && !params["paused"].is_boolean()) ||
                 (params.contains("trailVisible") && !params["trailVisible"].is_boolean()) ||
-                (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean())) {
-                return {{"success", false}, {"error", "boolean setting has invalid type"}};
+                (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean()) ||
+                (params.contains("trailColorMode") && !params["trailColorMode"].is_string()) ||
+                (params.contains("trailColor") && !params["trailColor"].is_string()) ||
+                (params.contains("trailWidth") && !params["trailWidth"].is_number())) {
+                return {{"success", false}, {"error", "setting has invalid type"}};
             }
             if (params.contains("enabled") && params.contains("paused") &&
                 params["enabled"].get<bool>() == params["paused"].get<bool>()) {
@@ -300,7 +309,7 @@ public:
                     return {{"success", false}, {"error", "triggerButton must be a string"}};
                 }
                 trigger = params["triggerButton"].get<std::string>();
-                if (trigger != "right" && trigger != "middle") {
+                if (trigger != "right" && trigger != "middle" && trigger != "both") {
                     return {{"success", false}, {"error", "invalid triggerButton"}};
                 }
             }
@@ -310,10 +319,18 @@ public:
             if (params.contains("paused")) paused = params["paused"].get<bool>();
             const bool trailVisible = params.value("trailVisible", engine.trailVisible());
             const bool autoBypassFullscreen = params.value("autoBypassFullscreen", engine.autoBypassFullscreen());
+            
+            std::string trailColorMode = params.value("trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto"));
+            std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6"));
+            float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 4.0f));
+
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},
                 {"triggerButton", trigger}, {"trailVisible", trailVisible},
-                {"autoBypassFullscreen", autoBypassFullscreen}
+                {"autoBypassFullscreen", autoBypassFullscreen},
+                {"trailColorMode", trailColorMode},
+                {"trailColor", trailColor},
+                {"trailWidth", trailWidth}
             };
             if (!config.mergePatch({{"gesture", patch}}, "/gesture")) {
                 return {{"success", false}, {"error", "failed to persist gesture settings"}};
@@ -321,6 +338,8 @@ public:
             engine.setTriggerButton(trigger);
             engine.setTrailVisible(trailVisible);
             engine.setAutoBypassFullscreen(autoBypassFullscreen);
+            easy::gesture::GestureTrailOverlay::instance().reloadThemeColors();
+
             const bool pauseApplied = engine.setPaused(paused);
             return {
                 {"success", pauseApplied},
@@ -328,7 +347,10 @@ public:
                 {"enabled", !engine.isPaused()},
                 {"triggerButton", engine.triggerButton()},
                 {"trailVisible", engine.trailVisible()},
-                {"autoBypassFullscreen", engine.autoBypassFullscreen()}
+                {"autoBypassFullscreen", engine.autoBypassFullscreen()},
+                {"trailColorMode", trailColorMode},
+                {"trailColor", trailColor},
+                {"trailWidth", trailWidth}
             };
         });
 

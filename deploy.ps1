@@ -101,7 +101,7 @@ if (Test-Path "ui/package.json") {
             Write-Log "⚡ 极速模式: 复用本地 node_modules 依赖" "INFO"
         }
 
-        foreach ($Command in @("lint", "i18n-check", "build")) {
+        foreach ($Command in @("lint", "i18n-check", "css-check", "build")) {
             Write-Log "执行 npm run $Command..."
             npm run $Command
             if ($LASTEXITCODE -ne 0) {

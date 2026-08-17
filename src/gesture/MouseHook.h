@@ -49,6 +49,13 @@ struct MouseEvent {
 /// 鼠标事件回调，返回 true 表示拦截此事件不传递给下层
 using MouseEventCallback = std::function<bool(const MouseEvent&)>;
 
+/// 手势允许的触发按键模式
+enum class TriggerMode : uint8_t {
+    RightOnly = 0,        // 仅右键 (次要按键，自适应左手模式)
+    MiddleOnly = 1,       // 仅滚轮中键
+    Both = 2              // 右键与中键均可触发 (推荐)
+};
+
 class MouseHook {
 public:
     static MouseHook& instance();
@@ -66,8 +73,10 @@ public:
     /// 设置事件回调（由 GestureEngine 设置）
     void setEventCallback(MouseEventCallback callback);
 
-    /// 设置唯一会进入手势管道的触发键。非触发键保持系统原生热路径。
+    /// 设置触发键模式 (支持同时启用右键与中键)
+    void setTriggerMode(TriggerMode mode);
     void setTriggerButton(MouseEventType downEvent);
+    TriggerMode triggerMode() const { return m_configuredTriggerMode.load(std::memory_order_relaxed); }
 
     /// 获取事件队列中的待处理事件（批量获取，减少锁竞争）
     std::vector<MouseEvent> drainEvents(size_t maxCount = 64);
@@ -92,6 +101,7 @@ private:
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_triggerButtonDown{false};
+    std::atomic<TriggerMode> m_configuredTriggerMode{TriggerMode::Both};
     std::atomic<MouseEventType> m_configuredTriggerDown{MouseEventType::RightDown};
     std::atomic<MouseEventType> m_activeTriggerDown{MouseEventType::RightDown};
 

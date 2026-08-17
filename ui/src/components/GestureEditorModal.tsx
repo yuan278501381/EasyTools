@@ -11,6 +11,7 @@
 import { useState, type FC } from 'react';
 import { Modal, Field, Button, Select, TextInput } from './UIKit';
 import { HotkeyRecorder } from './HotkeyRecorder';
+import { GestureDrawCanvas } from './GestureDrawCanvas';
 import { useTranslation } from 'react-i18next';
 import {
   type GestureMapping,
@@ -101,12 +102,18 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
         error={codeError}
         hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.join(', ') }) : t('gestureEditor.gestureCodeHint')}
       >
-        <TextInput
+        <GestureDrawCanvas
           value={draft.gestureCode}
           onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
-          placeholder={t('gestureEditor.gestureCodePlaceholder')}
         />
-        <div className="gesture-code-preview">{codeToArrows(code)}</div>
+        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <TextInput
+            value={draft.gestureCode}
+            onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
+            placeholder={t('gestureEditor.gestureCodePlaceholder')}
+          />
+          <div className="gesture-code-preview">{codeToArrows(code)}</div>
+        </div>
       </Field>
 
       <Field label={t('gestureEditor.actionName')} error={nameError}>

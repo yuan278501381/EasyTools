@@ -1,54 +1,52 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * SearchPage.css — 搜索设置与语法手册样式
+ * SearchPage.css — 搜索设置与语法手册样式 (100% 对齐设计系统规范)
  * ───────────────────────────────────────────────────────────────────────────── */
 
 .search-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 960px;
+  gap: var(--spacing-lg);
+  max-width: 100%;
 }
 
 .search-page__content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  animation: fadeIn 0.2s ease-out;
+  gap: var(--spacing-lg);
+  animation: fadeIn var(--transition-normal);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
+/* 语法与正则手册表格 */
 .syntax-table-wrapper {
   overflow-x: auto;
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-page);
+  margin-top: var(--spacing-sm);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
 }
 
 .syntax-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 0.88rem;
   text-align: left;
+  line-height: 1.5;
 }
 
 .syntax-table th,
 .syntax-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--card-border);
+  vertical-align: middle;
 }
 
 .syntax-table th {
-  background: var(--bg-card);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
   font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
 }
 
 .syntax-table tr:last-child td {
@@ -56,60 +54,67 @@
 }
 
 .syntax-table tr:hover td {
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.02));
+  background: var(--card-hover);
 }
 
 .syntax-table code {
-  background: var(--bg-card);
-  padding: 3px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
+  display: inline-block;
+  background: var(--bg-elevated);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
   color: var(--primary);
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Segoe UI Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .syntax-hint-p {
   color: var(--text-secondary);
-  font-size: 13px;
-  margin: 0 0 12px 0;
+  font-size: 0.88rem;
+  margin: 0 0 var(--spacing-md) 0;
   line-height: 1.6;
 }
 
 .syntax-hint-p code {
-  background: var(--bg-card);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
+  display: inline-block;
+  background: var(--bg-elevated);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
   color: var(--primary);
-  font-family: var(--font-mono, monospace);
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Segoe UI Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 /* 服务监控卡片 */
 .service-status-card {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 16px 0;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xs) 0;
 }
 
 .service-status-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px;
-  background: var(--bg-page);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
 }
 
 .status-indicator {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 .status-indicator--online {
@@ -128,21 +133,21 @@
 
 .status-title {
   margin: 0 0 4px 0;
-  font-size: 15px;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .status-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.82rem;
   color: var(--text-secondary);
 }
 
 .service-details-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 @media (max-width: 768px) {
@@ -154,35 +159,32 @@
 .detail-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  background: var(--bg-page);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
 }
 
 .detail-label {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .detail-value {
-  font-size: 13px;
+  font-size: 0.88rem;
   color: var(--text-primary);
-  font-weight: 500;
+  word-break: break-all;
 }
 
 .detail-value code {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  background: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--card-border);
   color: var(--primary);
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Segoe UI Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
 }

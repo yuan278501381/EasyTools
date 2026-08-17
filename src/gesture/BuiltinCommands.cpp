@@ -41,9 +41,14 @@ void sendCombo(uint8_t modifiers, uint16_t vk) {
     ks.send();
 }
 
-/// 取得手势作用的目标窗口: 当前前台顶层窗口。
+/// 取得手势作用的目标窗口: 当前前台顶层窗口或光标所在顶层窗口。
 HWND targetWindow() {
     HWND hwnd = GetForegroundWindow();
+    if (!hwnd) {
+        POINT pt;
+        GetCursorPos(&pt);
+        hwnd = WindowFromPoint(pt);
+    }
     if (!hwnd) return nullptr;
     // 上溯到顶层窗口 (避免命中子控件)。
     HWND root = GetAncestor(hwnd, GA_ROOT);
@@ -106,7 +111,10 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
     switch (cmd) {
         // ── 窗口管理 (作用于前台窗口) ───────────────────────────────────────
         case BuiltinCommand::CloseWindow: {
-            if (HWND h = targetWindow()) PostMessageW(h, WM_CLOSE, 0, 0);
+            if (HWND h = targetWindow()) {
+                PostMessageW(h, WM_SYSCOMMAND, SC_CLOSE, 0);
+                PostMessageW(h, WM_CLOSE, 0, 0);
+            }
             break;
         }
         case BuiltinCommand::MaximizeWindow: {

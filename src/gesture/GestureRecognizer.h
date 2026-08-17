@@ -137,6 +137,9 @@ public:
     /// 更新配置
     void setConfig(const RecognizerConfig& config) { m_config = config; }
 
+    /// 高阶手势方向段平滑与转弯圆弧折叠算法 (RDP & Fillet Simplification)
+    static std::vector<Direction> simplifyDirections(const std::vector<Direction>& raw);
+
 private:
     /// 计算两点之间的角度（弧度，0 = 正右，逆时针为正）
     static double calculateAngle(int x1, int y1, int x2, int y2);

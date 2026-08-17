@@ -72,6 +72,24 @@
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
 
+  /* 字体栈 */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Segoe UI Mono', monospace;
+
+  /* 兼容与层级别名 (Foundational Token Aliases) */
+  --bg-primary: var(--bg-base);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary: var(--bg-elevated);
+  --bg-surface-secondary: var(--bg-elevated);
+  --bg-surface-hover: var(--card-hover);
+  --border: var(--card-border);
+  --border-subtle: var(--card-border);
+  --border-dark: rgba(255, 255, 255, 0.15);
+  --border-light: rgba(255, 255, 255, 0.05);
+  --card-border-hover: rgba(255, 255, 255, 0.15);
+  --card-bg-hover: var(--card-hover);
+  --accent-dot-color: var(--primary);
+
   /* Keyboard Heatmap (Dark Theme) */
   --key-bg: rgba(255, 255, 255, 0.05);
   --key-border: rgba(255, 255, 255, 0.1);
@@ -111,6 +129,20 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.03);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+
+  /* 兼容与层级别名 (Foundational Token Aliases) */
+  --bg-primary: var(--bg-base);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary: var(--bg-elevated);
+  --bg-surface-secondary: var(--bg-elevated);
+  --bg-surface-hover: var(--card-hover);
+  --border: var(--card-border);
+  --border-subtle: var(--card-border);
+  --border-dark: rgba(0, 0, 0, 0.15);
+  --border-light: rgba(0, 0, 0, 0.04);
+  --card-border-hover: rgba(0, 0, 0, 0.15);
+  --card-bg-hover: var(--card-hover);
+  --accent-dot-color: var(--primary);
 
   /* Keyboard Heatmap (Light Theme) */
   --key-bg: rgba(0, 0, 0, 0.04);

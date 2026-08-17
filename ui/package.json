@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/check-production-html.js",
-    "lint": "eslint .",
+    "build": "node scripts/check-css-variables.js && tsc -b && vite build && node scripts/check-production-html.js",
+    "lint": "eslint . && node scripts/check-css-variables.js",
     "preview": "vite preview",
-    "i18n-check": "node scripts/check-i18n.js"
+    "i18n-check": "node scripts/check-i18n.js",
+    "css-check": "node scripts/check-css-variables.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",

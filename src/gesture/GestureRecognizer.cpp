@@ -10,6 +10,25 @@
 
 namespace easy::gesture {
 
+namespace {
+
+inline bool isCornerFillet(Direction a, Direction b, Direction c) noexcept {
+    // b 是在直角转弯 (a -> c) 过程中由手腕/手指产生的自然圆角对角过渡
+    if ((a == Direction::Down && c == Direction::Right && b == Direction::DownRight) ||
+        (a == Direction::Right && c == Direction::Down && b == Direction::DownRight) ||
+        (a == Direction::Down && c == Direction::Left  && b == Direction::DownLeft)  ||
+        (a == Direction::Left  && c == Direction::Down && b == Direction::DownLeft)  ||
+        (a == Direction::Up    && c == Direction::Right && b == Direction::UpRight)   ||
+        (a == Direction::Right && c == Direction::Up    && b == Direction::UpRight)   ||
+        (a == Direction::Up    && c == Direction::Left  && b == Direction::UpLeft)    ||
+        (a == Direction::Left  && c == Direction::Up    && b == Direction::UpLeft)) {
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
 GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
     : m_config(config) {}
 
@@ -73,22 +92,82 @@ void GestureRecognizer::processPoints() {
     }
 }
 
-std::optional<GestureResult> GestureRecognizer::finalize() {
-    // 将最后一个正在累积的方向段加入
-    if (m_currentDirection != Direction::None) {
-        if (m_directions.empty() || m_directions.back() != m_currentDirection) {
-            m_directions.push_back(m_currentDirection);
+std::vector<Direction> GestureRecognizer::simplifyDirections(const std::vector<Direction>& raw) {
+    if (raw.empty()) return {};
+
+    // 步骤 1: 压缩连续重复方向 [A, A] -> [A]
+    std::vector<Direction> current;
+    for (auto d : raw) {
+        if (d != Direction::None && (current.empty() || current.back() != d)) {
+            current.push_back(d);
         }
     }
 
-    if (m_directions.empty()) {
+    // 步骤 2: 循环消除回弹微抖动 [A, B, A] -> [A] 以及转弯过渡圆角 [A, B(对角), C(垂直正交)] -> [A, C]
+    bool modified = true;
+    while (modified && current.size() >= 3) {
+        modified = false;
+        std::vector<Direction> next;
+        for (size_t i = 0; i < current.size(); ) {
+            if (i + 2 < current.size()) {
+                Direction a = current[i];
+                Direction b = current[i + 1];
+                Direction c = current[i + 2];
+
+                // 规则 1: 消除孤立抖动回弹 [A, B, A] -> [A]
+                if (a == c) {
+                    next.push_back(a);
+                    i += 3;
+                    modified = true;
+                    continue;
+                }
+
+                // 规则 2: 转角圆弧消除 [A, B, C] -> [A, C]
+                if (isCornerFillet(a, b, c)) {
+                    next.push_back(a);
+                    next.push_back(c);
+                    i += 3;
+                    modified = true;
+                    continue;
+                }
+            }
+
+            next.push_back(current[i]);
+            ++i;
+        }
+
+        // 重新压缩连续重复
+        current.clear();
+        for (auto d : next) {
+            if (d != Direction::None && (current.empty() || current.back() != d)) {
+                current.push_back(d);
+            }
+        }
+    }
+
+    return current;
+}
+
+std::optional<GestureResult> GestureRecognizer::finalize() {
+    // 将最后一个正在累积的方向段加入
+    auto rawDirs = m_directions;
+    if (m_currentDirection != Direction::None) {
+        if (rawDirs.empty() || rawDirs.back() != m_currentDirection) {
+            rawDirs.push_back(m_currentDirection);
+        }
+    }
+
+    // 运行世界级转弯圆角平滑与防抖算法
+    auto simplified = simplifyDirections(rawDirs);
+
+    if (simplified.empty()) {
         LOG_TRACE("手势识别: 轨迹太短或无有效方向段, 点数={}", m_points.size());
         return std::nullopt;
     }
 
     // 构建结果
     GestureResult result;
-    result.directions = m_directions;
+    result.directions = simplified;
     result.rawPoints = m_points;
 
     // 计算总距离
@@ -100,9 +179,9 @@ std::optional<GestureResult> GestureRecognizer::finalize() {
     }
 
     // 生成方向编码字符串 (如 "L-U-R")
-    for (size_t i = 0; i < m_directions.size(); ++i) {
+    for (size_t i = 0; i < simplified.size(); ++i) {
         if (i > 0) result.code += "-";
-        result.code += directionToCode(m_directions[i]);
+        result.code += directionToCode(simplified[i]);
     }
 
     LOG_DEBUG("手势识别完成: code={}, arrows={}, 点数={}, 总距离={:.1f}px",
@@ -112,13 +191,13 @@ std::optional<GestureResult> GestureRecognizer::finalize() {
 }
 
 std::vector<Direction> GestureRecognizer::currentDirections() const {
-    auto dirs = m_directions;
+    auto rawDirs = m_directions;
     if (m_currentDirection != Direction::None) {
-        if (dirs.empty() || dirs.back() != m_currentDirection) {
-            dirs.push_back(m_currentDirection);
+        if (rawDirs.empty() || rawDirs.back() != m_currentDirection) {
+            rawDirs.push_back(m_currentDirection);
         }
     }
-    return dirs;
+    return simplifyDirections(rawDirs);
 }
 
 double GestureRecognizer::calculateAngle(int x1, int y1, int x2, int y2) {
