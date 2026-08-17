@@ -518,10 +518,14 @@
     "keys": "按键",
     "clicks": "点击",
     "pixels": "像素",
+    "meters": "米",
     "totalOverview": "全量数据概览",
     "allTimeKeys": "历史总按键数",
     "heatmapTitle": "按键热力图",
     "allTimeKeysSummary": "历史累计按键总数",
+    "topKey": "今日最高频",
+    "lowHeat": "闲置 / 0",
+    "highHeat": "极高频 (Peak)",
     "times": "次"
   },
   "about": {

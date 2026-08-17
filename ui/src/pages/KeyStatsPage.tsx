@@ -340,9 +340,17 @@ export const KeyStatsPage: FC = () => {
             </div>
           </Card>
           <Card>
-            <div style={{ padding: '16px', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#60a5fa' }}>{Math.round(todayStats.mouseDistance).toLocaleString()}</div>
-              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px' }}>{t('stats.mouseDistance')} ({t('stats.pixels')})</div>
+            <div
+              style={{ padding: '16px', textAlign: 'center' }}
+              title={`${Math.round(todayStats.mouseDistance).toLocaleString()} ${t('stats.pixels', '像素')}`}
+            >
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#60a5fa', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px' }}>
+                <span>{(todayStats.mouseDistance * (0.0254 / 96)).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 600, opacity: 0.85 }}>m</span>
+              </div>
+              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                {t('stats.mouseDistance')} ({t('stats.meters', '米')})
+              </div>
             </div>
           </Card>
         </div>

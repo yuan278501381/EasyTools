@@ -47,7 +47,13 @@ enum class BuiltinCommand {
     WebSearch,              // 选中文本直接网页搜索
     ToggleSearch,           // 切换搜索框
     ShowRadialMenu,         // 显示呼出轮盘
-    PasteAsPin              // 将剪贴板内容作为贴图显示
+    PasteAsPin,             // 将剪贴板内容作为贴图显示
+    MediaNext,              // 下一曲 (全局多媒体)
+    MediaPrev,              // 上一曲 (全局多媒体)
+    MediaPlayPause,         // 播放 / 暂停 (全局多媒体)
+    VolumeUp,               // 音量增加 (全局多媒体)
+    VolumeDown,             // 音量减小 (全局多媒体)
+    VolumeMute              // 静音切换 (全局多媒体)
 };
 
 /// 按键定义 (用于 SendKeys 类型)
@@ -60,8 +66,8 @@ struct KeyStroke {
     std::string toString() const;
 
     /// 通过 SendInput 合成这组按键 (按下修饰键 → 主键 → 逆序释放)
-    /// virtualKey == 0 时为空操作。
-    void send() const;
+    /// 若提供了 targetWindow 且非全局多媒体键，则先将输入焦点精准切换至目标窗口。
+    void send(void* targetWindow = nullptr) const;
 };
 
 /// 手势动作定义
@@ -78,8 +84,8 @@ struct GestureAction {
     std::string programPath;         // type == RunProgram
     std::string programArgs;         // type == RunProgram
 
-    /// 执行动作
-    void execute() const;
+    /// 执行动作 (可传入鼠标下方的目标窗口句柄 HWND)
+    void execute(void* targetWindow = nullptr) const;
 
     /// 序列化/反序列化
     nlohmann::json toJson() const;

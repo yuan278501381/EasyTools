@@ -11,7 +11,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import React, { useRef, useState, useCallback, type FC } from 'react';
-import { RotateCcw, Sparkles, Check } from 'lucide-react';
+import { RotateCcw, PenTool, MousePointer, Check } from 'lucide-react';
 import { codeToArrows } from './gestureModel';
 import './GestureDrawCanvas.css';
 
@@ -249,7 +249,9 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
     <div className="gesture-draw-container">
       <div className="gesture-draw-header">
         <div className="gesture-draw-title">
-          <Sparkles size={14} className="gesture-draw-sparkle" />
+          <div className="gesture-draw-title-icon-badge">
+            <PenTool size={12} strokeWidth={2.2} />
+          </div>
           <span>手势录制画板 (按住鼠标右键或左键在下方划线)</span>
         </div>
         <button
@@ -277,7 +279,9 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
 
         {points.length === 0 && (
           <div className="gesture-draw-watermark">
-            <div className="gesture-draw-watermark-icon">🖱️</div>
+            <div className="gesture-draw-watermark-icon-box">
+              <MousePointer size={22} strokeWidth={2} className="gesture-draw-mouse-icon" />
+            </div>
             <div className="gesture-draw-watermark-text">按住鼠标在此处划出轨迹</div>
             <div className="gesture-draw-watermark-hint">系统将自动识别转角与方向</div>
           </div>

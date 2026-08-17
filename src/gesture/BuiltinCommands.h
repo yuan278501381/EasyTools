@@ -36,9 +36,9 @@ public:
     /// 清理所有应用级命令回调。调用方必须先停止手势动作线程。
     void clearHandlers();
 
-    /// 执行一条内置命令。窗口管理类命令作用于调用时刻的前台窗口。
+    /// 执行一条内置命令。窗口管理类命令优先作用于鼠标下方的目标窗口。
     /// 线程安全: 仅读取 m_handlers (注册发生在启动阶段，执行发生在手势线程)。
-    void execute(BuiltinCommand cmd) const;
+    void execute(BuiltinCommand cmd, void* targetWindow = nullptr) const;
 
 private:
     BuiltinCommandDispatcher() = default;

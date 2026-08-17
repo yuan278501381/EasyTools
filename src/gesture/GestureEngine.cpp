@@ -314,7 +314,15 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_trackingStartTime = std::chrono::steady_clock::now();
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
-    m_gestureStartWindow = event.foregroundWindow;
+
+    // 优先获取光标下方的顶层窗口
+    POINT pt = { event.position.x, event.position.y };
+    HWND hwndUnderCursor = WindowFromPoint(pt);
+    if (hwndUnderCursor) {
+        HWND root = GetAncestor(hwndUnderCursor, GA_ROOT);
+        if (root) hwndUnderCursor = root;
+    }
+    m_gestureStartWindow = hwndUnderCursor ? hwndUnderCursor : event.foregroundWindow;
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_lastRecognizedDirections.clear();
@@ -510,7 +518,19 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         // 超过 LowLevelHooksTimeout 会被系统静默移除钩子，Lua 的 MessageBox 更会冻结全局输入。
         // 因此把动作放到分离线程异步执行。GestureAction 可拷贝，按值捕获保证生命周期安全。
         // 把 TraceId 一并带入线程, 让动作执行日志与本次手势串在同一条链路上。
-        enqueueAction(*action, m_gestureTraceId);
+        
+        // 解析手势结束时鼠标光标下方的顶层窗口
+        POINT endPt = { event.position.x, event.position.y };
+        HWND targetWnd = WindowFromPoint(endPt);
+        if (targetWnd) {
+            HWND root = GetAncestor(targetWnd, GA_ROOT);
+            if (root) targetWnd = root;
+        }
+        if (!targetWnd) targetWnd = m_gestureStartWindow;
+        if (!targetWnd) targetWnd = event.foregroundWindow;
+        if (!targetWnd) targetWnd = GetForegroundWindow();
+
+        enqueueAction(*action, m_gestureTraceId, targetWnd);
     } else {
         // 未找到手势映射：直接隐藏，不显示任何 Toast
         LOG_DEBUG("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
@@ -522,7 +542,7 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     m_state = GestureState::Idle;
 }
 
-void GestureEngine::enqueueAction(GestureAction action, std::string traceId) {
+void GestureEngine::enqueueAction(GestureAction action, std::string traceId, HWND targetWindow) {
     {
         std::lock_guard lock(m_actionMutex);
         // Bound the queue so a stuck external action cannot grow memory forever.
@@ -530,7 +550,7 @@ void GestureEngine::enqueueAction(GestureAction action, std::string traceId) {
             LOG_WARN("手势动作队列已满，丢弃最旧动作");
             m_actionQueue.pop_front();
         }
-        m_actionQueue.push_back({std::move(action), std::move(traceId)});
+        m_actionQueue.push_back({std::move(action), std::move(traceId), targetWindow});
     }
     m_actionCv.notify_one();
 }
@@ -549,10 +569,11 @@ void GestureEngine::actionWorkerLoop(std::stop_token stopToken) {
         }
 
         easy::core::TraceId::setCurrent(job.traceId);
-        LOG_INFO("手势动作开始执行(后台队列): action={}, type={}",
-                 job.action.name, static_cast<int>(job.action.type));
+        LOG_INFO("手势动作开始执行(后台队列): action={}, type={}, targetHwnd=0x{:X}",
+                 job.action.name, static_cast<int>(job.action.type),
+                 reinterpret_cast<uintptr_t>(job.targetWindow));
         try {
-            job.action.execute();
+            job.action.execute(job.targetWindow);
             LOG_INFO("手势动作执行完毕: action={}", job.action.name);
         } catch (const std::exception& e) {
             LOG_ERROR("手势动作执行异常: action={}, error={}", job.action.name, e.what());

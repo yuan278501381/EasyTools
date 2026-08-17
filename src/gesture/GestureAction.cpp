@@ -67,34 +67,85 @@ std::string KeyStroke::toString() const {
     if (modifiers & MOD_SHIFT)   result += "Shift+";
     if (modifiers & MOD_WIN)     result += "Win+";
 
-    // 虚拟键码 → 名称 (简化版)
+    // 虚拟键码 → 名称
     if (virtualKey >= 'A' && virtualKey <= 'Z') {
+        result += static_cast<char>(virtualKey);
+    } else if (virtualKey >= '0' && virtualKey <= '9') {
         result += static_cast<char>(virtualKey);
     } else if (virtualKey >= VK_F1 && virtualKey <= VK_F12) {
         result += "F" + std::to_string(virtualKey - VK_F1 + 1);
     } else {
-        result += "0x" + std::format("{:02X}", virtualKey);
+        static const std::unordered_map<uint16_t, std::string> revMap = {
+            {VK_TAB, "Tab"}, {VK_RETURN, "Enter"}, {VK_SPACE, "Space"},
+            {VK_ESCAPE, "Escape"}, {VK_DELETE, "Delete"},
+            {VK_LEFT, "Left"}, {VK_RIGHT, "Right"}, {VK_UP, "Up"}, {VK_DOWN, "Down"},
+            {VK_MEDIA_NEXT_TRACK, "MediaNext"}, {VK_MEDIA_PREV_TRACK, "MediaPrev"},
+            {VK_MEDIA_PLAY_PAUSE, "MediaPlayPause"}, {VK_VOLUME_MUTE, "VolumeMute"},
+            {VK_VOLUME_UP, "VolumeUp"}, {VK_VOLUME_DOWN, "VolumeDown"},
+        };
+        if (auto it = revMap.find(virtualKey); it != revMap.end()) {
+            result += it->second;
+        } else {
+            result += "0x" + std::format("{:02X}", virtualKey);
+        }
     }
     return result;
 }
 
+namespace {
+
+// 判断是否为全局多媒体控制或全局系统键 (不需要且不应切换目标窗口焦点)
+bool isGlobalKey(WORD vk) {
+    return (vk >= VK_VOLUME_MUTE && vk <= VK_MEDIA_PLAY_PAUSE) || // 0xAD - 0xB3 多媒体音量/播放
+           (vk >= 0xB4 && vk <= 0xB7) ||                          // 启动应用键
+           (vk == VK_SNAPSHOT);                                   // PrintScreen
+}
+
+void activateTargetWindow(HWND targetHwnd) {
+    if (!targetHwnd || !IsWindow(targetHwnd)) return;
+    HWND curFg = GetForegroundWindow();
+    if (curFg == targetHwnd) return;
+
+    DWORD curThread = GetCurrentThreadId();
+    DWORD fgThread = curFg ? GetWindowThreadProcessId(curFg, nullptr) : 0;
+    DWORD targetThread = GetWindowThreadProcessId(targetHwnd, nullptr);
+
+    if (fgThread && fgThread != curThread) AttachThreadInput(curThread, fgThread, TRUE);
+    if (targetThread && targetThread != curThread) AttachThreadInput(curThread, targetThread, TRUE);
+
+    if (IsIconic(targetHwnd)) ShowWindow(targetHwnd, SW_RESTORE);
+    SetForegroundWindow(targetHwnd);
+    BringWindowToTop(targetHwnd);
+
+    if (fgThread && fgThread != curThread) AttachThreadInput(curThread, fgThread, FALSE);
+    if (targetThread && targetThread != curThread) AttachThreadInput(curThread, targetThread, FALSE);
+}
+
+} // namespace
+
 // ── KeyStroke::send ──────────────────────────────────────────────────────────
 
-void KeyStroke::send() const {
+void KeyStroke::send(void* targetWindowPtr) const {
     if (virtualKey == 0) {
         LOG_WARN("KeyStroke::send 被调用但 virtualKey 为空, 跳过");
         return;
     }
 
-    // 1. 确保前台窗口正常接收输入
-    HWND fg = GetForegroundWindow();
-    if (!fg) {
-        POINT pt;
-        GetCursorPos(&pt);
-        fg = WindowFromPoint(pt);
-        if (fg) fg = GetAncestor(fg, GA_ROOT);
-        if (fg) {
-            SetForegroundWindow(fg);
+    HWND targetHwnd = static_cast<HWND>(targetWindowPtr);
+
+    // 1. 如果是非全局媒体键，且明确指定了鼠标下方目标窗口，优先激活该窗口确保按键精准生效
+    if (!isGlobalKey(virtualKey) && targetHwnd) {
+        activateTargetWindow(targetHwnd);
+    } else if (!isGlobalKey(virtualKey)) {
+        HWND fg = GetForegroundWindow();
+        if (!fg) {
+            POINT pt;
+            GetCursorPos(&pt);
+            fg = WindowFromPoint(pt);
+            if (fg) fg = GetAncestor(fg, GA_ROOT);
+            if (fg) {
+                SetForegroundWindow(fg);
+            }
         }
     }
 
@@ -148,13 +199,13 @@ void KeyStroke::send() const {
 
 // ── GestureAction::execute ───────────────────────────────────────────────────
 
-void GestureAction::execute() const {
+void GestureAction::execute(void* targetWindowPtr) const {
     easy::core::TraceId::Scope scope;
 
     switch (type) {
         case ActionType::SendKeys: {
             LOG_DEBUG("执行手势动作: SendKeys, keys={}", keyStroke.toString());
-            keyStroke.send();
+            keyStroke.send(targetWindowPtr);
             break;
         }
 
@@ -173,7 +224,7 @@ void GestureAction::execute() const {
 
         case ActionType::BuiltinCommand: {
             LOG_DEBUG("执行手势动作: BuiltinCommand, cmd={}", static_cast<int>(builtinCmd));
-            BuiltinCommandDispatcher::instance().execute(builtinCmd);
+            BuiltinCommandDispatcher::instance().execute(builtinCmd, targetWindowPtr);
             break;
         }
 

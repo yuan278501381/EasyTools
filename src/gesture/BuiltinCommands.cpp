@@ -33,16 +33,20 @@ void BuiltinCommandDispatcher::clearHandlers() {
 
 namespace {
 
-/// 合成一组按键 (复用 KeyStroke 的 SendInput 实现)。
-void sendCombo(uint8_t modifiers, uint16_t vk) {
+/// 合成一组按键 (复用 KeyStroke 的 SendInput 实现，可指定目标窗口)。
+void sendCombo(uint8_t modifiers, uint16_t vk, void* targetWindow = nullptr) {
     KeyStroke ks;
     ks.modifiers = modifiers;
     ks.virtualKey = vk;
-    ks.send();
+    ks.send(targetWindow);
 }
 
-/// 取得手势作用的目标窗口: 当前前台顶层窗口或光标所在顶层窗口。
-HWND targetWindow() {
+/// 取得手势作用的目标窗口: 优先使用传入的 targetWindow，否则解析前台或光标下顶层窗口。
+HWND resolveTargetWindow(void* targetWindowPtr) {
+    if (targetWindowPtr && IsWindow(static_cast<HWND>(targetWindowPtr))) {
+        HWND root = GetAncestor(static_cast<HWND>(targetWindowPtr), GA_ROOT);
+        return root ? root : static_cast<HWND>(targetWindowPtr);
+    }
     HWND hwnd = GetForegroundWindow();
     if (!hwnd) {
         POINT pt;
@@ -105,45 +109,45 @@ bool BuiltinCommandDispatcher::dispatchAppCommand(BuiltinCommand cmd) const {
     return false;
 }
 
-void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
+void BuiltinCommandDispatcher::execute(BuiltinCommand cmd, void* targetWindowPtr) const {
     easy::core::TraceId::Scope scope;
 
     switch (cmd) {
-        // ── 窗口管理 (作用于前台窗口) ───────────────────────────────────────
+        // ── 窗口管理 (精准作用于鼠标下方目标窗口) ─────────────────────────
         case BuiltinCommand::CloseWindow: {
-            if (HWND h = targetWindow()) {
+            if (HWND h = resolveTargetWindow(targetWindowPtr)) {
                 PostMessageW(h, WM_SYSCOMMAND, SC_CLOSE, 0);
                 PostMessageW(h, WM_CLOSE, 0, 0);
             }
             break;
         }
         case BuiltinCommand::MaximizeWindow: {
-            HWND h = targetWindow();
+            HWND h = resolveTargetWindow(targetWindowPtr);
             if (h) ShowWindow(h, IsZoomed(h) ? SW_RESTORE : SW_MAXIMIZE);  // 切换式
             break;
         }
         case BuiltinCommand::MinimizeWindow: {
-            if (HWND h = targetWindow()) ShowWindow(h, SW_MINIMIZE);
+            if (HWND h = resolveTargetWindow(targetWindowPtr)) ShowWindow(h, SW_MINIMIZE);
             break;
         }
         case BuiltinCommand::RestoreWindow: {
-            if (HWND h = targetWindow()) ShowWindow(h, SW_RESTORE);
+            if (HWND h = resolveTargetWindow(targetWindowPtr)) ShowWindow(h, SW_RESTORE);
             break;
         }
         case BuiltinCommand::ToggleTopmost: {
-            toggleTopmost(targetWindow());
+            toggleTopmost(resolveTargetWindow(targetWindowPtr));
             break;
         }
         case BuiltinCommand::ToggleWindowTransparency: {
-            toggleTransparency(targetWindow());
+            toggleTransparency(resolveTargetWindow(targetWindowPtr));
             break;
         }
 
-        // ── 标签页 / 编辑 (合成快捷键, 由前台应用解释) ─────────────────────
-        case BuiltinCommand::CloseTab:           sendCombo(MOD_CONTROL, 'W'); break;
-        case BuiltinCommand::RestoreClosedTab:   sendCombo(MOD_CONTROL | MOD_SHIFT, 'T'); break;
+        // ── 标签页 / 编辑 (优先作用于鼠标下方目标窗口) ─────────────────────
+        case BuiltinCommand::CloseTab:           sendCombo(MOD_CONTROL, 'W', targetWindowPtr); break;
+        case BuiltinCommand::RestoreClosedTab:   sendCombo(MOD_CONTROL | MOD_SHIFT, 'T', targetWindowPtr); break;
         case BuiltinCommand::WebSearch: {
-            sendCombo(MOD_CONTROL, 'C'); // 发送 Ctrl+C 复制
+            sendCombo(MOD_CONTROL, 'C', targetWindowPtr); // 发送 Ctrl+C 复制
             Sleep(50); // 等待剪贴板更新
             if (OpenClipboard(nullptr)) {
                 HANDLE hData = GetClipboardData(CF_UNICODETEXT);
@@ -158,8 +162,6 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
                         if (text.find(L"http://") == 0 || text.find(L"https://") == 0) {
                             url = text;
                         } else {
-                            // URL encode 过于复杂，我们采用最简单的宽字符启动，让浏览器/系统自动处理
-                            // 注意：实际上 ShellExecuteW 能比较好地处理搜索参数
                             url = L"https://www.baidu.com/s?wd=" + text;
                         }
                         ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -169,6 +171,14 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd) const {
             }
             break;
         }
+
+        // ── 全局多媒体控制 (全局广播，不切换窗口焦点) ─────────────────────
+        case BuiltinCommand::MediaNext:          sendCombo(0, VK_MEDIA_NEXT_TRACK); break;
+        case BuiltinCommand::MediaPrev:          sendCombo(0, VK_MEDIA_PREV_TRACK); break;
+        case BuiltinCommand::MediaPlayPause:     sendCombo(0, VK_MEDIA_PLAY_PAUSE); break;
+        case BuiltinCommand::VolumeUp:           sendCombo(0, VK_VOLUME_UP); break;
+        case BuiltinCommand::VolumeDown:         sendCombo(0, VK_VOLUME_DOWN); break;
+        case BuiltinCommand::VolumeMute:         sendCombo(0, VK_VOLUME_MUTE); break;
 
         // ── 系统 / 桌面 ──────────────────────────────────────────────────────
         case BuiltinCommand::ShowDesktop:        sendCombo(MOD_WIN, 'D'); break;

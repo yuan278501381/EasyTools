@@ -1,6 +1,7 @@
 import { type FC, useMemo } from 'react';
 import './KeyboardHeatmap.css';
 import { useTranslation } from 'react-i18next';
+import { Flame } from 'lucide-react';
 
 interface KeyboardHeatmapProps {
   keyMap: Record<number, number>;
@@ -245,10 +246,19 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
 
         {topKey.count > 0 && (
           <div className="keyboard-heatmap__top-badge">
-            <span className="top-badge-icon">🔥</span>
-            <span className="top-badge-text">
-              {t('stats.topKey', '今日最高频')}: <strong>{topKey.fullName || topKey.label}</strong> ({topKey.count.toLocaleString()} {t('stats.clicks', '次')} · {((topKey.count / (totalKeystrokes || 1)) * 100).toFixed(1)}%)
-            </span>
+            <div className="top-badge-icon-box">
+              <Flame size={12} strokeWidth={2.5} className="top-badge-flame-icon" />
+            </div>
+            <div className="top-badge-content">
+              <span className="top-badge-label">{t('stats.topKey', '今日最高频')}:</span>
+              <span className="top-badge-key-name">{topKey.fullName || topKey.label}</span>
+              <span className="top-badge-stat">
+                <span className="top-badge-count">{topKey.count.toLocaleString()}</span>
+                <span className="top-badge-unit">{t('stats.times', '次')}</span>
+                <span className="top-badge-divider">·</span>
+                <span className="top-badge-pct">{((topKey.count / (totalKeystrokes || 1)) * 100).toFixed(1)}%</span>
+              </span>
+            </div>
           </div>
         )}
       </div>

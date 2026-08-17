@@ -249,6 +249,8 @@ if(BUILD_TESTING)
         src/capture/ScrollCapture.cpp
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
+        src/gesture/GestureAction.cpp
+        src/gesture/BuiltinCommands.cpp
         src/service/PinyinEngine.cpp
         src/service/SearchExpression.cpp
         src/service/content/PlainTextExtractor.cpp

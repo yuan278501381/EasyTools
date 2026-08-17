@@ -125,7 +125,7 @@ private:
     /// 把被吞掉的触发键点击补发出去 (无有效手势时还原右键/中键的正常点击)
     void reinjectTriggerClick();
 
-    void enqueueAction(GestureAction action, std::string traceId);
+    void enqueueAction(GestureAction action, std::string traceId, HWND targetWindow = nullptr);
     void actionWorkerLoop(std::stop_token stopToken);
 
     /// 根据当前前台窗口查找适用的 Profile
@@ -166,6 +166,7 @@ private:
     struct ActionJob {
         GestureAction action;
         std::string traceId;
+        HWND targetWindow = nullptr;
     };
     std::mutex m_actionMutex;
     std::condition_variable_any m_actionCv;

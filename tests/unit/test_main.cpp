@@ -9,6 +9,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "gesture/GestureRecognizer.h"
+#include "gesture/GestureAction.h"
+#include "gesture/BuiltinCommands.h"
 #include "gesture/ScopeRule.h"
 #include "gesture/RadialMenuStyle.h"
 #include "capture/CaptureBackend.h"
@@ -206,6 +208,70 @@ static void test_scoperule() {
     auto invalid = ScopeRule::fromJson({{"matchMode", 99}, {"effect", -5}});
     CHECK(invalid.matchMode == MatchMode::Regex);
     CHECK(invalid.effect == RuleEffect::Enable);
+}
+
+static void test_gesture_actions_and_builtin_commands() {
+    using namespace easy::gesture;
+
+    // 1. KeyStroke 解析与序列化
+    auto ks1 = KeyStroke::fromString("Ctrl+Shift+T");
+    CHECK(ks1.modifiers == (MOD_CONTROL | MOD_SHIFT));
+    CHECK(ks1.virtualKey == 'T');
+    CHECK_EQ(ks1.toString(), "Ctrl+Shift+T");
+
+    auto ks2 = KeyStroke::fromString("Alt+Left");
+    CHECK(ks2.modifiers == MOD_ALT);
+    CHECK(ks2.virtualKey == VK_LEFT);
+    CHECK_EQ(ks2.toString(), "Alt+Left");
+
+    auto ksEmpty = KeyStroke::fromString("");
+    CHECK(ksEmpty.virtualKey == 0);
+    ksEmpty.send(nullptr); // 空按键安全防御
+
+    // 2. GestureAction JSON 往返
+    GestureAction a1;
+    a1.type = ActionType::SendKeys;
+    a1.name = "关闭标签页";
+    a1.description = "关闭当前标签";
+    a1.keyStroke = KeyStroke::fromString("Ctrl+W");
+    auto j1 = a1.toJson();
+    auto a1b = GestureAction::fromJson(j1);
+    CHECK_EQ(a1b.name, "关闭标签页");
+    CHECK_EQ(a1b.keyStroke.toString(), "Ctrl+W");
+
+    GestureAction a2;
+    a2.type = ActionType::BuiltinCommand;
+    a2.name = "下一曲";
+    a2.builtinCmd = BuiltinCommand::MediaNext;
+    auto j2 = a2.toJson();
+    auto a2b = GestureAction::fromJson(j2);
+    CHECK(a2b.builtinCmd == BuiltinCommand::MediaNext);
+
+    // 3. GestureMapping JSON 往返
+    GestureMapping m1;
+    m1.gestureCode = "D-R";
+    m1.action = a1;
+    auto jm1 = m1.toJson();
+    auto m1b = GestureMapping::fromJson(jm1);
+    CHECK_EQ(m1b.gestureCode, "D-R");
+    CHECK_EQ(m1b.action.name, "关闭标签页");
+
+    // 4. BuiltinCommandDispatcher 应用级回调路由与媒体命令
+    auto& dispatcher = BuiltinCommandDispatcher::instance();
+    std::atomic<bool> screenshotCalled{false};
+    dispatcher.registerHandler(BuiltinCommand::TakeScreenshot, [&screenshotCalled]() {
+        screenshotCalled = true;
+    });
+
+    dispatcher.execute(BuiltinCommand::TakeScreenshot, nullptr);
+    CHECK(screenshotCalled.load());
+
+    // 验证多媒体命令在无有效目标窗口与伪窗口上下文下均能稳定分发，不发生异常
+    dispatcher.execute(BuiltinCommand::MediaNext, nullptr);
+    dispatcher.execute(BuiltinCommand::MediaPrev, nullptr);
+    dispatcher.execute(BuiltinCommand::MediaPlayPause, nullptr);
+    dispatcher.execute(BuiltinCommand::VolumeMute, nullptr);
+    dispatcher.clearHandlers();
 }
 
 static void test_hotkey_parser() {
@@ -1449,6 +1515,7 @@ int main() {
     test_quicklook_and_translation();
     test_recognizer();
     test_scoperule();
+    test_gesture_actions_and_builtin_commands();
     test_hotkey_parser();
     test_disabled_hotkey_lifecycle();
     test_config_manager();
