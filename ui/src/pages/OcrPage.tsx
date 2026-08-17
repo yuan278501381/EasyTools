@@ -1,4 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
  * OcrPage — OCR 识别设置页
  *
  * 引擎: Windows.Media.Ocr (系统内置、离线)。
@@ -7,11 +8,12 @@
 
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Badge } from '../components/UIKit';
+import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { FileText } from 'lucide-react';
-import { HotkeyRecorder } from '../components/HotkeyRecorder';
-import { toast } from 'sonner';
 
 interface OcrSettings {
   engine: string;
@@ -20,8 +22,13 @@ interface OcrSettings {
   showResultWindow: boolean;
 }
 
-interface OperationResult { success: boolean; error?: string; shortcut?: string }
-interface HotkeyEntry { name: string; shortcut: string }
+interface OperationResult {
+  success: boolean;
+  error?: string;
+  shortcut?: string;
+  conflictType?: string;
+  conflictWith?: string;
+}
 
 export const OcrPage: FC = () => {
   const [settings, setSettings] = useState<OcrSettings>({
@@ -32,18 +39,23 @@ export const OcrPage: FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [available, setAvailable] = useState(false);
+  const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [shortcut, setShortcut] = useState('Ctrl+Shift+O');
   const { t } = useTranslation();
+
+  const getHotkey = (name: string) => hotkeys.find(h => h.name === name);
 
   useEffect(() => {
     Promise.all([
       bridgeRequest<OcrSettings>('ocr.getSettings'),
       bridgeRequest<{ available: boolean }>('ocr.getStatus'),
       bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
-    ]).then(([data, status, hotkeys]) => {
+    ]).then(([data, status, hotkeyList]) => {
       setSettings(prev => ({ ...prev, ...data }));
       setAvailable(status.available);
-      setShortcut(hotkeys.find(item => item.name === 'OCR')?.shortcut ?? 'Ctrl+Shift+O');
+      const list = Array.isArray(hotkeyList) ? hotkeyList : [];
+      setHotkeys(list);
+      setShortcut(list.find(item => item.name === 'OCR')?.shortcut ?? 'Ctrl+Shift+O');
     }).catch((error) => {
       console.error(error);
       toast.error(t('ocr.loadFailed'));
@@ -65,8 +77,13 @@ export const OcrPage: FC = () => {
       const result = await bridgeRequest<OperationResult>('hotkey.rebind', { name: 'OCR', hotkey: value });
       if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
       setShortcut(result.shortcut ?? value);
+      const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      if (Array.isArray(refreshed)) setHotkeys(refreshed);
+      toast.success(t('common.save'));
     } catch (error) {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
+      const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      if (Array.isArray(refreshed)) setHotkeys(refreshed);
     }
   };
 
@@ -78,7 +95,15 @@ export const OcrPage: FC = () => {
     <div className="ocr-page" style={{ animation: 'fadeIn 0.3s ease' }}>
       <SettingGroup title={t('ocr.title')} icon={<FileText size={20} strokeWidth={2.5} />}>
         <Card>
-          <SettingRow label={t('ocr.shortcut')} description={t('ocr.shortcutDesc')}>
+          <SettingRow
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>{t('ocr.shortcut')}</span>
+                <HotkeyStatusBadge entry={getHotkey('OCR')} />
+              </div>
+            }
+            description={t('ocr.shortcutDesc')}
+          >
             <HotkeyRecorder
               id="ocr-shortcut"
               value={shortcut}

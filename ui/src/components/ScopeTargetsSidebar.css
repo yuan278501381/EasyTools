@@ -1,0 +1,299 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ScopeTargetsSidebar.css — WGesture 2 风格作用目标侧栏导航样式
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.scope-targets-sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 10px 8px;
+  gap: 12px;
+  user-select: none;
+  box-shadow: var(--shadow-sm);
+  max-height: 680px;
+  overflow-y: auto;
+}
+
+.scope-target-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scope-target-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scope-target-section__add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.scope-target-section__add-btn:hover {
+  background: var(--primary-dim);
+  color: var(--primary);
+  border-color: var(--primary-glow);
+}
+
+.scope-target-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  position: relative;
+  min-width: 0;
+}
+
+.scope-target-item:hover {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary);
+}
+
+.scope-target-item.active {
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-weight: 600;
+  border-color: var(--primary-glow);
+}
+
+.scope-target-item__icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: inherit;
+  transition: all var(--transition-fast);
+}
+
+.scope-target-item.active .scope-target-item__icon {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.scope-target-item__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.scope-target-item__title {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-target-item__subtitle {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-target-item__badge {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.scope-target-item__delete-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.scope-target-item:hover .scope-target-item__delete-btn {
+  display: inline-flex;
+}
+
+.scope-target-item__delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* Master-Detail Split Container */
+.gesture-master-detail-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.gesture-detail-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.target-header-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  gap: 12px;
+}
+
+.target-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.target-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--primary-dim);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.target-header-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.target-header-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.target-header-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+}
+
+.target-strategy-segmented {
+  display: flex;
+  background: var(--bg-surface);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  gap: 4px;
+}
+
+.target-strategy-btn {
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.target-strategy-btn:hover {
+  color: var(--text-primary);
+}
+
+.target-strategy-btn.active {
+  background: var(--card-bg);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.target-disabled-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  background: var(--card-bg);
+  border: 1px dashed var(--card-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  gap: 12px;
+}
+
+.target-disabled-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.target-disabled-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.target-disabled-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}

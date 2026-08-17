@@ -2,7 +2,8 @@
  * 通用 UI 组件 — Card / Toggle / SettingGroup
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { type FC, type ReactNode, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback, useId, useRef } from 'react';
+import { type FC, type ReactNode, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ControlA11yContext, useControlA11y } from './ControlA11yContext';
 import './UIKit.css';
@@ -12,16 +13,20 @@ import './UIKit.css';
 interface CardProps {
   title?: string;
   subtitle?: string;
+  headerAction?: ReactNode;
   children: ReactNode;
   className?: string;
 }
 
-export const Card: FC<CardProps> = ({ title, subtitle, children, className = '' }) => (
+export const Card: FC<CardProps> = ({ title, subtitle, headerAction, children, className = '' }) => (
   <div className={`uikit-card ${className}`}>
-    {(title || subtitle) && (
+    {(title || subtitle || headerAction) && (
       <div className="uikit-card__header">
-        {title && <h3 className="uikit-card__title">{title}</h3>}
-        {subtitle && <p className="uikit-card__subtitle">{subtitle}</p>}
+        <div className="uikit-card__titles">
+          {title && <h3 className="uikit-card__title">{title}</h3>}
+          {subtitle && <p className="uikit-card__subtitle">{subtitle}</p>}
+        </div>
+        {headerAction && <div className="uikit-card__action">{headerAction}</div>}
       </div>
     )}
     <div className="uikit-card__body">{children}</div>
@@ -63,7 +68,7 @@ export const Toggle: FC<ToggleProps> = ({ id, checked, onChange, label, descript
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
 
 interface SettingRowProps {
-  label: string;
+  label: ReactNode;
   description?: string;
   children: ReactNode;
 }
@@ -155,22 +160,25 @@ export const Select: FC<SelectProps> = ({ id, value, options, onChange, disabled
 interface ButtonProps {
   children: ReactNode;
   onClick?: () => void;
-  variant?: 'primary' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   size?: 'sm' | 'md';
   disabled?: boolean;
   type?: 'button' | 'submit';
   title?: string;
+  className?: string;
+  style?: CSSProperties;
 }
 
 export const Button: FC<ButtonProps> = ({
-  children, onClick, variant = 'primary', size = 'md', disabled = false, type = 'button', title,
+  children, onClick, variant = 'primary', size = 'md', disabled = false, type = 'button', title, className = '', style,
 }) => (
   <button
     type={type}
-    className={`uikit-btn uikit-btn--${variant} uikit-btn--${size}`}
+    className={`uikit-btn uikit-btn--${variant} uikit-btn--${size} ${className}`}
     onClick={onClick}
     disabled={disabled}
     title={title}
+    style={style}
   >
     {children}
   </button>
@@ -341,7 +349,7 @@ export const Modal: FC<ModalProps> = ({ open, title, onClose, children, footer }
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="uikit-modal__overlay" onClick={onClose}>
       <div
         ref={modalRef}
@@ -358,6 +366,7 @@ export const Modal: FC<ModalProps> = ({ open, title, onClose, children, footer }
         <div className="uikit-modal__body">{children}</div>
         {footer && <div className="uikit-modal__footer">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

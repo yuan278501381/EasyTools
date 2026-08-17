@@ -7,13 +7,13 @@
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   user-select: none;
-  overflow-x: auto; /* In case it's too wide */
+  width: 100%;
 }
 
 .keyboard-heatmap__row {
   display: flex;
   gap: 6px;
-  justify-content: center;
+  width: 100%;
 }
 
 .keyboard-heatmap__key {
@@ -22,27 +22,28 @@
   align-items: center;
   justify-content: center;
   height: 44px;
-  min-width: 44px;
+  flex: 1 1 0%;
+  min-width: 0;
   border-radius: var(--radius-sm);
   background: var(--key-bg);
   border: 1px solid var(--key-border);
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: clamp(0.68rem, 0.95vw, 0.85rem);
   font-weight: 500;
   transition: all var(--transition-fast);
   cursor: default;
   overflow: hidden;
 }
 
-/* Base key sizing for standard layout */
-.key-width-150 { width: 66px; }  /* Tab, \ */
-.key-width-175 { width: 77px; }  /* Caps */
-.key-width-200 { width: 88px; }  /* Backspace, Enter */
-.key-width-225 { width: 99px; }  /* LShift, RShift */
-.key-width-250 { width: 110px; }
-.key-width-275 { width: 121px; } /* RShift alternative */
-.key-width-space { width: 264px; } /* Spacebar */
-.key-width-125 { width: 55px; } /* Ctrl, Alt, Win */
+/* 键盘按键 15 单元格标准比例 */
+.key-width-125 { flex: 1.25 1 0%; }
+.key-width-150 { flex: 1.5 1 0%; }
+.key-width-175 { flex: 1.75 1 0%; }
+.key-width-200 { flex: 2 1 0%; }
+.key-width-225 { flex: 2.25 1 0%; }
+.key-width-250 { flex: 2.5 1 0%; }
+.key-width-275 { flex: 2.75 1 0%; }
+.key-width-space { flex: 6.25 1 0%; }
 
 /* The heat overlay */
 .keyboard-heatmap__heat {
@@ -58,6 +59,10 @@
   position: relative;
   z-index: 2;
   text-shadow: var(--key-text-shadow);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px;
 }
 
 .keyboard-heatmap__key:hover {
@@ -94,4 +99,3 @@
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
 }
-

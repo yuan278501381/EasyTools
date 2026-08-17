@@ -18,6 +18,9 @@ class TrayWindow {
 public:
     static TrayWindow& instance();
 
+    /// 预热托盘菜单 WebView2 渲染环境（后台静默就绪，使用户右键时 0 毫秒瞬间呼出）
+    void preload(HINSTANCE hInstance);
+
     /// 显示托盘菜单，并将其定位到指定的坐标附近 (通常是鼠标点击系统托盘的位置)
     void show(HINSTANCE hInstance, int x, int y);
 
@@ -46,6 +49,7 @@ private:
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
     std::atomic<uint64_t> m_generation{0};
+    uint64_t m_showTimeTick{0};
     POINT m_anchor{};
     bool m_updatingPlacement = false;
 

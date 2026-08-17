@@ -50,8 +50,21 @@ TrayWindow& TrayWindow::instance() {
     return inst;
 }
 
+void TrayWindow::preload(HINSTANCE hInstance) {
+    if (m_hwnd && IsWindow(m_hwnd)) return;
+    const POINT defaultAnchor{GetSystemMetrics(SM_CXSCREEN) - 100, GetSystemMetrics(SM_CYSCREEN) - 100};
+    m_anchor = defaultAnchor;
+    if (!createWindow(hInstance, defaultAnchor.x, defaultAnchor.y)) {
+        LOG_ERROR("TrayWindow: preload createWindow failed");
+        return;
+    }
+    initializeWebView2();
+    ShowWindow(m_hwnd, SW_HIDE);
+}
+
 void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     m_anchor = {x, y};
+    m_showTimeTick = GetTickCount64();
     if (m_hwnd && IsWindow(m_hwnd)) {
         updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
@@ -74,6 +87,7 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
 
     initializeWebView2();
     ShowWindow(m_hwnd, SW_SHOW);
+    SetForegroundWindow(m_hwnd);
     UpdateWindow(m_hwnd);
     m_visible = true;
 }
@@ -85,6 +99,7 @@ void TrayWindow::hide() {
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
         }
+        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
@@ -318,6 +333,12 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             }
             break;
         case WM_TRAY_VERIFY_DEACTIVATED: {
+            if (!inst.m_visible.load()) break;
+            const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+            if (elapsed < 350) {
+                // 窗口刚打开 350ms 内不因初始焦点抖动或创建子窗口而意外关闭
+                break;
+            }
             const HWND foreground = GetForegroundWindow();
             if (foreground != hwnd && (!foreground || !IsChild(hwnd, foreground))) {
                 inst.hide();

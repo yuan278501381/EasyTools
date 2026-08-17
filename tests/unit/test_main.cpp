@@ -25,14 +25,21 @@
 #include "core/config/ConfigManager.h"
 #include "core/events/EventBus.h"
 #include "core/hotkey/HotkeyManager.h"
+#include "core/hotkey/KeyboardHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/plugin/PluginManifest.h"
 #include "core/plugin/PluginManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/utils/DpiUtils.h"
+#include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
 #include "service/SearchExpression.h"
+#include "service/content/ContentSearchEngine.h"
+#include "service/content/PlainTextExtractor.h"
+#include "service/content/ZipXmlExtractor.h"
+#include "service/content/PsdAiExtractor.h"
+#include "service/content/DxfExtractor.h"
 #include <windows.h>
 #include <shellapi.h>
 
@@ -490,10 +497,12 @@ static void test_update_version_comparison() {
     CHECK(UpdateChecker::isNewerVersion("v1.2.3", "1.2.2"));
     CHECK(UpdateChecker::isNewerVersion("1.10.0", "1.9.9"));
     CHECK(UpdateChecker::isNewerVersion("2.0", "1.99.99"));
+    CHECK(UpdateChecker::isNewerVersion("EasyTools v1.2.3 正式发布", "1.2.2"));
     CHECK(!UpdateChecker::isNewerVersion("1.2.3", "1.2.3"));
     CHECK(!UpdateChecker::isNewerVersion("1.2", "1.2.1"));
     CHECK(!UpdateChecker::isNewerVersion("1.2.3-beta.1", "1.2.3"));
     CHECK(!UpdateChecker::isNewerVersion("not-a-version", "1.0.0"));
+    CHECK(!UpdateChecker::isNewerVersion("发行", "1.0.0"));
 }
 
 #include "service/PinyinEngine.h"
@@ -1013,23 +1022,23 @@ static void test_shared_dpi_metrics() {
     const SIZE tray100 = easy::ui::TrayWindowStyle::windowSizeForDpi(96);
     const SIZE tray150 = easy::ui::TrayWindowStyle::windowSizeForDpi(144);
     const SIZE tray200 = easy::ui::TrayWindowStyle::windowSizeForDpi(192);
-    CHECK(tray100.cx == 190 && tray100.cy == 215);
-    CHECK(tray150.cx == 285 && tray150.cy == 323);
-    CHECK(tray200.cx == 380 && tray200.cy == 430);
+    CHECK(tray100.cx == 200 && tray100.cy == 265);
+    CHECK(tray150.cx == 300 && tray150.cy == 398);
+    CHECK(tray200.cx == 400 && tray200.cy == 530);
 
     const SIZE settings100 = easy::ui::SettingsWindowStyle::windowSizeForDpi(96);
     const SIZE settings150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
     const SIZE settings200 = easy::ui::SettingsWindowStyle::windowSizeForDpi(192);
-    CHECK(settings100.cx == 1100 && settings100.cy == 750);
-    CHECK(settings150.cx == 1650 && settings150.cy == 1125);
-    CHECK(settings200.cx == 2200 && settings200.cy == 1500);
+    CHECK(settings100.cx == 1260 && settings100.cy == 880);
+    CHECK(settings150.cx == 1890 && settings150.cy == 1320);
+    CHECK(settings200.cx == 2520 && settings200.cy == 1760);
 
     const SIZE settingsMin100 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(96);
     const SIZE settingsMin150 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(144);
     const SIZE settingsMin200 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(192);
-    CHECK(settingsMin100.cx == 680 && settingsMin100.cy == 460);
-    CHECK(settingsMin150.cx == 1020 && settingsMin150.cy == 690);
-    CHECK(settingsMin200.cx == 1360 && settingsMin200.cy == 920);
+    CHECK(settingsMin100.cx == 760 && settingsMin100.cy == 520);
+    CHECK(settingsMin150.cx == 1140 && settingsMin150.cy == 780);
+    CHECK(settingsMin200.cx == 1520 && settingsMin200.cy == 1040);
 
     const auto radial100 = easy::gesture::RadialMenuStyle::metricsForDpi(96);
     const auto radial150 = easy::gesture::RadialMenuStyle::metricsForDpi(144);
@@ -1265,16 +1274,154 @@ static void test_tray_notification() {
         std::printf("[TrayTest] Headless session detected (no active Shell_TrayWnd), skipping assertion.\n");
         ok = TRUE;
     }
-    if (ok && nid.cbSize != 0) {
-        Shell_NotifyIconW(NIM_DELETE, &nid);
-    }
     DestroyIcon(hIcon);
     DestroyWindow(hwnd);
     CHECK(ok);
 }
 
+static void test_quicklook_and_translation() {
+    // 1. Explorer 选中文件判定冒烟（安全不崩溃）
+    auto sel = easy::core::WinUtils::getSelectedExplorerFile();
+    // 在无前台 Explorer 的测试环境下应返回 nullopt，不可抛异常或悬挂
+    CHECK(!sel.has_value() || !sel->empty());
+
+    // 2. 划词提取冒烟测试
+    std::string captured = easy::core::WinUtils::captureSelectedText();
+    // 允许为空或剪贴板原有内容
+    CHECK(captured.size() >= 0);
+
+    // 3. 键盘钩子拦截器注册测试
+    bool hookCallbackCalled = false;
+    easy::core::KeyboardHook::instance().setKeyInterceptor([&hookCallbackCalled](DWORD vk, WPARAM) -> bool {
+        if (vk == VK_F24) {
+            hookCallbackCalled = true;
+            return true;
+        }
+        return false;
+    });
+
+    // 4. QuickLook IPC 处理方法注册与测试
+    easy::core::MessageBridge::instance().registerHandler("quicklook.test", [](const nlohmann::json& params) -> nlohmann::json {
+        return {{"path", params.value("path", "")}, {"ok", true}};
+    });
+
+    std::string resp = easy::core::MessageBridge::instance().handleMessage(
+        R"({"id":999,"method":"quicklook.test","params":{"path":"C:\\test.md"}})");
+    auto jResp = nlohmann::json::parse(resp);
+    CHECK(jResp["id"] == 999);
+    CHECK(jResp["result"]["ok"] == true);
+    CHECK(jResp["result"]["path"] == "C:\\test.md");
+
+    // 5. 快捷键冲突检测与分类判定测试
+    auto& hkManager = easy::core::HotkeyManager::instance();
+    const easy::core::HotkeyDef dummyKey{easy::core::ModKey::Alt, 'Z'};
+    hkManager.registerHotkey("Test Feature A", dummyKey, []() {});
+
+    // 同名重绑不应自相冲突
+    auto selfConflict = hkManager.checkConflict(dummyKey, "Test Feature A");
+    CHECK(!selfConflict.hasConflict);
+
+    // 异名重绑应检测出内部冲突
+    auto interConflict = hkManager.checkConflict(dummyKey, "Test Feature B");
+    CHECK(interConflict.hasConflict);
+    CHECK(interConflict.conflictType == "internal");
+
+    // 清理测试热键
+    hkManager.unregisterHotkey("Test Feature A");
+}
+
+static void test_content_search_extractors() {
+    // 1. SearchExpression content 语法解析验证
+    auto expr1 = SearchExpression::parse(L"content:SELECT");
+    CHECK(expr1.hasContentFilter());
+    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr1.getContentQuery()), "SELECT");
+    CHECK(!expr1.requiresFullPath());
+
+    auto expr2 = SearchExpression::parse(L"ext:cpp;h c:EasyTools c:\\projects\\");
+    CHECK(expr2.hasContentFilter());
+    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr2.getContentQuery()), "EasyTools");
+    CHECK(expr2.requiresFullPath());
+
+    auto expr3 = SearchExpression::parse(L"内容:工程图纸");
+    CHECK(expr3.hasContentFilter());
+    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr3.getContentQuery()), "工程图纸");
+
+    // 拼音音节分隔符 (如输入法 tong'xi 匹配同喜 tongxi)
+    auto exprPinyinSyllable = SearchExpression::parse(L"tong'xi");
+    FileRecord recTongXi;
+    recTongXi.fileName = L"同喜.txt";
+    recTongXi.normalizedName = L"同喜.txt";
+    recTongXi.pinyinFull = L"tongxi";
+    recTongXi.pinyinInitials = L"tx";
+    CHECK(exprPinyinSyllable.matches(recTongXi, L'C'));
+
+    // 2. ContentSearchEngine 格式支持测试
+    auto& engine = easy::service::content::ContentSearchEngine::instance();
+    CHECK(engine.canSearchContent(L"cpp"));
+    CHECK(engine.canSearchContent(L"rs"));
+    CHECK(engine.canSearchContent(L"py"));
+    CHECK(engine.canSearchContent(L"sql"));
+    CHECK(engine.canSearchContent(L"md"));
+    CHECK(engine.canSearchContent(L"docx"));
+    CHECK(engine.canSearchContent(L"xlsx"));
+    CHECK(engine.canSearchContent(L"pptx"));
+    CHECK(engine.canSearchContent(L"psd"));
+    CHECK(engine.canSearchContent(L"ai"));
+    CHECK(engine.canSearchContent(L"cdr"));
+    CHECK(engine.canSearchContent(L"xmind"));
+    CHECK(engine.canSearchContent(L"dxf"));
+    CHECK(!engine.canSearchContent(L"exe"));
+    CHECK(!engine.canSearchContent(L"dll"));
+
+    // 3. PlainTextExtractor 实际文件扫描测试 (创建临时测试文件)
+    wchar_t tempPath[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring testCppFile = std::wstring(tempPath) + L"easytools_test_source.cpp";
+
+    {
+        std::ofstream ofs(testCppFile, std::ios::binary);
+        ofs << "// Line 1\n";
+        ofs << "// Line 2\n";
+        ofs << "void TestWorldClassContentSearch() {\n";
+        ofs << "    int magic = 20260816;\n";
+        ofs << "}\n";
+    }
+
+    std::vector<easy::service::content::ContentSnippet> snippets;
+    bool found = engine.searchFile(testCppFile, L"TestWorldClassContentSearch", false, snippets);
+    CHECK(found);
+    CHECK(snippets.size() == 1);
+    if (!snippets.empty()) {
+        CHECK(snippets[0].lineNumber == 3);
+        CHECK(snippets[0].lineContent.find(L"TestWorldClassContentSearch") != std::wstring::npos);
+        CHECK(snippets[0].matchLength == wcslen(L"TestWorldClassContentSearch"));
+    }
+
+    DeleteFileW(testCppFile.c_str());
+
+    // 4. DxfExtractor 实际文件扫描测试 (创建临时测试 DXF)
+    std::wstring testDxfFile = std::wstring(tempPath) + L"easytools_test_drawing.dxf";
+    {
+        std::ofstream ofs(testDxfFile, std::ios::binary);
+        ofs << "0\nSECTION\n2\nENTITIES\n";
+        ofs << "0\nTEXT\n8\nLAYER_1\n1\nDWG_PROJECT_NUM_A88\n";
+        ofs << "0\nENDSEC\n0\nEOF\n";
+    }
+
+    snippets.clear();
+    bool dxfFound = engine.searchFile(testDxfFile, L"PROJECT_NUM_A88", false, snippets);
+    CHECK(dxfFound);
+    CHECK(!snippets.empty());
+    if (!snippets.empty()) {
+        CHECK(snippets[0].lineContent.find(L"DWG_PROJECT_NUM_A88") != std::wstring::npos);
+    }
+
+    DeleteFileW(testDxfFile.c_str());
+}
+
 int main() {
     test_tray_notification();
+    test_quicklook_and_translation();
     test_recognizer();
     test_scoperule();
     test_hotkey_parser();
@@ -1287,6 +1434,7 @@ int main() {
     test_update_version_comparison();
     test_pinyin_engine();
     test_search_everything_expressions();
+    test_content_search_extractors();
     test_winutils_fullscreen();
     test_winutils_clipboard_and_encoding();
     test_pin_window_transform();

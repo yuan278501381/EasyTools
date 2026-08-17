@@ -19,8 +19,8 @@ struct SearchWindowStyle {
 };
 
 struct TrayWindowStyle {
-    static constexpr int BaseWidth = 190;
-    static constexpr int BaseHeight = 215;
+    static constexpr int BaseWidth = 200;
+    static constexpr int BaseHeight = 265;
     static constexpr int BaseScreenMargin = 10;
 
     static SIZE windowSizeForDpi(unsigned dpi) noexcept {
@@ -31,10 +31,10 @@ struct TrayWindowStyle {
 };
 
 struct SettingsWindowStyle {
-    static constexpr int BaseWidth = 1100;
-    static constexpr int BaseHeight = 750;
-    static constexpr int BaseMinWidth = 680;
-    static constexpr int BaseMinHeight = 460;
+    static constexpr int BaseWidth = 1260;
+    static constexpr int BaseHeight = 880;
+    static constexpr int BaseMinWidth = 760;
+    static constexpr int BaseMinHeight = 520;
     static constexpr int BaseScreenMargin = 24;
 
     static SIZE windowSizeForDpi(unsigned dpi) noexcept {

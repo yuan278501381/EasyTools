@@ -36,89 +36,53 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
 
-    // 优先加载适合托盘尺寸的标准小图标
-    m_nid.hIcon = m_icon;
-    if (!m_nid.hIcon) {
-        m_nid.hIcon = (HICON)LoadImageW(
+    // 优先加载适合托盘尺寸的标准小图标并进行持久缓存
+    if (!m_icon) {
+        m_icon = (HICON)LoadImageW(
             GetModuleHandleW(nullptr),
             MAKEINTRESOURCEW(101),
             IMAGE_ICON,
             GetSystemMetrics(SM_CXSMICON),
             GetSystemMetrics(SM_CYSMICON),
-            LR_DEFAULTCOLOR
+            LR_DEFAULTCOLOR | LR_SHARED
         );
+        if (!m_icon) {
+            m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+        }
+        if (!m_icon) {
+            m_icon = LoadIconW(nullptr, IDI_APPLICATION);
+        }
     }
-    if (!m_nid.hIcon) {
-        m_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
-    }
-    if (!m_nid.hIcon) {
-        m_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    }
-    if (!m_nid.hIcon) {
-        m_nid.hIcon = LoadIconW(nullptr, IDI_INFORMATION);
-    }
-    if (!m_nid.hIcon) {
-        // GDI 动态生成保底图标句柄，确保绝不向 Shell 传递空句柄
-        int cx = GetSystemMetrics(SM_CXSMICON);
-        int cy = GetSystemMetrics(SM_CYSMICON);
-        if (cx <= 0) cx = 16;
-        if (cy <= 0) cy = 16;
-        HDC hdcScreen = GetDC(nullptr);
-        HDC hdcMem = CreateCompatibleDC(hdcScreen);
-        HBITMAP hbmColor = CreateCompatibleBitmap(hdcScreen, cx, cy);
-        HBITMAP hbmMask = CreateBitmap(cx, cy, 1, 1, nullptr);
-        HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hbmColor);
-        HBRUSH hBrush = CreateSolidBrush(RGB(0, 120, 215));
-        RECT rc{0, 0, cx, cy};
-        FillRect(hdcMem, &rc, hBrush);
-        DeleteObject(hBrush);
-        SelectObject(hdcMem, hOld);
-        DeleteDC(hdcMem);
-        ReleaseDC(nullptr, hdcScreen);
-
-        ICONINFO ii{};
-        ii.fIcon = TRUE;
-        ii.hbmColor = hbmColor;
-        ii.hbmMask = hbmMask;
-        m_nid.hIcon = CreateIconIndirect(&ii);
-        DeleteObject(hbmColor);
-        DeleteObject(hbmMask);
-    }
+    m_nid.hIcon = m_icon;
 
     wcsncpy_s(m_nid.szTip, isEnglishLocale() ? L"EasyTools - Desktop Utility" : L"EasyTools — 桌面效率工具", _TRUNCATE);
 
     m_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    // 先行清理可能存在的旧残留
+    Shell_NotifyIconW(NIM_DELETE, &m_nid);
+
     bool added = Shell_NotifyIconW(NIM_ADD, &m_nid);
     if (!added) {
-        // 当某些 Windows 系统对完整结构体大小严格校验时，降级使用广泛兼容的 V3 / V2 结构体尺寸
         m_nid.cbSize = NOTIFYICONDATAW_V3_SIZE;
         added = Shell_NotifyIconW(NIM_ADD, &m_nid);
     }
     if (!added) {
-        m_nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
-        added = Shell_NotifyIconW(NIM_ADD, &m_nid);
-    }
-    if (!added) {
-        // 尝试清理残留后重试
-        Shell_NotifyIconW(NIM_DELETE, &m_nid);
         m_nid.cbSize = sizeof(NOTIFYICONDATAW);
-        added = Shell_NotifyIconW(NIM_ADD, &m_nid);
-        if (!added) {
-            m_nid.cbSize = NOTIFYICONDATAW_V3_SIZE;
-            added = Shell_NotifyIconW(NIM_ADD, &m_nid);
-        }
+        added = Shell_NotifyIconW(NIM_MODIFY, &m_nid);
     }
 
+    static bool s_lastFailed = false;
     if (!added) {
-        // 如果依然失败，尝试直接 MODIFY 更新
-        if (!Shell_NotifyIconW(NIM_MODIFY, &m_nid)) {
+        if (!s_lastFailed) {
             LOG_WARN("创建/更新托盘图标未成功，启动自愈定时器, error={}", GetLastError());
-            if (m_hwnd && IsWindow(m_hwnd)) {
-                SetTimer(m_hwnd, TIMER_ID_TRAY_RETRY, 1000, nullptr);
-            }
-            return false;
+            s_lastFailed = true;
         }
+        if (m_hwnd && IsWindow(m_hwnd)) {
+            SetTimer(m_hwnd, TIMER_ID_TRAY_RETRY, 2000, nullptr);
+        }
+        return false;
     }
+    s_lastFailed = false;
 
     if (m_hwnd && IsWindow(m_hwnd)) {
         KillTimer(m_hwnd, TIMER_ID_TRAY_RETRY);
@@ -239,11 +203,12 @@ void TrayIcon::showNativeContextMenu(POINT pt) {
     InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
     InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Screenshot), isEn ? L"📷 Capture" : L"📷 截图");
     InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Recording), isEn ? L"🎥 Recording" : L"🎥 录屏");
-    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::PauseGesture),
+    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Search), isEn ? L"🔍 File Search" : L"🔍 文件搜索");
+    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::PauseGesture),
                 m_gesturePaused ? (isEn ? L"▶️ Resume Gesture" : L"▶️ 恢复手势") : (isEn ? L"⏸️ Pause Gesture" : L"⏸️ 暂停手势"));
-    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"❌ Exit EasyTools" : L"❌ 退出 EasyTools");
+    InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"❌ Exit EasyTools" : L"❌ 退出 EasyTools");
 
     SetForegroundWindow(m_hwnd);
     UINT selected = TrackPopupMenuEx(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, m_hwnd, nullptr);

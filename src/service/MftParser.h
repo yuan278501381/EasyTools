@@ -15,6 +15,9 @@ struct SearchResult {
     std::wstring fileName;
     std::wstring fullPath;
     bool isDirectory = false;
+    uint64_t fileSize = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastWriteTime = 0;
 };
 
 class MftParser {

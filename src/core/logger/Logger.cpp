@@ -67,7 +67,8 @@ void Logger::initialize(const LoggerConfig& config) {
             spdlog::async_overflow_policy::block
         );
         s_logger->set_level(spdlog::level::trace);  // 总开关: 允许所有级别，由各 Sink 过滤
-        s_logger->flush_on(spdlog::level::warn);     // WARN 及以上立即刷盘
+        s_logger->flush_on(spdlog::level::info);   // INFO 及以上立即刷盘
+        spdlog::flush_every(std::chrono::seconds(1));
 
         spdlog::register_logger(s_logger);
         spdlog::set_default_logger(s_logger);

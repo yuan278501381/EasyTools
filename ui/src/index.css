@@ -19,16 +19,16 @@
   --danger: #f87171;
   --info: #60a5fa;
 
-  /* 背景层级 (支持 Fluent Mica 材质穿透) */
-  --bg-base: transparent;
-  --bg-surface: rgba(20, 20, 30, 0.6);
-  --bg-elevated: rgba(30, 30, 45, 0.8);
-  --bg-overlay: rgba(0, 0, 0, 0.7);
+  /* 背景层级 */
+  --bg-base: #12111a;
+  --bg-surface: #191724;
+  --bg-elevated: #211e30;
+  --bg-overlay: rgba(0, 0, 0, 0.75);
 
-  /* 卡片玻璃态 */
-  --card-bg: rgba(25, 25, 35, 0.45);
+  /* 卡片层级 */
+  --card-bg: #1e1c2c;
   --card-border: rgba(255, 255, 255, 0.08);
-  --card-hover: rgba(40, 40, 55, 0.6);
+  --card-hover: #262338;
 
   /* 文本 */
   --text-primary: #f8f8fc;
@@ -36,8 +36,8 @@
   --text-muted: #73738c;
   --text-disabled: #4b4b5c;
 
-  /* 输入框玻璃态 */
-  --input-bg: rgba(15, 15, 25, 0.5);
+  /* 输入框 */
+  --input-bg: rgba(15, 15, 25, 0.6);
   --input-border: rgba(255, 255, 255, 0.1);
   --input-focus: var(--primary);
 
@@ -92,16 +92,17 @@
   --bg-base: #f4f4f9;
   --bg-surface: rgba(255, 255, 255, 0.85);
   --bg-elevated: #ffffff;
+  --bg-overlay: rgba(15, 23, 42, 0.4);
 
-  --card-bg: rgba(255, 255, 255, 0.7);
-  --card-border: rgba(0, 0, 0, 0.06);
-  --card-hover: rgba(255, 255, 255, 0.95);
+  --card-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --card-hover: #fafafa;
 
   --text-primary: #111118;
   --text-secondary: #4a4a5e;
   --text-muted: #8b8b9f;
 
-  --input-bg: rgba(255, 255, 255, 0.9);
+  --input-bg: rgba(255, 255, 255, 0.95);
   --input-border: rgba(0, 0, 0, 0.12);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
@@ -116,7 +117,7 @@
   --key-border: rgba(0, 0, 0, 0.1);
   --key-hover-border: rgba(0, 0, 0, 0.25);
   --key-hover-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  --key-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8); /* Glow for dark text */
+  --key-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
   --key-tooltip-bg: rgba(255, 255, 255, 0.9);
   --key-tooltip-text: #1e1e2a;
 }
@@ -190,7 +191,7 @@ body {
   100% { background-position: 200% 0; }
 }
 
-/* ── 无障碍基线 ─────────────────────────────────────────────────────────────────────────── */
+/* ── 无障碍基线 ──────────────────────────────────────────────────────────── */
 .sr-only {
   position: absolute !important;
   width: 1px !important;

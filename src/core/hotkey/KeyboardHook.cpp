@@ -49,6 +49,11 @@ void KeyboardHook::setKeycastCallback(std::function<void(const std::string&)> cb
     m_keycastCallback = std::move(cb);
 }
 
+void KeyboardHook::setKeyInterceptor(std::function<bool(DWORD vkCode, WPARAM wParam)> interceptor) {
+    std::lock_guard lock(m_callbackMutex);
+    m_keyInterceptor = std::move(interceptor);
+}
+
 LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     auto& self = KeyboardHook::instance();
 
@@ -58,6 +63,16 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
 
             // 忽略注入的按键
             if (!(data->flags & LLKHF_INJECTED)) {
+                // 优先执行自定义按键拦截器（例如 QuickLook 空格预览）
+                std::function<bool(DWORD, WPARAM)> interceptor;
+                {
+                    std::lock_guard lock(self.m_callbackMutex);
+                    interceptor = self.m_keyInterceptor;
+                }
+                if (interceptor && interceptor(data->vkCode, wParam)) {
+                    return 1; // 消费并拦截按键
+                }
+
                 if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
                     // 记录按键统计
                     StatsManager::instance().recordKey(data->vkCode);

@@ -11,6 +11,9 @@
 #include <windows.h>
 #include <wincrypt.h>
 #include <shlobj.h>
+#include <shldisp.h>
+#include <exdisp.h>
+#include <wrl/client.h>
 #include <string>
 #include <filesystem>
 #include <optional>
@@ -282,6 +285,171 @@ public:
                 rcWindow.top <= mi.rcMonitor.top &&
                 rcWindow.right >= mi.rcMonitor.right &&
                 rcWindow.bottom >= mi.rcMonitor.bottom);
+    }
+
+    /// 获取当前活动资源管理器（Explorer）或桌面所选中的文件/文件夹完整物理路径
+    static std::optional<std::wstring> getSelectedExplorerFile() {
+        HWND foregroundWnd = GetForegroundWindow();
+        if (!foregroundWnd) return std::nullopt;
+
+        wchar_t className[256] = {0};
+        GetClassNameW(foregroundWnd, className, 256);
+        std::wstring cls = className;
+
+        bool isExplorer = (cls == L"CabinetWClass" || cls == L"ExploreWClass");
+        bool isDesktop = (cls == L"Progman" || cls == L"WorkerW");
+
+        // 检查是否为通用文件选择窗口
+        if (!isExplorer && !isDesktop) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(foregroundWnd, &pid);
+            std::wstring proc = processNameFromPid(pid);
+            if (toLower(wstringToUtf8(proc)) == "explorer.exe") {
+                isExplorer = true;
+            }
+        }
+
+        if (!isExplorer && !isDesktop) {
+            return std::nullopt;
+        }
+
+        // 检查焦点控件是否处于重命名编辑状态 (Edit 控件)，防止打字误触发
+        DWORD threadId = GetWindowThreadProcessId(foregroundWnd, nullptr);
+        GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+        if (GetGUIThreadInfo(threadId, &gti)) {
+            if (gti.hwndFocus) {
+                wchar_t focusClass[256] = {0};
+                GetClassNameW(gti.hwndFocus, focusClass, 256);
+                if (_wcsicmp(focusClass, L"Edit") == 0) {
+                    return std::nullopt;
+                }
+            }
+        }
+
+        // COM 遍历 IShellWindows 取得选中项
+        Microsoft::WRL::ComPtr<IShellWindows> shellWindows;
+        HRESULT hr = CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&shellWindows));
+        if (FAILED(hr) || !shellWindows) return std::nullopt;
+
+        long count = 0;
+        shellWindows->get_Count(&count);
+
+        for (long i = 0; i < count; ++i) {
+            VARIANT vi;
+            VariantInit(&vi);
+            vi.vt = VT_I4;
+            vi.lVal = i;
+            Microsoft::WRL::ComPtr<IDispatch> disp;
+            HRESULT itemHr = shellWindows->Item(vi, &disp);
+            VariantClear(&vi);
+            if (FAILED(itemHr) || !disp) continue;
+
+            Microsoft::WRL::ComPtr<IWebBrowserApp> app;
+            if (FAILED(disp.As(&app)) || !app) continue;
+
+            HWND hwnd = nullptr;
+            app->get_HWND(reinterpret_cast<SHANDLE_PTR*>(&hwnd));
+            if (!hwnd) continue;
+
+            // 匹配顶层窗口或其父/子窗口句柄（兼容 Win11 多标签页 Explorer）
+            if (hwnd != foregroundWnd && !isDesktop) {
+                if (!IsChild(hwnd, foregroundWnd) && !IsChild(foregroundWnd, hwnd)) {
+                    continue;
+                }
+            }
+
+            Microsoft::WRL::ComPtr<IServiceProvider> sp;
+            if (FAILED(disp.As(&sp)) || !sp) continue;
+
+            Microsoft::WRL::ComPtr<IShellBrowser> sb;
+            if (FAILED(sp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&sb))) || !sb) continue;
+
+            Microsoft::WRL::ComPtr<IShellView> sv;
+            if (FAILED(sb->QueryActiveShellView(&sv)) || !sv) continue;
+
+            Microsoft::WRL::ComPtr<IFolderView> fv;
+            if (FAILED(sv.As(&fv)) || !fv) continue;
+
+            int focusIndex = -1;
+            if (FAILED(fv->GetFocusedItem(&focusIndex)) || focusIndex < 0) {
+                if (FAILED(fv->GetSelectionMarkedItem(&focusIndex)) || focusIndex < 0) {
+                    continue;
+                }
+            }
+
+            Microsoft::WRL::ComPtr<IPersistFolder2> pf;
+            if (FAILED(fv->GetFolder(IID_PPV_ARGS(&pf))) || !pf) continue;
+
+            PIDLIST_ABSOLUTE pidlFolder = nullptr;
+            if (FAILED(pf->GetCurFolder(&pidlFolder)) || !pidlFolder) continue;
+
+            PITEMID_CHILD pidlItem = nullptr;
+            if (SUCCEEDED(fv->Item(focusIndex, &pidlItem)) && pidlItem) {
+                PIDLIST_ABSOLUTE pidlFull = ILCombine(pidlFolder, pidlItem);
+                CoTaskMemFree(pidlItem);
+                CoTaskMemFree(pidlFolder);
+
+                if (pidlFull) {
+                    wchar_t path[MAX_PATH] = {0};
+                    if (SHGetPathFromIDListW(pidlFull, path)) {
+                        CoTaskMemFree(pidlFull);
+                        std::error_code ec;
+                        if (std::filesystem::exists(path, ec)) {
+                            return std::wstring(path);
+                        }
+                    }
+                    CoTaskMemFree(pidlFull);
+                }
+            } else {
+                CoTaskMemFree(pidlFolder);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// 自动捕获当前选中的文本（通过发送 Ctrl+C 并读取剪贴板），若无选中则返回剪贴板现有文本
+    static std::string captureSelectedText() {
+        // 先尝试获取当前剪贴板
+        std::string initialText;
+        if (OpenClipboard(nullptr)) {
+            HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+            if (hData) {
+                auto* pszText = static_cast<wchar_t*>(GlobalLock(hData));
+                if (pszText) {
+                    initialText = wstringToUtf8(pszText);
+                    GlobalUnlock(hData);
+                }
+            }
+            CloseClipboard();
+        }
+
+        // 模拟 Ctrl+C 复制选中文本
+        INPUT inputs[4] = {};
+        inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_CONTROL;
+        inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = 'C';
+        inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = 'C'; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_CONTROL; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(4, inputs, sizeof(INPUT));
+
+        Sleep(50); // 给系统一点时间完成复制
+
+        // 再次读取剪贴板
+        if (OpenClipboard(nullptr)) {
+            HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+            if (hData) {
+                auto* pszText = static_cast<wchar_t*>(GlobalLock(hData));
+                if (pszText) {
+                    std::string newText = wstringToUtf8(pszText);
+                    GlobalUnlock(hData);
+                    CloseClipboard();
+                    return newText;
+                }
+            }
+            CloseClipboard();
+        }
+
+        return initialText;
     }
 };
 

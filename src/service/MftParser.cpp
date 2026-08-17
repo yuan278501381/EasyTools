@@ -222,6 +222,9 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
             record->fileReferenceNumber = fileId;
             record->parentFileReferenceNumber = parentId;
             record->isDirectory = isDir;
+            record->fileSize = isDir ? 0 : ((static_cast<uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow);
+            record->creationTime = (static_cast<uint64_t>(findData.ftCreationTime.dwHighDateTime) << 32) | findData.ftCreationTime.dwLowDateTime;
+            record->lastWriteTime = (static_cast<uint64_t>(findData.ftLastWriteTime.dwHighDateTime) << 32) | findData.ftLastWriteTime.dwLowDateTime;
             record->fileName = findData.cFileName;
             record->normalizedName = normalize(record->fileName);
             record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
@@ -279,6 +282,7 @@ void MftParser::EnumerateFiles() {
             record->fileReferenceNumber = pRecord->FileReferenceNumber;
             record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
             record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            record->lastWriteTime = static_cast<uint64_t>(pRecord->TimeStamp.QuadPart);
             
             int nameLen = pRecord->FileNameLength / 2;
             record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
@@ -299,38 +303,31 @@ void MftParser::EnumerateFiles() {
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit) {
-    std::shared_lock lock(m_MapMutex);
     std::vector<SearchResult> results;
-    if (query.empty() || limit <= 0) return results;
-    limit = std::min(limit, 200);
+    if (query.empty()) return results;
 
-    const SearchExpression expr = SearchExpression::parse(query);
-    if (expr.isEmpty()) return results;
+    const std::wstring lowerQuery = normalize(query);
+    const auto expr = SearchExpression::parse(query);
 
-    const std::wstring lowerQuery = expr.getNormalizedQuery();
-    const bool needFullPath = expr.requiresFullPath();
+    std::shared_lock lock(m_MapMutex);
+    const uint64_t generation = m_IndexGeneration.load(std::memory_order_acquire);
 
-    auto testCandidate = [&](DWORDLONG id, const FileRecord& record) -> bool {
-        std::wstring fullPath;
-        if (needFullPath) fullPath = buildFullPath(id);
-        return expr.matches(record, static_cast<wchar_t>(m_DriveLetter), fullPath);
+    auto testCandidate = [&](DWORDLONG id, const FileRecord& record) {
+        if (!expr.requiresFullPath()) {
+            return expr.matches(record, static_cast<wchar_t>(m_DriveLetter));
+        }
+        const std::wstring path = buildFullPath(id);
+        return expr.matches(record, static_cast<wchar_t>(m_DriveLetter), path);
     };
 
-    std::lock_guard cacheLock(m_SearchCacheMutex);
-    const uint64_t generation = m_IndexGeneration.load(std::memory_order_acquire);
     std::vector<DWORDLONG> candidates;
-    const bool canRefineCache = generation == m_CachedGeneration &&
-        !m_CachedQuery.empty() && lowerQuery.starts_with(m_CachedQuery);
-    if (canRefineCache) {
-        candidates.reserve(m_CachedCandidates.size());
-        for (const auto id : m_CachedCandidates) {
-            const auto it = m_FileMap.find(id);
-            if (it != m_FileMap.end() && testCandidate(id, *it->second)) candidates.push_back(id);
-        }
-    } else {
-        candidates.reserve(std::min<size_t>(m_FileMap.size(), 65536));
-        for (const auto& [id, record] : m_FileMap) {
-            if (testCandidate(id, *record)) candidates.push_back(id);
+    bool canNarrow = false;
+    {
+        std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
+        if (generation == m_CachedGeneration && !m_CachedQuery.empty() &&
+            lowerQuery.rfind(m_CachedQuery, 0) == 0) {
+            candidates = m_CachedCandidates;
+            canNarrow = true;
         }
     }
 
@@ -340,16 +337,36 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         int rank;
     };
     std::vector<RankedCandidate> ranked;
-    ranked.reserve(candidates.size());
-    for (const auto id : candidates) {
-        const auto it = m_FileMap.find(id);
-        if (it == m_FileMap.end()) continue;
-        const auto& record = *it->second;
-        int rank = expr.calculateRank(record);
-        ranked.push_back({id, &record, rank});
+
+    if (canNarrow) {
+        std::vector<DWORDLONG> filtered;
+        filtered.reserve(std::min<size_t>(candidates.size(), 65536));
+        ranked.reserve(std::min<size_t>(candidates.size(), 65536));
+        for (const auto id : candidates) {
+            const auto it = m_FileMap.find(id);
+            if (it == m_FileMap.end()) continue;
+            const auto& record = *it->second;
+            if (testCandidate(id, record)) {
+                filtered.push_back(id);
+                ranked.push_back({id, &record, expr.calculateRank(record)});
+            }
+        }
+        candidates = std::move(filtered);
+    } else {
+        candidates.reserve(std::min<size_t>(m_FileMap.size(), 65536));
+        ranked.reserve(std::min<size_t>(m_FileMap.size(), 65536));
+        for (const auto& [id, record] : m_FileMap) {
+            if (testCandidate(id, *record)) {
+                candidates.push_back(id);
+                ranked.push_back({id, record.get(), expr.calculateRank(*record)});
+            }
+        }
     }
-    const auto compareRank = [](const auto& a, const auto& b) {
+    const auto compareRank = [&expr](const auto& a, const auto& b) {
         if (a.rank != b.rank) return a.rank < b.rank;
+        if (expr.hasContentFilter()) {
+            return a.record->lastWriteTime > b.record->lastWriteTime;
+        }
         if (a.record->normalizedName.size() != b.record->normalizedName.size())
             return a.record->normalizedName.size() < b.record->normalizedName.size();
         return a.record->normalizedName < b.record->normalizedName;
@@ -361,8 +378,6 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         std::sort(ranked.begin(), ranked.end(), compareRank);
     }
 
-    // Keep the exact matching set for the next keystroke. Moving avoids a
-    // second potentially multi-megabyte copy for broad one-character queries.
     m_CachedQuery = lowerQuery;
     m_CachedCandidates = std::move(candidates);
     m_CachedGeneration = generation;
@@ -370,8 +385,14 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     results.reserve(resultCount);
     for (size_t i = 0; i < resultCount; ++i) {
         const auto& candidate = ranked[i];
-        results.push_back({candidate.record->fileName, buildFullPath(candidate.id),
-                           candidate.record->isDirectory});
+        results.push_back({
+            candidate.record->fileName,
+            buildFullPath(candidate.id),
+            candidate.record->isDirectory,
+            candidate.record->fileSize,
+            candidate.record->creationTime,
+            candidate.record->lastWriteTime
+        });
     }
     return results;
 }

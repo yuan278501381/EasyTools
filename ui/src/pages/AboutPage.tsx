@@ -22,22 +22,29 @@ const DEP_PURPOSE_KEYS = [
   'about.depPurpose.opencv',
   'about.depPurpose.ffmpeg',
   'about.depPurpose.windowsOcr',
+  'about.depPurpose.ntfsEngine',
+  'about.depPurpose.pinyin',
+  'about.depPurpose.direct2d',
 ] as const;
 
 const DEPENDENCIES: DependencyInfo[] = [
-  { name: 'C++20',          version: 'MSVC 17.x', purpose: DEP_PURPOSE_KEYS[0] },
-  { name: 'WebView2',       version: 'Evergreen',  purpose: DEP_PURPOSE_KEYS[1] },
-  { name: 'React',          version: '19.x',       purpose: DEP_PURPOSE_KEYS[2] },
-  { name: 'spdlog',         version: '1.15+',      purpose: DEP_PURPOSE_KEYS[3] },
-  { name: 'nlohmann/json',  version: '3.11+',      purpose: DEP_PURPOSE_KEYS[4] },
-  { name: 'Lua 5.4 + sol2', version: '5.4.7',      purpose: DEP_PURPOSE_KEYS[5] },
-  { name: 'OpenCV',         version: '4.10+',      purpose: DEP_PURPOSE_KEYS[6] },
-  { name: 'FFmpeg',         version: '7.1+',       purpose: DEP_PURPOSE_KEYS[7] },
-  { name: 'Windows.Media.Ocr', version: 'System',  purpose: DEP_PURPOSE_KEYS[8] },
+  { name: 'C++20',             version: 'MSVC 18.x', purpose: DEP_PURPOSE_KEYS[0] },
+  { name: 'NTFS MFT / USN',    version: 'Win32 API', purpose: DEP_PURPOSE_KEYS[9] },
+  { name: 'PinyinEngine',      version: 'Native',    purpose: DEP_PURPOSE_KEYS[10] },
+  { name: 'Direct2D & GDI+',   version: 'Hardware',  purpose: DEP_PURPOSE_KEYS[11] },
+  { name: 'WebView2',          version: 'Evergreen', purpose: DEP_PURPOSE_KEYS[1] },
+  { name: 'React',             version: '19.2+',     purpose: DEP_PURPOSE_KEYS[2] },
+  { name: 'OpenCV',            version: '4.12+',     purpose: DEP_PURPOSE_KEYS[6] },
+  { name: 'FFmpeg',            version: '8.1+',      purpose: DEP_PURPOSE_KEYS[7] },
+  { name: 'Windows.Media.Ocr', version: 'System',    purpose: DEP_PURPOSE_KEYS[8] },
+  { name: 'Lua 5.5 + sol2',    version: '5.5.0',     purpose: DEP_PURPOSE_KEYS[5] },
+  { name: 'spdlog',            version: '1.17+',     purpose: DEP_PURPOSE_KEYS[3] },
+  { name: 'nlohmann/json',     version: '3.12+',     purpose: DEP_PURPOSE_KEYS[4] },
 ];
 
 interface PerfMetrics {
   memoryMB: number;
+  privateMemoryMB: number;
   cpuPercent: number;
   screenshotLatencyMs: number;
   gestureLatencyMs: number;
@@ -96,6 +103,7 @@ export const AboutPage: FC = () => {
         const data = await bridgeRequest<PerfMetrics>('perf.getMetrics');
         if (active) setMetrics({
           memoryMB: safeMetric(data?.memoryMB),
+          privateMemoryMB: safeMetric(data?.privateMemoryMB),
           cpuPercent: safeMetric(data?.cpuPercent),
           screenshotLatencyMs: safeMetric(data?.screenshotLatencyMs),
           gestureLatencyMs: safeMetric(data?.gestureLatencyMs),
@@ -201,6 +209,10 @@ export const AboutPage: FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('about.perfMemory')}</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>{((metrics.privateMemoryMB && metrics.privateMemoryMB > 0) ? metrics.privateMemoryMB : metrics.memoryMB).toFixed(1)} MB</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('about.perfWorkingSet')}</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>{metrics.memoryMB.toFixed(1)} MB</div>
                 </div>
                 <div>
@@ -210,10 +222,6 @@ export const AboutPage: FC = () => {
                 <div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('about.perfGestureLatency')}</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>{metrics.gestureLatencyMs.toFixed(1)} ms</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('about.perfUiLatency')}</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>{metrics.uiRenderLatencyMs.toFixed(1)} ms</div>
                 </div>
               </div>
             </div>

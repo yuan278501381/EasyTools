@@ -79,6 +79,7 @@ find_package(sol2 CONFIG REQUIRED)
 find_package(Lua REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(OpenCV CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
 
 find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h)
 find_library(AVCODEC_LIBRARY avcodec)
@@ -233,7 +234,7 @@ endif()
 add_executable(EasyTools_Service ${SERVICE_SOURCES})
 easytools_add_version_resource(EasyTools_Service "EasyTools File Index Service" "EasyTools_Service.exe" VFT_APP)
 target_compile_definitions(EasyTools_Service PRIVATE UNICODE _UNICODE)
-target_link_libraries(EasyTools_Service PRIVATE spdlog::spdlog fmt::fmt nlohmann_json::nlohmann_json advapi32 user32 shell32 ole32)
+target_link_libraries(EasyTools_Service PRIVATE spdlog::spdlog fmt::fmt nlohmann_json::nlohmann_json ZLIB::ZLIB advapi32 user32 shell32 ole32)
 
 # ── 6. 自动化测试 ────────────────────────────────────────────────────────────
 include(CTest)
@@ -250,10 +251,15 @@ if(BUILD_TESTING)
         src/gesture/ScopeRule.cpp
         src/service/PinyinEngine.cpp
         src/service/SearchExpression.cpp
+        src/service/content/PlainTextExtractor.cpp
+        src/service/content/ZipXmlExtractor.cpp
+        src/service/content/PsdAiExtractor.cpp
+        src/service/content/DxfExtractor.cpp
+        src/service/content/ContentSearchEngine.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore user32 shell32 gdi32 d3d11 dxgi ole32
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore ZLIB::ZLIB user32 shell32 gdi32 d3d11 dxgi ole32
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)

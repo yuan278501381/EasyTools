@@ -21,6 +21,15 @@
 .uikit-card__header {
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uikit-card__titles {
+  flex: 1;
+  min-width: 0;
 }
 
 .uikit-card__title {
@@ -33,6 +42,10 @@
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+.uikit-card__action {
+  flex-shrink: 0;
 }
 
 .uikit-card__body {
@@ -155,8 +168,6 @@
 /* ── Setting Group ────────────────────────────────────────────────────────── */
 .uikit-group {
   margin-bottom: var(--spacing-lg);
-  content-visibility: auto;
-  contain-intrinsic-size: auto 260px;
 }
 
 .uikit-group__header {
@@ -281,6 +292,16 @@
   box-shadow: 0 0 12px var(--primary-glow);
 }
 
+.uikit-btn--secondary {
+  background: var(--bg-secondary);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+.uikit-btn--secondary:not(:disabled):hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary);
+}
+
 .uikit-btn--ghost {
   background: transparent;
   border-color: var(--input-border);
@@ -341,12 +362,13 @@
 .uikit-modal__overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
+  background: var(--bg-overlay, rgba(0, 0, 0, 0.55));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999;
   animation: fadeIn 0.2s ease;
   padding: var(--spacing-lg);
 }
@@ -356,12 +378,14 @@
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 460px;
-  max-height: 86vh;
+  max-width: 520px;
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg), 0 20px 50px rgba(0, 0, 0, 0.15);
   animation: modalPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  color: var(--text-primary);
 }
 
 @keyframes modalPop {
@@ -401,6 +425,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  color: var(--text-primary);
 }
 
 .uikit-modal__footer {
@@ -409,6 +434,7 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-lg);
   border-top: 1px solid var(--card-border);
+  background: var(--bg-surface);
 }
 
 /* ── Field (label + control, 用于 Modal 表单) ─────────────────────────────── */
@@ -432,4 +458,402 @@
 .uikit-field__error {
   font-size: 0.74rem;
   color: var(--danger);
+}
+
+/* ── Visual App & Window Picker ───────────────────────────────────────────── */
+.app-picker-grabber-bar {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--primary-dim);
+  border: 1px solid var(--primary-glow);
+  border-radius: var(--radius-md);
+  gap: 10px;
+  margin-bottom: 12px;
+  transition: all 0.3s ease;
+}
+
+.app-picker-grabber-bar.is-picking {
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.25), inset 0 0 12px rgba(99, 102, 241, 0.1);
+  animation: picker-glow-pulse 1.5s infinite alternate ease-in-out;
+}
+
+.app-picker-grabber-bar.is-success {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+}
+
+.picker-progress-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.picker-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+  transition: width 0.9s linear;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.8);
+}
+
+@keyframes picker-radar-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.15); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.picker-radar-spin {
+  animation: picker-radar-spin 2s infinite linear;
+  color: var(--primary) !important;
+}
+
+@keyframes success-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.picker-success-icon {
+  animation: success-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes picker-glow-pulse {
+  0% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.2); }
+  100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.45); }
+}
+
+.just-picked-glow input,
+.just-picked-glow .uikit-text-input__input {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--primary-glow), 0 0 12px rgba(99, 102, 241, 0.2) !important;
+  transition: all 0.3s ease;
+}
+
+.app-picker-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  margin-bottom: 8px;
+}
+
+.app-picker-tab-btn {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.app-picker-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.app-picker-tab-btn.active {
+  background: var(--card-bg);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Unified Presets Container ────────────────────────────────────────────── */
+.app-picker-presets-box {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  overflow: hidden;
+}
+
+.app-picker-presets-box .app-picker-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--card-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-bottom: 0;
+}
+
+.app-picker-presets-box .app-picker-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.app-picker-filter-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  box-sizing: border-box;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.app-picker-filter-pill:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover, rgba(0, 0, 0, 0.05));
+  border-color: var(--card-border);
+}
+
+.app-picker-filter-pill.active {
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-weight: 600;
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-glow);
+}
+
+.app-picker-presets-box .app-picker-grid {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  max-height: 145px;
+  padding: 8px 10px;
+}
+
+/* ── Strategy Selection Cards (Replaces raw emoji dropdown) ────────────────── */
+.picker-strategy-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.picker-strategy-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.picker-strategy-card:hover {
+  border-color: var(--primary);
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.04));
+  transform: translateY(-1px);
+}
+
+.picker-strategy-card.active {
+  border-color: var(--primary);
+  background: var(--primary-dim);
+  box-shadow: 0 0 0 1px var(--primary), 0 4px 12px var(--primary-glow);
+}
+
+.picker-strategy-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.picker-strategy-card__icon.ban-icon {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger, #ef4444);
+}
+
+.picker-strategy-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.picker-strategy-card__title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.picker-strategy-card__desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.picker-strategy-card__check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ── Kind Tabs ───────────────────────────────────────────────────────────── */
+.app-picker-kind-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.app-picker-kind-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.app-picker-kind-tab:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.app-picker-kind-tab.active {
+  border-color: var(--primary);
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.app-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  max-height: 145px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+}
+
+.app-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  min-width: 0;
+}
+
+.app-picker-item:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--primary-dim);
+}
+
+.app-picker-item.selected {
+  border-color: var(--primary);
+  background: var(--primary-dim);
+}
+
+.app-picker-item__icon-wrap {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--primary-dim);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.app-picker-item:hover .app-picker-item__icon-wrap,
+.app-picker-item.selected .app-picker-item__icon-wrap {
+  background: var(--primary);
+  color: #fff;
+}
+
+.app-picker-item__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.app-picker-item__name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-picker-item__proc {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-picker-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }

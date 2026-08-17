@@ -126,11 +126,14 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             switch (wParam) {
                 case WM_MOUSEMOVE: {
                     event.type = MouseEventType::Move;
-                    // 自愈检查：若标记为按下但物理按键已抬起，则立即自愈复位，防止状态失步
+                    // 自愈检查：若标记为按下但物理按键已抬起，则立即自愈复位并通知引擎，防止状态失步导致假死
                     if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
                         int vKey = (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) ? VK_MBUTTON : VK_RBUTTON;
                         if ((GetAsyncKeyState(vKey) & 0x8000) == 0) {
                             self.m_triggerButtonDown.store(false, std::memory_order_release);
+                            MouseEvent cancelEvt = event;
+                            cancelEvt.type = (vKey == VK_MBUTTON) ? MouseEventType::MiddleUp : MouseEventType::RightUp;
+                            self.processEvent(cancelEvt);
                         }
                     }
 
@@ -166,8 +169,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     break;
                 case WM_RBUTTONUP:
                     event.type = MouseEventType::RightUp;
-                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::RightDown) {
+                    if (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::RightDown) {
                         shouldCapture = gestureEnabled;
                         self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
                     }
@@ -184,8 +186,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     break;
                 case WM_MBUTTONUP:
                     event.type = MouseEventType::MiddleUp;
-                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) {
+                    if (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::MiddleDown) {
                         shouldCapture = gestureEnabled;
                         self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
                     }
@@ -195,9 +196,11 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
                         // 左键按下时立即复位手势触发状态并通知引擎取消，绝对不吞掉左键点击
                         self.m_triggerButtonDown.store(false, std::memory_order_release);
-                        shouldCapture = true;
+                        self.processEvent(event);
                     }
                     easy::core::StatsManager::instance().recordLeftClick();
+                    // 左键点击永远放行给系统，严禁拦截
+                    shouldCapture = false;
                     break;
                 case WM_LBUTTONUP:
                     event.type = MouseEventType::LeftUp;

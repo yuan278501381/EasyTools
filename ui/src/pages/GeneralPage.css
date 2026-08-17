@@ -2,24 +2,130 @@
  * GeneralPage.css — 通用设置页扩展样式
  * ───────────────────────────────────────────────────────────────────────────── */
 
-/* ── 快捷键总览 ───────────────────────────────────────────────────────────── */
+/* ── 快捷键健康度统计条 ─────────────────────────────────────────────────── */
+.general-page__hotkey-health-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+}
+
+.general-page__hotkey-health-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.general-page__stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.general-page__stat-pill.total {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.general-page__stat-pill.ok {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.general-page__stat-pill.warning {
+  background: rgba(234, 179, 8, 0.12);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.general-page__stat-pill.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  animation: pulse-danger 2s infinite ease-in-out;
+}
+
+.general-page__stat-pill.clean {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+.general-page__recheck-btn {
+  font-size: 0.78rem;
+  gap: 6px;
+  padding: 4px 10px;
+  color: var(--text-secondary);
+}
+
+.general-page__spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── 快捷键总览列表 ───────────────────────────────────────────────────────── */
 .general-page__hotkey-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .general-page__hotkey-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius-md);
-  transition: background var(--transition-fast);
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
 }
 
 .general-page__hotkey-item:hover {
   background: var(--primary-dim);
+}
+
+.general-page__hotkey-item.is-internal {
+  background: rgba(234, 179, 8, 0.05);
+  border-color: rgba(234, 179, 8, 0.2);
+}
+
+.general-page__hotkey-item.is-external {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.general-page__hotkey-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.general-page__hotkey-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .general-page__hotkey-name {
@@ -28,40 +134,43 @@
   color: var(--text-primary);
 }
 
-.general-page__hotkey-warning {
-  display: block;
-  margin-top: 2px;
-  color: var(--warning);
+/* ── 冲突与状态徽章 ─────────────────────────────────────────────────────── */
+.general-page__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
   font-size: 0.72rem;
   font-weight: 500;
+  line-height: 1.2;
+}
+
+.general-page__badge.badge-active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.general-page__badge.badge-warning {
+  background: rgba(234, 179, 8, 0.14);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.general-page__badge.badge-danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 .general-page__hotkey-control {
   width: min(250px, 48%);
+  flex-shrink: 0;
 }
 
 .general-page__hotkey-control .hotkey-recorder {
   width: 100%;
-}
-
-.general-page__hotkey-kbd {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--card-border);
-  font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  letter-spacing: 0.02em;
-  transition: all var(--transition-fast);
-}
-
-.general-page__hotkey-item:hover .general-page__hotkey-kbd {
-  border-color: var(--primary);
-  color: var(--primary);
-  box-shadow: 0 1px 6px rgba(139, 92, 246, 0.2);
 }
 
 /* ── 空状态 ───────────────────────────────────────────────────────────────── */

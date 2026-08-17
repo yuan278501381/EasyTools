@@ -6,6 +6,7 @@ import './i18n/config'
 import App from './App.tsx'
 import SearchApp from './SearchApp.tsx'
 import TrayApp from './TrayApp.tsx'
+import QuickLookApp from './QuickLookApp.tsx'
 
 class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {
@@ -42,6 +43,15 @@ class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean,
 
 const isSearch = window.location.pathname === '/search' || window.location.hash.includes('/search') || window.location.search.includes('search=1');
 const isTray = window.location.search.includes('tray=1');
+const isQuickLook = window.location.pathname === '/quicklook' || window.location.hash.includes('/quicklook') || window.location.search.includes('quicklook=1');
+
+if (isTray) {
+  document.documentElement.dataset.surface = 'tray';
+} else if (isSearch) {
+  document.documentElement.dataset.surface = 'search';
+} else if (isQuickLook) {
+  document.documentElement.dataset.surface = 'quicklook';
+}
 
 window.onerror = function (msg, url, lineNo, columnNo, error) {
   if (document.getElementById('easytools-global-error')) return;
@@ -65,7 +75,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      {isTray ? <TrayApp /> : (isSearch ? <SearchApp /> : <App />)}
+      {isTray ? <TrayApp /> : (isSearch ? <SearchApp /> : (isQuickLook ? <QuickLookApp /> : <App />))}
     </ErrorBoundary>
   </StrictMode>,
 )

@@ -52,6 +52,7 @@
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
 #include "ui/SearchWindow.h"
+#include "ui/QuickLookWindow.h"
 #include "ui/TrayWindow.h"
 #include "ui/ToastOverlay.h"
 #include "ui/WebViewEnvironmentManager.h"
@@ -147,7 +148,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     // ── 7. 初始化其他子系统 ──────────────────────────────────────────────
     const bool silentStart = hasCommandLineFlag(L"--silent");
-    initializeSubsystems(hwndMessage, !silentStart);
+    initializeSubsystems(hwndMessage, false);
     easy::core::PerformanceMonitor::instance().recordLatency(
         "startup.core",
         std::chrono::duration<double, std::milli>(
@@ -185,31 +186,99 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 // 内部实现
 // ─────────────────────────────────────────────────────────────────────────────
 
-bool checkSingleInstance() {
-    g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
-    if (!g_singleInstanceMutex) {
-        return false;
-    }
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        CloseHandle(g_singleInstanceMutex);
-        g_singleInstanceMutex = nullptr;
-
-        // 优先查找已存在的 EasyTools 消息窗口，直接通知其唤醒并显示主设置页面
-        HWND existing = FindWindowW(WINDOW_CLASS_NAME, nullptr);
-        if (!existing) {
-            existing = FindWindowW(nullptr, L"EasyTools - 设置");
+bool parseWindowPos(int& x, int& y, int& w, int& h) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+    bool found = false;
+    for (int i = 1; i < argc; ++i) {
+        if (wcsncmp(argv[i], L"--window-pos=", 13) == 0) {
+            std::wstring val = argv[i] + 13;
+            size_t p1 = val.find(L',');
+            size_t p2 = (p1 != std::wstring::npos) ? val.find(L',', p1 + 1) : std::wstring::npos;
+            size_t p3 = (p2 != std::wstring::npos) ? val.find(L',', p2 + 1) : std::wstring::npos;
+            if (p1 != std::wstring::npos && p2 != std::wstring::npos && p3 != std::wstring::npos) {
+                try {
+                    x = std::stoi(val.substr(0, p1));
+                    y = std::stoi(val.substr(p1 + 1, p2 - p1 - 1));
+                    w = std::stoi(val.substr(p2 + 1, p3 - p2 - 1));
+                    h = std::stoi(val.substr(p3 + 1));
+                    found = true;
+                } catch (...) {}
+            }
+            break;
         }
-        if (existing) {
-            PostMessageW(existing, WM_EASYTOOLS_SHOW_SETTINGS, 0, 0);
-            SetForegroundWindow(existing);
+    }
+    LocalFree(argv);
+    return found;
+}
+
+bool checkSingleInstance() {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    DWORD restartPid = 0;
+    if (argv) {
+        for (int i = 1; i < argc; ++i) {
+            if (wcsncmp(argv[i], L"--restart-pid=", 14) == 0) {
+                restartPid = static_cast<DWORD>(_wtoi(argv[i] + 14));
+            }
+        }
+        LocalFree(argv);
+    }
+
+    // 若是热重启拉起的新进程，等待旧进程完全退出并释放所有系统资源
+    if (restartPid > 0) {
+        HANDLE hOldProc = OpenProcess(SYNCHRONIZE, FALSE, restartPid);
+        if (hOldProc) {
+            WaitForSingleObject(hOldProc, 3000);
+            CloseHandle(hOldProc);
+        }
+    }
+
+    // 重试获取互斥锁（热重启重试 30 次，正常二次启动仅重试 1 次以实现零延迟秒开）
+    const int maxRetries = (restartPid > 0) ? 30 : 1;
+    for (int retry = 0; retry < maxRetries; ++retry) {
+        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+        if (g_singleInstanceMutex && GetLastError() != ERROR_ALREADY_EXISTS) {
+            return true;
+        }
+        if (g_singleInstanceMutex) {
+            CloseHandle(g_singleInstanceMutex);
+            g_singleInstanceMutex = nullptr;
+        }
+        if (retry < maxRetries - 1) {
+            Sleep(50);
+        }
+    }
+
+    // 允许现有后台实例将窗口置顶于前台
+    AllowSetForegroundWindow(ASFW_ANY);
+
+    // 依然被占用时，通知已有实例唤醒并弹出设置窗口
+    HWND existing = FindWindowW(WINDOW_CLASS_NAME, nullptr);
+    if (existing) {
+        DWORD targetPid = 0;
+        GetWindowThreadProcessId(existing, &targetPid);
+        if (targetPid > 0) {
+            AllowSetForegroundWindow(targetPid);
+        }
+        PostMessageW(existing, WM_EASYTOOLS_SHOW_SETTINGS, 0, 0);
+    } else {
+        HWND settingsWnd = FindWindowW(L"EasyTools_SettingsWindow", nullptr);
+        if (settingsWnd) {
+            DWORD targetPid = 0;
+            GetWindowThreadProcessId(settingsWnd, &targetPid);
+            if (targetPid > 0) {
+                AllowSetForegroundWindow(targetPid);
+            }
+            ShowWindow(settingsWnd, SW_SHOW);
+            SetForegroundWindow(settingsWnd);
         } else {
-            // 通过广播消息通知已有实例唤醒
             UINT msgShow = RegisterWindowMessageW(L"EasyTools_ShowSettings_Broadcast");
             PostMessageW(HWND_BROADCAST, msgShow, 0, 0);
         }
-        return false;
     }
-    return true;
+    return false;
 }
 
 bool hasCommandLineFlag(std::wstring_view flag) {
@@ -256,6 +325,11 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
     tray.onScreenshot([]() { easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{}); });
     tray.onRecording([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{}); });
+    tray.onSearch([]() {
+        auto& searchWnd = easy::ui::SearchWindow::instance();
+        if (searchWnd.isVisible()) searchWnd.hide();
+        else searchWnd.show(GetModuleHandleW(nullptr));
+    });
     tray.onPauseGesture([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{}); });
 
     // 2. 统计模块
@@ -297,10 +371,125 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
                 easy::ui::SearchWindow::instance().hide();
                 return {{"success", true}};
             });
+        easy::core::MessageBridge::instance().registerHandler(
+            "search.getWindowSize", [](const nlohmann::json&) -> nlohmann::json {
+                auto [w, h] = easy::ui::SearchWindow::instance().getWindowSize();
+                return {{"width", w}, {"height", h}};
+            });
+        easy::core::MessageBridge::instance().registerHandler(
+            "search.setWindowSize", [](const nlohmann::json& params) -> nlohmann::json {
+                if (params.contains("width") && params.contains("height")) {
+                    int w = params["width"].get<int>();
+                    int h = params["height"].get<int>();
+                    easy::ui::SearchWindow::instance().setWindowSize(w, h);
+                    return {{"success", true}, {"width", w}, {"height", h}};
+                }
+                return {{"success", false}, {"error", "missing width or height"}};
+            });
     }
+
+    // 注册 Alt+X 划词极速翻译快捷键
+    const easy::core::HotkeyDef translateFallback{easy::core::ModKey::Alt, 'X'};
+    const auto translateText = easy::core::ConfigManager::instance().get<std::string>(
+        "/hotkeys/Translate Selection", translateFallback.toString());
+    const auto translateHotkey = translateText.empty() ? easy::core::HotkeyDef{}
+        : easy::core::HotkeyDef::fromString(translateText).value_or(translateFallback);
+    easy::core::HotkeyManager::instance().registerHotkey("Translate Selection", translateHotkey, []() {
+        std::string selected = easy::core::WinUtils::captureSelectedText();
+        // 移除首尾空白
+        selected.erase(0, selected.find_first_not_of(" \t\n\r"));
+        selected.erase(selected.find_last_not_of(" \t\n\r") + 1);
+
+        if (selected.empty()) {
+            easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"请先划选文字或复制文本后再按 Alt+X"});
+            return;
+        }
+
+        std::string encoded;
+        for (unsigned char c : selected) {
+            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+                encoded += c;
+            } else {
+                char buf[4];
+                snprintf(buf, sizeof(buf), "%%%02X", c);
+                encoded += buf;
+            }
+        }
+        std::string url = "https://translate.google.com/?sl=auto&tl=zh-CN&op=translate&text=" + encoded;
+        ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{L"已触发划词翻译并打开翻译页面"});
+    });
 
     // 注册核心基础 IPC 处理器
     easy::core::MessageBridge::instance().registerBuiltinHandlers();
+
+    // 注册 QuickLook 快速预览 IPC 处理器
+    easy::core::MessageBridge::instance().registerHandler("quicklook.open", [](const nlohmann::json& params) -> nlohmann::json {
+        std::string pathUtf8 = params.value("path", "");
+        if (pathUtf8.empty()) pathUtf8 = easy::core::WinUtils::wstringToUtf8(easy::ui::QuickLookWindow::instance().currentFilePath());
+        if (!pathUtf8.empty()) {
+            ShellExecuteW(nullptr, L"open", easy::core::WinUtils::utf8ToWstring(pathUtf8).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            easy::ui::QuickLookWindow::instance().hide();
+        }
+        return {{"success", true}};
+    });
+    easy::core::MessageBridge::instance().registerHandler("quicklook.showInFolder", [](const nlohmann::json& params) -> nlohmann::json {
+        std::string pathUtf8 = params.value("path", "");
+        if (pathUtf8.empty()) pathUtf8 = easy::core::WinUtils::wstringToUtf8(easy::ui::QuickLookWindow::instance().currentFilePath());
+        if (!pathUtf8.empty()) {
+            std::wstring cmd = L"/select,\"" + easy::core::WinUtils::utf8ToWstring(pathUtf8) + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
+        }
+        return {{"success", true}};
+    });
+    easy::core::MessageBridge::instance().registerHandler("quicklook.copyPath", [](const nlohmann::json& params) -> nlohmann::json {
+        std::string pathUtf8 = params.value("path", "");
+        if (pathUtf8.empty()) pathUtf8 = easy::core::WinUtils::wstringToUtf8(easy::ui::QuickLookWindow::instance().currentFilePath());
+        easy::core::WinUtils::copyToClipboard(pathUtf8);
+        return {{"success", true}};
+    });
+    easy::core::MessageBridge::instance().registerHandler("quicklook.hide", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::QuickLookWindow::instance().hide();
+        return {{"success", true}};
+    });
+
+    // 注册应用一键热重启 IPC 处理器
+    easy::core::MessageBridge::instance().registerHandler("app.restart", [hwnd](const nlohmann::json&) -> nlohmann::json {
+        wchar_t exePath[MAX_PATH];
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+            DWORD currentPid = GetCurrentProcessId();
+            std::wstring cmdLine = L"\"";
+            cmdLine += exePath;
+            cmdLine += L"\" --restart-pid=" + std::to_wstring(currentPid);
+
+            auto& settingsWnd = easy::ui::SettingsWindow::instance();
+            if (settingsWnd.isVisible() && settingsWnd.hwnd() && IsWindow(settingsWnd.hwnd())) {
+                RECT rc{};
+                if (GetWindowRect(settingsWnd.hwnd(), &rc)) {
+                    cmdLine += L" --window-pos=" + std::to_wstring(rc.left) + L"," +
+                               std::to_wstring(rc.top) + L"," +
+                               std::to_wstring(rc.right - rc.left) + L"," +
+                               std::to_wstring(rc.bottom - rc.top);
+                }
+            }
+
+            // 预先释放互斥锁句柄，为新实例让路
+            if (g_singleInstanceMutex) {
+                CloseHandle(g_singleInstanceMutex);
+                g_singleInstanceMutex = nullptr;
+            }
+
+            STARTUPINFOW si{};
+            si.cb = sizeof(si);
+            PROCESS_INFORMATION pi{};
+            if (CreateProcessW(exePath, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+            }
+        }
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        return {{"success", true}};
+    });
 
     // 注册托盘菜单 IPC 处理函数
     easy::core::MessageBridge::instance().registerHandler("tray.action", [hwnd](const nlohmann::json& params) -> nlohmann::json {
@@ -311,6 +500,10 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
         if (action == "openSettings") {
             showSettingsWindow();
+        } else if (action == "search") {
+            auto& searchWnd = easy::ui::SearchWindow::instance();
+            if (searchWnd.isVisible()) searchWnd.hide();
+            else searchWnd.show(GetModuleHandleW(nullptr));
         } else if (action == "screenshot") {
             easy::core::EventBus::instance().publish(easy::core::ActionTriggerScreenshotEvent{});
         } else if (action == "recording") {
@@ -325,8 +518,61 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
-    // 5. 键盘钩子（用于按键统计与按键显示）
+    // 5. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
     easy::core::KeyboardHook::instance().install();
+    easy::core::KeyboardHook::instance().setKeyInterceptor([](DWORD vkCode, WPARAM wParam) -> bool {
+        if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return false;
+
+        // 1. 空格键 (Space): 在资源管理器或桌面触发 QuickLook 文件预览
+        if (vkCode == VK_SPACE) {
+            bool hasMods = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 ||
+                           (GetAsyncKeyState(VK_MENU) & 0x8000) != 0 ||
+                           (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+                           (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+            if (!hasMods) {
+                if (easy::ui::QuickLookWindow::instance().isVisible()) {
+                    easy::core::MainThreadDispatcher::instance().post([]() {
+                        easy::ui::QuickLookWindow::instance().hide();
+                    });
+                    return true;
+                } else {
+                    auto sel = easy::core::WinUtils::getSelectedExplorerFile();
+                    if (sel.has_value()) {
+                        std::wstring path = *sel;
+                        easy::core::MainThreadDispatcher::instance().post([path]() {
+                            easy::ui::QuickLookWindow::instance().show(path);
+                        });
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 2. ESC 退出 QuickLook 预览
+        if (vkCode == VK_ESCAPE) {
+            if (easy::ui::QuickLookWindow::instance().isVisible()) {
+                easy::core::MainThreadDispatcher::instance().post([]() {
+                    easy::ui::QuickLookWindow::instance().hide();
+                });
+                return true;
+            }
+        }
+
+        // 3. 方向键联动：在资源管理器中切换选中项时，QuickLook 自动刷新预览内容
+        if (vkCode == VK_UP || vkCode == VK_DOWN || vkCode == VK_LEFT || vkCode == VK_RIGHT) {
+            if (easy::ui::QuickLookWindow::instance().isVisible()) {
+                easy::core::MainThreadDispatcher::instance().post([]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(35));
+                    auto sel = easy::core::WinUtils::getSelectedExplorerFile();
+                    if (sel.has_value() && *sel != easy::ui::QuickLookWindow::instance().currentFilePath()) {
+                        easy::ui::QuickLookWindow::instance().previewFile(*sel);
+                    }
+                });
+            }
+        }
+
+        return false;
+    });
 
     // 6. 初始化本次启动获准加载的插件
     pm.initializePlugins();
@@ -348,6 +594,9 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 避免后台常驻 Chromium 进程和数十 MB 内存。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
+    // 预热托盘微型菜单 WebView2 渲染宿主，确保首次右键 0 毫秒瞬间呼出，杜绝卡顿与初次落空
+    easy::ui::TrayWindow::instance().preload(GetModuleHandleW(nullptr));
+
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);
 }
@@ -357,6 +606,7 @@ void shutdownSubsystems() {
     // 先关闭所有 WebView 入口，阻止新的 IPC 请求进入插件，再等待并卸载插件。
     easy::ui::SettingsWindow::instance().destroy();
     easy::ui::SearchWindow::instance().destroy();
+    easy::ui::QuickLookWindow::instance().destroy();
     easy::ui::TrayWindow::instance().destroy();
     easy::core::PluginManager::instance().shutdownPlugins();
     easy::ui::ToastOverlay::instance().shutdown();
@@ -374,8 +624,18 @@ void showSettingsWindow() {
     easy::tray::TrayIcon::instance().ensureCreated();
     auto& settingsWnd = easy::ui::SettingsWindow::instance();
     easy::ui::SettingsWindowConfig config;
-    config.width = 900;
-    config.height = 700;
+    int wx = -1, wy = -1, ww = -1, wh = -1;
+    if (parseWindowPos(wx, wy, ww, wh) && ww > 0 && wh > 0) {
+        config.posX = wx;
+        config.posY = wy;
+        config.width = ww;
+        config.height = wh;
+        config.startCentered = false;
+    } else {
+        config.width = 1260;
+        config.height = 880;
+        config.startCentered = true;
+    }
     config.devServerUrl = "http://localhost:5173";
     settingsWnd.setConfig(config);
     settingsWnd.show(GetModuleHandleW(nullptr));
@@ -384,8 +644,18 @@ void showSettingsWindow() {
 void preloadSettingsWindow(HINSTANCE hInstance) {
     auto& settingsWnd = easy::ui::SettingsWindow::instance();
     easy::ui::SettingsWindowConfig config;
-    config.width = 900;
-    config.height = 700;
+    int wx = -1, wy = -1, ww = -1, wh = -1;
+    if (parseWindowPos(wx, wy, ww, wh) && ww > 0 && wh > 0) {
+        config.posX = wx;
+        config.posY = wy;
+        config.width = ww;
+        config.height = wh;
+        config.startCentered = false;
+    } else {
+        config.width = 1260;
+        config.height = 880;
+        config.startCentered = true;
+    }
     config.devServerUrl = "http://localhost:5173";
     settingsWnd.setConfig(config);
     settingsWnd.preload(hInstance);

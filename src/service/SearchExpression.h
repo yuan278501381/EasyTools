@@ -15,6 +15,9 @@ struct FileRecord {
     std::wstring pinyinInitials;
     std::wstring pinyinFull;
     bool isDirectory = false;
+    uint64_t fileSize = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastWriteTime = 0;
 };
 
 enum class SearchFilterType {
@@ -27,9 +30,10 @@ enum class SearchFilterType {
     Drive,         // c:, d:
     Exact,         // exact:foo.txt
     Regex,         // regex:pattern, r:pattern
-    CaseSensitive, // case:text, c:text
+    CaseSensitive, // case:text
     PinyinOnly,    // pinyin:text, py:text
-    NoPinyin       // nopy:text
+    NoPinyin,      // nopy:text
+    Content        // content:text, c:text, 内容:text
 };
 
 struct SearchClause {
@@ -37,6 +41,7 @@ struct SearchClause {
     SearchFilterType filterType = SearchFilterType::None;
     std::wstring pattern;        // normalized (lowercased)
     std::wstring rawPattern;     // case preserved
+    std::wstring pinyinPattern;   // normalized and stripped of apostrophes (e.g. tong'xi -> tongxi)
     std::vector<std::wstring> extList; // for ext:jpg;png
     std::optional<std::wregex> regexObj;
     bool hasWildcard = false;
@@ -54,6 +59,8 @@ public:
 
     bool isEmpty() const { return m_orGroups.empty(); }
     bool requiresFullPath() const { return m_requiresFullPath; }
+    bool hasContentFilter() const { return m_hasContentFilter; }
+    const std::wstring& getContentQuery() const { return m_contentQuery; }
 
     bool matches(const FileRecord& record, wchar_t driveLetter,
                  const std::wstring& fullPath = L"") const;
@@ -69,6 +76,10 @@ public:
 private:
     std::wstring m_rawQuery;
     std::wstring m_normalizedQuery;
+    std::wstring m_cleanAsciiQuery;
     std::vector<SearchOrGroup> m_orGroups;
     bool m_requiresFullPath = false;
+    bool m_hasContentFilter = false;
+    bool m_isAsciiQuery = false;
+    std::wstring m_contentQuery;
 };

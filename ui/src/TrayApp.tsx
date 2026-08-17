@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Camera, Video, Pause, Play, LogOut } from 'lucide-react';
+import { Settings, Camera, Video, Search, Pause, Play, LogOut } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -10,7 +10,7 @@ export default function TrayApp() {
   const { t } = useTranslation();
   const [gesturePaused, setGesturePaused] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [activePlugins, setActivePlugins] = useState(() => new Set(['capture', 'gesture']));
+  const [activePlugins, setActivePlugins] = useState(() => new Set(['capture', 'search', 'gesture']));
 
   useEffect(() => {
     document.documentElement.dataset.surface = 'tray';
@@ -29,6 +29,7 @@ export default function TrayApp() {
   }, []);
 
   const captureActive = activePlugins.has('capture');
+  const searchActive = activePlugins.has('search');
   const gestureActive = activePlugins.has('gesture');
 
   const handleAction = async (action: string) => {
@@ -55,7 +56,7 @@ export default function TrayApp() {
         <Settings size={16} />
         <span>{t('tray.settings', 'Settings')}</span>
       </button>
-      {(captureActive || gestureActive) && <div className="tray-menu__divider" />}
+      {(captureActive || searchActive || gestureActive) && <div className="tray-menu__divider" />}
       {captureActive && (
         <>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
@@ -68,7 +69,13 @@ export default function TrayApp() {
           </button>
         </>
       )}
-      {captureActive && gestureActive && <div className="tray-menu__divider" />}
+      {searchActive && (
+        <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('search')}>
+          <Search size={16} />
+          <span>{t('tray.search', 'File Search')}</span>
+        </button>
+      )}
+      {((captureActive || searchActive) && gestureActive) && <div className="tray-menu__divider" />}
       {gestureActive && (
         <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
           {gesturePaused ? <Play size={16} /> : <Pause size={16} />}

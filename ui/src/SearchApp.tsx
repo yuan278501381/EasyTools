@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type KeyboardEvent } from 'react';
 import { 
   File, 
   Folder, 
@@ -13,7 +13,12 @@ import {
   AppWindow,
   HelpCircle,
   X,
-  Sparkles
+  Sparkles,
+  SlidersHorizontal,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  Maximize2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -21,16 +26,116 @@ import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import './SearchApp.css';
 
+interface ContentSnippet {
+  lineNumber: number;
+  lineContent: string;
+  matchOffset?: number;
+  matchLength?: number;
+}
+
 interface SearchResult {
   name: string;
   path: string;
   isDirectory: boolean;
+  size?: number;
+  creationTime?: number;
+  lastWriteTime?: number;
+  snippets?: ContentSnippet[];
 }
 
 interface SearchResponse {
   results: SearchResult[];
   available: boolean;
   error?: string;
+}
+
+export type ColumnId = 'name' | 'path' | 'size' | 'modified' | 'created' | 'snippets';
+
+export interface ColumnSetting {
+  id: ColumnId;
+  label: string;
+  visible: boolean;
+  flex?: number;
+}
+
+const DEFAULT_COLUMNS: ColumnSetting[] = [
+  { id: 'name', label: '文件名', visible: true, flex: 35 },
+  { id: 'path', label: '完整路径', visible: true, flex: 45 },
+  { id: 'size', label: '大小', visible: true },
+  { id: 'modified', label: '修改时间', visible: true },
+  { id: 'created', label: '创建时间', visible: false },
+  { id: 'snippets', label: '内容摘要', visible: true },
+];
+
+export interface WindowPreset {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+}
+
+const WINDOW_PRESETS: WindowPreset[] = [
+  { id: 'standard', label: '标准 (800×600)', width: 800, height: 600 },
+  { id: 'wide', label: '宽屏 (1000×650)', width: 1000, height: 650 },
+  { id: 'large', label: '大屏 (1200×750)', width: 1200, height: 750 },
+  { id: 'extra', label: '超宽 (1400×800)', width: 1400, height: 800 },
+];
+
+function renderSnippetWithHighlight(text: string, offset?: number, length?: number) {
+  if (offset === undefined || length === undefined || length === 0 || offset >= text.length) {
+    return text;
+  }
+  const before = text.slice(0, offset);
+  const match = text.slice(offset, offset + length);
+  const after = text.slice(offset + length);
+  return (
+    <>
+      {before}
+      <mark className="snippet-highlight">{match}</mark>
+      {after}
+    </>
+  );
+}
+
+function formatFileSize(bytes?: number, isDirectory?: boolean): string {
+  if (isDirectory) return '文件夹';
+  if (bytes === undefined || bytes === null || isNaN(bytes)) return '';
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatWindowsTime(ft?: number | string): string {
+  if (!ft) return '';
+  const num = typeof ft === 'string' ? parseInt(ft, 10) : ft;
+  if (!num || isNaN(num) || num <= 0) return '';
+  
+  let date: Date;
+  if (num > 10000000000000000) {
+    const unixMs = (num - 116444736000000000) / 10000;
+    date = new Date(unixMs);
+  } else if (num > 1000000000000) {
+    date = new Date(num);
+  } else {
+    date = new Date(num * 1000);
+  }
+
+  if (isNaN(date.getTime()) || date.getFullYear() < 1980 || date.getFullYear() > 2100) {
+    return '';
+  }
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${hh}:${mm}`;
 }
 
 interface CategoryFilter {
@@ -41,6 +146,7 @@ interface CategoryFilter {
 
 const CATEGORIES: CategoryFilter[] = [
   { id: 'all', label: '全部', prefix: '' },
+  { id: 'content', label: '文件内容', prefix: 'content:' },
   { id: 'doc', label: '文档', prefix: 'ext:doc;docx;xls;xlsx;ppt;pptx;pdf;txt;md ' },
   { id: 'image', label: '图片', prefix: 'ext:jpg;jpeg;png;webp;gif;bmp;svg ' },
   { id: 'video', label: '视频', prefix: 'ext:mp4;mkv;avi;mov;wmv;flv;webm ' },
@@ -51,6 +157,8 @@ const CATEGORIES: CategoryFilter[] = [
 ];
 
 const SYNTAX_EXAMPLES = [
+  { syntax: 'content:SELECT', desc: '全文搜索代码、文档、设计稿与 CAD 内文本' },
+  { syntax: 'ext:docx;sql content:订单', desc: '在指定扩展名类型文件中穿透搜索内容' },
   { syntax: '*.txt', desc: '通配符匹配所有 txt 后缀文件' },
   { syntax: 'ext:jpg;png', desc: '多扩展名筛选' },
   { syntax: 'file: *.pdf', desc: '仅搜文件，排除文件夹' },
@@ -103,13 +211,15 @@ export default function SearchApp() {
   useAppearance();
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [serviceAvailable, setServiceAvailable] = useState(true);
   const [actionError, setActionError] = useState('');
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
+  const [showViewSettings, setShowViewSettings] = useState(false);
+
+  const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
   const [density, setDensity] = useState<SearchDensity>(() => {
     const saved = localStorage.getItem('easytools_search_density');
     if (saved === 'compact' || saved === 'standard' || saved === 'comfortable') {
@@ -117,8 +227,132 @@ export default function SearchApp() {
     }
     return 'standard';
   });
+
+  const [columns, setColumns] = useState<ColumnSetting[]>(() => {
+    try {
+      const saved = localStorage.getItem('easytools_search_columns_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved) as ColumnSetting[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = parsed.map(c => {
+            const def = DEFAULT_COLUMNS.find(d => d.id === c.id);
+            return def ? { ...def, ...c } : c;
+          });
+          DEFAULT_COLUMNS.forEach(def => {
+            if (!merged.some(m => m.id === def.id)) {
+              merged.push(def);
+            }
+          });
+          return merged;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return DEFAULT_COLUMNS;
+  });
+
   const inputRef = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
+
+  useEffect(() => {
+    void bridgeRequest<{ width?: number; height?: number }>('search.getWindowSize')
+      .then((res) => {
+        if (res?.width && res?.height) {
+          setWindowSize({ width: res.width, height: res.height });
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const changeWindowSize = (width: number, height: number) => {
+    setWindowSize({ width, height });
+    void bridgeRequest('search.setWindowSize', { width, height }).catch(() => undefined);
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = windowSize.width;
+    const startH = windowSize.height;
+
+    const onMouseMove = (moveEvt: MouseEvent) => {
+      const deltaX = (moveEvt.clientX - startX) * 2;
+      const deltaY = (moveEvt.clientY - startY) * 2;
+      const newW = Math.max(500, Math.min(2200, Math.round(startW + deltaX)));
+      const newH = Math.max(400, Math.min(1400, Math.round(startH + deltaY)));
+      setWindowSize({ width: newW, height: newH });
+      void bridgeRequest('search.setWindowSize', { width: newW, height: newH }).catch(() => undefined);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const moveColumn = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= columns.length) return;
+    const updated = [...columns];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    setColumns(updated);
+    localStorage.setItem('easytools_search_columns_v2', JSON.stringify(updated));
+  };
+
+  const toggleColumnVisibility = (id: ColumnId) => {
+    const updated = columns.map(col => col.id === id ? { ...col, visible: !col.visible } : col);
+    setColumns(updated);
+    localStorage.setItem('easytools_search_columns_v2', JSON.stringify(updated));
+  };
+
+  const updateColumnFlex = (id: ColumnId, flex: number) => {
+    const updated = columns.map(col => col.id === id ? { ...col, flex } : col);
+    setColumns(updated);
+    localStorage.setItem('easytools_search_columns_v2', JSON.stringify(updated));
+  };
+
+  const resetColumns = () => {
+    setColumns(DEFAULT_COLUMNS);
+    localStorage.setItem('easytools_search_columns_v2', JSON.stringify(DEFAULT_COLUMNS));
+    toast.success('已恢复默认列与视图布局');
+  };
+
+  const activeCategory = useMemo(() => {
+    const trimmed = query.trimStart().toLowerCase();
+    if (trimmed.startsWith('content:') || (trimmed.startsWith('c:') && !trimmed.startsWith('c:\\') && !trimmed.startsWith('c:/')) || query.trimStart().startsWith('内容:')) {
+      return 'content';
+    }
+    if (trimmed.startsWith('folder:') || trimmed.startsWith('dir:')) {
+      return 'folder';
+    }
+    if (trimmed.startsWith('ext:doc') || trimmed.startsWith('ext:pdf') || trimmed.startsWith('ext:txt')) {
+      return 'doc';
+    }
+    if (trimmed.startsWith('ext:jpg') || trimmed.startsWith('ext:png')) {
+      return 'image';
+    }
+    if (trimmed.startsWith('ext:mp4') || trimmed.startsWith('ext:mkv')) {
+      return 'video';
+    }
+    if (trimmed.startsWith('ext:mp3') || trimmed.startsWith('ext:wav')) {
+      return 'audio';
+    }
+    if (trimmed.startsWith('ext:zip') || trimmed.startsWith('ext:rar')) {
+      return 'archive';
+    }
+    if (trimmed.startsWith('ext:cpp') || trimmed.startsWith('ext:ts') || trimmed.startsWith('ext:js')) {
+      return 'code';
+    }
+    return 'all';
+  }, [query]);
 
   const changeDensity = (newDensity: SearchDensity) => {
     setDensity(newDensity);
@@ -129,14 +363,15 @@ export default function SearchApp() {
   useEffect(() => {
     const doFocus = () => {
       if (inputRef.current) {
-        inputRef.current.focus();
+        inputRef.current.focus({ preventScroll: true });
         inputRef.current.select();
       }
     };
     doFocus();
-    const t1 = setTimeout(doFocus, 50);
-    const t2 = setTimeout(doFocus, 150);
-    const t3 = setTimeout(doFocus, 300);
+    const t1 = setTimeout(doFocus, 30);
+    const t2 = setTimeout(doFocus, 100);
+    const t3 = setTimeout(doFocus, 250);
+    const t4 = setTimeout(doFocus, 500);
 
     const onFocusEvt = () => doFocus();
     window.addEventListener('easytools:focusSearch', onFocusEvt);
@@ -146,13 +381,22 @@ export default function SearchApp() {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
+    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.target !== inputRef.current && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
+      clearTimeout(t4);
       window.removeEventListener('easytools:focusSearch', onFocusEvt);
       window.removeEventListener('focus', onFocusEvt);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, []);
 
@@ -161,22 +405,38 @@ export default function SearchApp() {
     if (!trimmed) return;
 
     const sequence = ++requestSequence.current;
+    const isContentQuery = trimmed.toLowerCase().startsWith('content:') || 
+      (trimmed.toLowerCase().startsWith('c:') && !trimmed.startsWith('c:\\') && !trimmed.startsWith('c:/')) || 
+      trimmed.startsWith('内容:');
+    const debounceMs = isContentQuery ? 350 : 25;
+
     const timer = window.setTimeout(async () => {
-      setLoading(true);
+      const loadingTimer = window.setTimeout(() => {
+        if (sequence === requestSequence.current) setLoading(true);
+      }, 80);
+
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { query: trimmed });
         if (sequence !== requestSequence.current) return;
-        setResults(Array.isArray(response.results) ? response.results : []);
-        setSelectedIndex(0);
-        setServiceAvailable(response.available !== false);
+        window.clearTimeout(loadingTimer);
+        startTransition(() => {
+          setResults(Array.isArray(response.results) ? response.results : []);
+          setSelectedIndex(0);
+          if (response.available !== undefined) {
+            setServiceAvailable(response.available);
+          }
+        });
       } catch {
         if (sequence !== requestSequence.current) return;
-        setResults([]);
-        setServiceAvailable(false);
+        window.clearTimeout(loadingTimer);
+        startTransition(() => {
+          setResults([]);
+        });
       } finally {
+        window.clearTimeout(loadingTimer);
         if (sequence === requestSequence.current) setLoading(false);
       }
-    }, 100);
+    }, debounceMs);
 
     return () => window.clearTimeout(timer);
   }, [query]);
@@ -192,9 +452,7 @@ export default function SearchApp() {
   };
 
   const selectCategory = (cat: CategoryFilter) => {
-    setActiveCategory(cat.id);
     if (!cat.prefix) {
-      // Clear any category prefix
       let cleaned = query;
       CATEGORIES.forEach(c => {
         if (c.prefix && cleaned.startsWith(c.prefix)) {
@@ -228,13 +486,10 @@ export default function SearchApp() {
     if (!result) return;
     setActionError('');
     try {
-      const response = await bridgeRequest<{ success: boolean }>('search.openFile', {
-        filepath: result.path,
-      });
-      if (response.success) hide();
-      else setActionError(t('search.openFailed', '无法打开此结果'));
+      await bridgeRequest('system.openFile', { path: result.path });
+      hide();
     } catch {
-      setActionError(t('search.openFailed', '无法打开此结果'));
+      setActionError(t('search.openFailed', '打开文件失败'));
     }
   }, [hide, t]);
 
@@ -242,35 +497,35 @@ export default function SearchApp() {
     if (!result) return;
     setActionError('');
     try {
-      const response = await bridgeRequest<{ success: boolean }>('search.openFolder', {
-        filepath: result.path,
-      });
-      if (response.success) hide();
-      else setActionError(t('search.openFailed', '无法定位文件夹'));
+      await bridgeRequest('system.openFolder', { path: result.path });
+      hide();
     } catch {
-      setActionError(t('search.openFailed', '无法定位文件夹'));
+      setActionError(t('search.openFolderFailed', '定位目录失败'));
     }
   }, [hide, t]);
 
   const copyPathResult = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
-    void navigator.clipboard.writeText(result.path);
-    toast.success(t('search.copiedPath', '文件路径已复制到剪贴板'));
+    navigator.clipboard.writeText(result.path).then(() => {
+      toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+    }).catch(() => {
+      setActionError(t('search.copyFailed', '复制路径失败'));
+    });
   }, [t]);
 
   const pinResult = useCallback(async (result: SearchResult | undefined) => {
-    if (!result || result.isDirectory || !IMAGE_EXTENSIONS.test(result.path)) return;
-    setActionError('');
-    try {
-      const response = await bridgeRequest<{ success: boolean }>('capture.pinImageFile', {
-        path: result.path,
-      });
-      if (response.success) hide();
-      else setActionError(t('search.pinFailed', '无法贴出此图片'));
-    } catch {
-      setActionError(t('search.pinFailed', '无法贴出此图片'));
+    if (!result) return;
+    if (result.isDirectory || !IMAGE_EXTENSIONS.test(result.name)) {
+      toast.error('当前仅支持对图片文件执行独立贴图');
+      return;
     }
-  }, [hide, t]);
+    try {
+      await bridgeRequest('capture.pinImageFile', { path: result.path });
+      hide();
+    } catch {
+      toast.error('贴图失败');
+    }
+  }, [hide]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'F1') {
@@ -278,35 +533,52 @@ export default function SearchApp() {
       setShowSyntaxHelp(prev => !prev);
       return;
     }
+
+    if (results.length === 0) {
+      if (event.key === 'Escape') {
+        if (showSyntaxHelp) {
+          setShowSyntaxHelp(false);
+        } else if (showViewSettings) {
+          setShowViewSettings(false);
+        } else {
+          hide();
+        }
+      }
+      return;
+    }
+
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setSelectedIndex((index) => Math.min(index + 1, Math.max(results.length - 1, 0)));
+      setSelectedIndex((prev) => (prev + 1) % results.length);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setSelectedIndex((index) => Math.max(index - 1, 0));
+      setSelectedIndex((prev) => (prev - 1 + results.length) % results.length);
     } else if (event.key === 'PageDown') {
       event.preventDefault();
-      setSelectedIndex((index) => Math.min(index + 5, Math.max(results.length - 1, 0)));
+      setSelectedIndex((prev) => Math.min(prev + 8, results.length - 1));
     } else if (event.key === 'PageUp') {
       event.preventDefault();
-      setSelectedIndex((index) => Math.max(index - 5, 0));
+      setSelectedIndex((prev) => Math.max(prev - 8, 0));
     } else if (event.key === 'Home') {
       event.preventDefault();
       setSelectedIndex(0);
     } else if (event.key === 'End') {
       event.preventDefault();
-      setSelectedIndex(Math.max(results.length - 1, 0));
+      setSelectedIndex(results.length - 1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      if (event.ctrlKey || event.shiftKey) {
-        void openFolderResult(results[selectedIndex]);
+      const current = results[selectedIndex];
+      if (event.ctrlKey) {
+        void openFolderResult(current);
       } else {
-        void openResult(results[selectedIndex]);
+        void openResult(current);
       }
     } else if (event.key === 'Escape') {
       event.preventDefault();
       if (showSyntaxHelp) {
         setShowSyntaxHelp(false);
+      } else if (showViewSettings) {
+        setShowViewSettings(false);
       } else {
         hide();
       }
@@ -321,14 +593,18 @@ export default function SearchApp() {
     }
   };
 
+  const isColVisible = (id: ColumnId) => columns.find(c => c.id === id)?.visible ?? true;
+  const nameFlex = columns.find(c => c.id === 'name')?.flex ?? 35;
+  const pathFlex = columns.find(c => c.id === 'path')?.flex ?? 45;
+
   return (
     <main className="search-app">
       <section className="search-container" aria-label={t('search.title', '快速文件搜索')}>
-        {/* ── 搜索输入框主区域 ─────────────────────────────────────── */}
         <div className="search-input-wrapper">
           <Search className="search-icon" size={22} aria-hidden="true" />
           <input
             ref={inputRef}
+            autoFocus
             className="search-input"
             placeholder={t('search.placeholder', '搜索文件、通配符 (*.txt)、扩展名 (ext:png) 或拼音... [F1 语法]')}
             value={query}
@@ -341,9 +617,25 @@ export default function SearchApp() {
             spellCheck={false}
           />
           {loading && <span className="search-loading" aria-label={t('common.loading', '正在搜索...')} />}
+          
+          <button
+            className={`search-help-btn ${showViewSettings ? 'search-help-btn--active' : ''}`}
+            onClick={() => {
+              setShowViewSettings(prev => !prev);
+              setShowSyntaxHelp(false);
+            }}
+            title="视图与列定制（窗口尺寸、列顺序、列显示与占比）"
+            type="button"
+          >
+            <SlidersHorizontal size={18} />
+          </button>
+
           <button
             className={`search-help-btn ${showSyntaxHelp ? 'search-help-btn--active' : ''}`}
-            onClick={() => setShowSyntaxHelp(prev => !prev)}
+            onClick={() => {
+              setShowSyntaxHelp(prev => !prev);
+              setShowViewSettings(false);
+            }}
             title="搜索语法与表达式速查 (F1)"
             type="button"
           >
@@ -351,7 +643,6 @@ export default function SearchApp() {
           </button>
         </div>
 
-        {/* ── 分类筛选与布局密度切换栏 ──────────────────────────────── */}
         <div className="search-categories-bar">
           <div className="search-categories">
             {CATEGORIES.map(cat => (
@@ -370,7 +661,7 @@ export default function SearchApp() {
             <button
               className={`density-pill ${density === 'compact' ? 'density-pill--active' : ''}`}
               onClick={() => changeDensity('compact')}
-              title="紧凑布局（高信息密度，同屏显示更多文件）"
+              title="紧凑布局（高信息密度，单行横排）"
               type="button"
             >
               紧凑
@@ -378,7 +669,7 @@ export default function SearchApp() {
             <button
               className={`density-pill ${density === 'standard' ? 'density-pill--active' : ''}`}
               onClick={() => changeDensity('standard')}
-              title="适中布局（默认平衡排版）"
+              title="适中布局（双行清晰排版）"
               type="button"
             >
               适中
@@ -386,7 +677,7 @@ export default function SearchApp() {
             <button
               className={`density-pill ${density === 'comfortable' ? 'density-pill--active' : ''}`}
               onClick={() => changeDensity('comfortable')}
-              title="宽松布局（大字体与舒适间距）"
+              title="宽松布局（大图标与大字号）"
               type="button"
             >
               宽松
@@ -394,7 +685,119 @@ export default function SearchApp() {
           </div>
         </div>
 
-        {/* ── 语法速查抽屉面板 ─────────────────────────────────────── */}
+        {showViewSettings && (
+          <div className="search-view-settings-drawer">
+            <div className="view-settings-header">
+              <div className="view-settings-title">
+                <SlidersHorizontal size={16} />
+                <span>视图与列属性定制</span>
+              </div>
+              <button
+                className="syntax-drawer-close"
+                onClick={() => setShowViewSettings(false)}
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="view-settings-content">
+              <div className="view-settings-section">
+                <div className="view-section-label">
+                  <Maximize2 size={14} />
+                  <span>窗口尺寸与宽窄档位 ({windowSize.width} × {windowSize.height})</span>
+                </div>
+                <div className="view-presets-grid">
+                  {WINDOW_PRESETS.map(preset => (
+                    <button
+                      key={preset.id}
+                      className={`view-preset-btn ${windowSize.width === preset.width && windowSize.height === preset.height ? 'view-preset-btn--active' : ''}`}
+                      onClick={() => changeWindowSize(preset.width, preset.height)}
+                      type="button"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="view-settings-section">
+                <div className="view-section-label">
+                  <span>文件名与路径列宽占比 (文件名 {nameFlex}% : 路径 {pathFlex}%)</span>
+                </div>
+                <div className="view-slider-row">
+                  <span className="slider-hint">窄</span>
+                  <input
+                    type="range"
+                    min="20"
+                    max="65"
+                    value={nameFlex}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      updateColumnFlex('name', val);
+                      updateColumnFlex('path', 80 - val);
+                    }}
+                    className="view-ratio-slider"
+                  />
+                  <span className="slider-hint">宽</span>
+                </div>
+              </div>
+
+              <div className="view-settings-section">
+                <div className="view-section-header-row">
+                  <div className="view-section-label">
+                    <span>列显示开关与顺序编排</span>
+                  </div>
+                  <button
+                    className="view-reset-btn"
+                    onClick={resetColumns}
+                    type="button"
+                    title="恢复默认列与尺寸设置"
+                  >
+                    <RotateCcw size={12} />
+                    <span>恢复默认</span>
+                  </button>
+                </div>
+
+                <div className="view-columns-list">
+                  {columns.map((col, idx) => (
+                    <div key={col.id} className="view-column-item">
+                      <label className="view-column-check">
+                        <input
+                          type="checkbox"
+                          checked={col.visible}
+                          onChange={() => toggleColumnVisibility(col.id)}
+                        />
+                        <span className="view-column-name">{col.label}</span>
+                      </label>
+                      <div className="view-column-actions">
+                        <button
+                          className="view-reorder-btn"
+                          disabled={idx === 0}
+                          onClick={() => moveColumn(idx, 'up')}
+                          title="上移此列"
+                          type="button"
+                        >
+                          <ArrowUp size={14} />
+                        </button>
+                        <button
+                          className="view-reorder-btn"
+                          disabled={idx === columns.length - 1}
+                          onClick={() => moveColumn(idx, 'down')}
+                          title="下移此列"
+                          type="button"
+                        >
+                          <ArrowDown size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showSyntaxHelp && (
           <div className="search-syntax-drawer">
             <div className="syntax-drawer-header">
@@ -436,7 +839,28 @@ export default function SearchApp() {
         {actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
 
         {serviceAvailable && query.trim() && !loading && results.length === 0 && (
-          <div className="search-status" role="status">{t('search.noResults', '没有匹配的文件')}</div>
+          <div className="search-empty-container" role="status">
+            <div className="search-empty-text">
+              {query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')
+                ? t('search.noContentResults', '未在文件内容中找到匹配文本')
+                : t('search.noResults', '未找到匹配的同名文件')}
+            </div>
+            {!query.trim().toLowerCase().startsWith('content:') &&
+             !(query.trim().toLowerCase().startsWith('c:') && !query.trim().toLowerCase().startsWith('c:\\') && !query.trim().toLowerCase().startsWith('c:/')) &&
+             !query.trim().startsWith('内容:') && (
+              <button
+                className="search-switch-content-btn"
+                onClick={() => {
+                  const contentCat = CATEGORIES.find(c => c.id === 'content') || CATEGORIES[1];
+                  selectCategory(contentCat);
+                }}
+                type="button"
+              >
+                <FileText size={15} />
+                <span>立即穿透搜索文档与代码内容：「{query.trim()}」</span>
+              </button>
+            )}
+          </div>
         )}
 
         {results.length > 0 && (
@@ -454,10 +878,78 @@ export default function SearchApp() {
                 onDoubleClick={() => void openResult(result)}
               >
                 {renderFileIcon(result.name, result.isDirectory, density)}
-                <span className="file-info">
-                  <span className="file-name">{result.name}</span>
-                  <span className="file-path">{result.path}</span>
-                </span>
+                <div className="file-info">
+                  {density === 'compact' ? (
+                    <div className="file-row-main">
+                      {isColVisible('name') && (
+                        <span className="file-name" style={{ flex: `${nameFlex} 1 0` }} title={result.name}>
+                          {result.name}
+                        </span>
+                      )}
+                      {isColVisible('path') && (
+                        <span className="file-path-inline" style={{ flex: `${pathFlex} 1 0` }} title={result.path}>
+                          {result.path}
+                        </span>
+                      )}
+                      <div className="file-meta-top">
+                        {isColVisible('size') && formatFileSize(result.size, result.isDirectory) ? (
+                          <span className="meta-size-badge">{formatFileSize(result.size, result.isDirectory)}</span>
+                        ) : null}
+                        {isColVisible('modified') && result.lastWriteTime ? (
+                          <span className="meta-date-mod" title="修改时间">
+                            {formatWindowsTime(result.lastWriteTime)}
+                          </span>
+                        ) : null}
+                        {isColVisible('created') && result.creationTime ? (
+                          <span className="meta-date-create" title="创建时间">
+                            {formatWindowsTime(result.creationTime)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="file-row-main">
+                        {isColVisible('name') && (
+                          <span className="file-name" title={result.name}>{result.name}</span>
+                        )}
+                        <div className="file-meta-top">
+                          {isColVisible('size') && formatFileSize(result.size, result.isDirectory) ? (
+                            <span className="meta-size-badge">{formatFileSize(result.size, result.isDirectory)}</span>
+                          ) : null}
+                          {isColVisible('modified') && result.lastWriteTime ? (
+                            <span className="meta-date-mod" title="修改时间">
+                              {formatWindowsTime(result.lastWriteTime)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="file-row-sub">
+                        {isColVisible('path') && (
+                          <span className="file-path" title={result.path}>{result.path}</span>
+                        )}
+                        {isColVisible('created') && result.creationTime ? (
+                          <span className="meta-date-create" title="创建时间">
+                            创建 {formatWindowsTime(result.creationTime)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+
+                  {isColVisible('snippets') && result.snippets && result.snippets.length > 0 && (
+                    <div className="file-snippets-container">
+                      {result.snippets.map((snip, sIdx) => (
+                        <div key={sIdx} className="file-snippet-row">
+                          <span className="snippet-line-num">L{snip.lineNumber}</span>
+                          <span className="snippet-text">
+                            {renderSnippetWithHighlight(snip.lineContent, snip.matchOffset, snip.matchLength)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -471,6 +963,18 @@ export default function SearchApp() {
           <span className="search-hint"><kbd>F1</kbd> 语法手册</span>
           <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>
         </footer>
+
+        <div
+          className="search-resize-handle"
+          onMouseDown={handleResizeMouseDown}
+          title="按住鼠标拖拽拉伸窗口尺寸"
+          aria-label="拖拽调整窗口大小"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <line x1="8" y1="2" x2="2" y2="8" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="8" y1="5.5" x2="5.5" y2="8" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
       </section>
     </main>
   );

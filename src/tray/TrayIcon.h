@@ -26,6 +26,7 @@ enum class TrayMenuId : UINT {
     Screenshot   = 1002,
     Recording    = 1003,
     PauseGesture = 1004,
+    Search       = 1005,
     Separator    = 0,
     Exit         = 1099
 };
@@ -75,6 +76,7 @@ public:
     void onOpenSettings(TrayEventCallback callback) { m_callbacks[TrayMenuId::OpenSettings] = std::move(callback); }
     void onScreenshot(TrayEventCallback callback)    { m_callbacks[TrayMenuId::Screenshot]   = std::move(callback); }
     void onRecording(TrayEventCallback callback)     { m_callbacks[TrayMenuId::Recording]    = std::move(callback); }
+    void onSearch(TrayEventCallback callback)        { m_callbacks[TrayMenuId::Search]       = std::move(callback); }
     void onPauseGesture(TrayEventCallback callback)  { m_callbacks[TrayMenuId::PauseGesture] = std::move(callback); }
     void onExit(TrayEventCallback callback)          { m_callbacks[TrayMenuId::Exit]         = std::move(callback); }
 

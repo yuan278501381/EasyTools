@@ -303,6 +303,7 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
 void GestureEngine::beginTracking(const MouseEvent& event) {
     m_activeTriggerDown = m_triggerDown.load();
     m_activeTriggerUp = m_triggerUp.load();
+    m_trackingStartTime = std::chrono::steady_clock::now();
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
     m_gestureStartWindow = event.foregroundWindow;
@@ -323,6 +324,15 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
+    // 追踪超时看门狗：如果超过 3 秒未结束，自动取消追踪并自愈，防止长时间占用状态机
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_trackingStartTime).count();
+    if (elapsed > 3000) {
+        LOG_WARN("手势追踪超过 3 秒超时，自动取消追踪以防止按键卡死");
+        cancelTracking();
+        return;
+    }
+
     m_recognizer.addPoint(event.position.x, event.position.y);
 
     // 实时轨迹与按键回显样式动作可视化
@@ -397,6 +407,17 @@ void GestureEngine::endTracking(const MouseEvent& event) {
 
     // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
     easy::core::TraceId::setCurrent(m_gestureTraceId);
+
+    // 超时保护：手势耗时超过 3000ms 视为无效遗留操作，还原为普通点击
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_trackingStartTime).count();
+    if (elapsed > 3000) {
+        LOG_WARN("手势追踪已超时 ({}ms)，丢弃动作并还原右键点击", elapsed);
+        m_state = GestureState::Idle;
+        if (m_trailVisible.load()) GestureTrailOverlay::instance().hide();
+        reinjectTriggerClick();
+        return;
+    }
 
     m_recognizer.addPoint(event.position.x, event.position.y);
 

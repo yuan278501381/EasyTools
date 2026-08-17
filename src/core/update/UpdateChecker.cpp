@@ -27,7 +27,7 @@ constexpr wchar_t LatestReleasePath[] =
 constexpr wchar_t RequestHeaders[] =
     L"Accept: application/vnd.github+json\r\n"
     L"X-GitHub-Api-Version: 2022-11-28\r\n";
-constexpr int RequestTimeoutMs = 3000;
+constexpr int RequestTimeoutMs = 8000;
 constexpr size_t MaxResponseBytes = 1024 * 1024;
 constexpr int64_t AutomaticRetrySeconds = 6 * 60 * 60;
 
@@ -38,21 +38,41 @@ int64_t unixNow() {
         std::chrono::system_clock::now()));
 }
 
+std::string extractVersionString(const std::string& input) {
+    if (input.empty()) return {};
+    size_t i = 0;
+    while (i < input.size()) {
+        if (std::isdigit(static_cast<unsigned char>(input[i]))) {
+            size_t start = i;
+            size_t end = i;
+            while (end < input.size() &&
+                   (std::isdigit(static_cast<unsigned char>(input[end])) || input[end] == '.')) {
+                ++end;
+            }
+            while (end > start && input[end - 1] == '.') {
+                --end;
+            }
+            const std::string candidate = input.substr(start, end - start);
+            if (!candidate.empty()) {
+                return candidate;
+            }
+            i = end;
+        } else {
+            ++i;
+        }
+    }
+    return {};
+}
+
 std::vector<int> parseVersion(std::string version) {
-    while (!version.empty() && std::isspace(static_cast<unsigned char>(version.front()))) {
-        version.erase(version.begin());
-    }
-    if (!version.empty() && (version.front() == 'v' || version.front() == 'V')) {
-        version.erase(version.begin());
-    }
-    const auto suffix = version.find_first_of("-+");
-    if (suffix != std::string::npos) version.resize(suffix);
+    const std::string verStr = extractVersionString(version);
+    if (verStr.empty()) return {};
 
     std::vector<int> parts;
     size_t start = 0;
-    while (start < version.size()) {
-        const size_t end = version.find('.', start);
-        const std::string part = version.substr(start, end - start);
+    while (start < verStr.size()) {
+        const size_t end = verStr.find('.', start);
+        const std::string part = verStr.substr(start, end - start);
         if (part.empty() || !std::all_of(part.begin(), part.end(), [](unsigned char ch) {
                 return std::isdigit(ch) != 0;
             })) {
@@ -186,20 +206,29 @@ void UpdateChecker::workerMain(std::stop_token stopToken) {
                 if (readOk && !stopToken.stop_requested()) {
                     try {
                         const auto response = json::parse(body);
-                        const std::string latest = response.value("tag_name", "");
-                        const std::string releaseUrl = response.value("html_url", "");
-                        if (parseVersion(latest).empty() || releaseUrl.empty()) {
-                            result = errorResult("invalidResponse");
-                        } else {
-                            const bool available = UpdateChecker::isNewerVersion(latest, CurrentVersion);
-                            result = {
-                                {"status", available ? "available" : "upToDate"},
-                                {"currentVersion", CurrentVersion},
-                                {"latestVersion", latest},
-                                {"releaseUrl", releaseUrl}
-                            };
-                            ConfigManager::instance().set("/update/lastSuccessUnix", unixNow());
+                        const std::string tagName = response.value("tag_name", "");
+                        const std::string releaseName = response.value("name", "");
+                        std::string releaseUrl = response.value("html_url", "");
+                        if (releaseUrl.empty()) {
+                            releaseUrl = "https://github.com/yuan278501381/easyTools/releases";
                         }
+
+                        std::string latestVersion = extractVersionString(tagName);
+                        if (latestVersion.empty()) {
+                            latestVersion = extractVersionString(releaseName);
+                        }
+                        if (latestVersion.empty()) {
+                            latestVersion = CurrentVersion;
+                        }
+
+                        const bool available = UpdateChecker::isNewerVersion(latestVersion, CurrentVersion);
+                        result = {
+                            {"status", available ? "available" : "upToDate"},
+                            {"currentVersion", CurrentVersion},
+                            {"latestVersion", "v" + latestVersion},
+                            {"releaseUrl", releaseUrl}
+                        };
+                        ConfigManager::instance().set("/update/lastSuccessUnix", unixNow());
                     } catch (const std::exception& e) {
                         LOG_WARN("更新响应解析失败: {}", e.what());
                         result = errorResult("invalidResponse");

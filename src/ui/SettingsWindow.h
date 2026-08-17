@@ -33,8 +33,10 @@ namespace easy::ui {
 
 /// 设置窗口配置
 struct SettingsWindowConfig {
-    int width  = 1100;              // 窗口宽度
-    int height = 750;               // 窗口高度
+    int width  = 1260;             // 窗口宽度
+    int height = 880;              // 窗口高度
+    int posX = -1;                 // 指定屏幕 X 坐标 (-1 表示使用居中或默认值)
+    int posY = -1;                 // 指定屏幕 Y 坐标 (-1 表示使用居中或默认值)
     bool startCentered = true;      // 是否居中显示
     bool devToolsEnabled = true;    // 是否启用开发者工具（仅 Debug）
     std::string devServerUrl;       // 开发服务器 URL（空则使用本地文件）
@@ -43,6 +45,9 @@ struct SettingsWindowConfig {
 class SettingsWindow {
 public:
     static SettingsWindow& instance();
+
+    /// 获取底层 Win32 HWND 句柄
+    HWND hwnd() const { return m_hwnd; }
 
     /// 创建并显示设置窗口
     void show(HINSTANCE hInstance);

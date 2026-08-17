@@ -1,4 +1,5 @@
 #include "SearchExpression.h"
+#include "content/ContentSearchEngine.h"
 #include <algorithm>
 #include <cwctype>
 #include <sstream>
@@ -52,10 +53,18 @@ SearchClause parseSingleToken(std::wstring token) {
         return true;
     };
 
-    if (token.size() == 2 && std::iswalpha(token[0]) && token[1] == L':') {
-        clause.filterType = SearchFilterType::Drive;
-        clause.driveLetter = static_cast<wchar_t>(std::towupper(token[0]));
-        return clause;
+    if (token.size() >= 2 && std::iswalpha(token[0]) && token[1] == L':') {
+        if (token.size() == 2) {
+            clause.filterType = SearchFilterType::Drive;
+            clause.driveLetter = static_cast<wchar_t>(std::towupper(token[0]));
+            return clause;
+        } else if (token[2] == L'\\' || token[2] == L'/') {
+            clause.filterType = SearchFilterType::Path;
+            clause.rawPattern = token;
+            clause.pattern = SearchExpression::normalize(token);
+            clause.hasWildcard = clause.pattern.find(L'*') != std::wstring::npos || clause.pattern.find(L'?') != std::wstring::npos;
+            return clause;
+        }
     }
 
     if (startsWithNoCase(token, L"file:")) {
@@ -98,9 +107,18 @@ SearchClause parseSingleToken(std::wstring token) {
     } else if (startsWithNoCase(token, L"exact:")) {
         clause.filterType = SearchFilterType::Exact;
         token = token.substr(6);
-    } else if (startsWithNoCase(token, L"case:") || startsWithNoCase(token, L"c:")) {
+    } else if (startsWithNoCase(token, L"content:") || startsWithNoCase(token, L"内容:") || (startsWithNoCase(token, L"c:") && token.size() > 2 && token[2] != L'\\' && token[2] != L'/')) {
+        clause.filterType = SearchFilterType::Content;
+        if (startsWithNoCase(token, L"content:")) token = token.substr(8);
+        else if (startsWithNoCase(token, L"内容:")) token = token.substr(3);
+        else token = token.substr(2);
+        clause.rawPattern = token;
+        clause.pattern = SearchExpression::normalize(token);
+        clause.hasWildcard = clause.pattern.find(L'*') != std::wstring::npos || clause.pattern.find(L'?') != std::wstring::npos;
+        return clause;
+    } else if (startsWithNoCase(token, L"case:") || startsWithNoCase(token, L"cs:")) {
         clause.filterType = SearchFilterType::CaseSensitive;
-        token = token.substr(token[0] == L'c' && token[1] == L':' ? 2 : 5);
+        token = token.substr(token[0] == L'c' && token[1] == L's' ? 3 : 5);
         clause.rawPattern = token;
         clause.pattern = SearchExpression::normalize(token);
         clause.hasWildcard = token.find(L'*') != std::wstring::npos || token.find(L'?') != std::wstring::npos;
@@ -117,12 +135,20 @@ SearchClause parseSingleToken(std::wstring token) {
     clause.pattern = SearchExpression::normalize(token);
     clause.hasWildcard = clause.pattern.find(L'*') != std::wstring::npos || clause.pattern.find(L'?') != std::wstring::npos;
 
-    clause.isAsciiOnly = true;
+    clause.pinyinPattern.reserve(clause.pattern.size());
+    clause.isAsciiOnly = !clause.pattern.empty();
     for (wchar_t ch : clause.pattern) {
-        if (ch < L'a' || ch > L'z') {
+        if (ch >= L'a' && ch <= L'z') {
+            clause.pinyinPattern.push_back(ch);
+        } else if (ch == L'\'' || ch == L'-') {
+            // 忽略拼音音节分隔符 (如 tong'xi -> tongxi)
+            continue;
+        } else {
             clause.isAsciiOnly = false;
-            break;
         }
+    }
+    if (clause.pinyinPattern.empty()) {
+        clause.isAsciiOnly = false;
     }
     return clause;
 }
@@ -133,6 +159,14 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
     SearchExpression expr;
     expr.m_rawQuery = query;
     expr.m_normalizedQuery = normalize(query);
+    expr.m_isAsciiQuery = std::all_of(expr.m_normalizedQuery.begin(), expr.m_normalizedQuery.end(),
+                                      [](wchar_t c) { return static_cast<unsigned int>(c) < 128; });
+    if (expr.m_isAsciiQuery) {
+        expr.m_cleanAsciiQuery.reserve(expr.m_normalizedQuery.size());
+        for (wchar_t ch : expr.m_normalizedQuery) {
+            if (ch != L'\'' && ch != L'-') expr.m_cleanAsciiQuery.push_back(ch);
+        }
+    }
 
     std::vector<std::wstring> rawTokens;
     size_t i = 0;
@@ -167,6 +201,10 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
             clause.filterType == SearchFilterType::Parent) {
             expr.m_requiresFullPath = true;
         }
+        if (clause.filterType == SearchFilterType::Content) {
+            expr.m_hasContentFilter = true;
+            expr.m_contentQuery = clause.rawPattern;
+        }
 
         if (nextIsOr && !expr.m_orGroups.empty()) {
             expr.m_orGroups.back().clauses.push_back(std::move(clause));
@@ -187,6 +225,22 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
     bool matched = false;
 
     switch (clause.filterType) {
+        case SearchFilterType::Content: {
+            if (record.isDirectory) {
+                matched = false;
+                break;
+            }
+            const auto dotPos = record.normalizedName.rfind(L'.');
+            if (dotPos == std::wstring::npos) {
+                matched = false;
+                break;
+            }
+            std::wstring_view ext(record.normalizedName.data() + dotPos + 1,
+                                  record.normalizedName.size() - dotPos - 1);
+            matched = easy::service::content::ContentSearchEngine::instance().canSearchContent(ext);
+            break;
+        }
+
         case SearchFilterType::FileOnly:
             if (record.isDirectory) matched = false;
             else if (clause.pattern.empty()) matched = true;
@@ -278,15 +332,17 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
             }
             break;
 
-        case SearchFilterType::PinyinOnly:
+        case SearchFilterType::PinyinOnly: {
+            const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.pinyinFull) ||
-                          SearchExpression::matchWildcard(clause.pattern, record.pinyinInitials);
+                matched = SearchExpression::matchWildcard(pat, record.pinyinFull) ||
+                          SearchExpression::matchWildcard(pat, record.pinyinInitials);
             } else {
-                matched = record.pinyinFull.find(clause.pattern) != std::wstring::npos ||
-                          record.pinyinInitials.find(clause.pattern) != std::wstring::npos;
+                matched = record.pinyinFull.find(pat) != std::wstring::npos ||
+                          record.pinyinInitials.find(pat) != std::wstring::npos;
             }
             break;
+        }
 
         case SearchFilterType::NoPinyin:
             if (clause.hasWildcard) {
@@ -299,16 +355,19 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
         case SearchFilterType::None:
         default:
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName) ||
-                          SearchExpression::matchWildcard(clause.pattern, record.pinyinFull) ||
-                          SearchExpression::matchWildcard(clause.pattern, record.pinyinInitials);
+                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
+                if (!matched && clause.isAsciiOnly) {
+                    const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
+                    matched = SearchExpression::matchWildcard(pat, record.pinyinFull) ||
+                              SearchExpression::matchWildcard(pat, record.pinyinInitials);
+                }
             } else {
                 if (record.normalizedName.find(clause.pattern) != std::wstring::npos) {
                     matched = true;
-                } else if (clause.isAsciiOnly &&
-                           (record.pinyinInitials.find(clause.pattern) != std::wstring::npos ||
-                            record.pinyinFull.find(clause.pattern) != std::wstring::npos)) {
-                    matched = true;
+                } else if (clause.isAsciiOnly) {
+                    const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
+                    matched = (record.pinyinInitials.find(pat) != std::wstring::npos ||
+                               record.pinyinFull.find(pat) != std::wstring::npos);
                 }
             }
             break;
@@ -335,13 +394,25 @@ bool SearchExpression::matches(const FileRecord& record, wchar_t driveLetter,
 }
 
 int SearchExpression::calculateRank(const FileRecord& record) const {
+    if (m_hasContentFilter && !m_contentQuery.empty()) {
+        std::wstring normContentQuery = normalize(m_contentQuery);
+        if (record.normalizedName.find(normContentQuery) != std::wstring::npos) {
+            return 0;
+        }
+        return 1;
+    }
     if (m_normalizedQuery.empty()) return 6;
     if (record.normalizedName == m_normalizedQuery) return 0;
     if (record.normalizedName.starts_with(m_normalizedQuery)) return 1;
-    if (record.pinyinFull.starts_with(m_normalizedQuery)) return 2;
-    if (record.pinyinInitials.starts_with(m_normalizedQuery)) return 3;
-    if (record.normalizedName.find(m_normalizedQuery) != std::wstring::npos) return 4;
-    if (record.pinyinFull.find(m_normalizedQuery) != std::wstring::npos) return 5;
-    if (record.pinyinInitials.find(m_normalizedQuery) != std::wstring::npos) return 6;
+    if (m_isAsciiQuery) {
+        const auto& q = m_cleanAsciiQuery.empty() ? m_normalizedQuery : m_cleanAsciiQuery;
+        if (record.pinyinFull.starts_with(q)) return 2;
+        if (record.pinyinInitials.starts_with(q)) return 3;
+        if (record.normalizedName.find(m_normalizedQuery) != std::wstring::npos) return 4;
+        if (record.pinyinFull.find(q) != std::wstring::npos) return 5;
+        if (record.pinyinInitials.find(q) != std::wstring::npos) return 6;
+    } else {
+        if (record.normalizedName.find(m_normalizedQuery) != std::wstring::npos) return 4;
+    }
     return 7;
 }

@@ -10,6 +10,7 @@ import { bridgeRequest } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { Camera, Video } from 'lucide-react';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { toast } from 'sonner';
 
 interface CaptureSettings {
@@ -49,8 +50,13 @@ interface AudioDeviceInfo {
 
 interface RecordingCapabilities { audioDevices: AudioDeviceInfo[] }
 
-interface OperationResult { success: boolean; error?: string; shortcut?: string }
-interface HotkeyEntry { name: string; shortcut: string; registered?: boolean }
+interface OperationResult {
+  success: boolean;
+  error?: string;
+  shortcut?: string;
+  conflictType?: string;
+  conflictWith?: string;
+}
 
 export const CapturePage: FC = () => {
   const { t } = useTranslation();
@@ -67,9 +73,12 @@ export const CapturePage: FC = () => {
   });
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [screenshotHotkey, setScreenshotHotkey] = useState('Ctrl+Shift+A');
   const [recordHotkey, setRecordHotkey] = useState('Ctrl+Shift+R');
   const [recordPauseHotkey, setRecordPauseHotkey] = useState('Ctrl+Shift+P');
+
+  const getHotkey = (name: string) => hotkeys.find(h => h.name === name);
 
   useEffect(() => {
     Promise.all([
@@ -81,9 +90,11 @@ export const CapturePage: FC = () => {
     ]).then(([capData, recData, hotkeyData, capabilities]) => {
       setCapture(prev => ({ ...prev, ...capData }));
       setRecording(prev => ({ ...prev, ...recData }));
-      setScreenshotHotkey(hotkeyData.find(item => item.name === 'Screenshot')?.shortcut ?? 'Ctrl+Shift+A');
-      setRecordHotkey(hotkeyData.find(item => item.name === 'Record')?.shortcut ?? 'Ctrl+Shift+R');
-      setRecordPauseHotkey(hotkeyData.find(item => item.name === 'Record Pause')?.shortcut ?? 'Ctrl+Shift+P');
+      const hkList = Array.isArray(hotkeyData) ? hotkeyData : [];
+      setHotkeys(hkList);
+      setScreenshotHotkey(hkList.find(item => item.name === 'Screenshot')?.shortcut ?? 'Ctrl+Shift+A');
+      setRecordHotkey(hkList.find(item => item.name === 'Record')?.shortcut ?? 'Ctrl+Shift+R');
+      setRecordPauseHotkey(hkList.find(item => item.name === 'Record Pause')?.shortcut ?? 'Ctrl+Shift+P');
       setAudioDevices(capabilities.audioDevices || []);
     }).catch((error) => {
       console.error(error);
@@ -118,8 +129,14 @@ export const CapturePage: FC = () => {
       if (name === 'Screenshot') setScreenshotHotkey(result.shortcut ?? value);
       else if (name === 'Record') setRecordHotkey(result.shortcut ?? value);
       else setRecordPauseHotkey(result.shortcut ?? value);
+
+      // 同步刷新全局热键状态以更新冲突徽章
+      const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      if (Array.isArray(refreshed)) setHotkeys(refreshed);
     } catch (error) {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
+      const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      if (Array.isArray(refreshed)) setHotkeys(refreshed);
     }
   };
 
@@ -181,7 +198,15 @@ export const CapturePage: FC = () => {
     <div className="capture-page" style={{ animation: 'fadeIn 0.3s ease' }}>
       <SettingGroup title={t('capture.title')} icon={<Camera size={20} strokeWidth={2.5} />}>
         <Card>
-          <SettingRow label={t('capture.shortcut')} description={t('capture.shortcutDesc')}>
+          <SettingRow
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>{t('capture.shortcut')}</span>
+                <HotkeyStatusBadge entry={getHotkey('Screenshot')} />
+              </div>
+            }
+            description={t('capture.shortcutDesc')}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <HotkeyRecorder
                 id="capture-shortcut"
@@ -273,14 +298,30 @@ export const CapturePage: FC = () => {
 
       <SettingGroup title={t('recording.title')} icon={<Video size={20} strokeWidth={2.5} />}>
         <Card>
-          <SettingRow label={t('recording.shortcut')} description={t('recording.shortcutDesc')}>
+          <SettingRow
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>{t('recording.shortcut')}</span>
+                <HotkeyStatusBadge entry={getHotkey('Record')} />
+              </div>
+            }
+            description={t('recording.shortcutDesc')}
+          >
             <HotkeyRecorder
               id="recording-shortcut"
               value={recordHotkey}
               onChange={(v) => void rebindHotkey('Record', v)}
             />
           </SettingRow>
-          <SettingRow label={t('recording.pauseShortcut')} description={t('recording.pauseShortcutDesc')}>
+          <SettingRow
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>{t('recording.pauseShortcut')}</span>
+                <HotkeyStatusBadge entry={getHotkey('Record Pause')} />
+              </div>
+            }
+            description={t('recording.pauseShortcutDesc')}
+          >
             <HotkeyRecorder
               id="recording-pause-shortcut"
               value={recordPauseHotkey}

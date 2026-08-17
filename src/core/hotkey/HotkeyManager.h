@@ -4,7 +4,7 @@
 //
 // 特性:
 //   1. 统一注册/注销全局快捷键（RegisterHotKey）
-//   2. 快捷键冲突检测（注册失败时给出明确原因）
+//   2. 快捷键冲突检测（深度辨别内部插件冲突与外部系统/第三方应用冲突）
 //   3. 快捷键 → 回调映射（支持 lambda / std::function）
 //   4. 支持运行时动态修改快捷键绑定
 //   5. 自动处理 WM_HOTKEY 消息分发
@@ -22,6 +22,7 @@
 #include <mutex>
 #include <atomic>
 #include <optional>
+#include <vector>
 
 namespace easy::core {
 
@@ -56,13 +57,23 @@ struct EASYCORE_API HotkeyDef {
 
 using HotkeyCallback = std::function<void()>;
 
+/// 快捷键冲突详情
+struct HotkeyConflictInfo {
+    bool hasConflict = false;
+    std::string conflictType = "none";  // "none", "internal", "external"
+    std::string conflictWith;           // 冲突的插件或提示说明
+};
+
 /// 已注册的快捷键信息
 struct HotkeyEntry {
-    int id;                     // RegisterHotKey 的 ID
+    int id = 0;                 // RegisterHotKey 的 ID
     HotkeyDef def;              // 快捷键定义
     std::string name;           // 人类可读名称 (如 "截图", "暂停手势")
     HotkeyCallback callback;    // 触发回调
     bool registered = false;    // false = 已禁用或当前组合键被占用
+    bool conflict = false;      // 是否存在冲突
+    std::string conflictType = "none"; // "none" | "internal" | "external"
+    std::string conflictWith;   // 冲突关联说明
 };
 
 class EASYCORE_API HotkeyManager {
@@ -92,10 +103,13 @@ public:
     /// 检查快捷键是否已被占用
     bool isConflict(const HotkeyDef& def) const;
 
+    /// 探测快捷键是否与内部插件或外部系统/第三方软件冲突
+    HotkeyConflictInfo checkConflict(const HotkeyDef& def, const std::string& currentName = "") const;
+
     /// 处理 WM_HOTKEY 消息（在消息循环中调用）
     void handleHotkeyMessage(WPARAM wParam);
 
-    /// 获取所有已注册快捷键（用于 UI 显示）
+    /// 获取所有已注册快捷键（用于 UI 显示，附带冲突分析）
     std::vector<HotkeyEntry> getAllHotkeys() const;
 
 private:

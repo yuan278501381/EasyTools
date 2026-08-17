@@ -1,6 +1,7 @@
 #include "ui/SearchWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/config/ConfigManager.h"
 #include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewWindowStyle.h"
@@ -9,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <utility>
+#include <algorithm>
 #include "core/utils/WinUtils.h"
 
 using namespace Microsoft::WRL;
@@ -27,19 +29,55 @@ SearchWindow& SearchWindow::instance() {
     return inst;
 }
 
+void SearchWindow::setWindowSize(int baseWidth, int baseHeight) {
+    baseWidth = (std::clamp)(baseWidth, 500, 2400);
+    baseHeight = (std::clamp)(baseHeight, 400, 1600);
+    easy::core::ConfigManager::instance().set("/search/windowWidth", baseWidth);
+    easy::core::ConfigManager::instance().set("/search/windowHeight", baseHeight);
+
+    if (!m_hwnd || !IsWindow(m_hwnd)) return;
+    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    const RECT workArea = easy::core::dpi::workArea(monitor);
+    const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+    const float scale = easy::core::dpi::scaleForDpi(dpi);
+
+    int scaledWidth = easy::core::dpi::scaleMetric(baseWidth, scale);
+    int scaledHeight = easy::core::dpi::scaleMetric(baseHeight, scale);
+    const int margin = easy::core::dpi::scaleMetric(SearchWindowStyle::BaseScreenMargin, scale);
+    scaledWidth = (std::min)(scaledWidth, static_cast<int>(workArea.right - workArea.left - margin * 2));
+    scaledHeight = (std::min)(scaledHeight, static_cast<int>(workArea.bottom - workArea.top - margin * 2));
+
+    const int x = workArea.left + (workArea.right - workArea.left - scaledWidth) / 2;
+    const int y = workArea.top + (workArea.bottom - workArea.top - scaledHeight) / 2;
+
+    SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, scaledWidth, scaledHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (m_controller) {
+        RECT bounds{0, 0, scaledWidth, scaledHeight};
+        m_controller->put_Bounds(bounds);
+    }
+}
+
+std::pair<int, int> SearchWindow::getWindowSize() const {
+    const int w = easy::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
+    const int h = easy::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
+    return {w, h};
+}
+
 void SearchWindow::show(HINSTANCE hInstance) {
     if (m_hwnd && IsWindow(m_hwnd)) {
+        if (m_visible) {
+            updatePlacement();
+            SetForegroundWindow(m_hwnd);
+            SetFocus(m_hwnd);
+            return;
+        }
         updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
         SetFocus(m_hwnd);
         m_visible = true;
-        if (m_controller) {
-            m_controller->put_IsVisible(TRUE);
-            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-        }
         if (m_webView) {
-            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
         }
         return;
     }
@@ -51,31 +89,26 @@ void SearchWindow::show(HINSTANCE hInstance) {
 
     initializeWebView2();
     ShowWindow(m_hwnd, SW_SHOW);
-    UpdateWindow(m_hwnd);
     SetForegroundWindow(m_hwnd);
     SetFocus(m_hwnd);
     m_visible = true;
 }
 
 void SearchWindow::hide() {
-    if (m_hwnd) {
-        ShowWindow(m_hwnd, SW_HIDE);
-        m_visible = false;
-        if (m_controller) m_controller->put_IsVisible(FALSE);
-    }
+    if (!m_hwnd || !m_visible) return;
+    ShowWindow(m_hwnd, SW_HIDE);
+    m_visible = false;
+    if (m_controller) m_controller->put_IsVisible(FALSE);
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 bool SearchWindow::isVisible() const {
-    return m_visible.load() && m_hwnd && IsWindowVisible(m_hwnd);
+    return m_visible;
 }
 
 void SearchWindow::destroy() {
-    ++m_generation;
-    if (m_controller) {
-        m_controller->Close();
-        m_controller = nullptr;
-    }
     m_webView = nullptr;
+    m_controller = nullptr;
     m_environment = nullptr;
 
     const HWND hwnd = std::exchange(m_hwnd, nullptr);
@@ -100,7 +133,11 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
     const RECT workArea = easy::core::dpi::workArea(monitor);
     const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
     const float scale = easy::core::dpi::scaleForDpi(dpi);
-    SIZE size = SearchWindowStyle::windowSizeForDpi(dpi);
+
+    const int baseW = easy::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
+    const int baseH = easy::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
+    SIZE size{easy::core::dpi::scaleMetric(baseW, scale), easy::core::dpi::scaleMetric(baseH, scale)};
+
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
     size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
@@ -132,7 +169,11 @@ void SearchWindow::updatePlacement() {
     const RECT workArea = easy::core::dpi::workArea(monitor);
     const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
     const float scale = easy::core::dpi::scaleForDpi(dpi);
-    SIZE size = SearchWindowStyle::windowSizeForDpi(dpi);
+
+    const int baseW = easy::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
+    const int baseH = easy::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
+    SIZE size{easy::core::dpi::scaleMetric(baseW, scale), easy::core::dpi::scaleMetric(baseH, scale)};
+
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
     size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
@@ -141,6 +182,10 @@ void SearchWindow::updatePlacement() {
     const int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, size.cx, size.cy,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (m_controller) {
+        RECT bounds{0, 0, size.cx, size.cy};
+        m_controller->put_Bounds(bounds);
+    }
     m_updatingPlacement = false;
 }
 
@@ -177,16 +222,17 @@ void SearchWindow::initializeWebView2() {
                                 settings->put_AreDevToolsEnabled(FALSE);
                             }
                             
-                            // Enable transparency
+                            // Enable true alpha transparency
                             Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2;
                             if (SUCCEEDED(m_controller.As(&controller2))) {
-                                COREWEBVIEW2_COLOR transparent = {0, 255, 0, 255}; // magenta used as colorkey
+                                COREWEBVIEW2_COLOR transparent = {0, 0, 0, 0};
                                 controller2->put_DefaultBackgroundColor(transparent);
                             }
 
                             RECT bounds;
                             GetClientRect(m_hwnd, &bounds);
                             m_controller->put_Bounds(bounds);
+                            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 
                             // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
                             auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
@@ -221,6 +267,19 @@ void SearchWindow::initializeWebView2() {
                             // Load the search URL
                             std::wstring targetUrl = baseUrl + L"#/search";
                             m_webView->Navigate(targetUrl.c_str());
+
+                            // 导航完成后自动聚焦输入框
+                            m_webView->add_NavigationCompleted(
+                                Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                                    [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                                        if (m_controller) {
+                                            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                                        }
+                                        if (m_webView) {
+                                            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+                                        }
+                                        return S_OK;
+                                    }).Get(), nullptr);
 
                             // Setup JS bridge
                             m_webView->AddScriptToExecuteOnDocumentCreated(

@@ -16,6 +16,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <nlohmann/json.hpp>
 #include "MftParser.h"
+#include "content/ContentSearchEngine.h"
 
 #define SERVICE_NAME L"EasyTools_SearchService"
 
@@ -70,6 +71,178 @@ void InitLogger() {
 // --------------------------------------------------------------------------------------
 // Named Pipe Server
 // --------------------------------------------------------------------------------------
+#include <mutex>
+#include <chrono>
+
+nlohmann::json ProcessSearchQuery(const std::wstring& wQuery) {
+    SearchExpression expr = SearchExpression::parse(wQuery);
+    nlohmann::json responseJson = {{"results", nlohmann::json::array()}};
+
+    if (expr.hasContentFilter() && !expr.getContentQuery().empty()) {
+        std::vector<SearchResult> candidates;
+        for (auto& parser : g_MftParsers) {
+            auto volumeResults = parser->Search(wQuery, 400);
+            candidates.insert(candidates.end(),
+                              std::make_move_iterator(volumeResults.begin()),
+                              std::make_move_iterator(volumeResults.end()));
+        }
+
+        auto& contentEngine = easy::service::content::ContentSearchEngine::instance();
+        std::vector<SearchResult> textCandidates;
+        textCandidates.reserve(candidates.size());
+
+        for (auto& candidate : candidates) {
+            if (candidate.isDirectory) continue;
+            if (candidate.fileSize > 15 * 1024 * 1024) continue; // 忽略大于 15MB 的巨型文件
+            
+            size_t dotPos = candidate.fullPath.rfind(L'.');
+            if (dotPos == std::wstring::npos) continue;
+            std::wstring ext = candidate.fullPath.substr(dotPos + 1);
+            if (!contentEngine.canSearchContent(ext)) continue;
+
+            // 过滤深层 Windows 庞大二进制目录（除非显式指定 windows 路径）
+            if (candidate.fullPath.find(L"\\Windows\\WinSxS\\") != std::wstring::npos ||
+                candidate.fullPath.find(L"\\Windows\\System32\\") != std::wstring::npos ||
+                candidate.fullPath.find(L"\\$Recycle.Bin\\") != std::wstring::npos) {
+                if (wQuery.find(L"windows") == std::wstring::npos && wQuery.find(L"winsxs") == std::wstring::npos) {
+                    continue;
+                }
+            }
+            textCandidates.push_back(std::move(candidate));
+        }
+
+        if (textCandidates.size() > 200) textCandidates.resize(200);
+
+        std::mutex resultsMutex;
+        std::atomic<size_t> matchCount{0};
+        const auto startTime = std::chrono::steady_clock::now();
+        const auto deadline = startTime + std::chrono::milliseconds(1200);
+
+        const unsigned int numThreads = (std::min)(4u, (std::max)(1u, std::thread::hardware_concurrency()));
+        std::vector<std::thread> workers;
+        std::atomic<size_t> nextIndex{0};
+
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            workers.emplace_back([&]() {
+                while (matchCount.load() < 50) {
+                    if (std::chrono::steady_clock::now() > deadline) break;
+                    size_t idx = nextIndex.fetch_add(1);
+                    if (idx >= textCandidates.size()) break;
+
+                    const auto& item = textCandidates[idx];
+                    std::vector<easy::service::content::ContentSnippet> snippets;
+                    if (contentEngine.searchFile(item.fullPath, expr.getContentQuery(), false, snippets)) {
+                        nlohmann::json snippetsJson = nlohmann::json::array();
+                        for (const auto& snip : snippets) {
+                            snippetsJson.push_back({
+                                {"lineNumber", snip.lineNumber},
+                                {"lineContent", WStringToString(snip.lineContent)},
+                                {"matchOffset", snip.matchOffset},
+                                {"matchLength", snip.matchLength}
+                            });
+                        }
+
+                        nlohmann::json itemJson = {
+                            {"name", WStringToString(item.fileName)},
+                            {"path", WStringToString(item.fullPath)},
+                            {"isDirectory", item.isDirectory},
+                            {"size", item.fileSize},
+                            {"creationTime", item.creationTime},
+                            {"lastWriteTime", item.lastWriteTime},
+                            {"snippets", std::move(snippetsJson)}
+                        };
+
+                        {
+                            std::lock_guard<std::mutex> lock(resultsMutex);
+                            responseJson["results"].push_back(std::move(itemJson));
+                        }
+                        matchCount.fetch_add(1);
+                    }
+                }
+            });
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) w.join();
+        }
+    } else {
+        std::vector<SearchResult> results;
+        for (auto& parser : g_MftParsers) {
+            auto volumeResults = parser->Search(wQuery, 50);
+            results.insert(results.end(),
+                           std::make_move_iterator(volumeResults.begin()),
+                           std::make_move_iterator(volumeResults.end()));
+        }
+        std::stable_sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+            if (a.fileName.size() != b.fileName.size()) return a.fileName.size() < b.fileName.size();
+            return _wcsicmp(a.fileName.c_str(), b.fileName.c_str()) < 0;
+        });
+        if (results.size() > 50) results.resize(50);
+
+        for (const auto& result : results) {
+            responseJson["results"].push_back({
+                {"name", WStringToString(result.fileName)},
+                {"path", WStringToString(result.fullPath)},
+                {"isDirectory", result.isDirectory},
+                {"size", result.fileSize},
+                {"creationTime", result.creationTime},
+                {"lastWriteTime", result.lastWriteTime}
+            });
+        }
+    }
+
+    return responseJson;
+}
+
+void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* pipeSecurity) {
+    while (g_IsRunning.load()) {
+        HANDLE hPipe = CreateNamedPipeA(
+            "\\\\.\\pipe\\EasyToolsSearchPipe",
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            256 * 1024, 4096, 0,
+            pipeDescriptor ? pipeSecurity : nullptr
+        );
+
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            Sleep(200);
+            continue;
+        }
+
+        BOOL connected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (connected && g_IsRunning.load()) {
+            std::array<char, 4096> buffer{};
+            while (g_IsRunning.load()) {
+                std::string request;
+                DWORD bytesRead = 0;
+                BOOL readOk = FALSE;
+                do {
+                    readOk = ReadFile(hPipe, buffer.data(), static_cast<DWORD>(buffer.size()),
+                                      &bytesRead, nullptr);
+                    if (bytesRead > 0 && request.size() < 4096) {
+                        request.append(buffer.data(), std::min<size_t>(bytesRead, 4096 - request.size()));
+                    }
+                } while (!readOk && GetLastError() == ERROR_MORE_DATA && request.size() < 4096);
+                if ((!readOk && GetLastError() != ERROR_MORE_DATA) || request.empty()) break;
+
+                std::wstring wQuery = StringToWString(request);
+                nlohmann::json responseJson = ProcessSearchQuery(wQuery);
+                const std::string response = responseJson.dump();
+
+                DWORD bytesWritten = 0;
+                if (!WriteFile(hPipe, response.c_str(), static_cast<DWORD>(response.size()),
+                               &bytesWritten, nullptr) ||
+                    bytesWritten != static_cast<DWORD>(response.size())) {
+                    break;
+                }
+            }
+        }
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
+}
+
 void IPCServerThread() {
     spdlog::info("IPC Server Thread started.");
     
@@ -99,7 +272,6 @@ void IPCServerThread() {
 
     PSECURITY_DESCRIPTOR pipeDescriptor = nullptr;
     SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
-    // LocalSystem/Admin full access; any authenticated desktop user can query.
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
             L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)", SDDL_REVISION_1,
             &pipeDescriptor, nullptr)) {
@@ -107,77 +279,17 @@ void IPCServerThread() {
     } else {
         spdlog::error("Failed to create named pipe security descriptor: {}", GetLastError());
     }
-    
-    while (g_IsRunning) {
-        HANDLE hPipe = CreateNamedPipeA(
-            "\\\\.\\pipe\\EasyToolsSearchPipe",
-            PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-            4,
-            256 * 1024, 4096, 0,
-            pipeDescriptor ? &pipeSecurity : nullptr
-        );
 
-        if (hPipe == INVALID_HANDLE_VALUE) {
-            spdlog::error("CreateNamedPipe failed: {}", GetLastError());
-            Sleep(1000);
-            continue;
-        }
+    constexpr int NUM_PIPE_WORKERS = 4;
+    std::vector<std::thread> pipeWorkers;
+    pipeWorkers.reserve(NUM_PIPE_WORKERS);
+    for (int i = 0; i < NUM_PIPE_WORKERS; ++i) {
+        pipeWorkers.emplace_back(PipeWorkerThread, pipeDescriptor, &pipeSecurity);
+    }
+    spdlog::info("Launched {} concurrent named pipe server worker(s)", NUM_PIPE_WORKERS);
 
-        spdlog::debug("Waiting for client connection on named pipe...");
-        BOOL connected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
-        
-        if (connected) {
-            spdlog::info("Client connected to named pipe.");
-            std::array<char, 4096> buffer{};
-            while (g_IsRunning.load()) {
-                std::string request;
-                DWORD bytesRead = 0;
-                BOOL readOk = FALSE;
-                do {
-                    readOk = ReadFile(hPipe, buffer.data(), static_cast<DWORD>(buffer.size()),
-                                      &bytesRead, nullptr);
-                    if (bytesRead > 0 && request.size() < 4096) {
-                        request.append(buffer.data(), std::min<size_t>(bytesRead, 4096 - request.size()));
-                    }
-                } while (!readOk && GetLastError() == ERROR_MORE_DATA && request.size() < 4096);
-                if ((!readOk && GetLastError() != ERROR_MORE_DATA) || request.empty()) break;
-
-                std::wstring wQuery = StringToWString(request);
-                std::vector<SearchResult> results;
-                for (auto& parser : g_MftParsers) {
-                    auto volumeResults = parser->Search(wQuery, 50);
-                    results.insert(results.end(),
-                                   std::make_move_iterator(volumeResults.begin()),
-                                   std::make_move_iterator(volumeResults.end()));
-                }
-                std::stable_sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
-                    if (a.fileName.size() != b.fileName.size()) return a.fileName.size() < b.fileName.size();
-                    return _wcsicmp(a.fileName.c_str(), b.fileName.c_str()) < 0;
-                });
-                if (results.size() > 50) results.resize(50);
-
-                nlohmann::json responseJson = {{"results", nlohmann::json::array()}};
-                for (const auto& result : results) {
-                    responseJson["results"].push_back({
-                        {"name", WStringToString(result.fileName)},
-                        {"path", WStringToString(result.fullPath)},
-                        {"isDirectory", result.isDirectory},
-                    });
-                }
-                const std::string response = responseJson.dump();
-                
-                DWORD bytesWritten = 0;
-                if (!WriteFile(hPipe, response.c_str(), static_cast<DWORD>(response.size()),
-                               &bytesWritten, nullptr) ||
-                    bytesWritten != static_cast<DWORD>(response.size())) {
-                    spdlog::warn("Named pipe response write failed: {}", GetLastError());
-                    break;
-                }
-            }
-        }
-        DisconnectNamedPipe(hPipe);
-        CloseHandle(hPipe);
+    for (auto& w : pipeWorkers) {
+        if (w.joinable()) w.join();
     }
     for (auto& t : indexThreads) {
         if (t.joinable()) t.join();

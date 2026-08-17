@@ -45,9 +45,17 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
-    // A virtual-desktop 32-bit DIB can consume tens of megabytes on multi-4K
-    // setups. Keep the plugin idle allocation-free and create it on the first
-    // actual gesture instead of at process startup.
+    // 预热 D2D 与 DWrite 核心工厂库（消除首次 DLL/COM 加载延迟），
+    // 30MB 全屏 DIB 位图与 RenderTarget 在实际手势发生时按需生成并在退场时自动回收
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+    if (SUCCEEDED(hr)) {
+        DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())
+        );
+    }
+
     ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
 
@@ -105,24 +113,7 @@ void GestureTrailOverlay::clearCanvas() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
-    POINT cursor{};
-    GetCursorPos(&cursor);
-    m_dpiScale = easy::core::dpi::scaleAtPoint(cursor);
-    if (!m_renderTarget && !createD2DResources()) {
-        LOG_ERROR("手势轨迹按需渲染资源创建失败");
-        releaseD2DResources();
-        return;
-    }
-    if (m_dwriteFactory) updateTextFormat(m_dpiScale);
-    if (m_hwnd) {
-        KillTimer(m_hwnd, RENDER_TIMER_ID);
-        KillTimer(m_hwnd, FADE_TIMER_ID);
-        m_renderTimerActive.store(false);
-        if (m_visible.exchange(false)) {
-            clearCanvas();
-            ShowWindow(m_hwnd, SW_HIDE);
-        }
-    }
+    // 纯内存重置（< 1 微秒），严禁在钩子回调中做重型 D2D 重建或 UpdateLayeredWindow
     {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
@@ -135,7 +126,6 @@ void GestureTrailOverlay::beginTrail() {
 }
 
 void GestureTrailOverlay::addPoint(float x, float y) {
-    if (!m_renderTarget) return;
     bool hasVisibleTrail = false;
     {
         std::lock_guard lock(m_trailMutex);
@@ -149,6 +139,12 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         hasVisibleTrail = m_points.size() >= 2;
     }
     if (hasVisibleTrail && m_hwnd) {
+        if (!m_renderTarget) {
+            POINT cursor{};
+            GetCursorPos(&cursor);
+            m_dpiScale = easy::core::dpi::scaleAtPoint(cursor);
+            createD2DResources();
+        }
         if (!m_visible.exchange(true)) {
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
         }
@@ -190,6 +186,8 @@ void GestureTrailOverlay::hide() {
     m_visible = false;
     m_fading = false;
     m_fadeAlpha = 1.0f;
+    releaseD2DResources();
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

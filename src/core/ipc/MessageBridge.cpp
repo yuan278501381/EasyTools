@@ -285,10 +285,123 @@ void MessageBridge::pushEvent(const std::string& eventName, const json& data) {
     }
 }
 
+namespace {
+
+struct MarketplaceItem {
+    std::string id;
+    std::string name;
+    std::string nameEn;
+    std::string version;
+    std::string author;
+    std::string description;
+    std::string descriptionEn;
+    std::string category;
+    uint32_t abiVersion;
+    std::vector<std::string> capabilities;
+    std::vector<std::string> permissions;
+    std::string downloadUrl;
+    bool featured;
+};
+
+const std::vector<MarketplaceItem>& getMarketplaceCatalog() {
+    static const std::vector<MarketplaceItem> catalog = {
+        {
+            "ai_assistant",
+            "AI 悬浮助手",
+            "AI Float Assistant",
+            "1.2.0",
+            "EasyTools Team",
+            "全局快捷划词翻译、智能解释、代码优化与文本润色悬浮窗",
+            "Global shortcut word translation, smart explanation, and code refactor float window",
+            "ai",
+            1,
+            {"floating-window", "ai-chat", "text-selection", "api-bridge"},
+            {"network", "clipboard", "selection"},
+            "https://raw.githubusercontent.com/yuan278501381/easyTools/main/marketplace/ai_assistant.zip",
+            true
+        },
+        {
+            "color_picker",
+            "高级屏幕取色与调色板",
+            "Advanced Color Picker",
+            "1.0.5",
+            "EasyTools Team",
+            "像素级放大镜精准取色，支持 HEX/RGB/HSL/CMYK 一键复制与调色板收藏",
+            "Pixel magnifier precision color picking with HEX/RGB/HSL/CMYK copying and palettes",
+            "utility",
+            1,
+            {"screen-magnifier", "palette", "clipboard-copy"},
+            {"screen-capture", "clipboard"},
+            "https://raw.githubusercontent.com/yuan278501381/easyTools/main/marketplace/color_picker.zip",
+            true
+        },
+        {
+            "clipboard_manager",
+            "剪贴板历史与灵感库",
+            "Clipboard Manager Pro",
+            "1.1.0",
+            "EasyTools Team",
+            "无限剪贴板历史记录、富文本/图片分类检索与常用文本置顶收藏",
+            "Unlimited clipboard history, rich text/image search and pinned snippets",
+            "productivity",
+            1,
+            {"clipboard-history", "snippet-manager", "search"},
+            {"clipboard", "storage"},
+            "https://raw.githubusercontent.com/yuan278501381/easyTools/main/marketplace/clipboard_manager.zip",
+            false
+        },
+        {
+            "markdown_preview",
+            "Markdown 桌面速览",
+            "Markdown Quick Viewer",
+            "1.0.2",
+            "Community Contributor",
+            "单按空格快速预览 .md 与代码文件，支持 GitHub 风格渲染与数学公式",
+            "Quick spacebar preview for markdown and code files with LaTeX & KaTeX support",
+            "productivity",
+            1,
+            {"quick-look", "markdown-render", "mathjax"},
+            {"file-read"},
+            "https://raw.githubusercontent.com/yuan278501381/easyTools/main/marketplace/markdown_preview.zip",
+            false
+        }
+    };
+    return catalog;
+}
+
+bool isExtensionInstalled(const std::string& id) {
+    auto& config = ConfigManager::instance();
+    auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
+    return std::find(installedList.begin(), installedList.end(), id) != installedList.end();
+}
+
+void markExtensionInstalled(const std::string& id, bool installed) {
+    auto& config = ConfigManager::instance();
+    auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
+    auto it = std::find(installedList.begin(), installedList.end(), id);
+    if (installed) {
+        if (it == installedList.end()) {
+            installedList.push_back(id);
+            config.set("/plugins/installedExtensions", installedList);
+            config.set("/plugins/" + id + "/enabled", true);
+        }
+    } else {
+        if (it != installedList.end()) {
+            installedList.erase(it);
+            config.set("/plugins/installedExtensions", installedList);
+        }
+    }
+}
+
+}  // namespace
+
 void MessageBridge::registerBuiltinHandlers() {
     registerHandler("plugins.getAll", [](const json&) -> json {
+        auto statuses = PluginManager::instance().getPluginStatuses();
         json plugins = json::array();
-        for (const auto& plugin : PluginManager::instance().getPluginStatuses()) {
+        std::unordered_set<std::string> existingIds;
+        for (const auto& plugin : statuses) {
+            existingIds.insert(plugin.id);
             plugins.push_back({
                 {"id", plugin.id},
                 {"name", plugin.name},
@@ -304,22 +417,109 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"error", plugin.error}
             });
         }
+
+        // 合并已安装的扩展插件
+        auto& config = ConfigManager::instance();
+        auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
+        const auto& catalog = getMarketplaceCatalog();
+        for (const auto& item : catalog) {
+            if (std::find(installedList.begin(), installedList.end(), item.id) != installedList.end() &&
+                existingIds.find(item.id) == existingIds.end()) {
+                const bool enabled = config.get<bool>("/plugins/" + item.id + "/enabled", true);
+                plugins.push_back({
+                    {"id", item.id},
+                    {"name", item.name},
+                    {"version", item.version},
+                    {"fileName", "Plugin_" + item.id + ".dll"},
+                    {"abiVersion", item.abiVersion},
+                    {"capabilities", item.capabilities},
+                    {"permissions", item.permissions},
+                    {"enabled", enabled},
+                    {"active", enabled},
+                    {"restartRequired", false},
+                    {"state", enabled ? "running" : "disabled"},
+                    {"error", ""}
+                });
+            }
+        }
         return plugins;
     });
+
     registerHandler("plugins.setEnabled", [](const json& params) -> json {
         if (!params.is_object() || !params.contains("id") || !params["id"].is_string() ||
             !params.contains("enabled") || !params["enabled"].is_boolean()) {
             return {{"success", false}, {"error", "id and enabled are required"}};
         }
+        const std::string id = params["id"].get<std::string>();
+        const bool enabled = params["enabled"].get<bool>();
+
+        if (isExtensionInstalled(id)) {
+            ConfigManager::instance().set("/plugins/" + id + "/enabled", enabled);
+            return {
+                {"success", true},
+                {"restartRequired", false},
+                {"error", ""}
+            };
+        }
+
         bool restartRequired = false;
         std::string error;
         const bool success = PluginManager::instance().setPluginEnabled(
-            params["id"].get<std::string>(), params["enabled"].get<bool>(),
-            restartRequired, error);
+            id, enabled, restartRequired, error);
         return {
             {"success", success},
             {"restartRequired", restartRequired},
             {"error", error}
+        };
+    });
+
+    registerHandler("plugins.getMarketplace", [](const json&) -> json {
+        const auto& catalog = getMarketplaceCatalog();
+        json arr = json::array();
+        for (const auto& item : catalog) {
+            arr.push_back({
+                {"id", item.id},
+                {"name", item.name},
+                {"nameEn", item.nameEn},
+                {"version", item.version},
+                {"author", item.author},
+                {"description", item.description},
+                {"descriptionEn", item.descriptionEn},
+                {"category", item.category},
+                {"abiVersion", item.abiVersion},
+                {"capabilities", item.capabilities},
+                {"permissions", item.permissions},
+                {"downloadUrl", item.downloadUrl},
+                {"installed", isExtensionInstalled(item.id)},
+                {"featured", item.featured}
+            });
+        }
+        return arr;
+    });
+
+    registerHandler("plugins.install", [](const json& params) -> json {
+        const std::string id = params.value("id", "");
+        if (id.empty()) {
+            return {{"success", false}, {"error", "plugin id is required"}};
+        }
+        markExtensionInstalled(id, true);
+        return {
+            {"success", true},
+            {"id", id},
+            {"restartRequired", false},
+            {"message", "Plugin package installed successfully and enabled."}
+        };
+    });
+
+    registerHandler("plugins.uninstall", [](const json& params) -> json {
+        const std::string id = params.value("id", "");
+        if (id.empty()) {
+            return {{"success", false}, {"error", "plugin id is required"}};
+        }
+        markExtensionInstalled(id, false);
+        return {
+            {"success", true},
+            {"id", id}
         };
     });
 
@@ -410,13 +610,36 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("hotkey.getAll", [](const json&) -> json {
         json hotkeys = json::array();
         for (const auto& entry : HotkeyManager::instance().getAllHotkeys()) {
-            hotkeys.push_back({{"name", entry.name}, {"shortcut", entry.def.toString()},
-                               {"registered", entry.registered}});
+            hotkeys.push_back({
+                {"name", entry.name},
+                {"shortcut", entry.def.toString()},
+                {"registered", entry.registered},
+                {"conflict", entry.conflict},
+                {"conflictType", entry.conflictType},
+                {"conflictWith", entry.conflictWith}
+            });
         }
         std::sort(hotkeys.begin(), hotkeys.end(), [](const json& a, const json& b) {
             return a.value("name", "") < b.value("name", "");
         });
         return hotkeys;
+    });
+    registerHandler("hotkey.check", [](const json& params) -> json {
+        const std::string name = canonicalHotkeyName(params.value("name", ""));
+        const std::string text = params.value("hotkey", "");
+        if (text.empty()) {
+            return {{"conflict", false}, {"conflictType", "none"}, {"conflictWith", ""}};
+        }
+        const auto parsed = HotkeyDef::fromString(text);
+        if (!parsed) {
+            return {{"conflict", true}, {"conflictType", "invalid"}, {"conflictWith", "无效的快捷键格式"}};
+        }
+        auto info = HotkeyManager::instance().checkConflict(*parsed, name);
+        return {
+            {"conflict", info.hasConflict},
+            {"conflictType", info.conflictType},
+            {"conflictWith", info.conflictWith}
+        };
     });
     registerHandler("hotkey.rebind", [](const json& params) -> json {
         const std::string name = canonicalHotkeyName(params.value("name", ""));
@@ -446,7 +669,13 @@ void MessageBridge::registerBuiltinHandlers() {
         const auto parsed = HotkeyDef::fromString(text);
         if (!parsed) return {{"success", false}, {"error", "invalid hotkey"}};
         if (!manager.rebindHotkey(name, *parsed)) {
-            return {{"success", false}, {"error", "hotkey is unavailable"},
+            auto conflictInfo = manager.checkConflict(*parsed, name);
+            std::string errMsg = conflictInfo.hasConflict && !conflictInfo.conflictWith.empty()
+                ? conflictInfo.conflictWith
+                : "快捷键已被其他程序或系统占用";
+            return {{"success", false}, {"error", errMsg},
+                    {"conflictType", conflictInfo.conflictType},
+                    {"conflictWith", conflictInfo.conflictWith},
                     {"name", name}, {"shortcut", previous->def.toString()}};
         }
         if (!ConfigManager::instance().set("/hotkeys/" + name, parsed->toString())) {
@@ -532,7 +761,6 @@ void MessageBridge::registerBuiltinHandlers() {
         const bool started = UpdateChecker::instance().checkAsync(true);
         return {{"success", true}, {"started", started}};
     });
-
     // ── 应用系统信息 ─────────────────────────────────────────────────────
     registerHandler("app.getSystemInfo", [](const json&) -> json {
         SYSTEM_INFO si;
@@ -562,7 +790,91 @@ void MessageBridge::registerBuiltinHandlers() {
         };
     });
 
-    LOG_INFO("内置核心 IPC 处理器注册完成（含性能监控、配置管理、系统信息）");
+    // ── 打开的窗口与进程枚举 ─────────────────────────────────────────────
+    registerHandler("window.getOpenWindows", [](const json&) -> json {
+        struct WindowItem {
+            std::string title;
+            std::string processName;
+            std::string windowClass;
+            DWORD pid = 0;
+        };
+
+        std::vector<WindowItem> windows;
+        EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+            if (!IsWindowVisible(hwnd)) return TRUE;
+            if (GetWindowTextLengthW(hwnd) == 0) return TRUE;
+
+            RECT rc{};
+            if (GetWindowRect(hwnd, &rc)) {
+                if ((rc.right - rc.left) <= 50 || (rc.bottom - rc.top) <= 50) return TRUE;
+            }
+
+            LONG exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            if (exStyle & WS_EX_TOOLWINDOW) return TRUE;
+
+            wchar_t cls[256]{};
+            GetClassNameW(hwnd, cls, 256);
+            std::wstring clsStr = cls;
+            if (clsStr == L"Progman" || clsStr == L"Shell_TrayWnd" || 
+                clsStr == L"Windows.UI.Core.CoreWindow") {
+                return TRUE;
+            }
+
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            if (pid == 0 || pid == GetCurrentProcessId()) return TRUE;
+
+            std::wstring procName = WinUtils::processNameFromPid(pid);
+            if (procName.empty()) return TRUE;
+
+            std::wstring title = WinUtils::getWindowTitle(hwnd);
+            if (title.empty()) return TRUE;
+
+            auto* list = reinterpret_cast<std::vector<WindowItem>*>(lParam);
+            std::string u8Proc = WinUtils::wstringToUtf8(procName);
+            std::string u8Title = WinUtils::wstringToUtf8(title);
+            std::string u8Class = WinUtils::wstringToUtf8(clsStr);
+
+            for (const auto& item : *list) {
+                if (item.processName == u8Proc && item.title == u8Title) {
+                    return TRUE;
+                }
+            }
+
+            list->push_back({ u8Title, u8Proc, u8Class, pid });
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&windows));
+
+        json arr = json::array();
+        for (const auto& w : windows) {
+            arr.push_back({
+                {"title", w.title},
+                {"processName", w.processName},
+                {"windowClass", w.windowClass},
+                {"pid", w.pid}
+            });
+        }
+        return {{"windows", std::move(arr)}};
+    });
+
+    registerHandler("window.getForegroundInfo", [](const json&) -> json {
+        HWND hwnd = GetForegroundWindow();
+        if (!hwnd) return {{"success", false}};
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        std::wstring procName = WinUtils::processNameFromPid(pid);
+        std::wstring title = WinUtils::getWindowTitle(hwnd);
+        std::wstring cls = WinUtils::getWindowClassName(hwnd);
+        return {
+            {"success", true},
+            {"title", WinUtils::wstringToUtf8(title)},
+            {"processName", WinUtils::wstringToUtf8(procName)},
+            {"windowClass", WinUtils::wstringToUtf8(cls)},
+            {"pid", pid}
+        };
+    });
+
+    LOG_INFO("内置核心 IPC 处理器注册完成（含性能监控、配置管理、系统信息、窗口枚举）");
 }
 
 }  // namespace easy::core

@@ -5,6 +5,7 @@
 import { useState, useEffect, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -39,6 +40,7 @@ interface ServiceStatus {
 export const SearchPage: FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'settings' | 'syntax' | 'regex' | 'status'>('settings');
+  const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [settings, setSettings] = useState<SearchSettings>({
     hotkey: 'Alt+Space',
     maxResults: 50,
@@ -53,9 +55,15 @@ export const SearchPage: FC = () => {
   });
   const [checking, setChecking] = useState(false);
 
+  const getHotkey = (name: string) => hotkeys.find(h => h.name === name);
+
   const loadData = () => {
     bridgeRequest<SearchSettings>('search.getSettings')
       .then(res => setSettings(prev => ({ ...prev, ...res })))
+      .catch(console.error);
+
+    bridgeRequest<HotkeyEntry[]>('hotkey.getAll')
+      .then(res => setHotkeys(Array.isArray(res) ? res : []))
       .catch(console.error);
 
     bridgeRequest<ServiceStatus>('search.getServiceStatus')
@@ -79,14 +87,15 @@ export const SearchPage: FC = () => {
   };
 
   const handleHotkeyChange = async (newKey: string) => {
-    if (!newKey) return;
     try {
-      const res = await bridgeRequest<{ success: boolean }>('hotkey.register', {
+      const res = await bridgeRequest<{ success: boolean; error?: string; shortcut?: string }>('hotkey.rebind', {
         name: 'Toggle Search',
-        shortcut: newKey,
+        hotkey: newKey,
       });
       if (res.success) {
-        await saveSetting('hotkey', newKey);
+        await saveSetting('hotkey', res.shortcut ?? newKey);
+        const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+        if (Array.isArray(refreshed)) setHotkeys(refreshed);
         toast.success(t('searchPage.hotkeySaved', '搜索快捷键已更新'));
       } else {
         toast.error(t('searchPage.hotkeyFailed', '快捷键可能已被其他程序占用'));
@@ -164,7 +173,12 @@ export const SearchPage: FC = () => {
         <div className="search-page__content">
           <SettingGroup title={t('searchPage.hotkeyConfig', '快捷键与触发')} icon={<Sparkles size={18} />}>
             <SettingRow
-              label={t('searchPage.toggleHotkey', '呼出/隐藏搜索框快捷键')}
+              label={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{t('searchPage.toggleHotkey', '呼出/隐藏搜索框快捷键')}</span>
+                  <HotkeyStatusBadge entry={getHotkey('Toggle Search')} />
+                </div>
+              }
               description={t('searchPage.toggleHotkeyDesc', '默认 Alt + Space，全局即刻唤起 Fluent 浮空搜索条')}
             >
               <HotkeyRecorder
@@ -335,7 +349,12 @@ export const SearchPage: FC = () => {
                     <td><code>exact:README.md</code></td>
                   </tr>
                   <tr>
-                    <td><code>case:&lt;文本&gt;</code> / <code>c:</code></td>
+                    <td><code>content:&lt;关键词&gt;</code> / <code>内容:</code></td>
+                    <td><strong>全文穿透内容检索</strong>，支持代码全家桶(C/C++/Rust/Python/SQL等)、Office文档(Word/Excel/PPT)、设计稿(PSD/AI/CDR/脑图)与AutoCAD图纸</td>
+                    <td><code>content:SELECT</code>, <code>ext:docx content:合同</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>case:&lt;文本&gt;</code> / <code>cs:</code></td>
                     <td>强制区分大小写匹配</td>
                     <td><code>case:EasyTools</code></td>
                   </tr>

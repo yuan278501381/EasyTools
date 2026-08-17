@@ -7,10 +7,11 @@
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
+import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -22,17 +23,13 @@ interface GeneralSettings {
   theme: string;
 }
 
-interface HotkeyEntry {
-  name: string;
-  shortcut: string;
-  registered?: boolean;
-}
-
 interface OperationResult {
   success: boolean;
   cancelled?: boolean;
   error?: string;
   shortcut?: string;
+  conflictType?: string;
+  conflictWith?: string;
 }
 
 export const GeneralPage: FC = () => {
@@ -45,6 +42,7 @@ export const GeneralPage: FC = () => {
     theme: 'dark',
   });
   const [loading, setLoading] = useState(true);
+  const [refreshingHotkeys, setRefreshingHotkeys] = useState(false);
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
 
   const { t, i18n } = useTranslation();
@@ -140,6 +138,20 @@ export const GeneralPage: FC = () => {
     }
   };
 
+  // ── 刷新快捷键状态 ───────────────────────────────────────────────────────
+  const refreshHotkeys = useCallback(async () => {
+    setRefreshingHotkeys(true);
+    try {
+      const data = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      setHotkeys(Array.isArray(data) ? data : []);
+      toast.success(t('general.recheckShortcuts'));
+    } catch {
+      toast.error(t('general.loadFailed'));
+    } finally {
+      setRefreshingHotkeys(false);
+    }
+  }, [t]);
+
   // ── 快捷键名称映射 ──────────────────────────────────────────────────────
   const hotkeyNameMap: Record<string, string> = {
     Screenshot: t('onboarding.shortcutCapture'),
@@ -148,6 +160,7 @@ export const GeneralPage: FC = () => {
     OCR: t('onboarding.shortcutOcr'),
     'Pause Gestures': t('onboarding.shortcutGesturePause'),
     'Toggle Search': t('search.title'),
+    'Translate Selection': t('general.shortcutTranslateSelection'),
     'Pin Toggle': t('general.shortcutPinToggle'),
     'Pin Paste': t('general.shortcutPinPaste'),
     'Pin Hide All': t('general.shortcutPinHideAll'),
@@ -172,8 +185,10 @@ export const GeneralPage: FC = () => {
       });
       if (!result.success) throw new Error(result.error || t('hotkey.bindFailed'));
       const applied = result.shortcut ?? shortcut;
-      setHotkeys(items => items.map(item =>
-        item.name === entry.name ? { ...item, shortcut: applied, registered: Boolean(applied) } : item));
+      // 重新拉取完整状态以同步全量冲突关系
+      const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
+      setHotkeys(Array.isArray(refreshed) ? refreshed : []);
+      toast.success(`${hotkeyNameMap[entry.name] ?? entry.name}: ${applied || t('general.shortcutDisabled')}`);
     } catch (error) {
       setHotkeys(items => items.map(item =>
         item.name === entry.name && item.shortcut === shortcut
@@ -182,6 +197,10 @@ export const GeneralPage: FC = () => {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
     }
   };
+
+  const internalConflictsCount = hotkeys.filter(h => h.conflictType === 'internal').length;
+  const externalConflictsCount = hotkeys.filter(h => h.conflictType === 'external' || (h.registered === false && Boolean(h.shortcut))).length;
+  const activeCount = hotkeys.filter(h => h.registered && !h.conflict && Boolean(h.shortcut)).length;
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
@@ -263,33 +282,77 @@ export const GeneralPage: FC = () => {
         </Card>
       </SettingGroup>
 
-      {/* ── 快捷键总览 ──────────────────────────────────────────── */}
+      {/* ── 快捷键总览与冲突检测 ─────────────────────────────────── */}
       <SettingGroup title={t('general.keyboardShortcuts')} icon={<Keyboard size={20} strokeWidth={2.5} />}>
         <Card>
+          {/* 快捷键健康度统计条 */}
+          <div className="general-page__hotkey-health-bar">
+            <div className="general-page__hotkey-health-stats">
+              <span className="general-page__stat-pill total">
+                <Keyboard size={13} /> 全部 {hotkeys.length} 项
+              </span>
+              <span className="general-page__stat-pill ok">
+                <CheckCircle2 size={13} /> 生效 {activeCount} 项
+              </span>
+              {internalConflictsCount > 0 && (
+                <span className="general-page__stat-pill warning">
+                  <AlertTriangle size={13} /> 内部冲突 {internalConflictsCount} 项
+                </span>
+              )}
+              {externalConflictsCount > 0 && (
+                <span className="general-page__stat-pill danger">
+                  <AlertOctagon size={13} /> 外部冲突 {externalConflictsCount} 项
+                </span>
+              )}
+              {internalConflictsCount === 0 && externalConflictsCount === 0 && (
+                <span className="general-page__stat-pill clean">
+                  {t('general.allHealthy')}
+                </span>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              className="general-page__recheck-btn"
+              onClick={refreshHotkeys}
+              title={t('general.recheckShortcuts')}
+            >
+              <RefreshCw size={13} className={refreshingHotkeys ? 'general-page__spin' : ''} />
+              <span>{t('general.recheckShortcuts')}</span>
+            </Button>
+          </div>
+
           {hotkeys.length === 0 ? (
             <div className="general-page__empty">{t('general.noShortcuts')}</div>
           ) : (
             <div className="general-page__hotkey-list">
-              {hotkeys.map((hk) => (
-                <div key={hk.name} className="general-page__hotkey-item">
-                  <span className="general-page__hotkey-name">
-                    {hotkeyNameMap[hk.name] ?? hk.name}
-                    {hk.shortcut && hk.registered === false && (
-                      <span className="general-page__hotkey-warning" role="status">
-                        {t('general.shortcutUnavailable')}
-                      </span>
-                    )}
-                  </span>
-                  <div className="general-page__hotkey-control">
-                    <HotkeyRecorder
-                      id={`general-hotkey-${hk.name.replace(/\s+/g, '-').toLowerCase()}`}
-                      value={hk.shortcut}
-                      ariaLabel={hotkeyNameMap[hk.name] ?? hk.name}
-                      onChange={(value) => void rebindHotkey(hk, value)}
-                    />
+              {hotkeys.map((hk) => {
+                const isInternal = hk.conflictType === 'internal';
+                const isExternal = hk.conflictType === 'external' || (hk.registered === false && Boolean(hk.shortcut));
+
+                return (
+                  <div
+                    key={hk.name}
+                    className={`general-page__hotkey-item ${isInternal ? 'is-internal' : ''} ${isExternal ? 'is-external' : ''}`}
+                  >
+                    <div className="general-page__hotkey-info">
+                      <div className="general-page__hotkey-name-row">
+                        <span className="general-page__hotkey-name">
+                          {hotkeyNameMap[hk.name] ?? hk.name}
+                        </span>
+                        <HotkeyStatusBadge entry={hk} />
+                      </div>
+                    </div>
+                    <div className="general-page__hotkey-control">
+                      <HotkeyRecorder
+                        id={`general-hotkey-${hk.name.replace(/\s+/g, '-').toLowerCase()}`}
+                        value={hk.shortcut}
+                        ariaLabel={hotkeyNameMap[hk.name] ?? hk.name}
+                        onChange={(value) => void rebindHotkey(hk, value)}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>

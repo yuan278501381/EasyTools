@@ -1,4 +1,4 @@
-﻿#ifndef EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
+#ifndef EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
 #define EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
 
 #include "core/utils/Export.h"
@@ -19,6 +19,7 @@ public:
     void uninstall();
 
     void setKeycastCallback(std::function<void(const std::string&)> cb);
+    void setKeyInterceptor(std::function<bool(DWORD vkCode, WPARAM wParam)> interceptor);
 
 private:
     KeyboardHook() = default;
@@ -29,10 +30,10 @@ private:
     HHOOK m_hookHandle = nullptr;
     std::atomic<bool> m_paused{false};
     std::function<void(const std::string&)> m_keycastCallback;
+    std::function<bool(DWORD, WPARAM)> m_keyInterceptor;
     mutable std::mutex m_callbackMutex;
 };
 
 } // namespace easy::core
 
 #endif // EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
-

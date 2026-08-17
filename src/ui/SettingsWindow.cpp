@@ -65,7 +65,10 @@ void SettingsWindow::show(HINSTANCE hInstance) {
             ShowWindow(m_hwnd, SW_SHOW);
         }
         SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        BringWindowToTop(m_hwnd);
         SetForegroundWindow(m_hwnd);
+        SetActiveWindow(m_hwnd);
+        SetFocus(m_hwnd);
         m_visible = true;
         
         // 强制刷新 WebView2 尺寸和可见性（防御性编程）
@@ -95,6 +98,11 @@ void SettingsWindow::show(HINSTANCE hInstance) {
     initializeWebView2();
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
+    SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    BringWindowToTop(m_hwnd);
+    SetForegroundWindow(m_hwnd);
+    SetActiveWindow(m_hwnd);
+    SetFocus(m_hwnd);
     m_visible = true;
 
     LOG_INFO("设置窗口已创建并显示");
@@ -125,6 +133,7 @@ void SettingsWindow::hide() {
         }
         
         LOG_DEBUG("设置窗口已隐藏");
+        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
@@ -181,18 +190,28 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         : SIZE{easy::core::dpi::scaleMetric(m_config.width, scale),
                easy::core::dpi::scaleMetric(m_config.height, scale)};
 
-    const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
-    const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - margin * 2);
-    const int maxH = (std::max)(1, static_cast<int>(work.bottom - work.top) - margin * 2);
-    targetSize.cx = (std::min)(targetSize.cx, static_cast<LONG>(maxW));
-    targetSize.cy = (std::min)(targetSize.cy, static_cast<LONG>(maxH));
+    const bool customPos = (m_config.posX >= 0 && m_config.posY >= 0);
+    int x = CW_USEDEFAULT;
+    int y = CW_USEDEFAULT;
+    if (customPos) {
+        x = m_config.posX;
+        y = m_config.posY;
+        targetSize.cx = (std::max)(400, m_config.width);
+        targetSize.cy = (std::max)(300, m_config.height);
+    } else {
+        const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
+        const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - margin * 2);
+        const int maxH = (std::max)(1, static_cast<int>(work.bottom - work.top) - margin * 2);
+        targetSize.cx = (std::min)(targetSize.cx, static_cast<LONG>(maxW));
+        targetSize.cy = (std::min)(targetSize.cy, static_cast<LONG>(maxH));
 
-    const int x = m_config.startCentered
-        ? work.left + (work.right - work.left - targetSize.cx) / 2
-        : CW_USEDEFAULT;
-    const int y = m_config.startCentered
-        ? work.top + (work.bottom - work.top - targetSize.cy) / 2
-        : CW_USEDEFAULT;
+        x = m_config.startCentered
+            ? work.left + (work.right - work.left - targetSize.cx) / 2
+            : CW_USEDEFAULT;
+        y = m_config.startCentered
+            ? work.top + (work.bottom - work.top - targetSize.cy) / 2
+            : CW_USEDEFAULT;
+    }
 
     m_hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
@@ -397,6 +416,7 @@ void SettingsWindow::onWebView2Ready() {
                         m_showRequestedAt = {};
                     }
                     LOG_INFO("WebView2 导航成功: {}", entryUrl);
+                    easy::core::WinUtils::trimWorkingSet();
                 } else {
                     COREWEBVIEW2_WEB_ERROR_STATUS status;
                     args->get_WebErrorStatus(&status);

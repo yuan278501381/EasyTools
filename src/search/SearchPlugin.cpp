@@ -5,6 +5,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
 #include <windows.h>
+#include <tlhelp32.h>
 #include <shellapi.h>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -16,6 +17,24 @@
 namespace {
 
 constexpr const char* SearchPipe = "\\\\.\\pipe\\EasyToolsSearchPipe";
+
+static bool isServiceProcessRunning() {
+    PROCESSENTRY32W pe32{};
+    pe32.dwSize = sizeof(pe32);
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+    bool running = false;
+    if (Process32FirstW(snapshot, &pe32)) {
+        do {
+            if (_wcsicmp(pe32.szExeFile, L"EasyTools_Service.exe") == 0) {
+                running = true;
+                break;
+            }
+        } while (Process32NextW(snapshot, &pe32));
+    }
+    CloseHandle(snapshot);
+    return running;
+}
 
 bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
                       DWORD& transferred, DWORD& error) {
@@ -34,8 +53,12 @@ bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
 }
 
 static bool ensureSearchServiceRunning() {
-    if (WaitNamedPipeA(SearchPipe, 10)) {
+    if (WaitNamedPipeA(SearchPipe, 100)) {
         return true;
+    }
+
+    if (isServiceProcessRunning()) {
+        return WaitNamedPipeA(SearchPipe, 1500) != FALSE;
     }
 
     // 1. 尝试通过 SCM 启动 Windows 服务 (如果已注册服务)
@@ -55,11 +78,11 @@ static bool ensureSearchServiceRunning() {
         CloseServiceHandle(scm);
     }
 
-    if (WaitNamedPipeA(SearchPipe, 300)) {
+    if (WaitNamedPipeA(SearchPipe, 500)) {
         return true;
     }
 
-    // 2. 尝试寻找同目录下的 EasyTools_Service.exe 作为独立后台进程自启动 (免安装/便携版自动就绪)
+    // 2. 尝试寻找同目录下的 EasyTools_Service.exe 作为独立后台进程自启动
     wchar_t modulePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
     std::filesystem::path exeDir = std::filesystem::path(modulePath).parent_path();
@@ -79,12 +102,12 @@ static bool ensureSearchServiceRunning() {
         }
     }
 
-    return WaitNamedPipeA(SearchPipe, 800) != FALSE;
+    return WaitNamedPipeA(SearchPipe, 3000) != FALSE;
 }
 
 std::optional<std::string> querySearchService(const std::string& query, DWORD& error) {
     error = ERROR_SUCCESS;
-    if (!WaitNamedPipeA(SearchPipe, 50)) {
+    if (!WaitNamedPipeA(SearchPipe, 1000)) {
         if (!ensureSearchServiceRunning()) {
             error = GetLastError();
             return std::nullopt;
@@ -93,6 +116,12 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
 
     HANDLE pipe = CreateFileA(SearchPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                               OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) {
+        if (WaitNamedPipeA(SearchPipe, 1500)) {
+            pipe = CreateFileA(SearchPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                               OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        }
+    }
     if (pipe == INVALID_HANDLE_VALUE) {
         error = GetLastError();
         return std::nullopt;
@@ -124,7 +153,7 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
                    &writeOverlapped)) {
         error = GetLastError();
         if (error != ERROR_IO_PENDING ||
-            !finishOverlapped(pipe, writeOverlapped, 150, written, error)) {
+            !finishOverlapped(pipe, writeOverlapped, 1500, written, error)) {
             return std::nullopt;
         }
     }
@@ -146,7 +175,7 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
                   &bytesRead, &readOverlapped)) {
         error = GetLastError();
         if (error != ERROR_IO_PENDING ||
-            !finishOverlapped(pipe, readOverlapped, 350, bytesRead, error)) {
+            !finishOverlapped(pipe, readOverlapped, 10000, bytesRead, error)) {
             return std::nullopt;
         }
     }
@@ -175,7 +204,7 @@ public:
         mb.registerHandler("search.query", [](const nlohmann::json& params) -> nlohmann::json {
             std::string query = params.value("query", "");
             if (query.empty()) {
-                return {{"results", nlohmann::json::array()}};
+                return {{"results", nlohmann::json::array()}, {"available", true}};
             }
 
             if (query.size() > 1024) query.resize(1024);
@@ -191,13 +220,14 @@ public:
                     LOG_ERROR("SearchPlugin: 无法解析 JSON 结果");
                 }
             } else {
-                LOG_ERROR("SearchPlugin: 命名管道调用失败, error={}", pipeError);
+                LOG_WARN("SearchPlugin: 管道调用超时或返回空, error={}", pipeError);
             }
 
+            bool isAlive = (pipeError == ERROR_TIMEOUT || isServiceProcessRunning());
             return {
                 {"results", nlohmann::json::array()},
-                {"available", false},
-                {"error", "search service unavailable"}
+                {"available", isAlive},
+                {"error", isAlive ? "search service busy" : "search service unavailable"}
             };
         });
 

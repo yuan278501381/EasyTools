@@ -241,6 +241,37 @@ bool HotkeyManager::isConflict(const HotkeyDef& def) const {
     return false;
 }
 
+HotkeyConflictInfo HotkeyManager::checkConflict(const HotkeyDef& def, const std::string& currentName) const {
+    if (def.virtualKey == 0) {
+        return {false, "none", ""};
+    }
+
+    std::lock_guard lock(m_mutex);
+
+    // 1. 优先检查内部插件与功能冲突
+    for (const auto& [name, entry] : m_hotkeys) {
+        if (name != currentName && entry.def.virtualKey != 0 && entry.def == def) {
+            return {true, "internal", "与 [" + name + "] 冲突"};
+        }
+    }
+
+    // 2. 检查系统/第三方外部软件冲突 (通过试探性注册探针)
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        UINT mods = static_cast<UINT>(def.modifiers) | MOD_NOREPEAT;
+        constexpr int PROBE_HOTKEY_ID = 0xBEEF;
+        if (!RegisterHotKey(m_hwnd, PROBE_HOTKEY_ID, mods, def.virtualKey)) {
+            DWORD err = GetLastError();
+            if (err == ERROR_HOTKEY_ALREADY_REGISTERED) {
+                return {true, "external", "已被第三方应用程序或系统快捷键占用"};
+            }
+        } else {
+            UnregisterHotKey(m_hwnd, PROBE_HOTKEY_ID);
+        }
+    }
+
+    return {false, "none", ""};
+}
+
 void HotkeyManager::handleHotkeyMessage(WPARAM wParam) {
     int id = static_cast<int>(wParam);
     std::string name;
@@ -274,8 +305,47 @@ std::vector<HotkeyEntry> HotkeyManager::getAllHotkeys() const {
     std::lock_guard lock(m_mutex);
     std::vector<HotkeyEntry> result;
     result.reserve(m_hotkeys.size());
+
+    // 统计各快捷键出现的次数以判断内部冲突
+    std::unordered_map<std::string, std::vector<std::string>> keyUsage;
     for (const auto& [name, entry] : m_hotkeys) {
-        result.push_back(entry);
+        if (entry.def.virtualKey != 0) {
+            keyUsage[entry.def.toString()].push_back(name);
+        }
+    }
+
+    for (const auto& [name, entry] : m_hotkeys) {
+        HotkeyEntry item = entry;
+        if (item.def.virtualKey == 0) {
+            item.conflict = false;
+            item.conflictType = "none";
+            item.conflictWith = "";
+        } else {
+            const auto& users = keyUsage[item.def.toString()];
+            if (users.size() > 1) {
+                // 内部冲突 (多个插件绑定了同一热键)
+                item.conflict = true;
+                item.conflictType = "internal";
+                std::string others;
+                for (const auto& u : users) {
+                    if (u != name) {
+                        if (!others.empty()) others += ", ";
+                        others += u;
+                    }
+                }
+                item.conflictWith = "与插件/功能 [" + others + "] 冲突";
+            } else if (!item.registered) {
+                // 外部冲突 (被其它第三方软件占用)
+                item.conflict = true;
+                item.conflictType = "external";
+                item.conflictWith = "已被第三方软件或系统快捷键占用";
+            } else {
+                item.conflict = false;
+                item.conflictType = "none";
+                item.conflictWith = "";
+            }
+        }
+        result.push_back(item);
     }
     return result;
 }
