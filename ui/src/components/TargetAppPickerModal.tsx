@@ -3,7 +3,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
-import { Modal, Field, Button, TextInput } from './UIKit';
+import { Modal, Field, Button, TextInput, Tabs } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
@@ -329,32 +329,19 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
         </Button>
       </div>
 
-      <div className="app-picker-tabs">
-        <button
-          type="button"
-          className={`app-picker-tab-btn ${pickerTab === 'running' ? 'active' : ''}`}
-          onClick={() => { setPickerTab('running'); void loadOpenWindows(); }}
-        >
-          <AppWindow size={14} />
-          <span>当前运行应用 ({openWindows.length})</span>
-        </button>
-        <button
-          type="button"
-          className={`app-picker-tab-btn ${pickerTab === 'presets' ? 'active' : ''}`}
-          onClick={() => setPickerTab('presets')}
-        >
-          <Sparkles size={14} />
-          <span>常用软件预设</span>
-        </button>
-        <button
-          type="button"
-          className={`app-picker-tab-btn ${pickerTab === 'manual' ? 'active' : ''}`}
-          onClick={() => setPickerTab('manual')}
-        >
-          <SlidersHorizontal size={14} />
-          <span>手动高级填写</span>
-        </button>
-      </div>
+      <Tabs
+        tabs={[
+          { id: 'running', label: `当前运行应用 (${openWindows.length})`, icon: <AppWindow size={14} /> },
+          { id: 'presets', label: '常用软件预设', icon: <Sparkles size={14} /> },
+          { id: 'manual', label: '手动高级填写', icon: <SlidersHorizontal size={14} /> },
+        ]}
+        activeId={pickerTab}
+        onChange={(tab) => {
+          setPickerTab(tab);
+          if (tab === 'running') void loadOpenWindows();
+        }}
+        className="app-picker-tabs-uikit"
+      />
 
       {pickerTab === 'running' && (
         <div className="app-picker-grid">
@@ -395,48 +382,18 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
 
       {pickerTab === 'presets' && (
         <>
-          <div className="app-picker-subtabs">
-            <button
-              type="button"
-              className={`app-picker-subtab-btn ${selectedCategory === 'all' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('all')}
-            >
-              <LayoutGrid size={12} />
-              <span>全部</span>
-            </button>
-            <button
-              type="button"
-              className={`app-picker-subtab-btn ${selectedCategory === 'browser' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('browser')}
-            >
-              <Globe size={12} />
-              <span>浏览器</span>
-            </button>
-            <button
-              type="button"
-              className={`app-picker-subtab-btn ${selectedCategory === 'dev' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('dev')}
-            >
-              <Code2 size={12} />
-              <span>开发设计</span>
-            </button>
-            <button
-              type="button"
-              className={`app-picker-subtab-btn ${selectedCategory === 'office' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('office')}
-            >
-              <FileText size={12} />
-              <span>办公协作</span>
-            </button>
-            <button
-              type="button"
-              className={`app-picker-subtab-btn ${selectedCategory === 'system' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('system')}
-            >
-              <SlidersHorizontal size={12} />
-              <span>系统工具</span>
-            </button>
-          </div>
+          <Tabs
+            tabs={[
+              { id: 'all', label: '全部', icon: <LayoutGrid size={12} /> },
+              { id: 'browser', label: '浏览器', icon: <Globe size={12} /> },
+              { id: 'dev', label: '开发设计', icon: <Code2 size={12} /> },
+              { id: 'office', label: '办公协作', icon: <FileText size={12} /> },
+              { id: 'system', label: '系统工具', icon: <SlidersHorizontal size={12} /> },
+            ]}
+            activeId={selectedCategory}
+            onChange={(cat) => setSelectedCategory(cat)}
+            className="app-picker-tabs-uikit"
+          />
           <div className="app-picker-grid">
             {filteredPresets.map((preset) => {
               const isSelected = targetValue.toLowerCase() === preset.processName.toLowerCase();

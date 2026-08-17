@@ -538,43 +538,19 @@
   transition: all 0.3s ease;
 }
 
-.app-picker-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-surface);
-  padding: 3px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--card-border);
+.app-picker-tabs-uikit {
+  width: 100%;
+  display: flex !important;
   margin-bottom: 8px;
+  padding: 3px;
 }
 
-.app-picker-tab-btn {
+.app-picker-tabs-uikit .uikit-tab {
   flex: 1;
+  justify-content: center;
   padding: 5px 8px;
   font-size: 0.76rem;
-  font-weight: 500;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   gap: 5px;
-}
-
-.app-picker-tab-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.app-picker-tab-btn.active {
-  background: var(--card-bg);
-  color: var(--primary);
-  font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* ── Secondary Segmented Filter Subtabs ───────────────────────────────────── */
@@ -613,10 +589,10 @@
 }
 
 .app-picker-subtab-btn.active {
-  background: var(--card-bg);
+  background: var(--primary-dim);
   color: var(--primary);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* ── Strategy Selection Cards (Replaces raw emoji dropdown) ────────────────── */

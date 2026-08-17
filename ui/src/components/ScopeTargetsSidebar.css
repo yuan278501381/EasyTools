@@ -255,10 +255,10 @@
 }
 
 .target-strategy-btn.active {
-  background: var(--card-bg);
+  background: var(--primary-dim);
   color: var(--primary);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .target-disabled-card {
