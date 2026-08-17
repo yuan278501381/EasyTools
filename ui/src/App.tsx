@@ -118,18 +118,6 @@ function App() {
       .catch(console.error);
   }, []);
 
-  // 主题切换
-  const handleToggleTheme = useCallback(() => {
-    const previous = themePreference;
-    const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    setThemePreference(next);
-    bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: next })
-      .then((result) => {
-        if (!result.success) setThemePreference(previous);
-      })
-      .catch(() => setThemePreference(previous));
-  }, [theme, themePreference]);
-
   // 监听系统主题变化；只在“跟随系统”时影响最终主题。
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -232,7 +220,22 @@ function App() {
         activeNav={activeNav}
         onNavigate={handleNavSelect}
         theme={theme}
-        onToggleTheme={handleToggleTheme}
+        themePreference={themePreference}
+        onSelectThemePreference={(pref) => {
+          setThemePreference(pref);
+          bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
+          window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
+        }}
+        accent={accent}
+        onSelectAccent={(newAccent) => {
+          setAccent(newAccent);
+          try {
+            localStorage.setItem('easytools:accent-color', newAccent);
+          } catch (e) {
+            void e;
+          }
+          window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
+        }}
         activePlugins={plugins.length > 0 ? activePlugins : undefined}
         installedExtensionIds={installedExtensionIds}
       />

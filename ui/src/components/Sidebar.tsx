@@ -7,7 +7,7 @@
  *   - 底部有版本信息和主题切换
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { type ReactNode, type FC } from 'react';
+import { type ReactNode, type FC, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart3,
@@ -18,6 +18,10 @@ import {
   Info,
   Sun,
   Moon,
+  Monitor,
+  Palette,
+  Check,
+  ChevronUp,
   Zap,
   MonitorUp,
   History,
@@ -73,11 +77,23 @@ const EXTENSION_NAV_CONFIG: Record<string, { icon: ReactNode; labelKey: string }
   markdown_preview: { icon: <FileCode2 size={20} strokeWidth={2.2} />, labelKey: 'nav.markdown_preview' },
 };
 
-interface SidebarProps {
+const ACCENT_PRESETS = [
+  { id: 'violet', labelKey: 'general.accentViolet', color: '#8b5cf6' },
+  { id: 'cyan',   labelKey: 'general.accentCyan',   color: '#06b6d4' },
+  { id: 'amber',  labelKey: 'general.accentAmber',  color: '#f59e0b' },
+  { id: 'blue',   labelKey: 'general.accentBlue',   color: '#3b82f6' },
+  { id: 'mint',   labelKey: 'general.accentMint',   color: '#10b981' },
+  { id: 'coral',  labelKey: 'general.accentCoral',  color: '#f43f5e' },
+] as const;
+
+export interface SidebarProps {
   activeNav: NavId;
   onNavigate: (id: NavId) => void;
   theme: 'dark' | 'light';
-  onToggleTheme: () => void;
+  themePreference?: 'system' | 'dark' | 'light';
+  onSelectThemePreference?: (p: 'system' | 'dark' | 'light') => void;
+  accent?: string;
+  onSelectAccent?: (accent: string) => void;
   activePlugins?: ReadonlySet<string>;
   installedExtensionIds?: string[];
 }
@@ -86,11 +102,42 @@ export const Sidebar: FC<SidebarProps> = ({
   activeNav,
   onNavigate,
   theme,
-  onToggleTheme,
+  themePreference = 'dark',
+  onSelectThemePreference,
+  accent = 'violet',
+  onSelectAccent,
   activePlugins,
   installedExtensionIds = [],
 }) => {
   const { t } = useTranslation();
+  const [flyoutOpen, setFlyoutOpen] = useState(false);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const currentAccent = ACCENT_PRESETS.find((p) => p.id === accent) || ACCENT_PRESETS[0];
+
+  useEffect(() => {
+    if (!flyoutOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        flyoutRef.current &&
+        !flyoutRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        setFlyoutOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFlyoutOpen(false);
+    };
+    document.addEventListener('pointerdown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [flyoutOpen]);
 
   return (
     <aside className="sidebar" role="navigation" aria-label={t('sidebar.mainNav')}>
@@ -118,8 +165,7 @@ export const Sidebar: FC<SidebarProps> = ({
             >
               <span className="sidebar__item-indicator" />
               <span className="sidebar__item-icon">{item.icon}</span>
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <span className="sidebar__item-label">{t(item.labelKey as any)}</span>
+              <span className="sidebar__item-label">{t(item.labelKey as unknown as TemplateStringsArray)}</span>
             </button>
           );
         })}
@@ -141,25 +187,133 @@ export const Sidebar: FC<SidebarProps> = ({
             >
               <span className="sidebar__item-indicator" />
               <span className="sidebar__item-icon">{config.icon}</span>
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <span className="sidebar__item-label">{t(config.labelKey as any)}</span>
+              <span className="sidebar__item-label">{t(config.labelKey as unknown as TemplateStringsArray)}</span>
             </button>
           );
         })}
       </nav>
 
-      {/* ── 底部操作区 ────────────────────────────────────────────── */}
+      {/* ── 底部沉浸式外观调节舱 (Appearance Capsule) ─────────────── */}
       <div className="sidebar__footer">
         <button
-          className="sidebar__theme-toggle"
-          onClick={onToggleTheme}
-          title={theme === 'dark' ? t('sidebar.themeToggleLight') : t('sidebar.themeToggleDark')}
+          ref={triggerRef}
+          type="button"
+          className={`sidebar__appearance-trigger ${flyoutOpen ? 'active' : ''}`}
+          onClick={() => setFlyoutOpen((prev) => !prev)}
+          title={t('sidebar.appearanceTitle')}
+          aria-expanded={flyoutOpen}
           id="theme-toggle"
         >
-          {theme === 'dark' ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
+          <div className="sidebar__appearance-trigger-left">
+            <span className="sidebar__appearance-mode-icon">
+              {themePreference === 'system' ? (
+                <Monitor size={15} strokeWidth={2.2} />
+              ) : theme === 'dark' ? (
+                <Moon size={15} strokeWidth={2.2} />
+              ) : (
+                <Sun size={15} strokeWidth={2.2} />
+              )}
+            </span>
+            <span className="sidebar__appearance-mode-text">
+              {themePreference === 'system'
+                ? t('general.themeSystem')
+                : theme === 'dark'
+                ? t('general.themeDark')
+                : t('general.themeLight')}
+            </span>
+          </div>
+
+          <div className="sidebar__appearance-trigger-right">
+            <span
+              className="sidebar__appearance-accent-dot"
+              style={{
+                backgroundColor: currentAccent.color,
+                boxShadow: `0 0 8px ${currentAccent.color}90`,
+              }}
+            />
+            <ChevronUp size={13} className={`sidebar__appearance-arrow ${flyoutOpen ? 'open' : ''}`} />
+          </div>
         </button>
-        <span className="sidebar__version">v1.0.0</span>
+
+        {/* ── 悬浮外观微气泡舱 (Flyout Popover) ─────────────────── */}
+        {flyoutOpen && (
+          <div
+            ref={flyoutRef}
+            className="sidebar__appearance-flyout"
+            role="dialog"
+            aria-label={t('sidebar.appearanceTitle')}
+          >
+            <div className="appearance-flyout__header">
+              <div className="appearance-flyout__title">
+                <Palette size={13} strokeWidth={2.2} />
+                <span>{t('sidebar.appearanceTitle')}</span>
+              </div>
+            </div>
+
+            {/* 亮暗模式分段切换 (Segmented Mode Bar) */}
+            <div className="appearance-flyout__modes">
+              <button
+                type="button"
+                className={`appearance-flyout__mode-btn ${themePreference === 'light' ? 'active' : ''}`}
+                onClick={() => onSelectThemePreference?.('light')}
+                title={t('general.themeLight')}
+              >
+                <Sun size={12} strokeWidth={2.2} />
+                <span>{t('general.themeLight')}</span>
+              </button>
+              <button
+                type="button"
+                className={`appearance-flyout__mode-btn ${themePreference === 'dark' ? 'active' : ''}`}
+                onClick={() => onSelectThemePreference?.('dark')}
+                title={t('general.themeDark')}
+              >
+                <Moon size={12} strokeWidth={2.2} />
+                <span>{t('general.themeDark')}</span>
+              </button>
+              <button
+                type="button"
+                className={`appearance-flyout__mode-btn ${themePreference === 'system' ? 'active' : ''}`}
+                onClick={() => onSelectThemePreference?.('system')}
+                title={t('general.themeSystem')}
+              >
+                <Monitor size={12} strokeWidth={2.2} />
+                <span>{t('general.themeSystem')}</span>
+              </button>
+            </div>
+
+            <div className="appearance-flyout__divider" />
+
+            {/* 品牌强调色色卡矩阵 (Accent Color Matrix) */}
+            <div className="appearance-flyout__accents-label">
+              <span>{t('general.accentColor')}</span>
+            </div>
+            <div className="appearance-flyout__accents-grid">
+              {ACCENT_PRESETS.map((preset) => {
+                const isSelected = accent === preset.id;
+                const label = t(preset.labelKey);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`appearance-flyout__accent-btn ${isSelected ? 'active' : ''}`}
+                    onClick={() => onSelectAccent?.(preset.id)}
+                    title={label}
+                  >
+                    <span
+                      className="appearance-flyout__accent-dot"
+                      style={{ backgroundColor: preset.color }}
+                    >
+                      {isSelected && <Check size={10} strokeWidth={3} color="#ffffff" />}
+                    </span>
+                    <span className="appearance-flyout__accent-name">{label.split(' ')[0]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
 };
+

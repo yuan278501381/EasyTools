@@ -554,6 +554,7 @@
   "sidebar": {
     "themeToggleLight": "切换到亮色主题",
     "themeToggleDark": "切换到暗色主题",
+    "appearanceTitle": "外观与主题偏好",
     "mainNav": "主导航",
     "pluginDisabled": "该功能模块本次运行未加载，请在功能模块中启用并重启"
   },

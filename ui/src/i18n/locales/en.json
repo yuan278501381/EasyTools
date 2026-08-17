@@ -552,10 +552,11 @@
     "perfUiLatency": "UI Latency"
   },
   "sidebar": {
-    "themeToggleLight": "Switch to light theme",
-    "themeToggleDark": "Switch to dark theme",
-    "mainNav": "Main navigation",
-    "pluginDisabled": "This module is not loaded. Enable it under Modules, then restart."
+    "themeToggleLight": "Switch to Light Theme",
+    "themeToggleDark": "Switch to Dark Theme",
+    "appearanceTitle": "Appearance & Themes",
+    "mainNav": "Main Navigation",
+    "pluginDisabled": "Plugin disabled for this run. Enable in Plugins page and restart."
   },
   "onboarding": {
     "welcomeTitle": "Welcome to EasyTools",
