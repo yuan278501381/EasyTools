@@ -577,74 +577,46 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-/* ── Unified Presets Container ────────────────────────────────────────────── */
-.app-picker-presets-box {
+/* ── Secondary Segmented Filter Subtabs ───────────────────────────────────── */
+.app-picker-subtabs {
   display: flex;
-  flex-direction: column;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-sm);
-  background: var(--input-bg);
-  overflow: hidden;
-}
-
-.app-picker-presets-box .app-picker-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 3px;
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--card-border);
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin-bottom: 0;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  margin-bottom: 8px;
 }
 
-.app-picker-presets-box .app-picker-filter-row::-webkit-scrollbar {
-  display: none;
-}
-
-.app-picker-filter-pill {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 28px;
-  box-sizing: border-box;
-  font-size: 0.78rem;
+.app-picker-subtab-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 0.76rem;
   font-weight: 500;
-  line-height: 1;
-  padding: 0 10px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  background: var(--card-bg);
+  border-radius: 6px;
+  border: none;
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast);
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   user-select: none;
+  white-space: nowrap;
 }
 
-.app-picker-filter-pill:hover {
+.app-picker-subtab-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-surface-hover, rgba(0, 0, 0, 0.05));
-  border-color: var(--card-border);
+  background: var(--bg-surface-hover, rgba(0, 0, 0, 0.04));
 }
 
-.app-picker-filter-pill.active {
-  background: var(--primary-dim);
+.app-picker-subtab-btn.active {
+  background: var(--card-bg);
   color: var(--primary);
   font-weight: 600;
-  border: 1.5px solid var(--primary);
-  box-shadow: 0 0 0 1px var(--primary-glow);
-}
-
-.app-picker-presets-box .app-picker-grid {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  max-height: 145px;
-  padding: 8px 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* ── Strategy Selection Cards (Replaces raw emoji dropdown) ────────────────── */

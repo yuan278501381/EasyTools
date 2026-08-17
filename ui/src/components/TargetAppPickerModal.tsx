@@ -394,11 +394,11 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
       )}
 
       {pickerTab === 'presets' && (
-        <div className="app-picker-presets-box">
-          <div className="app-picker-filter-row">
+        <>
+          <div className="app-picker-subtabs">
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'all' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'all' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('all')}
             >
               <LayoutGrid size={12} />
@@ -406,7 +406,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'browser' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'browser' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('browser')}
             >
               <Globe size={12} />
@@ -414,7 +414,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'dev' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'dev' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('dev')}
             >
               <Code2 size={12} />
@@ -422,7 +422,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'office' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'office' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('office')}
             >
               <FileText size={12} />
@@ -430,7 +430,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'system' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'system' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('system')}
             >
               <SlidersHorizontal size={12} />
@@ -458,7 +458,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
               );
             })}
           </div>
-        </div>
+        </>
       )}
 
       <div className={justPicked ? 'just-picked-glow' : ''}>

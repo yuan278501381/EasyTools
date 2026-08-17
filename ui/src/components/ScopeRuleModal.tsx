@@ -419,11 +419,11 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
       )}
 
       {pickerTab === 'presets' && (
-        <div className="app-picker-presets-box">
-          <div className="app-picker-filter-row">
+        <>
+          <div className="app-picker-subtabs">
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'all' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'all' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('all')}
             >
               <LayoutGrid size={12} />
@@ -431,7 +431,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'browser' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'browser' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('browser')}
             >
               <Globe size={12} />
@@ -439,7 +439,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'dev' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'dev' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('dev')}
             >
               <Code2 size={12} />
@@ -447,7 +447,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'office' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'office' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('office')}
             >
               <FileText size={12} />
@@ -455,7 +455,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             </button>
             <button
               type="button"
-              className={`app-picker-filter-pill ${selectedCategory === 'system' ? 'active' : ''}`}
+              className={`app-picker-subtab-btn ${selectedCategory === 'system' ? 'active' : ''}`}
               onClick={() => setSelectedCategory('system')}
             >
               <SlidersHorizontal size={12} />
@@ -485,7 +485,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
               );
             })}
           </div>
-        </div>
+        </>
       )}
 
       <div className={justPicked ? 'just-picked-glow' : ''}>
