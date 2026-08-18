@@ -250,6 +250,7 @@ if(BUILD_TESTING)
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
         src/gesture/GestureAction.cpp
+        src/gesture/GestureProfile.cpp
         src/gesture/BuiltinCommands.cpp
         src/service/PinyinEngine.cpp
         src/service/SearchExpression.cpp

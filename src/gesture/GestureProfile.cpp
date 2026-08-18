@@ -4,6 +4,8 @@
 
 #include "gesture/GestureProfile.h"
 #include "core/logger/Logger.h"
+#include <unordered_set>
+#include <algorithm>
 
 namespace easy::gesture {
 
