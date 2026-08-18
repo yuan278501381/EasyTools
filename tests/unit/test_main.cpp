@@ -390,7 +390,7 @@ static void test_gesture_profile_comprehensive() {
     m3.action.builtinCmd = BuiltinCommand::MaximizeWindow;
     profile.addMapping(m3);
 
-    CHECK_EQ(profile.getMappings().size(), 3);
+    CHECK(profile.getMappings().size() == 3);
     CHECK(profile.hasGesture("L"));
     CHECK(profile.hasGesture("R"));
     CHECK(profile.hasGesture("L-U"));
@@ -429,7 +429,7 @@ static void test_gesture_profile_comprehensive() {
     auto j = profile.toJson();
     auto restored = GestureProfile::fromJson(j);
     CHECK_EQ(restored.name(), "test_comp");
-    CHECK_EQ(restored.getMappings().size(), 3);
+    CHECK(restored.getMappings().size() == 3);
     CHECK_EQ(restored.getMappings()[0].gestureCode, "L-U");
     CHECK(restored.getMappings()[0].instantExecute == false);
     CHECK(restored.getMappings()[1].instantExecute == true);
