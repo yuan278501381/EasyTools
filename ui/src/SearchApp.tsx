@@ -822,7 +822,11 @@ export default function SearchApp() {
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.target !== inputRef.current && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
         inputRef.current?.focus();
       }
     };
@@ -1764,6 +1768,7 @@ export default function SearchApp() {
                         value={newFormatInput}
                         onChange={(e) => setNewFormatInput(e.target.value)}
                         onKeyDown={(e) => {
+                          e.stopPropagation();
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             addCustomContentFormat(newFormatInput);
