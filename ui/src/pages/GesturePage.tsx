@@ -279,14 +279,6 @@ export const GesturePage: FC = () => {
   // ── 手势调序与单项开关 ──────────────────────────────────────────────────────
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
-  const handleMoveMapping = async (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= currentMappings.length) return;
-    const nextList = [...currentMappings];
-    [nextList[index], nextList[target]] = [nextList[target], nextList[index]];
-    await persistMappings(nextList);
-  };
-
   const handleDropMapping = async (targetIdx: number) => {
     if (draggedIdx === null || draggedIdx === targetIdx || targetIdx < 0 || targetIdx >= currentMappings.length) {
       setDraggedIdx(null);
@@ -988,28 +980,8 @@ export const GesturePage: FC = () => {
                             {/* 1. 拖拽抓手 + WGestures 2 动态手势画板 */}
                             <span className="gesture-table__col gesture-table__col--gesture">
                               <div className="gesture-handle-box">
-                                <div className="gesture-drag-handle" title="按住拖拽或点击上下调序">
-                                  <GripVertical size={13} className="gesture-grip-icon" />
-                                  <div className="gesture-reorder-float">
-                                    <button
-                                      type="button"
-                                      className="gesture-micro-arrow-btn"
-                                      disabled={actualIdx <= 0}
-                                      title="上移"
-                                      onClick={(e) => { e.stopPropagation(); void handleMoveMapping(actualIdx, -1); }}
-                                    >
-                                      <ArrowUp size={10} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="gesture-micro-arrow-btn"
-                                      disabled={actualIdx >= currentMappings.length - 1}
-                                      title="下移"
-                                      onClick={(e) => { e.stopPropagation(); void handleMoveMapping(actualIdx, 1); }}
-                                    >
-                                      <ArrowDown size={10} />
-                                    </button>
-                                  </div>
+                                <div className="gesture-drag-handle" title="按住拖拽调整手势顺序">
+                                  <GripVertical size={14} className="gesture-grip-icon" />
                                 </div>
                                 <GestureStrokePreview code={m.gestureCode} width={58} height={36} />
                               </div>
