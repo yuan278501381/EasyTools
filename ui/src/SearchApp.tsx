@@ -185,13 +185,13 @@ const SYNTAX_EXAMPLES = [
   { syntax: 'pinyin:wx', desc: '显式拼音首字母/全拼检索' },
 ];
 
-export interface FormatCategory {
+interface FormatCategory {
   id: string;
   title: string;
   extensions: string[];
 }
 
-export const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
+const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
   {
     id: 'code',
     title: '💻 代码开发 (Code & Scripts)',
@@ -536,7 +536,9 @@ export default function SearchApp() {
     try {
       const saved = localStorage.getItem('easytools_search_disabled_formats');
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     return [];
   });
 
@@ -544,7 +546,9 @@ export default function SearchApp() {
     try {
       const saved = localStorage.getItem('easytools_search_custom_formats');
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     return [];
   });
 

@@ -1447,8 +1447,8 @@ html[data-surface="search"] #root {
     flex-direction: column;
     gap: 6px;
     padding: 8px 10px;
-    background: var(--bg-base);
-    border: 1px solid var(--card-border);
+    background: var(--search-drawer-bg);
+    border: 1px solid var(--search-border);
     border-radius: 8px;
 }
 
@@ -1461,13 +1461,13 @@ html[data-surface="search"] #root {
 .popover-format-cat-title {
     font-size: 11.5px;
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--search-text-main);
 }
 
 .popover-format-count {
     font-size: 10.5px;
     font-weight: 400;
-    color: var(--text-muted);
+    color: var(--search-text-muted);
 }
 
 .popover-cat-toggle-btn {
@@ -1518,16 +1518,16 @@ html[data-surface="search"] #root {
 }
 
 .format-chip--disabled {
-    background: var(--bg-card);
-    color: var(--text-muted);
-    border-color: var(--card-border);
+    background: var(--search-surface-pill);
+    color: var(--search-text-muted);
+    border-color: var(--search-border);
     opacity: 0.6;
     text-decoration: line-through;
 }
 
 .format-chip--disabled:hover {
     opacity: 1;
-    border-color: var(--text-muted);
+    border-color: var(--search-text-muted);
 }
 
 .format-chip--custom {
@@ -1547,7 +1547,7 @@ html[data-surface="search"] #root {
     border-radius: 50%;
     border: none;
     background: transparent;
-    color: var(--text-muted);
+    color: var(--search-text-muted);
     cursor: pointer;
     transition: all 0.12s ease;
     padding: 0;
@@ -1570,10 +1570,10 @@ html[data-surface="search"] #root {
     height: 26px;
     padding: 0 8px;
     font-size: 11px;
-    background: var(--bg-card);
-    border: 1px solid var(--card-border);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-border);
     border-radius: 6px;
-    color: var(--text-primary);
+    color: var(--search-text-main);
     outline: none;
     transition: border-color 0.15s ease;
 }
