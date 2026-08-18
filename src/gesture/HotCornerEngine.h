@@ -52,6 +52,9 @@ public:
     void setTriggerDelay(int ms) { m_triggerDelayMs.store(ms); }
     int triggerDelay() const { return m_triggerDelayMs.load(); }
 
+    /// 检测指定点是否属于某个触发角
+    static HotCorner detectCorner(POINT pt);
+
 private:
     HotCornerEngine() = default;
     ~HotCornerEngine();
@@ -59,7 +62,6 @@ private:
     HotCornerEngine& operator=(const HotCornerEngine&) = delete;
 
     void workerThread();
-    HotCorner detectCorner(POINT pt);
 
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_enabled{true};

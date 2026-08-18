@@ -256,6 +256,7 @@ if(BUILD_TESTING)
         src/gesture/GestureAction.cpp
         src/gesture/GestureProfile.cpp
         src/gesture/BuiltinCommands.cpp
+        src/gesture/HotCornerEngine.cpp
         src/service/PinyinEngine.cpp
         src/service/SearchExpression.cpp
         src/service/content/PlainTextExtractor.cpp

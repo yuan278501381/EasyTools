@@ -252,6 +252,7 @@ if (-not $SkipTests) {
             & $OpenCppCoverageExe --sources "$ScriptDir\src" `
                                   --excluded_sources "$ScriptDir\build" `
                                   --excluded_sources "$ScriptDir\packages" `
+                                  --excluded_sources "$ScriptDir\tests" `
                                   --export_type "html:$CoverageReportDir" `
                                   --export_type "cobertura:$CoverageReportDir\cobertura.xml" `
                                   -- $TestExe --gtest_output="xml:$CoverageReportDir\junit.xml"

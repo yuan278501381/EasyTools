@@ -44,12 +44,21 @@ public:
     virtual void shutdown() noexcept = 0;
 };
 
+#include <functional>
+
 /// Ordered by preference. A backend advertised as available must be creatable.
 std::vector<CaptureBackendInfo> captureBackendCapabilities();
 
 /// Creates the best available backend. The factory is the only policy point,
 /// allowing WGC/Desktop Duplication to be added without changing the encoder.
 std::unique_ptr<ICaptureBackend> createCaptureBackend();
+
+/// Creates a synthetic memory capture backend for headless testing or validation.
+std::unique_ptr<ICaptureBackend> createMemoryCaptureBackend(CapturePixelFormat format = CapturePixelFormat::Bgr24);
+
+/// Test hook to inject mock or memory backends into capture pipelines (ScrollCapture, ScreenRecorder).
+using CaptureBackendFactory = std::function<std::unique_ptr<ICaptureBackend>()>;
+void setCaptureBackendFactoryForTesting(CaptureBackendFactory factory);
 
 }  // namespace easy::capture
 

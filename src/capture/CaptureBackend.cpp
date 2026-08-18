@@ -441,6 +441,85 @@ private:
     std::unique_ptr<ICaptureBackend> m_active;
 };
 
+class MemoryCaptureBackend final : public ICaptureBackend {
+public:
+    explicit MemoryCaptureBackend(CapturePixelFormat format) : m_format(format) {
+        m_info.id = "memory-synthetic";
+        m_info.name = "Memory Synthetic Capture";
+        m_info.available = true;
+        m_info.accelerated = false;
+    }
+    ~MemoryCaptureBackend() override { shutdown(); }
+
+    const CaptureBackendInfo& info() const noexcept override { return m_info; }
+
+    bool initialize(const CaptureRegion& region, std::string& error) override {
+        shutdown();
+        if (!region.isValid()) {
+            error = "invalid memory capture region";
+            return false;
+        }
+        m_region = region;
+        const int pixelBytes = m_format == CapturePixelFormat::Bgra32 ? 4 : 3;
+        m_stride = (region.width * pixelBytes + 3) & ~3;
+        m_buffer.resize(static_cast<std::size_t>(m_stride) * region.height);
+        generatePattern();
+        return true;
+    }
+
+    bool capture(CaptureFrameView& frame, std::string& error) override {
+        if (m_buffer.empty()) {
+            error = "memory capture backend not initialized";
+            return false;
+        }
+        generatePattern();
+        frame.data = m_buffer.data();
+        frame.stride = m_stride;
+        frame.width = m_region.width;
+        frame.height = m_region.height;
+        frame.format = m_format;
+        return true;
+    }
+
+    void releaseFrame() noexcept override {}
+
+    void shutdown() noexcept override {
+        m_buffer.clear();
+        m_stride = 0;
+        m_frameIndex = 0;
+    }
+
+private:
+    void generatePattern() {
+        if (m_buffer.empty()) return;
+        const int pixelBytes = m_format == CapturePixelFormat::Bgra32 ? 4 : 3;
+        const std::uint8_t baseR = static_cast<std::uint8_t>((m_frameIndex * 13) % 255);
+        const std::uint8_t baseG = static_cast<std::uint8_t>((m_frameIndex * 29) % 255);
+        const std::uint8_t baseB = static_cast<std::uint8_t>((m_frameIndex * 47) % 255);
+
+        for (int y = 0; y < m_region.height; ++y) {
+            std::uint8_t* row = m_buffer.data() + static_cast<std::size_t>(y) * m_stride;
+            for (int x = 0; x < m_region.width; ++x) {
+                std::uint8_t* px = row + x * pixelBytes;
+                px[0] = static_cast<std::uint8_t>((baseB + x * 2 + y) % 256); // B
+                px[1] = static_cast<std::uint8_t>((baseG + y * 3) % 256);     // G
+                px[2] = static_cast<std::uint8_t>((baseR + (x + y) * 2) % 256); // R
+                if (pixelBytes == 4) px[3] = 255;                              // A
+            }
+        }
+        ++m_frameIndex;
+    }
+
+    CaptureBackendInfo m_info;
+    CapturePixelFormat m_format{CapturePixelFormat::Bgr24};
+    CaptureRegion m_region;
+    int m_stride = 0;
+    int m_frameIndex = 0;
+    std::vector<std::uint8_t> m_buffer;
+};
+
+static CaptureBackendFactory s_testBackendFactory = nullptr;
+
 bool hasAttachedDxgiOutput() {
     ComPtr<IDXGIFactory1> factory;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return false;
@@ -472,7 +551,19 @@ std::vector<CaptureBackendInfo> captureBackendCapabilities() {
     };
 }
 
+std::unique_ptr<ICaptureBackend> createMemoryCaptureBackend(CapturePixelFormat format) {
+    return std::make_unique<MemoryCaptureBackend>(format);
+}
+
+void setCaptureBackendFactoryForTesting(CaptureBackendFactory factory) {
+    s_testBackendFactory = std::move(factory);
+}
+
 std::unique_ptr<ICaptureBackend> createCaptureBackend() {
+    if (s_testBackendFactory) {
+        auto custom = s_testBackendFactory();
+        if (custom) return custom;
+    }
     return std::make_unique<AutomaticCaptureBackend>();
 }
 

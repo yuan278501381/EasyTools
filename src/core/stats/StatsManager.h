@@ -15,7 +15,7 @@
 
 namespace easy::core {
 
-struct DailyStats {
+struct EASYCORE_API DailyStats {
     uint64_t totalKeys = 0;
     uint64_t leftClicks = 0;
     uint64_t rightClicks = 0;
