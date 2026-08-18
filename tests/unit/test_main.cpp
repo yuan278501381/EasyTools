@@ -411,7 +411,7 @@ static void test_gesture_profile_comprehensive() {
     CHECK_EQ(profile.getMappings()[2].gestureCode, "L");
     CHECK(!profile.moveMapping(0, 999)); // 越界安全
     CHECK(!profile.moveMapping(999, 0)); // 越界安全
-    CHECK(profile.moveMapping(1, 1));    // 同位置安全
+    CHECK(!profile.moveMapping(1, 1));   // 同位置无位移，返回 false
 
     // 5. 批量重排序 (reorderMappings)
     profile.reorderMappings({"L-U", "L", "R"});
