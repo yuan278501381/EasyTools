@@ -1930,10 +1930,10 @@ TEST(ContentSearchTest, ExtractorEngines) {
         std::ofstream ofs(testGbkFile, std::ios::binary);
         // GBK 编码的中文字符串："北京中源技术中心：开发账号密码"
         std::wstring wText = L"北京中源技术中心：开发账号密码";
-        int len = WideCharToMultiByte(CP_ACP, 0, wText.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        int len = WideCharToMultiByte(936, 0, wText.c_str(), -1, nullptr, 0, nullptr, nullptr);
         std::string gbkText(len > 0 ? len - 1 : 0, '\0');
         if (len > 1) {
-            WideCharToMultiByte(CP_ACP, 0, wText.c_str(), -1, gbkText.data(), len, nullptr, nullptr);
+            WideCharToMultiByte(936, 0, wText.c_str(), -1, gbkText.data(), len, nullptr, nullptr);
         }
         ofs << "Line 1: Header\r\n";
         ofs << gbkText << "\r\n";

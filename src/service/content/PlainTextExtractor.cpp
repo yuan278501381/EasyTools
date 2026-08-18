@@ -391,13 +391,24 @@ static bool fastBytePreFilter(
                 return true;
             }
         }
-        // 2. 生成 GBK/ANSI 字节串比对
-        int gbkLen = WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
+        // 2. 生成 GBK (936) 字节串比对
+        int gbkLen = WideCharToMultiByte(936, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
         if (gbkLen > 0) {
             std::string gbkPat(gbkLen, '\0');
-            WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), gbkPat.data(), gbkLen, nullptr, nullptr);
+            WideCharToMultiByte(936, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), gbkPat.data(), gbkLen, nullptr, nullptr);
             if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) {
                 return true;
+            }
+        }
+        // 3. 生成 CP_ACP 字节串比对
+        if (GetACP() != 936) {
+            int acpLen = WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
+            if (acpLen > 0) {
+                std::string acpPat(acpLen, '\0');
+                WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), acpPat.data(), acpLen, nullptr, nullptr);
+                if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) {
+                    return true;
+                }
             }
         }
         return false;
@@ -517,7 +528,7 @@ bool PlainTextExtractor::searchContent(
             }
         }
     } else {
-        const UINT codePage = (enc == DetectedEncoding::Gbk) ? CP_ACP : CP_UTF8;
+        const UINT codePage = (enc == DetectedEncoding::Gbk) ? 936 : CP_UTF8;
         size_t lineStart = bomOffset;
 
         for (size_t i = bomOffset; i < mapSize; ++i) {
