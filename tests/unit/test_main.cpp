@@ -346,6 +346,120 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
 }
 
 // -----------------------------------------------------------------------------
+// 3.1 手势动作扩展键位、别名与外部程序/Lua权限序列化测试套件
+// -----------------------------------------------------------------------------
+TEST(GestureActionTest, ExtendedKeyStrokeSpecialKeysAndAliases) {
+    using namespace easy::gesture;
+
+    // 1. 扩展按键解析与别名覆盖
+    auto ksBack = KeyStroke::fromString("Ctrl+Backspace");
+    EXPECT_EQ(ksBack.modifiers, MOD_CONTROL);
+    EXPECT_EQ(ksBack.virtualKey, VK_BACK);
+    EXPECT_EQ(ksBack.toString(), "Ctrl+Backspace");
+
+    auto ksEscAlias = KeyStroke::fromString("Esc");
+    EXPECT_EQ(ksEscAlias.virtualKey, VK_ESCAPE);
+    EXPECT_EQ(ksEscAlias.toString(), "Escape");
+
+    auto ksHome = KeyStroke::fromString("Home");
+    EXPECT_EQ(ksHome.virtualKey, VK_HOME);
+    EXPECT_EQ(ksHome.toString(), "Home");
+
+    auto ksEnd = KeyStroke::fromString("End");
+    EXPECT_EQ(ksEnd.virtualKey, VK_END);
+    EXPECT_EQ(ksEnd.toString(), "End");
+
+    auto ksPgUp = KeyStroke::fromString("PgUp");
+    EXPECT_EQ(ksPgUp.virtualKey, VK_PRIOR);
+    EXPECT_EQ(ksPgUp.toString(), "PageUp");
+
+    auto ksPgDn = KeyStroke::fromString("PageDown");
+    EXPECT_EQ(ksPgDn.virtualKey, VK_NEXT);
+    EXPECT_EQ(ksPgDn.toString(), "PageDown");
+
+    auto ksIns = KeyStroke::fromString("Ins");
+    EXPECT_EQ(ksIns.virtualKey, VK_INSERT);
+    EXPECT_EQ(ksIns.toString(), "Insert");
+
+    auto ksMediaPlay = KeyStroke::fromString("MediaPlay");
+    EXPECT_EQ(ksMediaPlay.virtualKey, VK_MEDIA_PLAY_PAUSE);
+    EXPECT_EQ(ksMediaPlay.toString(), "MediaPlayPause");
+
+    auto ksVolUp = KeyStroke::fromString("VolumeUp");
+    EXPECT_EQ(ksVolUp.virtualKey, VK_VOLUME_UP);
+    EXPECT_EQ(ksVolUp.toString(), "VolumeUp");
+
+    // 十六进制虚拟键码
+    auto ksHex = KeyStroke::fromString("0x20"); // VK_SPACE
+    EXPECT_EQ(ksHex.virtualKey, 0x20);
+
+    // 2. RunProgram 序列化往返
+    GestureAction aProg;
+    aProg.type = ActionType::RunProgram;
+    aProg.name = "打开终端";
+    aProg.description = "在当前目录打开 wt.exe";
+    aProg.programPath = "wt.exe";
+    aProg.programArgs = "-d \"%PATH%\"";
+    auto jProg = aProg.toJson();
+    auto aProgRestored = GestureAction::fromJson(jProg);
+    EXPECT_EQ(aProgRestored.type, ActionType::RunProgram);
+    EXPECT_EQ(aProgRestored.name, "打开终端");
+    EXPECT_EQ(aProgRestored.programPath, "wt.exe");
+    EXPECT_EQ(aProgRestored.programArgs, "-d \"%PATH%\"");
+
+    // 3. LuaScript 与细粒度权限序列化往返
+    GestureAction aLua;
+    aLua.type = ActionType::LuaScript;
+    aLua.name = "翻译选中";
+    aLua.luaScript = "easy.clipboard.get()";
+    aLua.requestedPermissions = {"clipboard", "http"};
+    auto jLua = aLua.toJson();
+    auto aLuaRestored = GestureAction::fromJson(jLua);
+    EXPECT_EQ(aLuaRestored.type, ActionType::LuaScript);
+    EXPECT_EQ(aLuaRestored.name, "翻译选中");
+    EXPECT_EQ(aLuaRestored.luaScript, "easy.clipboard.get()");
+    EXPECT_EQ(aLuaRestored.requestedPermissions.size(), 2u);
+    EXPECT_EQ(aLuaRestored.requestedPermissions[0], "clipboard");
+    EXPECT_EQ(aLuaRestored.requestedPermissions[1], "http");
+
+    // 4. BuiltinCommandDispatcher 全枚举分支安全调度覆盖
+    auto& dispatcher = BuiltinCommandDispatcher::instance();
+    const std::vector<BuiltinCommand> allCmds = {
+        BuiltinCommand::CloseWindow,
+        BuiltinCommand::CloseTab,
+        BuiltinCommand::MaximizeWindow,
+        BuiltinCommand::MinimizeWindow,
+        BuiltinCommand::RestoreWindow,
+        BuiltinCommand::ShowDesktop,
+        BuiltinCommand::SwitchDesktop,
+        BuiltinCommand::TaskView,
+        BuiltinCommand::LockScreen,
+        BuiltinCommand::PauseGestures,
+        BuiltinCommand::TakeScreenshot,
+        BuiltinCommand::StartRecording,
+        BuiltinCommand::RestoreClosedTab,
+        BuiltinCommand::ToggleTopmost,
+        BuiltinCommand::ToggleWindowTransparency,
+        BuiltinCommand::WebSearch,
+        BuiltinCommand::ToggleSearch,
+        BuiltinCommand::ShowRadialMenu,
+        BuiltinCommand::PasteAsPin,
+        BuiltinCommand::MediaNext,
+        BuiltinCommand::MediaPrev,
+        BuiltinCommand::MediaPlayPause,
+        BuiltinCommand::VolumeUp,
+        BuiltinCommand::VolumeDown,
+        BuiltinCommand::VolumeMute,
+        BuiltinCommand::PrevVirtualDesktop,
+        BuiltinCommand::NextVirtualDesktop
+    };
+
+    for (auto cmd : allCmds) {
+        dispatcher.execute(cmd, nullptr);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // 4. 手势配置综合与继承体系测试套件
 // -----------------------------------------------------------------------------
 TEST(GestureProfileTest, TriStateInheritanceAndOrdering) {

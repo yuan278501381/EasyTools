@@ -61,13 +61,10 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
   const silentCardRef = useRef<HTMLDivElement>(null);
   const actionTypeRef = useRef<HTMLDivElement>(null);
   const actionDetailRef = useRef<HTMLDivElement>(null);
-  const [pulseTarget, setPulseTarget] = useState<string | null>(() => initialFocusTarget || null);
 
-  // 从表格特性徽章或类型标签点击进入时，自动展开高级设置或平滑滚动高亮到对应卡片
+  // 从表格特性徽章或类型标签点击进入时，自动展开高级设置或平滑滚动并原生聚焦到对应输入控件
   useEffect(() => {
     if (initialFocusTarget) {
-      const timer = setTimeout(() => setPulseTarget(null), 2000);
-
       requestAnimationFrame(() => {
         setTimeout(() => {
           if (initialFocusTarget === 'instant') {
@@ -82,10 +79,8 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
             const input = actionDetailRef.current?.querySelector('input, textarea, select, [tabindex="0"]') as HTMLElement | null;
             input?.focus();
           }
-        }, 120);
+        }, 100);
       });
-
-      return () => clearTimeout(timer);
     }
   }, [initialFocusTarget]);
 
@@ -192,7 +187,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
         />
       </Field>
 
-      <div ref={actionTypeRef} className={pulseTarget === 'action_type' ? 'gesture-field-pulse-target' : undefined}>
+      <div ref={actionTypeRef}>
         <Field label={t('gestureEditor.actionType')}>
           <Select
             value={String(draft.action.type)}
@@ -202,7 +197,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
         </Field>
       </div>
 
-      <div ref={actionDetailRef} className={pulseTarget && pulseTarget !== 'action_type' && pulseTarget !== 'instant' && pulseTarget !== 'silent' ? 'gesture-field-pulse-target' : undefined}>
+      <div ref={actionDetailRef}>
         {draft.action.type === 0 && (
           <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
             <HotkeyRecorder

@@ -34,14 +34,23 @@ KeyStroke KeyStroke::fromString(const std::string& str) {
     consume("Shift+", MOD_SHIFT);
     consume("Win+",   MOD_WIN);
 
-    // 特殊键
+    // 特殊键与多媒体键映射表
     static const std::unordered_map<std::string, uint16_t> keyMap = {
         {"F1", VK_F1}, {"F2", VK_F2}, {"F3", VK_F3}, {"F4", VK_F4}, {"F5", VK_F5},
         {"F6", VK_F6}, {"F7", VK_F7}, {"F8", VK_F8}, {"F9", VK_F9}, {"F10", VK_F10},
         {"F11", VK_F11}, {"F12", VK_F12},
-        {"Tab", VK_TAB}, {"Enter", VK_RETURN}, {"Space", VK_SPACE},
-        {"Escape", VK_ESCAPE}, {"Delete", VK_DELETE},
+        {"Tab", VK_TAB}, {"Enter", VK_RETURN}, {"Return", VK_RETURN}, {"Space", VK_SPACE},
+        {"Escape", VK_ESCAPE}, {"Esc", VK_ESCAPE},
+        {"Backspace", VK_BACK}, {"Back", VK_BACK},
+        {"Delete", VK_DELETE}, {"Del", VK_DELETE},
+        {"Insert", VK_INSERT}, {"Ins", VK_INSERT},
+        {"Home", VK_HOME}, {"End", VK_END},
+        {"PageUp", VK_PRIOR}, {"PgUp", VK_PRIOR},
+        {"PageDown", VK_NEXT}, {"PgDn", VK_NEXT},
         {"Left", VK_LEFT}, {"Right", VK_RIGHT}, {"Up", VK_UP}, {"Down", VK_DOWN},
+        {"MediaNext", VK_MEDIA_NEXT_TRACK}, {"MediaPrev", VK_MEDIA_PREV_TRACK},
+        {"MediaPlay", VK_MEDIA_PLAY_PAUSE}, {"MediaPlayPause", VK_MEDIA_PLAY_PAUSE},
+        {"VolumeMute", VK_VOLUME_MUTE}, {"VolumeUp", VK_VOLUME_UP}, {"VolumeDown", VK_VOLUME_DOWN},
     };
 
     auto it = keyMap.find(remaining);
@@ -77,7 +86,9 @@ std::string KeyStroke::toString() const {
     } else {
         static const std::unordered_map<uint16_t, std::string> revMap = {
             {VK_TAB, "Tab"}, {VK_RETURN, "Enter"}, {VK_SPACE, "Space"},
-            {VK_ESCAPE, "Escape"}, {VK_DELETE, "Delete"},
+            {VK_ESCAPE, "Escape"}, {VK_BACK, "Backspace"}, {VK_DELETE, "Delete"},
+            {VK_INSERT, "Insert"}, {VK_HOME, "Home"}, {VK_END, "End"},
+            {VK_PRIOR, "PageUp"}, {VK_NEXT, "PageDown"},
             {VK_LEFT, "Left"}, {VK_RIGHT, "Right"}, {VK_UP, "Up"}, {VK_DOWN, "Down"},
             {VK_MEDIA_NEXT_TRACK, "MediaNext"}, {VK_MEDIA_PREV_TRACK, "MediaPrev"},
             {VK_MEDIA_PLAY_PAUSE, "MediaPlayPause"}, {VK_VOLUME_MUTE, "VolumeMute"},
