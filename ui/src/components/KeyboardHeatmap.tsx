@@ -7,158 +7,152 @@ interface KeyboardHeatmapProps {
   keyMap: Record<number, number>;
 }
 
-// Definition of a single key in the visual layout
 interface KeyDef {
   label: string;
   fullName?: string;
   vkCode: number | number[];
-  width?: string;
-  isSpacer?: boolean;
+  flex?: number;
+  gridArea?: string;
 }
 
 export type KeyboardLayoutMode = '104' | '87' | '60';
 
-// ── 主键区 (Main Alphanumeric Cluster) ──────────────────────────────────────────
-const MAIN_CLUSTER: KeyDef[][] = [
-  // F-Row
+// ── 1. 主键区 (Main Alphanumeric Cluster - 15u) ─────────────────────────────────
+const MAIN_F_ROW: (KeyDef | { gap: number })[] = [
+  { label: 'Esc', fullName: 'Escape', vkCode: 0x1B, flex: 1 },
+  { gap: 0.75 },
+  { label: 'F1', vkCode: 0x70, flex: 1 },
+  { label: 'F2', vkCode: 0x71, flex: 1 },
+  { label: 'F3', vkCode: 0x72, flex: 1 },
+  { label: 'F4', vkCode: 0x73, flex: 1 },
+  { gap: 0.5 },
+  { label: 'F5', vkCode: 0x74, flex: 1 },
+  { label: 'F6', vkCode: 0x75, flex: 1 },
+  { label: 'F7', vkCode: 0x76, flex: 1 },
+  { label: 'F8', vkCode: 0x77, flex: 1 },
+  { gap: 0.5 },
+  { label: 'F9', vkCode: 0x78, flex: 1 },
+  { label: 'F10', vkCode: 0x79, flex: 1 },
+  { label: 'F11', vkCode: 0x7A, flex: 1 },
+  { label: 'F12', vkCode: 0x7B, flex: 1 },
+];
+
+const MAIN_ALPHA_ROWS: KeyDef[][] = [
+  // Numbers Row (15u)
   [
-    { label: 'Esc', fullName: 'Escape', vkCode: 0x1B, width: 'key-width-100' },
-    { label: '', isSpacer: true, vkCode: 0, width: 'key-spacer-100' },
-    { label: 'F1', vkCode: 0x70 }, { label: 'F2', vkCode: 0x71 }, { label: 'F3', vkCode: 0x72 }, { label: 'F4', vkCode: 0x73 },
-    { label: '', isSpacer: true, vkCode: 0, width: 'key-spacer-50' },
-    { label: 'F5', vkCode: 0x74 }, { label: 'F6', vkCode: 0x75 }, { label: 'F7', vkCode: 0x76 }, { label: 'F8', vkCode: 0x77 },
-    { label: '', isSpacer: true, vkCode: 0, width: 'key-spacer-50' },
-    { label: 'F9', vkCode: 0x78 }, { label: 'F10', vkCode: 0x79 }, { label: 'F11', vkCode: 0x7A }, { label: 'F12', vkCode: 0x7B },
+    { label: '`', fullName: '反引号 / 波浪号', vkCode: 0xC0, flex: 1 },
+    { label: '1', vkCode: 0x31, flex: 1 }, { label: '2', vkCode: 0x32, flex: 1 },
+    { label: '3', vkCode: 0x33, flex: 1 }, { label: '4', vkCode: 0x34, flex: 1 },
+    { label: '5', vkCode: 0x35, flex: 1 }, { label: '6', vkCode: 0x36, flex: 1 },
+    { label: '7', vkCode: 0x37, flex: 1 }, { label: '8', vkCode: 0x38, flex: 1 },
+    { label: '9', vkCode: 0x39, flex: 1 }, { label: '0', vkCode: 0x30, flex: 1 },
+    { label: '-', fullName: '减号', vkCode: 0xBD, flex: 1 },
+    { label: '=', fullName: '等号', vkCode: 0xBB, flex: 1 },
+    { label: 'Backspace', fullName: '退格键', vkCode: 0x08, flex: 2 }
   ],
-  // Row 1 (Numbers)
+  // QWERTY Row (15u)
   [
-    { label: '`', fullName: '反引号 / 波浪号', vkCode: 0xC0 },
-    { label: '1', vkCode: 0x31 }, { label: '2', vkCode: 0x32 }, { label: '3', vkCode: 0x33 },
-    { label: '4', vkCode: 0x34 }, { label: '5', vkCode: 0x35 }, { label: '6', vkCode: 0x36 },
-    { label: '7', vkCode: 0x37 }, { label: '8', vkCode: 0x38 }, { label: '9', vkCode: 0x39 },
-    { label: '0', vkCode: 0x30 }, { label: '-', fullName: '减号', vkCode: 0xBD },
-    { label: '=', fullName: '等号', vkCode: 0xBB },
-    { label: 'Backspace', fullName: '退格键', vkCode: 0x08, width: 'key-width-200' }
+    { label: 'Tab', fullName: '制表键', vkCode: 0x09, flex: 1.5 },
+    { label: 'Q', vkCode: 0x51, flex: 1 }, { label: 'W', vkCode: 0x57, flex: 1 },
+    { label: 'E', vkCode: 0x45, flex: 1 }, { label: 'R', vkCode: 0x52, flex: 1 },
+    { label: 'T', vkCode: 0x54, flex: 1 }, { label: 'Y', vkCode: 0x59, flex: 1 },
+    { label: 'U', vkCode: 0x55, flex: 1 }, { label: 'I', vkCode: 0x49, flex: 1 },
+    { label: 'O', vkCode: 0x4F, flex: 1 }, { label: 'P', vkCode: 0x50, flex: 1 },
+    { label: '[', fullName: '左方括号', vkCode: 0xDB, flex: 1 },
+    { label: ']', fullName: '右方括号', vkCode: 0xDD, flex: 1 },
+    { label: '\\', fullName: '反斜杠', vkCode: 0xDC, flex: 1.5 }
   ],
-  // Row 2 (QWERTY)
+  // ASDF Row (15u)
   [
-    { label: 'Tab', fullName: '制表键', vkCode: 0x09, width: 'key-width-150' },
-    { label: 'Q', vkCode: 0x51 }, { label: 'W', vkCode: 0x57 }, { label: 'E', vkCode: 0x45 },
-    { label: 'R', vkCode: 0x52 }, { label: 'T', vkCode: 0x54 }, { label: 'Y', vkCode: 0x59 },
-    { label: 'U', vkCode: 0x55 }, { label: 'I', vkCode: 0x49 }, { label: 'O', vkCode: 0x4F },
-    { label: 'P', vkCode: 0x50 }, { label: '[', fullName: '左方括号', vkCode: 0xDB },
-    { label: ']', fullName: '右方括号', vkCode: 0xDD },
-    { label: '\\', fullName: '反斜杠', vkCode: 0xDC, width: 'key-width-150' }
+    { label: 'Caps', fullName: '大写锁定', vkCode: 0x14, flex: 1.75 },
+    { label: 'A', vkCode: 0x41, flex: 1 }, { label: 'S', vkCode: 0x53, flex: 1 },
+    { label: 'D', vkCode: 0x44, flex: 1 }, { label: 'F', vkCode: 0x46, flex: 1 },
+    { label: 'G', vkCode: 0x47, flex: 1 }, { label: 'H', vkCode: 0x48, flex: 1 },
+    { label: 'J', vkCode: 0x4A, flex: 1 }, { label: 'K', vkCode: 0x4B, flex: 1 },
+    { label: 'L', vkCode: 0x4C, flex: 1 }, { label: ';', fullName: '分号', vkCode: 0xBA, flex: 1 },
+    { label: "'", fullName: '单引号', vkCode: 0xDE, flex: 1 },
+    { label: 'Enter', fullName: '回车换行', vkCode: 0x0D, flex: 2.25 }
   ],
-  // Row 3 (ASDF)
+  // ZXCV Row (15u)
   [
-    { label: 'Caps', fullName: '大写锁定', vkCode: 0x14, width: 'key-width-175' },
-    { label: 'A', vkCode: 0x41 }, { label: 'S', vkCode: 0x53 }, { label: 'D', vkCode: 0x44 },
-    { label: 'F', vkCode: 0x46 }, { label: 'G', vkCode: 0x47 }, { label: 'H', vkCode: 0x48 },
-    { label: 'J', vkCode: 0x4A }, { label: 'K', vkCode: 0x4B }, { label: 'L', vkCode: 0x4C },
-    { label: ';', fullName: '分号', vkCode: 0xBA }, { label: "'", fullName: '单引号', vkCode: 0xDE },
-    { label: 'Enter', fullName: '回车换行', vkCode: 0x0D, width: 'key-width-225' }
+    { label: 'Shift', fullName: '左 Shift', vkCode: [0xA0, 0x10], flex: 2.25 },
+    { label: 'Z', vkCode: 0x5A, flex: 1 }, { label: 'X', vkCode: 0x58, flex: 1 },
+    { label: 'C', vkCode: 0x43, flex: 1 }, { label: 'V', vkCode: 0x56, flex: 1 },
+    { label: 'B', vkCode: 0x42, flex: 1 }, { label: 'N', vkCode: 0x4E, flex: 1 },
+    { label: 'M', vkCode: 0x4D, flex: 1 }, { label: ',', fullName: '逗号', vkCode: 0xBC, flex: 1 },
+    { label: '.', fullName: '句号', vkCode: 0xBE, flex: 1 }, { label: '/', fullName: '斜杠', vkCode: 0xBF, flex: 1 },
+    { label: 'Shift', fullName: '右 Shift', vkCode: [0xA1], flex: 2.75 }
   ],
-  // Row 4 (ZXCV)
+  // Bottom Row (15u)
   [
-    { label: 'Shift', fullName: '左 Shift', vkCode: [0xA0, 0x10], width: 'key-width-225' },
-    { label: 'Z', vkCode: 0x5A }, { label: 'X', vkCode: 0x58 }, { label: 'C', vkCode: 0x43 },
-    { label: 'V', vkCode: 0x56 }, { label: 'B', vkCode: 0x42 }, { label: 'N', vkCode: 0x4E },
-    { label: 'M', vkCode: 0x4D }, { label: ',', fullName: '逗号', vkCode: 0xBC },
-    { label: '.', fullName: '句号', vkCode: 0xBE }, { label: '/', fullName: '斜杠', vkCode: 0xBF },
-    { label: 'Shift', fullName: '右 Shift', vkCode: [0xA1], width: 'key-width-275' }
-  ],
-  // Row 5 (Bottom)
-  [
-    { label: 'Ctrl', fullName: '左 Control', vkCode: [0xA2, 0x11], width: 'key-width-125' },
-    { label: 'Win', fullName: 'Windows 徽标键', vkCode: 0x5B, width: 'key-width-125' },
-    { label: 'Alt', fullName: '左 Alt', vkCode: [0xA4, 0x12], width: 'key-width-125' },
-    { label: 'Space', fullName: '空格键', vkCode: 0x20, width: 'key-width-space' },
-    { label: 'Alt', fullName: '右 Alt', vkCode: 0xA5, width: 'key-width-125' },
-    { label: 'Win', fullName: '右 Windows', vkCode: 0x5C, width: 'key-width-125' },
-    { label: 'Menu', fullName: '上下文菜单键', vkCode: 0x5D, width: 'key-width-125' },
-    { label: 'Ctrl', fullName: '右 Control', vkCode: 0xA3, width: 'key-width-125' }
+    { label: 'Ctrl', fullName: '左 Control', vkCode: [0xA2, 0x11], flex: 1.25 },
+    { label: 'Win', fullName: 'Windows 徽标键', vkCode: 0x5B, flex: 1.25 },
+    { label: 'Alt', fullName: '左 Alt', vkCode: [0xA4, 0x12], flex: 1.25 },
+    { label: 'Space', fullName: '空格键', vkCode: 0x20, flex: 6.25 },
+    { label: 'Alt', fullName: '右 Alt', vkCode: 0xA5, flex: 1.25 },
+    { label: 'Win', fullName: '右 Windows', vkCode: 0x5C, flex: 1.25 },
+    { label: 'Menu', fullName: '上下文菜单键', vkCode: 0x5D, flex: 1.25 },
+    { label: 'Ctrl', fullName: '右 Control', vkCode: 0xA3, flex: 1.25 }
   ]
 ];
 
-// ── 编辑功能与方向键区 (Navigation / Editing / Arrows Cluster) ────────────────
-const NAV_CLUSTER: KeyDef[][] = [
-  // F-Row align
+// ── 2. 编辑与方向键区 (Navigation / Editing / Arrows Cluster - 3u) ────────────
+const NAV_SYS_ROW: KeyDef[] = [
+  { label: 'PrtSc', fullName: '屏幕快照 (Print Screen)', vkCode: 0x2C, flex: 1 },
+  { label: 'ScrLk', fullName: '滚动锁定 (Scroll Lock)', vkCode: 0x91, flex: 1 },
+  { label: 'Pause', fullName: '暂停断点 (Pause Break)', vkCode: 0x13, flex: 1 }
+];
+
+const NAV_EDIT_ROWS: KeyDef[][] = [
   [
-    { label: 'PrtSc', fullName: '屏幕快照 (Print Screen)', vkCode: 0x2C },
-    { label: 'ScrLk', fullName: '滚动锁定 (Scroll Lock)', vkCode: 0x91 },
-    { label: 'Pause', fullName: '暂停断点 (Pause Break)', vkCode: 0x13 }
+    { label: 'Ins', fullName: '插入 (Insert)', vkCode: 0x2D, flex: 1 },
+    { label: 'Home', fullName: '行首 (Home)', vkCode: 0x24, flex: 1 },
+    { label: 'PgUp', fullName: '上一页 (Page Up)', vkCode: 0x21, flex: 1 }
   ],
-  // Row 1 align
   [
-    { label: 'Ins', fullName: '插入键 (Insert)', vkCode: 0x2D },
-    { label: 'Home', fullName: '行首键 (Home)', vkCode: 0x24 },
-    { label: 'PgUp', fullName: '上一页 (Page Up)', vkCode: 0x21 }
-  ],
-  // Row 2 align
-  [
-    { label: 'Del', fullName: '删除键 (Delete)', vkCode: 0x2E },
-    { label: 'End', fullName: '行尾键 (End)', vkCode: 0x23 },
-    { label: 'PgDn', fullName: '下一页 (Page Down)', vkCode: 0x22 }
-  ],
-  // Row 3 align (空行隔离)
-  [
-    { label: '', isSpacer: true, vkCode: 0, width: 'key-width-300' }
-  ],
-  // Row 4 align (上方向键)
-  [
-    { label: '', isSpacer: true, vkCode: 0 },
-    { label: '↑', fullName: '向上方向键', vkCode: 0x26 },
-    { label: '', isSpacer: true, vkCode: 0 }
-  ],
-  // Row 5 align (左、下、右方向键)
-  [
-    { label: '←', fullName: '向左方向键', vkCode: 0x25 },
-    { label: '↓', fullName: '向下方向键', vkCode: 0x28 },
-    { label: '→', fullName: '向右方向键', vkCode: 0x27 }
+    { label: 'Del', fullName: '删除 (Delete)', vkCode: 0x2E, flex: 1 },
+    { label: 'End', fullName: '行尾 (End)', vkCode: 0x23, flex: 1 },
+    { label: 'PgDn', fullName: '下一页 (Page Down)', vkCode: 0x22, flex: 1 }
   ]
 ];
 
-// ── 数字小键盘区 (Numpad Cluster) ──────────────────────────────────────────
-const NUMPAD_CLUSTER: KeyDef[][] = [
-  // F-Row align (小键盘指示/留白)
+const NAV_ARROW_ROWS: (KeyDef | { empty: true })[][] = [
   [
-    { label: '', isSpacer: true, vkCode: 0, width: 'key-width-400' }
+    { empty: true },
+    { label: '↑', fullName: '向上方向键', vkCode: 0x26, flex: 1 },
+    { empty: true }
   ],
-  // Row 1 align
   [
-    { label: 'Num', fullName: '小键盘数字锁定 (Num Lock)', vkCode: 0x90 },
-    { label: '/', fullName: '数字除号 (Numpad /)', vkCode: 0x6F },
-    { label: '*', fullName: '数字乘号 (Numpad *)', vkCode: 0x6A },
-    { label: '-', fullName: '数字减号 (Numpad -)', vkCode: 0x6D }
-  ],
-  // Row 2 align
-  [
-    { label: '7', fullName: '数字 7 (Home)', vkCode: 0x67 },
-    { label: '8', fullName: '数字 8 (Up)', vkCode: 0x68 },
-    { label: '9', fullName: '数字 9 (PgUp)', vkCode: 0x69 },
-    { label: '+', fullName: '数字加号 (Numpad +)', vkCode: 0x6B }
-  ],
-  // Row 3 align
-  [
-    { label: '4', fullName: '数字 4 (Left)', vkCode: 0x64 },
-    { label: '5', fullName: '数字 5 (Center)', vkCode: 0x65 },
-    { label: '6', fullName: '数字 6 (Right)', vkCode: 0x66 },
-    { label: '', isSpacer: true, vkCode: 0 }
-  ],
-  // Row 4 align
-  [
-    { label: '1', fullName: '数字 1 (End)', vkCode: 0x61 },
-    { label: '2', fullName: '数字 2 (Down)', vkCode: 0x62 },
-    { label: '3', fullName: '数字 3 (PgDn)', vkCode: 0x63 },
-    { label: 'Enter', fullName: '数字确认键 (Numpad Enter)', vkCode: [0x0D] }
-  ],
-  // Row 5 align
-  [
-    { label: '0', fullName: '数字 0 (Insert)', vkCode: 0x60, width: 'key-width-200' },
-    { label: '.', fullName: '数字小数点 (Numpad .)', vkCode: 0x6E },
-    { label: '', isSpacer: true, vkCode: 0 }
+    { label: '←', fullName: '向左方向键', vkCode: 0x25, flex: 1 },
+    { label: '↓', fullName: '向下方向键', vkCode: 0x28, flex: 1 },
+    { label: '→', fullName: '向右方向键', vkCode: 0x27, flex: 1 }
   ]
+];
+
+// ── 3. 数字小键盘区 (Numpad Cluster - 4u Grid) ────────────────────────────────
+const NUMPAD_GRID_KEYS: (KeyDef & { gridRow?: string; gridCol?: string })[] = [
+  // Row 1
+  { label: 'Num', fullName: '小键盘数字锁定 (Num Lock)', vkCode: 0x90, gridRow: '1', gridCol: '1' },
+  { label: '/', fullName: '数字除号 (Numpad /)', vkCode: 0x6F, gridRow: '1', gridCol: '2' },
+  { label: '*', fullName: '数字乘号 (Numpad *)', vkCode: 0x6A, gridRow: '1', gridCol: '3' },
+  { label: '-', fullName: '数字减号 (Numpad -)', vkCode: 0x6D, gridRow: '1', gridCol: '4' },
+  // Row 2
+  { label: '7', fullName: '数字 7', vkCode: 0x67, gridRow: '2', gridCol: '1' },
+  { label: '8', fullName: '数字 8', vkCode: 0x68, gridRow: '2', gridCol: '2' },
+  { label: '9', fullName: '数字 9', vkCode: 0x69, gridRow: '2', gridCol: '3' },
+  { label: '+', fullName: '数字加号 (Numpad +)', vkCode: 0x6B, gridRow: '2 / span 2', gridCol: '4' },
+  // Row 3
+  { label: '4', fullName: '数字 4', vkCode: 0x64, gridRow: '3', gridCol: '1' },
+  { label: '5', fullName: '数字 5', vkCode: 0x65, gridRow: '3', gridCol: '2' },
+  { label: '6', fullName: '数字 6', vkCode: 0x66, gridRow: '3', gridCol: '3' },
+  // Row 4
+  { label: '1', fullName: '数字 1', vkCode: 0x61, gridRow: '4', gridCol: '1' },
+  { label: '2', fullName: '数字 2', vkCode: 0x62, gridRow: '4', gridCol: '2' },
+  { label: '3', fullName: '数字 3', vkCode: 0x63, gridRow: '4', gridCol: '3' },
+  { label: 'Enter', fullName: '数字确认键', vkCode: [0x0D], gridRow: '4 / span 2', gridCol: '4' },
+  // Row 5
+  { label: '0', fullName: '数字 0', vkCode: 0x60, gridRow: '5', gridCol: '1 / span 2' },
+  { label: '.', fullName: '数字小数点', vkCode: 0x6E, gridRow: '5', gridCol: '3' },
 ];
 
 function formatMicroCount(num: number): string {
@@ -189,48 +183,48 @@ function computeKeyHeatStyle(count: number, intensity: number): KeyHeatStyle {
     };
   }
 
-  // 感官平方根非线性映射，低频键也能产生优雅的淡紫呼吸感
-  const s = Math.min(1, Math.max(0, Math.pow(intensity, 0.48)));
+  // 优雅的平方根非线性感知色阶映射
+  const s = Math.min(1, Math.max(0, Math.pow(intensity, 0.45)));
 
   if (s < 0.28) {
     const t = s / 0.28;
     return {
-      background: `rgba(139, 92, 246, ${0.12 + t * 0.16})`,
-      borderColor: `rgba(167, 139, 250, ${0.25 + t * 0.25})`,
+      background: `rgba(139, 92, 246, ${0.14 + t * 0.16})`,
+      borderColor: `rgba(167, 139, 250, ${0.3 + t * 0.25})`,
       color: 'var(--key-text-level1)',
       subColor: 'var(--key-subtext-level1)',
-      boxShadow: `0 2px 0 rgba(0,0,0,0.06), 0 0 ${4 + t * 6}px rgba(139, 92, 246, ${0.1 + t * 0.15})`,
+      boxShadow: `0 2px 0 rgba(0,0,0,0.06), 0 0 ${4 + t * 6}px rgba(139, 92, 246, ${0.12 + t * 0.15})`,
       level: 1,
     };
   } else if (s < 0.60) {
     const t = (s - 0.28) / 0.32;
     return {
-      background: `linear-gradient(135deg, rgba(147, 51, 234, ${0.38 + t * 0.22}), rgba(192, 38, 211, ${0.28 + t * 0.22}))`,
-      borderColor: `rgba(216, 180, 254, ${0.5 + t * 0.3})`,
+      background: `linear-gradient(135deg, rgba(147, 51, 234, ${0.42 + t * 0.22}), rgba(192, 38, 211, ${0.32 + t * 0.22}))`,
+      borderColor: `rgba(216, 180, 254, ${0.55 + t * 0.3})`,
       color: 'var(--key-text-level2)',
       subColor: 'var(--key-subtext-level2)',
-      boxShadow: `0 2px 0 rgba(0,0,0,0.1), 0 0 ${8 + t * 8}px rgba(168, 85, 247, ${0.25 + t * 0.2})`,
+      boxShadow: `0 2px 0 rgba(0,0,0,0.1), 0 0 ${8 + t * 8}px rgba(168, 85, 247, ${0.28 + t * 0.2})`,
       level: 2,
     };
   } else if (s < 0.88) {
     const t = (s - 0.60) / 0.28;
     return {
-      background: `linear-gradient(135deg, rgba(236, 72, 153, ${0.7 + t * 0.2}), rgba(249, 115, 22, ${0.75 + t * 0.2}))`,
-      borderColor: `rgba(253, 186, 116, ${0.65 + t * 0.3})`,
+      background: `linear-gradient(135deg, rgba(236, 72, 153, ${0.75 + t * 0.2}), rgba(249, 115, 22, ${0.8 + t * 0.2}))`,
+      borderColor: `rgba(253, 186, 116, ${0.7 + t * 0.3})`,
       color: '#ffffff',
-      subColor: 'rgba(255, 255, 255, 0.85)',
-      boxShadow: `0 2px 0 rgba(0,0,0,0.14), 0 0 ${12 + t * 8}px rgba(249, 115, 22, ${0.35 + t * 0.2})`,
+      subColor: 'rgba(255, 255, 255, 0.9)',
+      boxShadow: `0 2px 0 rgba(0,0,0,0.14), 0 0 ${12 + t * 8}px rgba(249, 115, 22, ${0.38 + t * 0.2})`,
       level: 3,
     };
   } else {
-    // 巅峰热力峰值 (Solar Gold / Flame)
+    // 巅峰热力峰值
     const t = (s - 0.88) / 0.12;
     return {
       background: `linear-gradient(135deg, #f43f5e, #f59e0b)`,
       borderColor: '#fef08a',
       color: '#ffffff',
-      subColor: 'rgba(255, 255, 255, 0.95)',
-      boxShadow: `0 2px 0 rgba(180, 83, 9, 0.6), 0 0 ${16 + t * 10}px rgba(245, 158, 11, 0.55)`,
+      subColor: 'rgba(255, 255, 255, 0.98)',
+      boxShadow: `0 2px 0 rgba(180, 83, 9, 0.6), 0 0 ${16 + t * 10}px rgba(245, 158, 11, 0.6)`,
       level: 4,
     };
   }
@@ -250,32 +244,27 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
     let max = 0;
     let best = { label: '', fullName: '', count: 0 };
 
-    const checkCluster = (cluster: KeyDef[][]) => {
-      cluster.forEach(row => {
-        row.forEach(k => {
-          if (k.isSpacer) return;
-          const count = Array.isArray(k.vkCode)
-            ? k.vkCode.reduce((sum, code) => sum + (keyMap[code] || 0), 0)
-            : keyMap[k.vkCode] || 0;
-          if (count > max) max = count;
-          if (count > best.count) {
-            best = { label: k.label, fullName: k.fullName || k.label, count };
-          }
-        });
-      });
+    const inspectKey = (k: KeyDef) => {
+      const count = Array.isArray(k.vkCode)
+        ? k.vkCode.reduce((sum, code) => sum + (keyMap[code] || 0), 0)
+        : keyMap[k.vkCode] || 0;
+      if (count > max) max = count;
+      if (count > best.count) {
+        best = { label: k.label, fullName: k.fullName || k.label, count };
+      }
     };
 
-    checkCluster(MAIN_CLUSTER);
-    checkCluster(NAV_CLUSTER);
-    checkCluster(NUMPAD_CLUSTER);
+    MAIN_F_ROW.forEach((k) => { if ('label' in k) inspectKey(k); });
+    MAIN_ALPHA_ROWS.forEach((row) => row.forEach(inspectKey));
+    NAV_SYS_ROW.forEach(inspectKey);
+    NAV_EDIT_ROWS.forEach((row) => row.forEach(inspectKey));
+    NAV_ARROW_ROWS.forEach((row) => row.forEach((k) => { if ('label' in k) inspectKey(k); }));
+    NUMPAD_GRID_KEYS.forEach(inspectKey);
 
     return { maxCount: Math.max(max, 5), topKey: best };
   }, [keyMap]);
 
   const getHeatData = (keyDef: KeyDef) => {
-    if (keyDef.isSpacer) {
-      return { count: 0, intensity: 0, percentage: '0.0', style: computeKeyHeatStyle(0, 0) };
-    }
     const count = Array.isArray(keyDef.vkCode)
       ? keyDef.vkCode.reduce((sum, code) => sum + (keyMap[code] || 0), 0)
       : keyMap[keyDef.vkCode] || 0;
@@ -285,40 +274,33 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
     return { count, intensity, percentage, style };
   };
 
-  const renderKey = (keyDef: KeyDef, keyIndex: number) => {
-    if (keyDef.isSpacer) {
-      return (
-        <div
-          key={keyIndex}
-          className={`keyboard-heatmap__spacer ${keyDef.width || ''}`}
-        />
-      );
-    }
-
+  const renderKeyCap = (keyDef: KeyDef, customClass = '', customStyle: React.CSSProperties = {}) => {
     const { count, percentage, style } = getHeatData(keyDef);
     const isPeak = topKey.count > 0 && topKey.label === keyDef.label;
 
     return (
       <div
-        key={keyIndex}
-        className={`keyboard-heatmap__key ${keyDef.width || ''} ${count > 0 ? 'has-heat' : ''} ${isPeak ? 'is-peak' : ''}`}
+        key={keyDef.label}
+        className={`keyboard-keycap ${customClass} ${count > 0 ? 'has-heat' : ''} ${isPeak ? 'is-peak' : ''}`}
         style={{
+          flex: keyDef.flex !== undefined ? `${keyDef.flex} 1 0%` : undefined,
           background: style.background,
           borderColor: style.borderColor,
           color: style.color,
           boxShadow: style.boxShadow,
+          ...customStyle,
         }}
       >
-        <span className="keyboard-heatmap__label">{keyDef.label}</span>
+        <span className="keyboard-keycap__label">{keyDef.label}</span>
         {count > 0 && (
           <span
-            className="keyboard-heatmap__micro-count"
+            className="keyboard-keycap__count-pill"
             style={{ color: style.subColor }}
           >
             {formatMicroCount(count)}
           </span>
         )}
-        {isPeak && <span className="keyboard-heatmap__crown">🔥</span>}
+        {isPeak && <span className="keyboard-keycap__crown">🔥</span>}
 
         {/* 浮动玻璃微质感提示卡片 */}
         <div className="keyboard-heatmap__tooltip">
@@ -374,36 +356,105 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         </div>
       </div>
 
-      {/* 机械键盘热力机体 */}
-      <div className={`keyboard-heatmap keyboard-heatmap--${layoutMode}`}>
-        {/* 主键区 (60% Block) */}
+      {/* 机械键盘精工盘体框架 */}
+      <div className={`keyboard-chassis keyboard-chassis--${layoutMode}`}>
+        {/* ── 1. 主键区 (Main Cluster 15u) ── */}
         <div className="keyboard-cluster keyboard-cluster--main">
-          {MAIN_CLUSTER.map((row, rIdx) => (
-            <div key={rIdx} className="keyboard-heatmap__row">
-              {row.map((k, kIdx) => renderKey(k, kIdx))}
-            </div>
-          ))}
-        </div>
+          {/* F 功能键行 */}
+          <div className="keyboard-row keyboard-row--f-main">
+            {MAIN_F_ROW.map((item, idx) => {
+              if ('gap' in item) {
+                return (
+                  <div
+                    key={`gap-${idx}`}
+                    className="keyboard-gap"
+                    style={{ flex: `${item.gap} 1 0%` }}
+                  />
+                );
+              }
+              return renderKeyCap(item, 'keycap--f-row');
+            })}
+          </div>
 
-        {/* 编辑功能与方向键区 (Nav Cluster - 87/104 模式下展示) */}
-        {layoutMode !== '60' && (
-          <div className="keyboard-cluster keyboard-cluster--nav">
-            {NAV_CLUSTER.map((row, rIdx) => (
-              <div key={rIdx} className="keyboard-heatmap__row">
-                {row.map((k, kIdx) => renderKey(k, kIdx))}
+          <div className="keyboard-section-gap" />
+
+          {/* 打字主键区 5 行 */}
+          <div className="keyboard-alpha-block">
+            {MAIN_ALPHA_ROWS.map((row, rIdx) => (
+              <div key={rIdx} className="keyboard-row">
+                {row.map((k) => renderKeyCap(k))}
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── 2. 编辑与方向键区 (Nav Cluster 3u) ── */}
+        {layoutMode !== '60' && (
+          <div className="keyboard-cluster keyboard-cluster--nav">
+            {/* 系统键行 (PrtSc/ScrLk/Pause) */}
+            <div className="keyboard-row keyboard-row--f-nav">
+              {NAV_SYS_ROW.map((k) => renderKeyCap(k, 'keycap--f-row'))}
+            </div>
+
+            <div className="keyboard-section-gap" />
+
+            {/* 编辑功能键 2 行 (Ins/Home/PgUp, Del/End/PgDn) */}
+            <div className="keyboard-edit-block">
+              {NAV_EDIT_ROWS.map((row, rIdx) => (
+                <div key={rIdx} className="keyboard-row">
+                  {row.map((k) => renderKeyCap(k))}
+                </div>
+              ))}
+            </div>
+
+            <div className="keyboard-arrow-divider" />
+
+            {/* 倒 T 型方向键区 (↑, ←↓→) */}
+            <div className="keyboard-arrow-block">
+              {NAV_ARROW_ROWS.map((row, rIdx) => (
+                <div key={rIdx} className="keyboard-row">
+                  {row.map((item, cIdx) => {
+                    if ('empty' in item) {
+                      return <div key={`empty-${cIdx}`} className="keyboard-gap" style={{ flex: '1 1 0%' }} />;
+                    }
+                    return renderKeyCap(item, 'keycap--arrow');
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
-        {/* 数字小键盘区 (Numpad Cluster - 104 模式下展示) */}
+        {/* ── 3. 数字小键盘区 (Numpad Cluster 4u) ── */}
         {layoutMode === '104' && (
           <div className="keyboard-cluster keyboard-cluster--numpad">
-            {NUMPAD_CLUSTER.map((row, rIdx) => (
-              <div key={rIdx} className="keyboard-heatmap__row">
-                {row.map((k, kIdx) => renderKey(k, kIdx))}
+            {/* 小键盘顶部指示灯面板 */}
+            <div className="keyboard-numpad-status">
+              <div className="numpad-led-badge">
+                <span className="numpad-led-dot active" />
+                <span className="numpad-led-label">NUM</span>
               </div>
-            ))}
+              <div className="numpad-led-badge">
+                <span className="numpad-led-dot" />
+                <span className="numpad-led-label">CAPS</span>
+              </div>
+              <div className="numpad-led-badge">
+                <span className="numpad-led-dot" />
+                <span className="numpad-led-label">SCROLL</span>
+              </div>
+            </div>
+
+            <div className="keyboard-section-gap" />
+
+            {/* 标准 4 列 5 行小键盘网格 */}
+            <div className="keyboard-numpad-grid">
+              {NUMPAD_GRID_KEYS.map((k) =>
+                renderKeyCap(k, 'keycap--numpad', {
+                  gridRow: k.gridRow,
+                  gridColumn: k.gridCol,
+                })
+              )}
+            </div>
           </div>
         )}
       </div>

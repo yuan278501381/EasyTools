@@ -1,33 +1,35 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * KeyboardHeatmap.css — 世界级机械键盘热力图设计系统 (Dark / Light 双模支持)
+ * KeyboardHeatmap.css — 工业级机械键盘热力图设计系统 (Dark / Light 双模支持)
  * ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --key-frame-bg: rgba(20, 18, 30, 0.65);
-  --key-frame-border: rgba(255, 255, 255, 0.08);
-  --key-bg-idle: rgba(255, 255, 255, 0.035);
-  --key-border-idle: rgba(255, 255, 255, 0.07);
-  --key-shadow-idle: 0 2px 0 rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --key-text-idle: rgba(255, 255, 255, 0.45);
-  --key-text-level1: #e9d5ff;
-  --key-subtext-level1: rgba(233, 213, 255, 0.7);
+  --key-frame-bg: linear-gradient(180deg, rgba(22, 20, 32, 0.82) 0%, rgba(16, 14, 24, 0.92) 100%);
+  --key-frame-border: rgba(255, 255, 255, 0.09);
+  --key-frame-inset: inset 0 1px 1px rgba(255, 255, 255, 0.08), inset 0 -1px 2px rgba(0, 0, 0, 0.6);
+  --key-bg-idle: #242232;
+  --key-border-idle: rgba(255, 255, 255, 0.08);
+  --key-shadow-idle: 0 2px 0 #12101a, 0 3px 6px rgba(0, 0, 0, 0.35);
+  --key-text-idle: #cbd5e1;
+  --key-text-level1: #f3e8ff;
+  --key-subtext-level1: rgba(243, 232, 255, 0.75);
   --key-text-level2: #ffffff;
-  --key-subtext-level2: rgba(255, 255, 255, 0.85);
+  --key-subtext-level2: rgba(255, 255, 255, 0.9);
   --key-tooltip-bg: rgba(24, 22, 34, 0.96);
   --key-tooltip-text: #f8fafc;
   --key-legend-bg: rgba(255, 255, 255, 0.04);
 }
 
 [data-theme="light"] {
-  --key-frame-bg: #f8f8fc;
-  --key-frame-border: rgba(0, 0, 0, 0.06);
+  --key-frame-bg: linear-gradient(180deg, #f1f3f9 0%, #e5e8f0 100%);
+  --key-frame-border: rgba(0, 0, 0, 0.08);
+  --key-frame-inset: inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -1px 2px rgba(0, 0, 0, 0.05);
   --key-bg-idle: #ffffff;
-  --key-border-idle: rgba(0, 0, 0, 0.09);
-  --key-shadow-idle: 0 1.5px 0 rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.02);
-  --key-text-idle: #71717a;
-  --key-text-level1: #6b21a8;
+  --key-border-idle: rgba(0, 0, 0, 0.12);
+  --key-shadow-idle: 0 2px 0 #d1d5db, 0 2px 4px rgba(0, 0, 0, 0.04);
+  --key-text-idle: #334155;
+  --key-text-level1: #581c87;
   --key-subtext-level1: #7e22ce;
-  --key-text-level2: #4c1d95;
+  --key-text-level2: #3b0764;
   --key-subtext-level2: #6b21a8;
   --key-tooltip-bg: #ffffff;
   --key-tooltip-text: #18181b;
@@ -98,12 +100,12 @@
   box-shadow: 0 1px 3px var(--primary-glow);
 }
 
-/* 键盘本体框架 */
-.keyboard-heatmap {
+/* 机械键盘精工盘体框架 (Zero Overflow, 100% Fit) */
+.keyboard-chassis {
   display: flex;
   flex-direction: row;
   gap: 14px;
-  padding: 16px 18px;
+  padding: 16px 16px;
   background: var(--key-frame-bg);
   border: 1px solid var(--key-frame-border);
   border-radius: var(--radius-lg);
@@ -112,15 +114,14 @@
   box-sizing: border-box;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.04);
-  overflow-x: auto;
+  box-shadow: var(--key-frame-inset), 0 8px 24px rgba(0, 0, 0, 0.1);
+  overflow-x: hidden;
 }
 
 /* 键盘三大区域 Cluster 拓扑 */
 .keyboard-cluster {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-width: 0;
 }
 
@@ -136,85 +137,159 @@
   flex: 4 1 0%;
 }
 
-.keyboard-heatmap__row {
+/* 机械键盘 F 区与主打字区之间的标准下沉留白 */
+.keyboard-section-gap {
+  height: 8px;
+  flex-shrink: 0;
+}
+
+/* 方向键与编辑键之间的垂直弹性填充 */
+.keyboard-arrow-divider {
+  flex: 1 1 0%;
+  min-height: 8px;
+}
+
+/* 键盘行容器 */
+.keyboard-row {
   display: flex;
-  gap: 5px;
+  gap: 4px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.keyboard-alpha-block,
+.keyboard-edit-block,
+.keyboard-arrow-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.keyboard-gap {
+  min-width: 0;
+  height: 32px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 数字小键盘标准网格 */
+.keyboard-numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(5, 36px);
+  gap: 4px;
   width: 100%;
 }
 
-.keyboard-heatmap__key {
+/* 小键盘状态指示灯面板 */
+.keyboard-numpad-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 32px;
+  padding: 0 6px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--key-frame-border);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .keyboard-numpad-status {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.numpad-led-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8.5px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+}
+
+.numpad-led-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.3;
+}
+
+.numpad-led-dot.active {
+  background: #10b981;
+  opacity: 1;
+  box-shadow: 0 0 6px #10b981;
+}
+
+/* 键帽本体 (PBT Double-Shot Tactile Aesthetic) */
+.keyboard-keycap {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 36px;
   flex: 1 1 0%;
   min-width: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   border-width: 1px;
   border-style: solid;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Segoe UI', monospace;
-  font-size: clamp(0.68rem, 0.88vw, 0.84rem);
+  font-family: 'JetBrains Mono', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: clamp(0.70rem, 0.85vw, 0.82rem);
   font-weight: 600;
-  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease, border-color 0.16s ease;
+  transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.14s ease, border-color 0.14s ease;
   cursor: pointer;
   overflow: visible;
-  padding: 2px 3px;
+  padding: 2px 2px;
   box-sizing: border-box;
+  user-select: none;
 }
 
-/* 占位间隔键 */
-.keyboard-heatmap__spacer {
-  visibility: hidden;
-  pointer-events: none;
-  height: 44px;
-  flex: 1 1 0%;
+.keycap--f-row {
+  height: 32px;
+  font-size: 0.72rem;
+  border-radius: 5px;
 }
 
-/* 键盘按键与间距物理比例 */
-.key-spacer-50 { flex: 0.5 1 0%; }
-.key-spacer-100 { flex: 1 1 0%; }
-.key-width-100 { flex: 1 1 0%; }
-.key-width-125 { flex: 1.25 1 0%; }
-.key-width-150 { flex: 1.5 1 0%; }
-.key-width-175 { flex: 1.75 1 0%; }
-.key-width-200 { flex: 2 1 0%; }
-.key-width-225 { flex: 2.25 1 0%; }
-.key-width-250 { flex: 2.5 1 0%; }
-.key-width-275 { flex: 2.75 1 0%; }
-.key-width-300 { flex: 3 1 0%; }
-.key-width-400 { flex: 4 1 0%; }
-.key-width-space { flex: 6.25 1 0%; }
+.keycap--arrow {
+  font-size: 0.86rem;
+}
 
-.keyboard-heatmap__label {
+.keycap--numpad {
+  height: 100%;
+}
+
+.keyboard-keycap__label {
   position: relative;
   z-index: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 
-.keyboard-heatmap__micro-count {
+.keyboard-keycap__count-pill {
   position: absolute;
-  right: 5px;
+  right: 3px;
   bottom: 2px;
-  font-size: 9px;
-  font-weight: 500;
-  font-family: ui-monospace, monospace;
-  opacity: 0.85;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: ui-monospace, 'Consolas', monospace;
+  opacity: 0.9;
   pointer-events: none;
+  line-height: 1;
 }
 
-.keyboard-heatmap__crown {
+.keyboard-keycap__crown {
   position: absolute;
   top: -8px;
   right: -4px;
-  font-size: 13px;
+  font-size: 11px;
   animation: crownBob 2s infinite ease-in-out;
   pointer-events: none;
-  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.5));
+  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.6));
+  z-index: 5;
 }
 
 @keyframes crownBob {
@@ -223,11 +298,11 @@
 }
 
 /* 悬停弹性微升动效 */
-.keyboard-heatmap__key:hover {
-  transform: translateY(-3px) scale(1.05);
+.keyboard-keycap:hover {
+  transform: translateY(-2.5px);
   z-index: 20;
   border-color: var(--primary) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 12px var(--primary-glow) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22), 0 0 10px var(--primary-glow) !important;
 }
 
 /* 浮动提示卡片 (Floating Tooltip Badge) */
@@ -292,7 +367,7 @@
   font-size: 11px;
 }
 
-.keyboard-heatmap__key:hover .keyboard-heatmap__tooltip {
+.keyboard-keycap:hover .keyboard-heatmap__tooltip {
   visibility: visible;
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
