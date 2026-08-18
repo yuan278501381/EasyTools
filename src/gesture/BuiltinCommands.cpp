@@ -93,6 +93,11 @@ void toggleTransparency(HWND hwnd) {
 
 }  // namespace
 
+bool BuiltinCommandDispatcher::hasHandler(BuiltinCommand cmd) const {
+    std::shared_lock lock(m_mutex);
+    return m_handlers.find(cmd) != m_handlers.end();
+}
+
 bool BuiltinCommandDispatcher::dispatchAppCommand(BuiltinCommand cmd) const {
     Handler handler;
     {
@@ -111,6 +116,12 @@ bool BuiltinCommandDispatcher::dispatchAppCommand(BuiltinCommand cmd) const {
 
 void BuiltinCommandDispatcher::execute(BuiltinCommand cmd, void* targetWindowPtr) const {
     easy::core::TraceId::Scope scope;
+
+    // 若注册了自定义 Handler (如应用级命令路由或测试 Mock 拦截)，优先通过 Handler 分发
+    if (hasHandler(cmd)) {
+        dispatchAppCommand(cmd);
+        return;
+    }
 
     switch (cmd) {
         // ── 窗口管理 (精准作用于鼠标下方目标窗口) ─────────────────────────

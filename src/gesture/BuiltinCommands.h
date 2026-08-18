@@ -40,6 +40,9 @@ public:
     /// 线程安全: 仅读取 m_handlers (注册发生在启动阶段，执行发生在手势线程)。
     void execute(BuiltinCommand cmd, void* targetWindow = nullptr) const;
 
+    /// 查询是否已注册特定命令的 Handler 回调
+    bool hasHandler(BuiltinCommand cmd) const;
+
 private:
     BuiltinCommandDispatcher() = default;
     BuiltinCommandDispatcher(const BuiltinCommandDispatcher&) = delete;
