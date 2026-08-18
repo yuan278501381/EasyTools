@@ -187,22 +187,27 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
+  padding-top: 4px;
 }
 
 .general-accent-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--card-border);
   background: var(--input-bg);
   color: var(--text-secondary);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
+  flex: 1 1 auto;
+  min-width: 100px;
 }
 
 .general-accent-btn:hover {

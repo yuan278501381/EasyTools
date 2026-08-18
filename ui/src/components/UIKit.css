@@ -137,6 +137,7 @@
   justify-content: space-between;
   padding: var(--spacing-sm) 0;
   min-height: 44px;
+  gap: var(--spacing-md);
 }
 
 .uikit-setting-row + .uikit-setting-row {
@@ -147,6 +148,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 200px;
+  min-width: 160px;
 }
 
 .uikit-setting-row__label {
@@ -158,11 +161,30 @@
 .uikit-setting-row__desc {
   font-size: 0.78rem;
   color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .uikit-setting-row__control {
   flex-shrink: 0;
-  margin-left: var(--spacing-lg);
+  margin-left: auto;
+}
+
+/* 垂直布局模式 (如大色块/宽选择器组件) */
+.uikit-setting-row--vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) 0;
+}
+
+.uikit-setting-row--vertical .uikit-setting-row__info {
+  width: 100%;
+  flex: none;
+}
+
+.uikit-setting-row--vertical .uikit-setting-row__control {
+  margin-left: 0;
+  width: 100%;
 }
 
 /* ── Setting Group ────────────────────────────────────────────────────────── */

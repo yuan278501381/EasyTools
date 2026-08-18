@@ -71,15 +71,28 @@ interface SettingRowProps {
   label: ReactNode;
   description?: string;
   children: ReactNode;
+  layout?: 'horizontal' | 'vertical' | 'auto';
+  className?: string;
 }
 
-export const SettingRow: FC<SettingRowProps> = ({ label, description, children }) => {
+export const SettingRow: FC<SettingRowProps> = ({
+  label,
+  description,
+  children,
+  layout = 'auto',
+  className = ''
+}) => {
   const id = useId();
   const labelId = `${id}-label`;
   const descriptionId = description ? `${id}-description` : undefined;
   return (
     <ControlA11yContext.Provider value={{ labelledBy: labelId, describedBy: descriptionId }}>
-      <div className="uikit-setting-row" role="group" aria-labelledby={labelId} aria-describedby={descriptionId}>
+      <div
+        className={`uikit-setting-row uikit-setting-row--${layout} ${className}`}
+        role="group"
+        aria-labelledby={labelId}
+        aria-describedby={descriptionId}
+      >
         <div className="uikit-setting-row__info">
           <span id={labelId} className="uikit-setting-row__label">{label}</span>
           {description && <span id={descriptionId} className="uikit-setting-row__desc">{description}</span>}

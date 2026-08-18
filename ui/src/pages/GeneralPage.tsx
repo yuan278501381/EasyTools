@@ -288,7 +288,7 @@ export const GeneralPage: FC = () => {
               ]}
             />
           </SettingRow>
-          <SettingRow label={t('general.accentColor')} description={t('general.accentColorDesc')}>
+          <SettingRow label={t('general.accentColor')} description={t('general.accentColorDesc')} layout="vertical">
             <div className="general-accent-swatches">
               {ACCENT_PRESETS.map((preset) => {
                 const isSelected = accent === preset.id;

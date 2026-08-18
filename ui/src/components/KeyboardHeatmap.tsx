@@ -453,7 +453,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
           <div className="keyboard-cluster keyboard-cluster--nav">
             {/* 系统键行 (PrtSc/ScrLk/Pause, Tooltip 向下翻转) */}
             <div className="keyboard-row keyboard-row--f-nav">
-              {NAV_SYS_ROW.map((k) => renderKeyCap(k, 'keycap--f-row', {}, 'bottom'))}
+              {NAV_SYS_ROW.map((k) => renderKeyCap(k, 'keycap--f-row keycap--nav-sys', {}, 'bottom'))}
             </div>
 
             <div className="keyboard-section-gap" />
@@ -462,7 +462,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
             <div className="keyboard-edit-block">
               {NAV_EDIT_ROWS.map((row, rIdx) => (
                 <div key={rIdx} className="keyboard-row">
-                  {row.map((k) => renderKeyCap(k, '', {}, rIdx === 0 ? 'bottom' : 'top'))}
+                  {row.map((k) => renderKeyCap(k, 'keycap--nav-edit', {}, rIdx === 0 ? 'bottom' : 'top'))}
                 </div>
               ))}
             </div>

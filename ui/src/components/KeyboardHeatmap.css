@@ -200,33 +200,37 @@
   align-items: center;
   justify-content: space-around;
   height: 32px;
-  padding: 0 6px;
-  background: rgba(0, 0, 0, 0.12);
+  padding: 0 4px;
+  background: rgba(0, 0, 0, 0.15);
   border: 1px solid var(--key-frame-border);
   border-radius: 6px;
   box-sizing: border-box;
+  gap: 2px;
 }
 
 [data-theme="light"] .keyboard-numpad-status {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 .numpad-led-badge {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 8.5px;
+  gap: 3px;
+  font-size: 7.5px;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
+  letter-spacing: -0.02em;
 }
 
 .numpad-led-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--text-muted);
-  opacity: 0.3;
+  background: #94a3b8;
+  opacity: 0.4;
+  flex-shrink: 0;
 }
 
 .numpad-led-dot.active {
@@ -261,8 +265,23 @@
 
 .keycap--f-row {
   height: 32px;
-  font-size: 0.72rem;
+  font-size: 0.70rem;
   border-radius: 5px;
+}
+
+.keycap--nav-sys {
+  padding: 1px 1px;
+}
+
+.keycap--nav-sys .keyboard-keycap__label {
+  font-size: 0.58rem !important;
+  letter-spacing: -0.04em !important;
+  font-weight: 700;
+}
+
+.keycap--nav-edit .keyboard-keycap__label {
+  font-size: 0.68rem;
+  letter-spacing: -0.02em;
 }
 
 .keycap--arrow {
@@ -280,6 +299,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.1;
+  max-width: 100%;
 }
 
 .keyboard-keycap__count-pill {
