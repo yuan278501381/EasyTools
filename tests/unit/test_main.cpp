@@ -136,6 +136,18 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight})), "DR");
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "DR-R");
 
+    // 乱晃反悔与原地打圈自动取消判定
+    GestureRecognizer scribbleRecognizer;
+    scribbleRecognizer.reset();
+    std::vector<TrackPoint> scribblePoints = {
+        {0, 0}, {50, 0}, {0, 0}, {50, 0}, {0, 0}, {50, 0}, {0, 0}
+    };
+    for (const auto& p : scribblePoints) {
+        scribbleRecognizer.addPoint(p.x, p.y);
+    }
+    EXPECT_TRUE(scribbleRecognizer.isScribbleCanceled());
+    EXPECT_FALSE(scribbleRecognizer.finalize().has_value());
+
     // HEX 颜色解析测试
     auto parsed = easy::core::parseHexColor("#FF0000");
     EXPECT_EQ(parsed.r, 1.0f);

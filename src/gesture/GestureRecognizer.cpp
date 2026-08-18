@@ -148,7 +148,51 @@ std::vector<Direction> GestureRecognizer::simplifyDirections(const std::vector<D
     return current;
 }
 
+bool GestureRecognizer::isScribbleCanceled() const {
+    if (!m_config.enableScribbleCancel || m_points.size() < 6) return false;
+
+    // 1. 计算总移动路程与包围盒大小
+    double totalDist = 0.0;
+    int minX = m_points[0].x, maxX = m_points[0].x;
+    int minY = m_points[0].y, maxY = m_points[0].y;
+
+    for (size_t i = 1; i < m_points.size(); ++i) {
+        totalDist += calculateDistance(m_points[i - 1].x, m_points[i - 1].y, m_points[i].x, m_points[i].y);
+        minX = std::min(minX, m_points[i].x);
+        maxX = std::max(maxX, m_points[i].x);
+        minY = std::min(minY, m_points[i].y);
+        maxY = std::max(maxY, m_points[i].y);
+    }
+
+    double bboxDiag = calculateDistance(minX, minY, maxX, maxY);
+
+    // 2. 检测方向频繁反转次数（乱晃：左<->右 或 上<->下 往复振荡）
+    int reversals = 0;
+    for (size_t i = 2; i < m_directions.size(); ++i) {
+        Direction prev = m_directions[i - 2];
+        Direction curr = m_directions[i - 1];
+        Direction next = m_directions[i];
+        if (prev == next && prev != curr) {
+            reversals++;
+        }
+    }
+
+    // 乱晃反悔判定准则：
+    // 条件 A: 往复反转 >= 3 次 (如左-右-左-右)
+    // 条件 B: 轨迹总距离长 (>100px) 但局限在极小包围盒内 (<50px) 且有反转 >= 2 次 (原地乱涂/打圈)
+    if (reversals >= 3) return true;
+    if (totalDist > 100.0 && bboxDiag < 50.0 && reversals >= 2) return true;
+
+    return false;
+}
+
 std::optional<GestureResult> GestureRecognizer::finalize() {
+    // 0. 乱晃反悔检测：若检测到快速乱晃擦除行为，自动放弃识别
+    if (isScribbleCanceled()) {
+        LOG_INFO("手势识别: 检测到乱晃/原地反悔操作，已自动取消手势执行");
+        return std::nullopt;
+    }
+
     // 将最后一个正在累积的方向段加入
     auto rawDirs = m_directions;
     if (m_currentDirection != Direction::None) {

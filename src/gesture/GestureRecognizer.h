@@ -112,6 +112,7 @@ struct RecognizerConfig {
     int samplingInterval    = 5;       // 采样间隔（像素），过滤过于密集的点
     double angleToleranceDeg = 22.5;   // 角度容差（度），±容差内归类为同一方向
     int maxDirections       = 10;      // 最大方向段数量（超过视为无效手势）
+    bool enableScribbleCancel = true;   // 是否开启快速乱晃/打圈反悔取消手势
 };
 
 class GestureRecognizer {
@@ -130,6 +131,9 @@ public:
 
     /// 获取当前已识别的方向序列（用于实时轨迹预览）
     std::vector<Direction> currentDirections() const;
+
+    /// 检测当前轨迹是否属于乱晃/原地打圈反悔取消行为
+    bool isScribbleCanceled() const;
 
     /// 获取当前轨迹点数量
     size_t pointCount() const { return m_points.size(); }

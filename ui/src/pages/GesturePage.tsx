@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button, TextInput } from '../components/UIKit';
 import { GestureEditorModal } from '../components/GestureEditorModal';
+import { GestureStrokePreview } from '../components/GestureStrokePreview';
 import { GestureGuide } from '../components/GestureGuide';
 import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import {
@@ -24,7 +25,6 @@ import {
   makeRuleId,
 } from '../components/scopeModel';
 import {
-  codeToArrows,
   ACTION_TYPE_KEYS,
   BUILTIN_COMMAND_KEYS,
   TRIGGER_ITEM_DEFINITIONS,
@@ -102,6 +102,8 @@ export const GesturePage: FC = () => {
   const [enabled, setEnabled] = useState(true);
   const [trailVisible, setTrailVisible] = useState(true);
   const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(false);
+  const [scribbleCancel, setScribbleCancel] = useState(true);
+  const [inFlightCompass, setInFlightCompass] = useState(true);
   const [triggerButton, setTriggerButton] = useState('right');
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#8B5CF6');
@@ -518,6 +520,30 @@ export const GesturePage: FC = () => {
     }
   };
 
+  const handleToggleScribbleCancel = async (checked: boolean) => {
+    setScribbleCancel(checked);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { enableScribbleCancel: checked });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
+    } catch (err) {
+      setScribbleCancel(!checked);
+      console.error('Failed to update scribble cancel state:', err);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const handleToggleInFlightCompass = async (checked: boolean) => {
+    setInFlightCompass(checked);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { enableInFlightCompass: checked });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
+    } catch (err) {
+      setInFlightCompass(!checked);
+      console.error('Failed to update in-flight compass state:', err);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
   const handleTriggerChange = async (value: string) => {
     const previous = triggerButton;
     setTriggerButton(value);
@@ -764,6 +790,20 @@ export const GesturePage: FC = () => {
             description={tr('gesture.autoBypassFullscreenDesc')}
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
+          />
+          <Toggle
+            id="gesture-scribble-cancel"
+            label={tr('gesture.scribbleCancel')}
+            description={tr('gesture.scribbleCancelDesc')}
+            checked={scribbleCancel}
+            onChange={handleToggleScribbleCancel}
+          />
+          <Toggle
+            id="gesture-inflight-compass"
+            label={tr('gesture.inFlightCompass')}
+            description={tr('gesture.inFlightCompassDesc')}
+            checked={inFlightCompass}
+            onChange={handleToggleInFlightCompass}
           />
           <SettingRow label={tr('gesture.triggerButton')} description={tr('gesture.triggerButtonDesc')}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '380px' }}>
@@ -1014,12 +1054,9 @@ export const GesturePage: FC = () => {
                               />
                             </span>
 
-                            {/* 箭头视觉展示 (悬停 Tooltip 包含底层编码供参考) */}
-                            <span
-                              className="gesture-table__col gesture-table__col--arrow"
-                              title={`手势: ${codeToArrows(m.gestureCode) || m.gestureCode} (底层编码: ${m.gestureCode})`}
-                            >
-                              <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
+                            {/* 动态矢量手势轨迹展示 (WGestures 2 动效轨迹与悬停运笔演示) */}
+                            <span className="gesture-table__col gesture-table__col--arrow">
+                              <GestureStrokePreview code={m.gestureCode} size={34} />
                             </span>
 
                             {/* 动作名称 */}

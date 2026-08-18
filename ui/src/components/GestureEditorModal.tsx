@@ -12,6 +12,7 @@ import { useState, type FC } from 'react';
 import { Modal, Field, Button, Select, TextInput, Toggle } from './UIKit';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { GestureDrawCanvas } from './GestureDrawCanvas';
+import { GestureStrokePreview } from './GestureStrokePreview';
 import { useTranslation } from 'react-i18next';
 import { Zap, VolumeX, Sliders, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 import {
@@ -124,9 +125,12 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
           onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
         />
         {code && (
-          <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
             <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t('gestureEditor.recognizedGesture')}:</span>
-            <span className="gesture-arrow" title={`底层编码: ${code}`}>{codeToArrows(code)}</span>
+            <GestureStrokePreview code={code} size={36} autoAnimate />
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--primary)' }}>
+              {codeToArrows(code)}
+            </span>
           </div>
         )}
       </Field>

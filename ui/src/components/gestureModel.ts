@@ -75,13 +75,27 @@ export const BUILTIN_COMMAND_KEYS = [
 ] as const;
 
 export const CODE_TO_ARROWS: Record<string, string> = {
-  L: '←', R: '→', U: '↑', D: '↓', UL: '↖', UR: '↗', DL: '↙', DR: '↘',
+  L: '←', R: '→', U: '↑', D: '↓',
+  UL: '↖', UR: '↗', DL: '↙', DR: '↘',
+  LU: '↖', RU: '↗', LD: '↙', RD: '↘',
 };
 
-/** 把方向编码 (如 "U-R") 渲染为箭头串, 用于实时预览。 */
+/** 把方向编码 (如 "U-R", "LU") 渲染为箭头串, 用于实时预览与无障碍提示。 */
 export function codeToArrows(code: string): string {
   if (!code) return '';
-  return code.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
+  const upper = code.trim().toUpperCase();
+  if (upper.includes('-')) {
+    return upper.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
+  }
+  if (CODE_TO_ARROWS[upper]) {
+    return CODE_TO_ARROWS[upper];
+  }
+  // 逐字符解析 (如 "DR" -> "↓ →")
+  const chars = upper.split('');
+  if (chars.every((c) => CODE_TO_ARROWS[c])) {
+    return chars.map((c) => CODE_TO_ARROWS[c]).join(' ');
+  }
+  return upper;
 }
 
 export const GESTURE_CODE_PATTERN = /^[UDLR]{1,3}(-[UDLR]{1,3})*$/;
