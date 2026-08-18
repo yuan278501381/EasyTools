@@ -57,6 +57,8 @@ private:
     bool QueryUsnJournal();
     void EnumerateFilesViaDirectoryWalk(char driveLetter);
     std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
+    void rebuildFolderPaths();
 
+    std::unordered_map<DWORDLONG, std::wstring> m_FolderPaths;
     bool m_IsFallbackDirectoryWalk{false};
 };

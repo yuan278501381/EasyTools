@@ -249,6 +249,10 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
     }
 
     flushBatch();
+    {
+        std::unique_lock lock(m_MapMutex);
+        rebuildFolderPaths();
+    }
     spdlog::info("Directory walk enumeration completed. Indexed {} files on drive {}:", count, driveLetter);
 }
 
@@ -298,8 +302,62 @@ void MftParser::EnumerateFiles() {
         }
         med.StartFileReferenceNumber = *pUsn;
     }
+    {
+        std::unique_lock lock(m_MapMutex);
+        rebuildFolderPaths();
+    }
     m_IndexGeneration.fetch_add(1, std::memory_order_release);
     spdlog::info("MFT enumeration completed. Indexed {} files.", count);
+}
+
+void MftParser::rebuildFolderPaths() {
+    std::unordered_map<DWORDLONG, std::wstring> folderPaths;
+    folderPaths.reserve(std::min<size_t>(m_FileMap.size() / 4, 65536));
+
+    auto getFolderFullPath = [&](auto& self, DWORDLONG ref) -> const std::wstring& {
+        auto it = folderPaths.find(ref);
+        if (it != folderPaths.end()) return it->second;
+
+        auto fileIt = m_FileMap.find(ref);
+        if (fileIt == m_FileMap.end()) {
+            static const std::wstring emptyPath;
+            return emptyPath;
+        }
+
+        const auto& rec = *fileIt->second;
+        if (rec.parentFileReferenceNumber == ref || rec.parentFileReferenceNumber == 0) {
+            std::wstring rootPath;
+            rootPath += static_cast<wchar_t>(m_DriveLetter);
+            rootPath += L":";
+            if (!rec.fileName.empty() && rec.fileName != L".") {
+                rootPath += L"\\";
+                rootPath += rec.fileName;
+            }
+            return folderPaths[ref] = std::move(rootPath);
+        }
+
+        const std::wstring& parentPath = self(self, rec.parentFileReferenceNumber);
+        std::wstring curPath;
+        if (parentPath.empty()) {
+            curPath += static_cast<wchar_t>(m_DriveLetter);
+            curPath += L":\\";
+            curPath += rec.fileName;
+        } else {
+            curPath = parentPath;
+            if (!curPath.empty() && curPath.back() != L'\\') curPath += L'\\';
+            curPath += rec.fileName;
+        }
+        return folderPaths[ref] = std::move(curPath);
+    };
+
+    for (const auto& [id, record] : m_FileMap) {
+        if (record->isDirectory) {
+            getFolderFullPath(getFolderFullPath, id);
+        }
+    }
+
+    m_FolderPaths = std::move(folderPaths);
+    spdlog::info("Pre-computed {} folder paths for drive {}:", m_FolderPaths.size(), m_DriveLetter);
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit) {
@@ -396,26 +454,42 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
 }
 
 std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
+    const auto it = m_FileMap.find(fileReferenceNumber);
+    if (it == m_FileMap.end()) return L"";
+    const auto& record = *it->second;
+    if (record.isDirectory) {
+        auto folderIt = m_FolderPaths.find(fileReferenceNumber);
+        if (folderIt != m_FolderPaths.end()) return folderIt->second;
+    } else {
+        auto folderIt = m_FolderPaths.find(record.parentFileReferenceNumber);
+        if (folderIt != m_FolderPaths.end()) {
+            std::wstring full = folderIt->second;
+            if (!full.empty() && full.back() != L'\\') full += L'\\';
+            full += record.fileName;
+            return full;
+        }
+    }
+
+    // 备用全链路递归构建
     std::vector<std::wstring> parts;
     DWORDLONG current = fileReferenceNumber;
-    // 防御损坏或循环的父引用；NTFS 正常路径远低于此深度。
     for (size_t depth = 0; depth < 512; ++depth) {
-        const auto it = m_FileMap.find(current);
-        if (it == m_FileMap.end()) break;
-        const auto& record = *it->second;
-        if (!record.fileName.empty() && record.fileName != L".") {
-            parts.push_back(record.fileName);
+        const auto fit = m_FileMap.find(current);
+        if (fit == m_FileMap.end()) break;
+        const auto& rec = *fit->second;
+        if (!rec.fileName.empty() && rec.fileName != L".") {
+            parts.push_back(rec.fileName);
         }
-        if (record.parentFileReferenceNumber == current) break;
-        current = record.parentFileReferenceNumber;
+        if (rec.parentFileReferenceNumber == current) break;
+        current = rec.parentFileReferenceNumber;
     }
 
     std::wstring path;
     path += static_cast<wchar_t>(m_DriveLetter);
     path += L":\\";
-    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+    for (auto pit = parts.rbegin(); pit != parts.rend(); ++pit) {
         if (!path.empty() && path.back() != L'\\') path += L'\\';
-        path += *it;
+        path += *pit;
     }
     return path;
 }

@@ -9,6 +9,7 @@
 #include <thread>
 #include <atomic>
 #include <vector>
+#include <future>
 #include <sddl.h>
 #include <shlobj.h>
 #include <spdlog/spdlog.h>
@@ -166,9 +167,17 @@ nlohmann::json ProcessSearchQuery(const std::wstring& wQuery) {
             if (w.joinable()) w.join();
         }
     } else {
-        std::vector<SearchResult> results;
+        std::vector<std::future<std::vector<SearchResult>>> futures;
+        futures.reserve(g_MftParsers.size());
         for (auto& parser : g_MftParsers) {
-            auto volumeResults = parser->Search(wQuery, 50);
+            futures.push_back(std::async(std::launch::async, [&parser, &wQuery]() {
+                return parser->Search(wQuery, 50);
+            }));
+        }
+
+        std::vector<SearchResult> results;
+        for (auto& f : futures) {
+            auto volumeResults = f.get();
             results.insert(results.end(),
                            std::make_move_iterator(volumeResults.begin()),
                            std::make_move_iterator(volumeResults.end()));
