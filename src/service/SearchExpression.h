@@ -1,4 +1,8 @@
 #pragma once
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,6 +20,7 @@ struct FileRecord {
     std::wstring pinyinInitials;
     std::wstring pinyinFull;
     bool isDirectory = false;
+    uint32_t fileAttributes = 0;
     uint64_t fileSize = 0;
     uint64_t creationTime = 0;
     uint64_t lastWriteTime = 0;

@@ -225,6 +225,7 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
             record->fileReferenceNumber = fileId;
             record->parentFileReferenceNumber = parentId;
             record->isDirectory = isDir;
+            record->fileAttributes = findData.dwFileAttributes;
             record->fileSize = isDir ? 0 : ((static_cast<uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow);
             record->creationTime = (static_cast<uint64_t>(findData.ftCreationTime.dwHighDateTime) << 32) | findData.ftCreationTime.dwLowDateTime;
             record->lastWriteTime = (static_cast<uint64_t>(findData.ftLastWriteTime.dwHighDateTime) << 32) | findData.ftLastWriteTime.dwLowDateTime;
@@ -289,6 +290,7 @@ void MftParser::EnumerateFiles() {
             record->fileReferenceNumber = pRecord->FileReferenceNumber;
             record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
             record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            record->fileAttributes = pRecord->FileAttributes;
             record->lastWriteTime = static_cast<uint64_t>(pRecord->TimeStamp.QuadPart);
             
             int nameLen = pRecord->FileNameLength / 2;
