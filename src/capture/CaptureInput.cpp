@@ -633,6 +633,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             m_state->dragStart = point;
             m_state->dragEnd = m_state->dragStart;
+            m_state->lastMousePos = point;
             m_state->dragging = true;
             m_state->state = OverlayState::Selecting;
             if (m_state->options.showShortcutHints) {
@@ -683,7 +684,19 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 updateMarkup(m_state->currentCursor);
                 m_renderer->invalidate();        // 拖拽预览走 D2D，合成图不变
             } else if (m_state->dragging) {
-                m_state->dragEnd = m_state->currentCursor;
+                const bool spaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
+                if (spaceDown) {
+                    // Space 键按住时：平移当前选区（Snipaste 核心交互机制）
+                    int dx = m_state->currentCursor.x - m_state->lastMousePos.x;
+                    int dy = m_state->currentCursor.y - m_state->lastMousePos.y;
+                    m_state->dragStart.x += dx;
+                    m_state->dragStart.y += dy;
+                    m_state->dragEnd.x += dx;
+                    m_state->dragEnd.y += dy;
+                } else {
+                    m_state->dragEnd = m_state->currentCursor;
+                }
+                m_state->lastMousePos = m_state->currentCursor;
                 m_renderer->invalidate();
             } else {
                 if ((int)m_state->state.load() == (int)OverlayState::Selecting && !m_state->dragging) {
@@ -860,15 +873,17 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             bool hasSelection = ((int)m_state->state.load() == (int)OverlayState::Selected ||
                                  (int)m_state->state.load() == (int)OverlayState::Marking);
 
-            // 方向键微调与光标像素级移动
+            // 方向键 / WASD 像素级微调与光标移动
             if (!editingText) {
                 bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                bool isDirectionKey = (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT ||
+                                       (!ctrl && (wParam == 'W' || wParam == 'S' || wParam == 'A' || wParam == 'D')));
                 
-                // 存在选区时：方向键移动选区，Shift+方向键调整选区尺寸
-                if (hasSelection && (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT)) {
+                // 存在选区时：方向键 / WASD 移动选区，Shift+方向键 / Shift+WASD 调整选区尺寸
+                if (hasSelection && isDirectionKey) {
                     int step = ctrl ? 10 : 1;
-                    int dx = (wParam == VK_LEFT ? -step : wParam == VK_RIGHT ? step : 0);
-                    int dy = (wParam == VK_UP   ? -step : wParam == VK_DOWN  ? step : 0);
+                    int dx = (wParam == VK_LEFT || wParam == 'A' ? -step : (wParam == VK_RIGHT || wParam == 'D' ? step : 0));
+                    int dy = (wParam == VK_UP   || wParam == 'W' ? -step : (wParam == VK_DOWN  || wParam == 'S' ? step : 0));
                     
                     if (m_state->activeElement) {
                         m_state->activeElement->moveBy(dx, dy);

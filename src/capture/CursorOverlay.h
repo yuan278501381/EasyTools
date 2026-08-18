@@ -76,7 +76,9 @@ private:
     int m_surfaceHeight = 0;
 
     bool m_leftButtonDown = false;
+    bool m_rightButtonDown = false;
     bool m_clickActive = false;
+    bool m_clickIsRight = false;
     POINT m_clickPoint{};
     std::chrono::steady_clock::time_point m_clickStarted{};
 };

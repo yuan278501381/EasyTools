@@ -67,24 +67,26 @@ ShortcutHintOverlay::itemsFor(ShortcutHintContext context) const {
     switch (context) {
         case ShortcutHintContext::CaptureSelecting:
             return zh
-                ? std::vector<ShortcutHintItem>{{L"拖拽", L"选择区域"}, {L"单击", L"选择窗口"},
+                ? std::vector<ShortcutHintItem>{{L"拖拽", L"框选区域"}, {L"Space", L"按住平移"},
+                                                {L"WASD", L"像素微调"}, {L"C", L"复制颜色"},
                                                 {L"Ctrl+A", L"全屏"}, {L"Esc", L"退出"}}
-                : std::vector<ShortcutHintItem>{{L"Drag", L"Select area"}, {L"Click", L"Select window"},
+                : std::vector<ShortcutHintItem>{{L"Drag", L"Select area"}, {L"Space", L"Hold to pan"},
+                                                {L"WASD", L"1px nudge"}, {L"C", L"Copy color"},
                                                 {L"Ctrl+A", L"Full screen"}, {L"Esc", L"Exit"}};
         case ShortcutHintContext::CaptureSelected:
             return zh
                 ? std::vector<ShortcutHintItem>{{L"Enter", L"完成"}, {L"Ctrl+C", L"复制"},
-                                                {L"Ctrl+Z", L"撤销"}, {L"R / A / T", L"标注工具"},
-                                                {L"Esc", L"取消"}}
+                                                {L"WASD", L"移动选区"}, {L"Shift+WASD", L"微调尺寸"},
+                                                {L"R / A / T", L"标注工具"}, {L"Esc", L"取消"}}
                 : std::vector<ShortcutHintItem>{{L"Enter", L"Finish"}, {L"Ctrl+C", L"Copy"},
-                                                {L"Ctrl+Z", L"Undo"}, {L"R / A / T", L"Markup tools"},
-                                                {L"Esc", L"Cancel"}};
+                                                {L"WASD", L"Move area"}, {L"Shift+WASD", L"Resize"},
+                                                {L"R / A / T", L"Markup tools"}, {L"Esc", L"Cancel"}};
         case ShortcutHintContext::RecordSelecting:
             return zh
-                ? std::vector<ShortcutHintItem>{{L"拖拽", L"选择录制区域"}, {L"Enter", L"开始录制"},
-                                                {L"Ctrl+A", L"全屏"}, {L"Esc", L"取消"}}
-                : std::vector<ShortcutHintItem>{{L"Drag", L"Select recording area"}, {L"Enter", L"Start"},
-                                                {L"Ctrl+A", L"Full screen"}, {L"Esc", L"Cancel"}};
+                ? std::vector<ShortcutHintItem>{{L"拖拽", L"选择录制区域"}, {L"Space", L"按住平移"},
+                                                {L"Enter", L"开始录制"}, {L"Ctrl+A", L"全屏"}, {L"Esc", L"取消"}}
+                : std::vector<ShortcutHintItem>{{L"Drag", L"Select area"}, {L"Space", L"Hold to pan"},
+                                                {L"Enter", L"Start"}, {L"Ctrl+A", L"Full screen"}, {L"Esc", L"Cancel"}};
         case ShortcutHintContext::ScrollCapture:
             return zh
                 ? std::vector<ShortcutHintItem>{{L"自动滚动", L"保持页面静止"}, {L"Esc", L"完成并保存"}}

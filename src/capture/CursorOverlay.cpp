@@ -238,14 +238,23 @@ CursorOverlay::Patch CursorOverlay::apply(CaptureFrameView& frame,
     POINT pointer = haveCursor ? cursorInfo.ptScreenPos : POINT{};
 
     const bool leftButtonDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    const bool rightButtonDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
     const auto now = std::chrono::steady_clock::now();
     if (showClickEffects && leftButtonDown && !m_leftButtonDown) {
         if (!haveCursor) GetCursorPos(&pointer);
         m_clickPoint = pointer;
         m_clickStarted = now;
         m_clickActive = true;
+        m_clickIsRight = false;
+    } else if (showClickEffects && rightButtonDown && !m_rightButtonDown) {
+        if (!haveCursor) GetCursorPos(&pointer);
+        m_clickPoint = pointer;
+        m_clickStarted = now;
+        m_clickActive = true;
+        m_clickIsRight = true;
     }
     m_leftButtonDown = leftButtonDown;
+    m_rightButtonDown = rightButtonDown;
 
     bool drawCursor = includeCursor && haveCursor &&
         (cursorInfo.flags & CURSOR_SHOWING) != 0 && updateCursorImage(cursorInfo.hCursor);
@@ -261,8 +270,8 @@ CursorOverlay::Patch CursorOverlay::apply(CaptureFrameView& frame,
     const bool drawClick = m_clickActive && showClickEffects;
     const int clickX = m_clickPoint.x - screenRegion.x;
     const int clickY = m_clickPoint.y - screenRegion.y;
-    const double radius = 10.0 + clickProgress * 22.0;
-    constexpr double ringThickness = 3.2;
+    const double radius = 8.0 + clickProgress * 24.0;
+    constexpr double ringThickness = 3.6;
 
     Bounds bounds;
     if (drawCursor) bounds.include(cursorX, cursorY, m_cursorWidth, m_cursorHeight);
@@ -301,7 +310,11 @@ CursorOverlay::Patch CursorOverlay::apply(CaptureFrameView& frame,
     }
     if (drawClick) {
         const int extent = static_cast<int>(std::ceil(radius + ringThickness + 1));
-        const double baseAlpha = 210.0 * (1.0 - clickProgress);
+        const double baseAlpha = 220.0 * (1.0 - clickProgress);
+        const std::uint8_t ringR = m_clickIsRight ? 255 : 26;
+        const std::uint8_t ringG = m_clickIsRight ? 125 : 122;
+        const std::uint8_t ringB = m_clickIsRight ? 0   : 255;
+
         for (int y = -extent; y <= extent; ++y) {
             for (int x = -extent; x <= extent; ++x) {
                 const double distance = std::sqrt(static_cast<double>(x * x + y * y));
@@ -309,7 +322,7 @@ CursorOverlay::Patch CursorOverlay::apply(CaptureFrameView& frame,
                 if (edgeDistance > ringThickness) continue;
                 const auto alpha = static_cast<std::uint8_t>(std::clamp(
                     baseAlpha * (1.0 - edgeDistance / ringThickness), 0.0, 255.0));
-                blendPixel(frame, clickX + x, clickY + y, 74, 144, 255, alpha);
+                blendPixel(frame, clickX + x, clickY + y, ringR, ringG, ringB, alpha);
             }
         }
     }
