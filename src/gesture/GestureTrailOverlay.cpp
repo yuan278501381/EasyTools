@@ -274,7 +274,9 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
                 releaseD2DResources();
                 easy::core::WinUtils::trimWorkingSet();
             } else {
-                m_fadeAlpha = 1.0f - static_cast<float>(elapsed) / m_style.fadeOutMs;
+                float progress = std::clamp(static_cast<float>(elapsed) / static_cast<float>(m_style.fadeOutMs), 0.0f, 1.0f);
+                float ease = 1.0f - progress;
+                m_fadeAlpha = ease * ease;  // 二次平滑缓动曲线，羽化消散更具高级呼吸感
                 render();
             }
         } else if (m_visible.load(std::memory_order_relaxed)) {

@@ -158,7 +158,7 @@ void KeyStroke::send(void* targetWindowPtr) const {
         INPUT inp{};
         inp.type = INPUT_KEYBOARD;
         inp.ki.wVk = vk;
-        inp.ki.wScan = 0;
+        inp.ki.wScan = static_cast<WORD>(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
         inp.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0);
         if (vk == VK_LWIN || vk == VK_RWIN || vk == VK_LEFT || vk == VK_RIGHT ||
             vk == VK_UP || vk == VK_DOWN || vk == VK_DELETE || vk == VK_INSERT ||
