@@ -1903,6 +1903,66 @@ TEST(ContentSearchTest, ExtractorEngines) {
     }
 
     DeleteFileW(testDxfFile.c_str());
+
+    // 5. 伪装为 .log 的二进制文件 (如 edb.log, MeasuredBoot.log) 拦截测试
+    std::wstring testBinaryLogFile = std::wstring(tempPath) + L"easytools_test_fake_edb.log";
+    {
+        std::ofstream ofs(testBinaryLogFile, std::ios::binary);
+        // 模拟 ESE / MeasuredBoot 二进制数据头与随机控制字节
+        uint8_t fakeBinaryHeader[] = { 0xef, 0xcd, 0xab, 0x89, 0x00, 0x00, 0x01, 0x00, 0x80, 0x81, 0x00, 0x12, 0x05, 0x00 };
+        ofs.write(reinterpret_cast<const char*>(fakeBinaryHeader), sizeof(fakeBinaryHeader));
+        for (int i = 0; i < 200; ++i) {
+            char buf[16] = {0};
+            buf[0] = static_cast<char>(i);
+            ofs.write(buf, sizeof(buf));
+        }
+    }
+
+    snippets.clear();
+    bool binaryFound = engine.searchFile(testBinaryLogFile, L"**", false, snippets);
+    EXPECT_FALSE(binaryFound);
+    EXPECT_TRUE(snippets.empty());
+    DeleteFileW(testBinaryLogFile.c_str());
+
+    // 6. GBK / ANSI 中文编码无乱码检索测试
+    std::wstring testGbkFile = std::wstring(tempPath) + L"easytools_test_gbk.txt";
+    {
+        std::ofstream ofs(testGbkFile, std::ios::binary);
+        // GBK 编码的中文字符串："北京中源技术中心：开发账号密码"
+        // 转换为 ANSI/GBK 字节写入
+        std::string gbkText = easy::core::WinUtils::wstringToString(L"北京中源技术中心：开发账号密码", CP_ACP);
+        ofs << "Line 1: Header\r\n";
+        ofs << gbkText << "\r\n";
+    }
+
+    snippets.clear();
+    bool gbkFound = engine.searchFile(testGbkFile, L"账号密码", false, snippets);
+    EXPECT_TRUE(gbkFound);
+    EXPECT_FALSE(snippets.empty());
+    if (!snippets.empty()) {
+        EXPECT_NE(snippets[0].lineContent.find(L"北京中源技术中心"), std::wstring::npos);
+        EXPECT_NE(snippets[0].lineContent.find(L"账号密码"), std::wstring::npos);
+    }
+    DeleteFileW(testGbkFile.c_str());
+
+    // 7. UTF-16LE 中文与英文无乱码检索测试
+    std::wstring testUtf16File = std::wstring(tempPath) + L"easytools_test_utf16.txt";
+    {
+        std::ofstream ofs(testUtf16File, std::ios::binary);
+        uint8_t bom[2] = { 0xFF, 0xFE };
+        ofs.write(reinterpret_cast<const char*>(bom), 2);
+        std::wstring text = L"UTF16_WorldClass_Search: 极客搜索世界级体验\r\n";
+        ofs.write(reinterpret_cast<const char*>(text.data()), text.size() * sizeof(wchar_t));
+    }
+
+    snippets.clear();
+    bool utf16Found = engine.searchFile(testUtf16File, L"极客搜索", false, snippets);
+    EXPECT_TRUE(utf16Found);
+    EXPECT_FALSE(snippets.empty());
+    if (!snippets.empty()) {
+        EXPECT_NE(snippets[0].lineContent.find(L"极客搜索世界级体验"), std::wstring::npos);
+    }
+    DeleteFileW(testUtf16File.c_str());
 }
 
 // -----------------------------------------------------------------------------
