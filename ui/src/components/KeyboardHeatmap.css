@@ -432,50 +432,6 @@
   transform: translateX(-50%) translateY(0) scale(1);
 }
 
-/* ── 底部实时悬停 HUD ────────────────────────────────────────── */
-.keyboard-heatmap__hover-hud {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--primary);
-  padding: 3px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  color: var(--text-primary);
-  box-shadow: 0 2px 10px var(--primary-glow);
-  animation: hudPulse 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes hudPulse {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.hover-hud-icon {
-  font-size: 11px;
-}
-
-.hover-hud-label {
-  font-weight: 700;
-  color: var(--primary);
-}
-
-.hover-hud-divider {
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.hover-hud-count strong {
-  color: var(--text-primary);
-}
-
-.hover-hud-pct {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: 'Consolas', monospace;
-}
-
 /* ── 底部图例栏 ─────────────────────────────────────────────── */
 .keyboard-heatmap__footer {
   display: flex;
@@ -608,4 +564,18 @@
   font-weight: 600;
   color: #f59e0b;
   font-family: 'Consolas', monospace;
+}
+
+.keyboard-heatmap__top-badge--idle {
+  background: var(--bg-elevated);
+  border-color: var(--card-border);
+  box-shadow: none;
+  opacity: 0.75;
+}
+
+.top-badge-icon-box--idle {
+  background: var(--bg-base);
+  color: var(--text-muted);
+  box-shadow: none;
+  border: 1px solid var(--card-border);
 }

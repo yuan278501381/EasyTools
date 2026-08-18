@@ -234,7 +234,6 @@ function computeKeyHeatStyle(count: number, intensity: number): KeyHeatStyle {
 export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
   const { t } = useTranslation();
   const [layoutMode, setLayoutMode] = useState<KeyboardLayoutMode>('104');
-  const [hoveredKey, setHoveredKey] = useState<KeyDef | null>(null);
 
   // 物理键盘硬件锁定状态联动 (NUM / CAPS / SCROLL)
   const [lockStates, setLockStates] = useState({
@@ -347,8 +346,6 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
           boxShadow: isLockedOn ? '0 0 8px rgba(16, 185, 129, 0.45)' : style.boxShadow,
           ...customStyle,
         }}
-        onMouseEnter={() => setHoveredKey(keyDef)}
-        onMouseLeave={() => setHoveredKey((prev) => (prev?.label === keyDef.label ? null : prev))}
       >
         <span className="keyboard-keycap__label">{keyDef.label}</span>
         {count > 0 && (
@@ -519,7 +516,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         )}
       </div>
 
-      {/* 底部专业热力能谱图例栏 & 实时悬停 HUD */}
+      {/* 底部专业热力能谱图例栏 & 常驻今日最高频指标 */}
       <div className="keyboard-heatmap__footer">
         <div className="keyboard-heatmap__legend">
           <span className="legend-label">{t('stats.lowHeat', '闲置 / 0')}</span>
@@ -529,26 +526,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
           <span className="legend-label">{t('stats.highHeat', '极高频 (Peak)')}</span>
         </div>
 
-        {hoveredKey ? (
-          <div className="keyboard-heatmap__hover-hud">
-            <span className="hover-hud-icon">🎯</span>
-            <span className="hover-hud-label">{hoveredKey.fullName || hoveredKey.label}</span>
-            <span className="hover-hud-divider">│</span>
-            <span className="hover-hud-count">
-              <strong>
-                {(Array.isArray(hoveredKey.vkCode)
-                  ? hoveredKey.vkCode.reduce((sum, c) => sum + (keyMap[c] || 0), 0)
-                  : keyMap[hoveredKey.vkCode] || 0
-                ).toLocaleString()}
-              </strong> 次击键
-            </span>
-            <span className="hover-hud-pct">
-              占比 {totalKeystrokes > 0 ? (((Array.isArray(hoveredKey.vkCode)
-                ? hoveredKey.vkCode.reduce((sum, c) => sum + (keyMap[c] || 0), 0)
-                : keyMap[hoveredKey.vkCode] || 0) / totalKeystrokes) * 100).toFixed(1) : '0.0'}%
-            </span>
-          </div>
-        ) : topKey.count > 0 ? (
+        {topKey.count > 0 ? (
           <div className="keyboard-heatmap__top-badge">
             <div className="top-badge-icon-box">
               <Flame size={12} strokeWidth={2.5} className="top-badge-flame-icon" />
@@ -564,7 +542,17 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
               </span>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="keyboard-heatmap__top-badge keyboard-heatmap__top-badge--idle">
+            <div className="top-badge-icon-box top-badge-icon-box--idle">
+              <Keyboard size={12} strokeWidth={2} />
+            </div>
+            <div className="top-badge-content">
+              <span className="top-badge-label">今日击键:</span>
+              <span className="top-badge-key-name">尚未录入数据</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
