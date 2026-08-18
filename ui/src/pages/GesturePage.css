@@ -78,8 +78,15 @@
 }
 
 /* ── 手势映射表 ───────────────────────────────────────────────────────────── */
+.gesture-table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .gesture-table {
   width: 100%;
+  min-width: 580px;
 }
 
 .gesture-table__header {
@@ -87,17 +94,18 @@
   align-items: center;
   padding: var(--spacing-sm) 0;
   border-bottom: 1px solid var(--card-border);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .gesture-table__row {
   display: flex;
   align-items: center;
-  padding: var(--spacing-sm) 0;
+  padding: 7px 0;
   border-bottom: 1px solid var(--card-border);
   transition: background var(--transition-fast);
   animation: fadeIn 0.25s ease both;
@@ -113,53 +121,61 @@
 }
 
 .gesture-table__col {
-  font-size: 0.88rem;
+  font-size: 0.84rem;
+  box-sizing: border-box;
+  padding: 0 4px;
 }
 
 .gesture-table__col--arrow {
-  width: 70px;
+  width: 56px;
   flex-shrink: 0;
   text-align: center;
 }
 
 .gesture-table__col--code {
-  width: 80px;
+  width: 60px;
   flex-shrink: 0;
 }
 
 .gesture-table__col--code code {
   font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--primary);
   background: var(--primary-dim);
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 
 .gesture-table__col--action {
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: 130px;
   color: var(--text-primary);
   font-weight: 500;
+  overflow: hidden;
 }
 
 .gesture-table__col--type {
-  width: 90px;
+  width: 72px;
   flex-shrink: 0;
   text-align: center;
 }
 
 .gesture-table__col--key {
-  width: 130px;
+  width: 90px;
   flex-shrink: 0;
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gesture-table__col--actions {
-  width: 76px;
+  width: 64px;
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 3px;
 }
 
 /* ── 行内图标按钮 ─────────────────────────────────────────────────────────── */
@@ -702,19 +718,19 @@
 
 /* ── 列表列定义 ───────────────────────────────────────────────────────────── */
 .gesture-table__col--reorder {
-  width: 44px;
+  width: 36px;
   flex-shrink: 0;
   text-align: center;
 }
 
 .gesture-table__col--switch {
-  width: 44px;
+  width: 36px;
   flex-shrink: 0;
   text-align: center;
 }
 
 .gesture-table__col--flags {
-  width: 110px;
+  width: 76px;
   flex-shrink: 0;
   text-align: center;
 }
@@ -746,8 +762,8 @@
 }
 
 .gesture-item-switch {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   accent-color: var(--primary);
   cursor: pointer;
 }
@@ -758,15 +774,23 @@
 }
 
 .gesture-action-name {
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 0.84rem;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .gesture-action-desc {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.70rem;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gesture-flags-list {

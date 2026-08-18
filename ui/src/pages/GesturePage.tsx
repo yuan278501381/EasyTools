@@ -952,139 +952,141 @@ export const GesturePage: FC = () => {
                     </Button>
                   </div>
 
-                  <div className="gesture-table">
-                    <div className="gesture-table__header">
-                      <span className="gesture-table__col gesture-table__col--reorder">排序</span>
-                      <span className="gesture-table__col gesture-table__col--switch">启用</span>
-                      <span className="gesture-table__col gesture-table__col--arrow">{tr('gesture.colGesture')}</span>
-                      <span className="gesture-table__col gesture-table__col--code">{tr('gesture.colCode')}</span>
-                      <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
-                      <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
-                      <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
-                      <span className="gesture-table__col gesture-table__col--flags">执行特性</span>
-                      <span className="gesture-table__col gesture-table__col--actions" />
-                    </div>
-
-                    {filteredMappings.length === 0 && (
-                      <div className="gesture-empty">
-                        {searchQuery ? '未找到符合条件的手势' : tr('gesture.emptyMapping')}
+                  <div className="gesture-table-container">
+                    <div className="gesture-table">
+                      <div className="gesture-table__header">
+                        <span className="gesture-table__col gesture-table__col--reorder">排序</span>
+                        <span className="gesture-table__col gesture-table__col--switch">启用</span>
+                        <span className="gesture-table__col gesture-table__col--arrow">{tr('gesture.colGesture')}</span>
+                        <span className="gesture-table__col gesture-table__col--code">{tr('gesture.colCode')}</span>
+                        <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
+                        <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
+                        <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
+                        <span className="gesture-table__col gesture-table__col--flags">执行特性</span>
+                        <span className="gesture-table__col gesture-table__col--actions" />
                       </div>
-                    )}
 
-                    {filteredMappings.map((m, i) => {
-                      const actualIdx = currentMappings.findIndex((x) => x.gestureCode === m.gestureCode);
-                      const isEnabled = m.enabled ?? true;
-                      return (
-                        <div
-                          key={m.gestureCode}
-                          className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''}`}
-                          style={{ animationDelay: `${i * 20}ms` }}
-                        >
-                          {/* 上下调序按钮 */}
-                          <span className="gesture-table__col gesture-table__col--reorder">
-                            <div className="gesture-reorder-btns">
-                              <button
-                                type="button"
-                                className="gesture-reorder-btn"
-                                disabled={actualIdx <= 0}
-                                title="上移 (提升匹配优先级)"
-                                onClick={() => void handleMoveMapping(actualIdx, -1)}
-                              >
-                                <ArrowUp size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                className="gesture-reorder-btn"
-                                disabled={actualIdx >= currentMappings.length - 1}
-                                title="下移 (降低匹配优先级)"
-                                onClick={() => void handleMoveMapping(actualIdx, 1)}
-                              >
-                                <ArrowDown size={12} />
-                              </button>
-                            </div>
-                          </span>
-
-                          {/* 单项启用/禁用 Switch */}
-                          <span className="gesture-table__col gesture-table__col--switch">
-                            <input
-                              type="checkbox"
-                              className="gesture-item-switch"
-                              checked={isEnabled}
-                              onChange={() => void handleToggleMappingEnabled(actualIdx)}
-                              title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
-                            />
-                          </span>
-
-                          {/* 箭头视觉展示 */}
-                          <span className="gesture-table__col gesture-table__col--arrow">
-                            <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
-                          </span>
-
-                          {/* 编码 */}
-                          <span className="gesture-table__col gesture-table__col--code">
-                            <code>{m.gestureCode}</code>
-                          </span>
-
-                          {/* 动作名称 */}
-                          <span className="gesture-table__col gesture-table__col--action">
-                            <span className="gesture-action-name">{m.action.name}</span>
-                            {m.action.description && (
-                              <span className="gesture-action-desc">{m.action.description}</span>
-                            )}
-                          </span>
-
-                          {/* 动作类型 */}
-                          <span className="gesture-table__col gesture-table__col--type">
-                            <Badge
-                              text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
-                              variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
-                            />
-                          </span>
-
-                          {/* 详情按键 */}
-                          <span className="gesture-table__col gesture-table__col--key">
-                            {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
-                          </span>
-
-                          {/* 高级特性标签 (即时执行 / 静默执行) */}
-                          <span className="gesture-table__col gesture-table__col--flags">
-                            <div className="gesture-flags-list">
-                              {m.instantExecute && (
-                                <span className="gesture-flag-badge gesture-flag-badge--instant" title="识别手势时立即执行">
-                                  <Zap size={11} />
-                                  <span>即时</span>
-                                </span>
-                              )}
-                              {m.silentToast && (
-                                <span className="gesture-flag-badge gesture-flag-badge--silent" title="执行时不弹出名称提示">
-                                  <VolumeX size={11} />
-                                  <span>静默</span>
-                                </span>
-                              )}
-                              {!m.instantExecute && !m.silentToast && (
-                                <span className="gesture-flag-badge gesture-flag-badge--normal">标准</span>
-                              )}
-                            </div>
-                          </span>
-
-                          {/* 编辑与删除 */}
-                          <span className="gesture-table__col gesture-table__col--actions">
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button className="gesture-icon-btn" title={tr('common.edit')} onClick={() => openEditMapping(m)}>
-                                <Edit3 size={15} />
-                              </button>
-                              <button
-                                className="gesture-icon-btn gesture-icon-btn--danger"
-                                title={tr('common.delete')}
-                                onClick={() => handleDeleteMapping(actualIdx)}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            </div>
-                          </span>
+                      {filteredMappings.length === 0 && (
+                        <div className="gesture-empty">
+                          {searchQuery ? '未找到符合条件的手势' : tr('gesture.emptyMapping')}
                         </div>
-                      );
-                    })}
+                      )}
+
+                      {filteredMappings.map((m, i) => {
+                        const actualIdx = currentMappings.findIndex((x) => x.gestureCode === m.gestureCode);
+                        const isEnabled = m.enabled ?? true;
+                        return (
+                          <div
+                            key={m.gestureCode}
+                            className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''}`}
+                            style={{ animationDelay: `${i * 20}ms` }}
+                          >
+                            {/* 上下调序按钮 */}
+                            <span className="gesture-table__col gesture-table__col--reorder">
+                              <div className="gesture-reorder-btns">
+                                <button
+                                  type="button"
+                                  className="gesture-reorder-btn"
+                                  disabled={actualIdx <= 0}
+                                  title="上移 (提升匹配优先级)"
+                                  onClick={() => void handleMoveMapping(actualIdx, -1)}
+                                >
+                                  <ArrowUp size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="gesture-reorder-btn"
+                                  disabled={actualIdx >= currentMappings.length - 1}
+                                  title="下移 (降低匹配优先级)"
+                                  onClick={() => void handleMoveMapping(actualIdx, 1)}
+                                >
+                                  <ArrowDown size={12} />
+                                </button>
+                              </div>
+                            </span>
+
+                            {/* 单项启用/禁用 Switch */}
+                            <span className="gesture-table__col gesture-table__col--switch">
+                              <input
+                                type="checkbox"
+                                className="gesture-item-switch"
+                                checked={isEnabled}
+                                onChange={() => void handleToggleMappingEnabled(actualIdx)}
+                                title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
+                              />
+                            </span>
+
+                            {/* 箭头视觉展示 */}
+                            <span className="gesture-table__col gesture-table__col--arrow">
+                              <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
+                            </span>
+
+                            {/* 编码 */}
+                            <span className="gesture-table__col gesture-table__col--code">
+                              <code>{m.gestureCode}</code>
+                            </span>
+
+                            {/* 动作名称 */}
+                            <span className="gesture-table__col gesture-table__col--action">
+                              <span className="gesture-action-name">{m.action.name}</span>
+                              {m.action.description && (
+                                <span className="gesture-action-desc">{m.action.description}</span>
+                              )}
+                            </span>
+
+                            {/* 动作类型 */}
+                            <span className="gesture-table__col gesture-table__col--type">
+                              <Badge
+                                text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
+                                variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
+                              />
+                            </span>
+
+                            {/* 详情按键 */}
+                            <span className="gesture-table__col gesture-table__col--key">
+                              {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
+                            </span>
+
+                            {/* 高级特性标签 (即时执行 / 静默执行) */}
+                            <span className="gesture-table__col gesture-table__col--flags">
+                              <div className="gesture-flags-list">
+                                {m.instantExecute && (
+                                  <span className="gesture-flag-badge gesture-flag-badge--instant" title="识别手势时立即执行">
+                                    <Zap size={11} />
+                                    <span>即时</span>
+                                  </span>
+                                )}
+                                {m.silentToast && (
+                                  <span className="gesture-flag-badge gesture-flag-badge--silent" title="执行时不弹出名称提示">
+                                    <VolumeX size={11} />
+                                    <span>静默</span>
+                                  </span>
+                                )}
+                                {!m.instantExecute && !m.silentToast && (
+                                  <span className="gesture-flag-badge gesture-flag-badge--normal">标准</span>
+                                )}
+                              </div>
+                            </span>
+
+                            {/* 编辑与删除 */}
+                            <span className="gesture-table__col gesture-table__col--actions">
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button className="gesture-icon-btn" title={tr('common.edit')} onClick={() => openEditMapping(m)}>
+                                  <Edit3 size={15} />
+                                </button>
+                                <button
+                                  className="gesture-icon-btn gesture-icon-btn--danger"
+                                  title={tr('common.delete')}
+                                  onClick={() => handleDeleteMapping(actualIdx)}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </Card>
               </>
