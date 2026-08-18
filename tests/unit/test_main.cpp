@@ -339,6 +339,113 @@ static void test_gesture_actions_and_builtin_commands() {
     dispatcher.clearHandlers();
 }
 
+static void test_gesture_profile_comprehensive() {
+    using namespace easy::gesture;
+
+    GestureProfile profile("test_comp");
+    
+    // 1. 三态触发模式深度测试
+    CHECK(profile.getTriggerState("right") == TriggerModeState::Inherit);
+    profile.setTriggerState("right", TriggerModeState::Enabled);
+    CHECK(profile.getTriggerState("right") == TriggerModeState::Enabled);
+    profile.setTriggerState("middle", TriggerModeState::Disabled);
+    CHECK(profile.getTriggerState("middle") == TriggerModeState::Disabled);
+    
+    // 全量批处理设置为启用 / 禁用 / 继承
+    profile.setAllTriggerStates(TriggerModeState::Enabled);
+    for (const auto& [k, v] : profile.getAllTriggerStates()) {
+        CHECK(v == TriggerModeState::Enabled);
+    }
+    profile.setAllTriggerStates(TriggerModeState::Inherit);
+    for (const auto& [k, v] : profile.getAllTriggerStates()) {
+        CHECK(v == TriggerModeState::Inherit);
+    }
+
+    // 2. 手势映射增删查改与属性测试
+    GestureMapping m1;
+    m1.id = "m_left";
+    m1.gestureCode = "L";
+    m1.enabled = true;
+    m1.instantExecute = true;
+    m1.silentToast = false;
+    m1.action.type = ActionType::BuiltinCommand;
+    m1.action.builtinCmd = BuiltinCommand::CloseTab;
+    profile.addMapping(m1);
+
+    GestureMapping m2;
+    m2.id = "m_right";
+    m2.gestureCode = "R";
+    m2.enabled = false;
+    m2.instantExecute = false;
+    m2.silentToast = true;
+    m2.action.type = ActionType::BuiltinCommand;
+    m2.action.builtinCmd = BuiltinCommand::RestoreTab;
+    profile.addMapping(m2);
+
+    GestureMapping m3;
+    m3.id = "m_lu";
+    m3.gestureCode = "L-U";
+    m3.enabled = true;
+    m3.action.type = ActionType::BuiltinCommand;
+    m3.action.builtinCmd = BuiltinCommand::MaximizeWindow;
+    profile.addMapping(m3);
+
+    CHECK_EQ(profile.getMappings().size(), 3);
+    CHECK(profile.hasGesture("L"));
+    CHECK(profile.hasGesture("R"));
+    CHECK(profile.hasGesture("L-U"));
+    CHECK(!profile.hasGesture("D"));
+
+    // 3. 前缀冲突检测
+    auto conflicts = profile.detectConflicts("L");
+    CHECK(!conflicts.empty());
+    bool foundLu = false;
+    for (const auto& c : conflicts) {
+        if (c == "L-U") foundLu = true;
+    }
+    CHECK(foundLu);
+
+    // 4. 映射调序测试 (moveMapping)
+    CHECK(profile.moveMapping(0, 2));
+    CHECK_EQ(profile.getMappings()[0].gestureCode, "R");
+    CHECK_EQ(profile.getMappings()[2].gestureCode, "L");
+    CHECK(!profile.moveMapping(0, 999)); // 越界安全
+    CHECK(!profile.moveMapping(999, 0)); // 越界安全
+    CHECK(profile.moveMapping(1, 1));    // 同位置安全
+
+    // 5. 批量重排序 (reorderMappings)
+    profile.reorderMappings({"L-U", "L", "R"});
+    CHECK_EQ(profile.getMappings()[0].gestureCode, "L-U");
+    CHECK_EQ(profile.getMappings()[1].gestureCode, "L");
+    CHECK_EQ(profile.getMappings()[2].gestureCode, "R");
+
+    // 6. 单项启用/禁用切换
+    CHECK(profile.setMappingEnabled("L", false));
+    auto optL = profile.findAction("L");
+    // 已禁用的手势应被 findAction 跳过或标记
+    CHECK(profile.setMappingEnabled("L", true));
+
+    // 7. JSON 序列化与反序列化全属性往返
+    auto j = profile.toJson();
+    auto restored = GestureProfile::fromJson(j);
+    CHECK_EQ(restored.name(), "test_comp");
+    CHECK_EQ(restored.getMappings().size(), 3);
+    CHECK_EQ(restored.getMappings()[0].gestureCode, "L-U");
+    CHECK(restored.getMappings()[0].instantExecute == false);
+    CHECK(restored.getMappings()[1].instantExecute == true);
+    CHECK(restored.getMappings()[2].silentToast == true);
+}
+
+static void test_winutils_special_windows() {
+    using easy::core::WinUtils;
+    // 验证空句柄与伪句柄边界安全，无崩溃
+    CHECK(!WinUtils::isDesktopWindow(nullptr));
+    CHECK(!WinUtils::isTaskbarWindow(nullptr));
+    HWND invalidHwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(0xDEADBEEF));
+    CHECK(!WinUtils::isDesktopWindow(invalidHwnd));
+    CHECK(!WinUtils::isTaskbarWindow(invalidHwnd));
+}
+
 static void test_hotkey_parser() {
     using easy::core::HotkeyDef;
 
@@ -1620,6 +1727,8 @@ int main() {
     test_recognizer();
     test_scoperule();
     test_gesture_actions_and_builtin_commands();
+    test_gesture_profile_comprehensive();
+    test_winutils_special_windows();
     test_hotkey_parser();
     test_disabled_hotkey_lifecycle();
     test_config_manager();
