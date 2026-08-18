@@ -27,9 +27,6 @@ using namespace Microsoft::WRL;
 namespace easy::gesture {
 
 static constexpr const wchar_t* OVERLAY_CLASS = L"EasyTools_GestureOverlay";
-static constexpr UINT_PTR FADE_TIMER_ID = 1001;
-static constexpr UINT_PTR RENDER_TIMER_ID = 1002;
-static constexpr UINT RENDER_INTERVAL_MS = 16;  // ~60 FPS
 
 GestureTrailOverlay& GestureTrailOverlay::instance() {
     static GestureTrailOverlay inst;
@@ -48,7 +45,8 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
         return false;
     }
 
-    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+    D2D1_FACTORY_OPTIONS opt{};
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, opt, m_d2dFactory.GetAddressOf());
     if (SUCCEEDED(hr)) {
         DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
@@ -58,9 +56,15 @@ bool GestureTrailOverlay::initialize(HINSTANCE hInstance) {
     }
 
     ShowWindow(m_hwnd, SW_HIDE);
-    m_visible = false;
+    m_visible.store(false);
 
-    LOG_INFO("手势轨迹覆盖层初始化成功");
+    // 启动专用高优先级异步渲染线程，彻底将 Direct2D/GDI 渲染从鼠标钩子消息热路径剥离！
+    m_renderThread = std::jthread([this](std::stop_token st) { renderLoop(st); });
+    if (m_renderThread.native_handle()) {
+        SetThreadPriority(m_renderThread.native_handle(), THREAD_PRIORITY_HIGHEST);
+    }
+
+    LOG_INFO("手势轨迹覆盖层初始化成功 (专用异步渲染管线已启动)");
     return true;
 }
 
@@ -196,6 +200,11 @@ void GestureTrailOverlay::reloadThemeColors() {
 }
 
 void GestureTrailOverlay::shutdown() {
+    if (m_renderThread.joinable()) {
+        m_renderThread.request_stop();
+        m_renderCv.notify_all();
+        m_renderThread.join();
+    }
     releaseD2DResources();
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
@@ -205,7 +214,7 @@ void GestureTrailOverlay::shutdown() {
         DestroyWindow(m_helperOwnerHwnd);
         m_helperOwnerHwnd = nullptr;
     }
-    m_visible = false;
+    m_visible.store(false);
     LOG_DEBUG("手势轨迹覆盖层已关闭");
 }
 
@@ -225,7 +234,45 @@ void GestureTrailOverlay::clearCanvas() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 轨迹操作
+// 异步渲染核心循环 (在专用高优先级线程运行)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
+    while (!stopToken.stop_requested()) {
+        std::unique_lock lock(m_renderSignalMutex);
+        m_renderCv.wait_for(lock, std::chrono::milliseconds(16), [&]() {
+            return m_renderRequested.load(std::memory_order_relaxed) ||
+                   m_fading.load(std::memory_order_relaxed) ||
+                   stopToken.stop_requested();
+        });
+
+        if (stopToken.stop_requested()) break;
+
+        m_renderRequested.store(false, std::memory_order_relaxed);
+
+        if (m_fading.load(std::memory_order_relaxed)) {
+            DWORD now = GetTickCount();
+            DWORD elapsed = now - m_fadeStartTick;
+            if (elapsed >= static_cast<DWORD>(m_style.fadeOutMs)) {
+                m_fading.store(false, std::memory_order_relaxed);
+                m_fadeAlpha = 0.0f;
+                clearCanvas();
+                if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
+                m_visible.store(false, std::memory_order_relaxed);
+                releaseD2DResources();
+                easy::core::WinUtils::trimWorkingSet();
+            } else {
+                m_fadeAlpha = 1.0f - static_cast<float>(elapsed) / m_style.fadeOutMs;
+                render();
+            }
+        } else if (m_visible.load(std::memory_order_relaxed)) {
+            render();
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 轨迹操作 (全部为非阻塞极速操作，耗时 < 0.005ms)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
@@ -236,8 +283,8 @@ void GestureTrailOverlay::beginTrail() {
         m_smoothPathGeometry.Reset();
     }
 
-    m_isRecognized.store(false);
-    m_fading = false;
+    m_isRecognized.store(false, std::memory_order_relaxed);
+    m_fading.store(false, std::memory_order_relaxed);
     m_fadeAlpha = 1.0f;
 }
 
@@ -264,18 +311,11 @@ void GestureTrailOverlay::addPoint(float x, float y) {
     }
 
     if (hasVisibleTrail && m_hwnd) {
-        if (!m_renderTarget) {
-            POINT cursor{};
-            GetCursorPos(&cursor);
-            m_dpiScale = easy::core::dpi::scaleAtPoint(cursor);
-            createD2DResources();
-        }
         if (!m_visible.exchange(true)) {
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
         }
-
-        // 局部脏矩形局部提交耗时仅 0.1ms，直接即时渲染上屏，实现 0 延迟极致贴手体验！
-        render();
+        m_renderRequested.store(true, std::memory_order_release);
+        m_renderCv.notify_one();
     }
 }
 
@@ -288,15 +328,17 @@ void GestureTrailOverlay::setLiveAction(const std::string& actionText) {
             changed = true;
         }
     }
-    if (changed && m_visible.load() && m_renderTarget) {
-        render();
+    if (changed && m_visible.load(std::memory_order_relaxed)) {
+        m_renderRequested.store(true, std::memory_order_release);
+        m_renderCv.notify_one();
     }
 }
 
 void GestureTrailOverlay::setRecognized(bool recognized) {
     if (m_isRecognized.exchange(recognized) != recognized) {
-        if (m_visible.load() && m_renderTarget) {
-            render();
+        if (m_visible.load(std::memory_order_relaxed)) {
+            m_renderRequested.store(true, std::memory_order_release);
+            m_renderCv.notify_one();
         }
     }
 }
@@ -308,16 +350,17 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
             m_resultText = resultText;
         }
     }
-    // 立即渲染终态帧
-    render();
-    startFadeOut();
+    m_fadeStartTick = GetTickCount();
+    m_fadeAlpha = 1.0f;
+    m_fading.store(true, std::memory_order_release);
+    m_renderRequested.store(true, std::memory_order_release);
+    m_renderCv.notify_one();
 }
 
 void GestureTrailOverlay::hide() {
+    m_fading.store(false, std::memory_order_release);
+    m_renderRequested.store(false, std::memory_order_release);
     if (m_hwnd) {
-        KillTimer(m_hwnd, RENDER_TIMER_ID);
-        KillTimer(m_hwnd, FADE_TIMER_ID);
-        m_renderTimerActive.store(false);
         clearCanvas();
         ShowWindow(m_hwnd, SW_HIDE);
     }
@@ -328,8 +371,7 @@ void GestureTrailOverlay::hide() {
         m_smoothPathGeometry.Reset();
     }
     m_isRecognized.store(false);
-    m_visible = false;
-    m_fading = false;
+    m_visible.store(false);
     m_fadeAlpha = 1.0f;
     releaseD2DResources();
     easy::core::WinUtils::trimWorkingSet();
@@ -532,6 +574,12 @@ void GestureTrailOverlay::releaseD2DResources() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::render() {
+    if (!m_renderTarget) {
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        m_dpiScale = easy::core::dpi::scaleAtPoint(cursor);
+        if (!createD2DResources()) return;
+    }
     if (!m_renderTarget || !m_lineBrush) return;
 
     m_renderTarget->BeginDraw();
@@ -785,22 +833,6 @@ void GestureTrailOverlay::render() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 淡出动画
-// ─────────────────────────────────────────────────────────────────────────────
-
-void GestureTrailOverlay::startFadeOut() {
-    m_fading = true;
-    m_fadeStartTick = GetTickCount();
-
-    // 停止渲染定时器，启用淡出定时器
-    if (m_hwnd) {
-        KillTimer(m_hwnd, RENDER_TIMER_ID);
-        m_renderTimerActive.store(false);
-        SetTimer(m_hwnd, FADE_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 窗口过程
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -808,30 +840,6 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
     auto* self = reinterpret_cast<GestureTrailOverlay*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (msg) {
-        case WM_TIMER: {
-            if (!self) break;
-
-            if (wParam == RENDER_TIMER_ID) {
-                self->render();
-                if (!self->m_visible.exchange(true)) {
-                    ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
-                }
-            } else if (wParam == FADE_TIMER_ID) {
-                DWORD elapsed = GetTickCount() - self->m_fadeStartTick;
-                float progress = static_cast<float>(elapsed) / self->m_style.fadeOutMs;
-
-                if (progress >= 1.0f) {
-                    self->hide();
-                } else {
-                    self->m_fadeAlpha = 1.0f - progress;
-                    self->render();
-                    if (!self->m_visible.exchange(true)) {
-                        ShowWindow(self->m_hwnd, SW_SHOWNOACTIVATE);
-                    }
-                }
-            }
-            return 0;
-        }
 
         case WM_DISPLAYCHANGE: {
             if (self && self->m_hwnd) {

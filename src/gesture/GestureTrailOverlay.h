@@ -101,8 +101,8 @@ private:
     /// 渲染帧
     void render();
 
-    /// 淡出定时器回调
-    void startFadeOut();
+    /// 专用高优先级异步渲染循环 (彻底隔离鼠标钩子热路径，消除输入迟滞)
+    void renderLoop(std::stop_token stopToken);
 
     /// 窗口过程
     static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -111,10 +111,15 @@ private:
     HWND m_hwnd = nullptr;
     TrailStyle m_style;
     std::atomic<bool> m_visible{false};
-    bool m_fading = false;
+    std::atomic<bool> m_fading{false};
     float m_fadeAlpha = 1.0f;
     DWORD m_fadeStartTick = 0;
-    std::atomic<bool> m_renderTimerActive{false};
+
+    // 专用异步渲染引擎
+    std::jthread m_renderThread;
+    std::mutex m_renderSignalMutex;
+    std::condition_variable m_renderCv;
+    std::atomic<bool> m_renderRequested{false};
 
     // 虚拟屏幕原点: 轨迹点是绝对屏幕坐标, 覆盖层左上角对应此原点, 绘制时需减去
     int m_originX = 0;
