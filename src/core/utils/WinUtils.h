@@ -499,7 +499,7 @@ public:
 
             SystemDriveInfo info;
             info.letter = letter;
-            info.path = std::wstring{static_cast<wchar_t>(letter), L':', L'\\', L'\0'};
+            info.path = std::wstring{static_cast<wchar_t>(letter), L':', L'\\'};
 
             UINT driveType = GetDriveTypeW(info.path.c_str());
             switch (driveType) {

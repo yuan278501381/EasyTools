@@ -102,7 +102,7 @@ void MftParser::StopListening() {
 
 bool MftParser::Initialize(char driveLetter) {
     m_DriveLetter = driveLetter;
-    const std::wstring root{static_cast<wchar_t>(driveLetter), L':', L'\\', L'\0'};
+    const std::wstring root{static_cast<wchar_t>(driveLetter), L':', L'\\'};
     m_DriveType = GetDriveTypeW(root.c_str());
 
     std::string volumePath = "\\\\.\\";

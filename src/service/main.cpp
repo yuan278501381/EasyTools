@@ -301,7 +301,7 @@ void IPCServerThread() {
     std::vector<std::thread> indexThreads;
     for (char drive = 'A'; drive <= 'Z' && g_IsRunning.load(); ++drive) {
         if (!(driveMask & (1u << (drive - 'A')))) continue;
-        const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\', L'\0'};
+        const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\'};
         UINT driveType = GetDriveTypeW(root.c_str());
         if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOTE &&
             driveType != DRIVE_REMOVABLE && driveType != DRIVE_RAMDISK) continue;
