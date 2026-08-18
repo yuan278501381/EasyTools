@@ -8,7 +8,7 @@
  *   3 运行程序 → programPath + programArgs
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, type FC } from 'react';
+import { useState, useRef, useEffect, type FC } from 'react';
 import { Modal, Field, Button, Select, TextInput, Toggle } from './UIKit';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { GestureDrawCanvas } from './GestureDrawCanvas';
@@ -39,19 +39,54 @@ interface Props {
   initial: GestureMapping | null;
   /** 现有的全部编码, 用于冲突检测 */
   existingCodes: string[];
+  /** 从表格特性徽章直接点击进入时的聚焦目标 */
+  initialFocusTarget?: 'instant' | 'silent' | null;
   onSave: (mapping: GestureMapping) => void;
   onClose: () => void;
 }
 
-export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, onClose }) => {
+export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialFocusTarget, onSave, onClose }) => {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<GestureMapping>(() =>
     initial ? structuredClone(initial) : emptyMapping());
 
   const isEdit = initial !== null;
   const code = draft.gestureCode.trim().toUpperCase();
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initial?.instantExecute || initial?.silentToast));
+  const [advancedOpen, setAdvancedOpen] = useState(
+    Boolean(initial?.instantExecute || initial?.silentToast || initialFocusTarget)
+  );
   const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
+  const advancedRef = useRef<HTMLDivElement>(null);
+  const instantCardRef = useRef<HTMLDivElement>(null);
+  const silentCardRef = useRef<HTMLDivElement>(null);
+
+  // 从表格特性徽章点击进入时，自动展开高级设置并平滑滚动高亮到对应卡片
+  useEffect(() => {
+    if (initialFocusTarget) {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (initialFocusTarget === 'instant') {
+            instantCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else if (initialFocusTarget === 'silent') {
+            silentCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 120);
+      });
+    }
+  }, [initialFocusTarget]);
+
+  const handleToggleAdvanced = () => {
+    const next = !advancedOpen;
+    setAdvancedOpen(next);
+    if (next) {
+      // 自动平滑滚动入焦，优雅将展开的新选项推入视口中心
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 40);
+      });
+    }
+  };
 
   // ── 校验 ──────────────────────────────────────────────────────────────────
   let codeError = '';
@@ -60,7 +95,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
   } else if (!GESTURE_CODE_PATTERN.test(code)) {
     codeError = t('gestureEditor.gestureCodeInvalid');
   } else if (!isEdit || code !== initial!.gestureCode) {
-    if (existingCodes.includes(code)) codeError = t('gestureEditor.gestureCodeExists', { code });
+    if (existingCodes.includes(code)) codeError = t('gestureEditor.gestureCodeExists', { code: `「${codeToArrows(code)}」` });
   }
 
   // 前缀冲突 (非阻塞警告)
@@ -118,7 +153,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       <Field
         label={t('gestureEditor.gestureDraw')}
         error={codeError}
-        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.join(', ') }) : t('gestureEditor.gestureDrawHint')}
+        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.map((c) => `「${codeToArrows(c)}」`).join(', ') }) : t('gestureEditor.gestureDrawHint')}
       >
         <GestureDrawCanvas
           value={draft.gestureCode}
@@ -201,11 +236,11 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       )}
 
       {/* ── 高级执行特性折叠面板 ────────────────────────────────────── */}
-      <div className="gesture-editor-advanced-wrapper">
+      <div ref={advancedRef} className="gesture-editor-advanced-wrapper">
         <button
           type="button"
           className="gesture-editor-advanced-toggle"
-          onClick={() => setAdvancedOpen(!advancedOpen)}
+          onClick={handleToggleAdvanced}
         >
           <div className="gesture-editor-advanced-toggle__left">
             <Sliders size={16} className="gesture-editor-advanced-toggle__icon" />
@@ -225,7 +260,8 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
           <div className="gesture-editor-advanced-content">
             {/* 卡片 1: 即时执行 */}
             <div
-              className={`gesture-scenario-card ${draft.instantExecute ? 'gesture-scenario-card--active' : ''}`}
+              ref={instantCardRef}
+              className={`gesture-scenario-card ${draft.instantExecute ? 'gesture-scenario-card--active' : ''} ${initialFocusTarget === 'instant' ? 'gesture-scenario-card--focused' : ''}`}
             >
               <div
                 className="gesture-scenario-card__header"
@@ -256,7 +292,8 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
 
             {/* 卡片 2: 静默模式 */}
             <div
-              className={`gesture-scenario-card ${draft.silentToast ? 'gesture-scenario-card--active' : ''}`}
+              ref={silentCardRef}
+              className={`gesture-scenario-card ${draft.silentToast ? 'gesture-scenario-card--active' : ''} ${initialFocusTarget === 'silent' ? 'gesture-scenario-card--focused' : ''}`}
             >
               <div
                 className="gesture-scenario-card__header"

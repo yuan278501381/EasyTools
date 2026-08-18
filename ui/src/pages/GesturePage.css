@@ -929,6 +929,27 @@
   border-radius: 3px;
 }
 
+.gesture-flag-badge--clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+.gesture-flag-badge--clickable:hover {
+  transform: translateY(-1px) scale(1.06);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.gesture-flag-badge--instant.gesture-flag-badge--clickable:hover {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.gesture-flag-badge--silent.gesture-flag-badge--clickable:hover {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.28);
+}
+
 .gesture-flag-badge--instant {
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;

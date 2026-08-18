@@ -134,6 +134,7 @@ export const GesturePage: FC = () => {
   const [appPickerDefaultDisabled, setAppPickerDefaultDisabled] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMapping, setEditingMapping] = useState<GestureMapping | null>(null);
+  const [editorFocusTarget, setEditorFocusTarget] = useState<'instant' | 'silent' | null>(null);
 
   const getHotkey = (name: string) => hotkeys.find(h => h.name === name);
 
@@ -408,11 +409,13 @@ export const GesturePage: FC = () => {
   // ── 手势映射 CRUD ───────────────────────────────────────────────────────────
   const openAddMapping = () => {
     setEditingMapping(null);
+    setEditorFocusTarget(null);
     setEditorOpen(true);
   };
 
-  const openEditMapping = (m: GestureMapping) => {
+  const openEditMapping = (m: GestureMapping, focusTarget: 'instant' | 'silent' | null = null) => {
     setEditingMapping(m);
+    setEditorFocusTarget(focusTarget);
     setEditorOpen(true);
   };
 
@@ -1017,16 +1020,32 @@ export const GesturePage: FC = () => {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span className="gesture-action-name">{m.action.name}</span>
                                 {m.instantExecute && (
-                                  <span className="gesture-flag-badge gesture-flag-badge--instant" title="即时执行 (无需等待按键松开)">
+                                  <button
+                                    type="button"
+                                    className="gesture-flag-badge gesture-flag-badge--instant gesture-flag-badge--clickable"
+                                    title="即时执行 (点击直接定位配置)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditMapping(m, 'instant');
+                                    }}
+                                  >
                                     <Zap size={10} />
                                     <span>即时</span>
-                                  </span>
+                                  </button>
                                 )}
                                 {m.silentToast && (
-                                  <span className="gesture-flag-badge gesture-flag-badge--silent" title="静默模式 (不弹出名称提示)">
+                                  <button
+                                    type="button"
+                                    className="gesture-flag-badge gesture-flag-badge--silent gesture-flag-badge--clickable"
+                                    title="静默模式 (点击直接定位配置)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditMapping(m, 'silent');
+                                    }}
+                                  >
                                     <VolumeX size={10} />
                                     <span>静默</span>
-                                  </span>
+                                  </button>
                                 )}
                               </div>
                               {m.action.description && (
@@ -1159,6 +1178,7 @@ export const GesturePage: FC = () => {
         <GestureEditorModal
           key={editingMapping?.gestureCode ?? '__new__'}
           initial={editingMapping}
+          initialFocusTarget={editorFocusTarget}
           existingCodes={currentMappings.map((m) => m.gestureCode)}
           onSave={handleSaveMapping}
           onClose={() => setEditorOpen(false)}

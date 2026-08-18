@@ -322,7 +322,6 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
           <div className="gesture-draw-badge">
             <Check size={14} className="gesture-draw-badge-icon" />
             <span className="gesture-draw-badge-arrows">{codeToArrows(recognizedCode)}</span>
-            <span className="gesture-draw-badge-code">({recognizedCode})</span>
           </div>
         )}
       </div>
@@ -337,7 +336,7 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
               type="button"
               className={`gesture-preset-chip ${recognizedCode === preset.code ? 'active' : ''}`}
               onClick={() => handleSelectPreset(preset.code)}
-              title={`${preset.label} (${preset.code})`}
+              title={preset.label}
             >
               <span className="gesture-preset-arrows">{codeToArrows(preset.code)}</span>
               <span className="gesture-preset-name">{preset.label}</span>
