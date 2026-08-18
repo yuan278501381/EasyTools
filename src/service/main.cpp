@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <cwctype>
 #include <nlohmann/json.hpp>
 #include "MftParser.h"
 #include "content/ContentSearchEngine.h"
@@ -208,7 +209,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 return 30;
             }
             // 非系统盘（D:、E: 等用户数据与工作盘）最高优先级
-            if (path.size() >= 2 && path[1] == L':' && std::towupper(path[0]) != L'C') {
+            if (path.size() >= 2 && path[1] == L':' && path[0] != L'C' && path[0] != L'c') {
                 return 100;
             }
             // C 盘中的工作区/桌面/文档
