@@ -163,7 +163,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            auto volumeResults = parser->Search(wQuery, 400, excludeOpts);
+            auto volumeResults = parser->Search(wQuery, 3000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -175,7 +175,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
         for (auto& candidate : candidates) {
             if (candidate.isDirectory) continue;
-            if (candidate.fileSize > 15 * 1024 * 1024) continue; // 忽略大于 15MB 的巨型文件
+            if (candidate.fileSize > 25 * 1024 * 1024) continue; // 忽略大于 25MB 的巨型文件
             
             size_t dotPos = candidate.fullPath.rfind(L'.');
             if (dotPos == std::wstring::npos) continue;
@@ -193,12 +193,49 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             textCandidates.push_back(std::move(candidate));
         }
 
-        if (textCandidates.size() > 200) textCandidates.resize(200);
+        // 智能优先级权重排序：将非系统工作盘（D:、E:）、用户桌面/文档优先放置在前面扫描
+        auto getPathPriority = [](const std::wstring& path) -> int {
+            // 缓存与垃圾构建路径降权
+            if (path.find(L"\\AppData\\Local\\npm-cache\\") != std::wstring::npos ||
+                path.find(L"\\AppData\\Local\\pip\\") != std::wstring::npos ||
+                path.find(L"\\AppData\\Local\\go-build\\") != std::wstring::npos ||
+                path.find(L"\\.gradle\\") != std::wstring::npos ||
+                path.find(L"\\AppData\\Local\\Temp\\") != std::wstring::npos) {
+                return 10;
+            }
+            // AppData 内其他目录
+            if (path.find(L"\\AppData\\") != std::wstring::npos) {
+                return 30;
+            }
+            // 非系统盘（D:、E: 等用户数据与工作盘）最高优先级
+            if (path.size() >= 2 && path[1] == L':' && std::towupper(path[0]) != L'C') {
+                return 100;
+            }
+            // C 盘中的工作区/桌面/文档
+            if (path.find(L"\\Desktop\\") != std::wstring::npos ||
+                path.find(L"\\Documents\\") != std::wstring::npos ||
+                path.find(L"\\Downloads\\") != std::wstring::npos ||
+                path.find(L"\\repo\\") != std::wstring::npos ||
+                path.find(L"\\workspace\\") != std::wstring::npos ||
+                path.find(L"\\Projects\\") != std::wstring::npos) {
+                return 90;
+            }
+            return 50;
+        };
+
+        std::stable_sort(textCandidates.begin(), textCandidates.end(), [&](const auto& a, const auto& b) {
+            int pA = getPathPriority(a.fullPath);
+            int pB = getPathPriority(b.fullPath);
+            if (pA != pB) return pA > pB;
+            return a.lastWriteTime > b.lastWriteTime;
+        });
+
+        if (textCandidates.size() > 2500) textCandidates.resize(2500);
 
         std::mutex resultsMutex;
         std::atomic<size_t> matchCount{0};
         const auto startTime = std::chrono::steady_clock::now();
-        const auto deadline = startTime + std::chrono::milliseconds(1200);
+        const auto deadline = startTime + std::chrono::milliseconds(2500);
 
         const unsigned int numThreads = (std::min)(4u, (std::max)(1u, std::thread::hardware_concurrency()));
         std::vector<std::thread> workers;

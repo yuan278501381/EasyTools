@@ -29,7 +29,9 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Plus,
-  Trash2
+  Trash2,
+  Code2,
+  Palette
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -187,29 +189,39 @@ const SYNTAX_EXAMPLES = [
 
 interface FormatCategory {
   id: string;
-  title: string;
+  name: string;
+  subTitle: string;
+  iconName: 'code' | 'doc' | 'config' | 'design';
   extensions: string[];
 }
 
 const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
   {
     id: 'code',
-    title: '💻 代码开发 (Code & Scripts)',
+    name: '代码与脚本',
+    subTitle: 'Code & Scripts',
+    iconName: 'code',
     extensions: ['cpp', 'c', 'h', 'hpp', 'cs', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'svelte', 'rs', 'go', 'swift', 'kt', 'dart', 'lua', 'sql', 'sh', 'bat', 'ps1', 'php', 'rb', 'asm', 'glsl', 'hlsl']
   },
   {
     id: 'docs',
-    title: '📄 办公与文档 (Office & Docs)',
+    name: '办公与文档',
+    subTitle: 'Office & Docs',
+    iconName: 'doc',
     extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'wps', 'et', 'dps', 'tex', 'diff', 'patch']
   },
   {
     id: 'config',
-    title: '⚙️ 配置与数据 (Config & Data)',
+    name: '配置与数据',
+    subTitle: 'Config & Data',
+    iconName: 'config',
     extensions: ['json', 'jsonc', 'json5', 'yaml', 'yml', 'xml', 'toml', 'ini', 'cfg', 'conf', 'config', 'env', 'reg', 'properties']
   },
   {
     id: 'design',
-    title: '🎨 工程与矢量 (Design & CAD)',
+    name: '工程与矢量',
+    subTitle: 'Design & CAD',
+    iconName: 'design',
     extensions: ['dxf', 'psd', 'ai', 'cdr', 'xmind']
   }
 ];
@@ -861,7 +873,7 @@ export default function SearchApp() {
 
       const excludesList: string[] = [];
       if (excludeGitAndModules) {
-        excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__');
+        excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__', 'npm-cache', 'go-build', '.gradle', 'pip\\cache');
       }
 
       try {
@@ -1675,14 +1687,19 @@ export default function SearchApp() {
               {/* 7. 文档内容检索格式定制 (Content Search Formats & Exts) */}
               <div className="popover-section">
                 <div className="popover-section-title">
-                  <span>文档内容检索支持格式定制 (content: / 内容:)</span>
+                  <div className="popover-section-title-left">
+                    <SlidersHorizontal size={13} className="popover-title-icon" />
+                    <span>文档内容检索支持格式</span>
+                    <span className="popover-title-badge">content:</span>
+                  </div>
                   <button
                     type="button"
                     className="popover-quick-action"
                     onClick={resetContentFormats}
                     title="恢复出厂支持格式"
                   >
-                    恢复默认
+                    <RotateCcw size={11} />
+                    <span>恢复默认</span>
                   </button>
                 </div>
                 
@@ -1693,9 +1710,19 @@ export default function SearchApp() {
                     return (
                       <div key={cat.id} className="popover-format-cat-block">
                         <div className="popover-format-cat-header">
-                          <span className="popover-format-cat-title">
-                            {cat.title} <span className="popover-format-count">({enabledCount}/{cat.extensions.length})</span>
-                          </span>
+                          <div className="popover-format-cat-title-wrap">
+                            <div className={`format-cat-icon-badge format-cat-icon-badge--${cat.iconName}`}>
+                              {cat.iconName === 'code' && <Code2 size={12} />}
+                              {cat.iconName === 'doc' && <FileText size={12} />}
+                              {cat.iconName === 'config' && <SlidersHorizontal size={12} />}
+                              {cat.iconName === 'design' && <Palette size={12} />}
+                            </div>
+                            <div className="popover-format-cat-title-col">
+                              <span className="popover-format-cat-name">{cat.name}</span>
+                              <span className="popover-format-cat-sub">{cat.subTitle}</span>
+                            </div>
+                            <span className="popover-format-badge-count">{enabledCount} / {cat.extensions.length}</span>
+                          </div>
                           <button
                             type="button"
                             className="popover-cat-toggle-btn"
@@ -1727,9 +1754,16 @@ export default function SearchApp() {
                   {/* 用户自定义格式列表 */}
                   <div className="popover-format-cat-block">
                     <div className="popover-format-cat-header">
-                      <span className="popover-format-cat-title">
-                        🧩 用户自定义格式 (Custom Formats) <span className="popover-format-count">({customContentFormats.length})</span>
-                      </span>
+                      <div className="popover-format-cat-title-wrap">
+                        <div className="format-cat-icon-badge format-cat-icon-badge--custom">
+                          <Sparkles size={12} />
+                        </div>
+                        <div className="popover-format-cat-title-col">
+                          <span className="popover-format-cat-name">用户自定义格式</span>
+                          <span className="popover-format-cat-sub">Custom Formats</span>
+                        </div>
+                        <span className="popover-format-badge-count">{customContentFormats.length} 项</span>
+                      </div>
                     </div>
                     {customContentFormats.length > 0 && (
                       <div className="popover-format-chips">
@@ -1781,7 +1815,7 @@ export default function SearchApp() {
                         onClick={() => addCustomContentFormat(newFormatInput)}
                         title="添加自定义格式"
                       >
-                        <Plus size={14} />
+                        <Plus size={13} />
                         <span>添加</span>
                       </button>
                     </div>

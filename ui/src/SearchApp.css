@@ -1435,21 +1435,48 @@ html[data-surface="search"] #root {
 }
 
 /* ── 文档内容检索格式定制 (Content Formats Customization) ── */
+.popover-section-title-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.popover-title-icon {
+    color: var(--primary);
+}
+
+.popover-title-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--primary-dim);
+    color: var(--primary);
+    font-weight: 600;
+}
+
 .popover-format-categories {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: 6px;
+    gap: 10px;
+    margin-top: 8px;
 }
 
 .popover-format-cat-block {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: 8px;
+    padding: 10px 12px;
     background: var(--search-drawer-bg);
     border: 1px solid var(--search-border);
-    border-radius: 8px;
+    border-radius: 9px;
+    transition: border-color 0.15s ease;
+}
+
+.popover-format-cat-block:hover {
+    border-color: var(--search-surface-pill-hover);
 }
 
 .popover-format-cat-header {
@@ -1458,16 +1485,75 @@ html[data-surface="search"] #root {
     justify-content: space-between;
 }
 
-.popover-format-cat-title {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--search-text-main);
+.popover-format-cat-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.popover-format-count {
+.format-cat-icon-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+.format-cat-icon-badge--code {
+    background: rgba(59, 130, 246, 0.12);
+    color: #60a5fa;
+}
+
+.format-cat-icon-badge--doc {
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+}
+
+.format-cat-icon-badge--config {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+}
+
+.format-cat-icon-badge--design {
+    background: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+}
+
+.format-cat-icon-badge--custom {
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+}
+
+.popover-format-cat-title-col {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.popover-format-cat-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--search-text-main);
+    letter-spacing: -0.01em;
+}
+
+.popover-format-cat-sub {
     font-size: 10.5px;
     font-weight: 400;
     color: var(--search-text-muted);
+}
+
+.popover-format-badge-count {
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+    font-weight: 500;
+    color: var(--search-text-muted);
+    background: var(--search-surface-pill);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--search-item-border);
 }
 
 .popover-cat-toggle-btn {
@@ -1475,10 +1561,11 @@ html[data-surface="search"] #root {
     border: none;
     color: var(--primary);
     font-size: 11px;
+    font-weight: 500;
     cursor: pointer;
-    padding: 2px 4px;
+    padding: 2px 6px;
     border-radius: 4px;
-    transition: background 0.12s ease;
+    transition: all 0.12s ease;
 }
 
 .popover-cat-toggle-btn:hover {
