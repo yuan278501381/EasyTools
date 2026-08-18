@@ -112,6 +112,8 @@ private:
     TrailStyle m_style;
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_fading{false};
+    std::atomic<uint64_t> m_trailEpoch{0};
+    uint64_t m_fadeEpoch = 0;
     float m_fadeAlpha = 1.0f;
     DWORD m_fadeStartTick = 0;
 

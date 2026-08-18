@@ -252,9 +252,20 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
         m_renderRequested.store(false, std::memory_order_relaxed);
 
         if (m_fading.load(std::memory_order_relaxed)) {
+            const uint64_t currentEpoch = m_trailEpoch.load(std::memory_order_acquire);
+            if (currentEpoch != m_fadeEpoch) {
+                // 新手势已开始并打断了上一笔淡出，绝不隐藏窗口或释放资源
+                m_fading.store(false, std::memory_order_relaxed);
+                continue;
+            }
+
             DWORD now = GetTickCount();
             DWORD elapsed = now - m_fadeStartTick;
             if (elapsed >= static_cast<DWORD>(m_style.fadeOutMs)) {
+                if (m_trailEpoch.load(std::memory_order_acquire) != m_fadeEpoch) {
+                    m_fading.store(false, std::memory_order_relaxed);
+                    continue;
+                }
                 m_fading.store(false, std::memory_order_relaxed);
                 m_fadeAlpha = 0.0f;
                 clearCanvas();
@@ -277,6 +288,9 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
+    m_trailEpoch.fetch_add(1, std::memory_order_acq_rel);
+    m_fading.store(false, std::memory_order_release);
+    m_fadeAlpha = 1.0f;
     {
         std::lock_guard lock(m_trailMutex);
         m_points.clear();
@@ -285,8 +299,6 @@ void GestureTrailOverlay::beginTrail() {
     }
 
     m_isRecognized.store(false, std::memory_order_relaxed);
-    m_fading.store(false, std::memory_order_relaxed);
-    m_fadeAlpha = 1.0f;
 }
 
 void GestureTrailOverlay::addPoint(float x, float y) {
@@ -305,7 +317,10 @@ void GestureTrailOverlay::addPoint(float x, float y) {
     }
 
     if (hasVisibleTrail && m_hwnd) {
-        if (!m_visible.exchange(true)) {
+        m_fading.store(false, std::memory_order_release);
+        m_fadeAlpha = 1.0f;
+        m_visible.store(true, std::memory_order_release);
+        if (!IsWindowVisible(m_hwnd)) {
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
         }
         m_renderRequested.store(true, std::memory_order_release);
@@ -350,6 +365,7 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
             m_resultText = resultText;
         }
     }
+    m_fadeEpoch = m_trailEpoch.load(std::memory_order_acquire);
     m_fadeStartTick = GetTickCount();
     m_fadeAlpha = 1.0f;
     m_fading.store(true, std::memory_order_release);
@@ -358,6 +374,7 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
 }
 
 void GestureTrailOverlay::hide() {
+    m_trailEpoch.fetch_add(1, std::memory_order_acq_rel);
     m_fading.store(false, std::memory_order_release);
     m_renderRequested.store(false, std::memory_order_release);
     if (m_hwnd) {
