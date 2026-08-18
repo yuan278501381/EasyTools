@@ -6,6 +6,7 @@
 #include <regex>
 #include <optional>
 #include <cstdint>
+#include <functional>
 
 struct FileRecord {
     uint64_t fileReferenceNumber = 0;
