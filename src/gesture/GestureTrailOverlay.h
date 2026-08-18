@@ -135,8 +135,6 @@ private:
 
     // Direct2D 资源与并发安全渲染锁
     std::mutex m_renderMutex;
-    RECT m_prevDirtyRect{};
-    bool m_hasPrevDirtyRect = false;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;

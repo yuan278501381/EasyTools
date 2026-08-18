@@ -219,6 +219,7 @@ void GestureTrailOverlay::shutdown() {
 }
 
 void GestureTrailOverlay::clearCanvas() {
+    std::lock_guard lock(m_renderMutex);
     if (!m_hwnd || !m_renderTarget || !m_memoryDC) return;
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
@@ -535,7 +536,6 @@ bool GestureTrailOverlay::updateTextFormat(float dpiScale) {
 
 void GestureTrailOverlay::releaseD2DResources() {
     std::lock_guard lock(m_renderMutex);
-    m_hasPrevDirtyRect = false;
     m_smoothPathGeometry.Reset();
     m_headCoreBrush.Reset();
     m_glowBrush.Reset();
@@ -767,64 +767,12 @@ void GestureTrailOverlay::render() {
         }
     }
 
-    // 计算当前画面脏矩形（Dirty Bounding Box），与上一帧脏矩形取并集提交，彻底杜绝线条断开与残影
-    bool hasCurrentDirty = false;
-    RECT currentDirty{};
-    if (!m_points.empty()) {
-        float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
-        for (const auto& pt : m_points) {
-            float px = pt.x - m_originX;
-            float py = pt.y - m_originY;
-            if (px < minX) minX = px;
-            if (py < minY) minY = py;
-            if (px > maxX) maxX = px;
-            if (py > maxY) maxY = py;
-        }
-
-        if (shouldShowToast) {
-            POINT ptCursor;
-            GetCursorPos(&ptCursor);
-            HMONITOR hMon = MonitorFromPoint(ptCursor, MONITOR_DEFAULTTONEAREST);
-            const RECT work = easy::core::dpi::workArea(hMon);
-            const float resultScale = easy::core::dpi::scaleForMonitor(hMon);
-            float cX = static_cast<float>(work.left + work.right) / 2.0f - m_originX;
-            float cY = work.top + static_cast<float>(work.bottom - work.top) * 0.82f - m_originY;
-            float maxBoxW = 400.0f * resultScale;
-            float maxBoxH = 100.0f * resultScale;
-            minX = (std::min)(minX, cX - maxBoxW / 2.0f);
-            maxX = (std::max)(maxX, cX + maxBoxW / 2.0f);
-            minY = (std::min)(minY, cY - maxBoxH / 2.0f);
-            maxY = (std::max)(maxY, cY + maxBoxH / 2.0f);
-        }
-
-        float margin = 60.0f * m_dpiScale;
-        currentDirty.left = (std::max)(0L, static_cast<LONG>(minX - margin));
-        currentDirty.top = (std::max)(0L, static_cast<LONG>(minY - margin));
-        currentDirty.right = (std::min)(static_cast<LONG>(m_width), static_cast<LONG>(maxX + margin));
-        currentDirty.bottom = (std::min)(static_cast<LONG>(m_height), static_cast<LONG>(maxY + margin));
-        hasCurrentDirty = (currentDirty.right > currentDirty.left && currentDirty.bottom > currentDirty.top);
-    }
-
-    RECT submitDirty = currentDirty;
-    if (m_hasPrevDirtyRect) {
-        if (hasCurrentDirty) {
-            submitDirty.left = (std::min)(submitDirty.left, m_prevDirtyRect.left);
-            submitDirty.top = (std::min)(submitDirty.top, m_prevDirtyRect.top);
-            submitDirty.right = (std::max)(submitDirty.right, m_prevDirtyRect.right);
-            submitDirty.bottom = (std::max)(submitDirty.bottom, m_prevDirtyRect.bottom);
-        } else {
-            submitDirty = m_prevDirtyRect;
-        }
-    }
-    m_prevDirtyRect = currentDirty;
-    m_hasPrevDirtyRect = hasCurrentDirty;
-
     if (FAILED(m_renderTarget->EndDraw())) {
         LOG_WARN("手势轨迹 Direct2D 帧提交失败");
         return;
     }
     
-    // 使用 UpdateLayeredWindowIndirect 局部脏矩形极速提交（并集区域消除残影与折断）
+    // 使用 UpdateLayeredWindow 完整屏幕原子级提交，与 DWM 完美同步，杜绝任何历史笔迹残影
     if (m_memoryDC) {
         HDC hdcScreen = GetDC(nullptr);
         POINT ptSrc = {0, 0};
@@ -832,24 +780,10 @@ void GestureTrailOverlay::render() {
         SIZE size = {m_width, m_height};
         BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
 
-        UPDATELAYEREDWINDOWINFO ulwInfo{};
-        ulwInfo.cbSize = sizeof(ulwInfo);
-        ulwInfo.hdcDst = hdcScreen;
-        ulwInfo.pptDst = &ptWin;
-        ulwInfo.psize = &size;
-        ulwInfo.hdcSrc = m_memoryDC;
-        ulwInfo.pptSrc = &ptSrc;
-        ulwInfo.pblend = &blend;
-        ulwInfo.dwFlags = ULW_ALPHA;
-        if (hasCurrentDirty || m_hasPrevDirtyRect) {
-            ulwInfo.prcDirty = &submitDirty;
-        }
-
-        UpdateLayeredWindowIndirect(m_hwnd, &ulwInfo);
+        UpdateLayeredWindow(m_hwnd, hdcScreen, &ptWin, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
         ReleaseDC(nullptr, hdcScreen);
 
-        LOG_TRACE("手势轨迹异步帧提交完成: 点数={}, 脏矩形=[{}, {}, {}, {}]",
-                  m_points.size(), submitDirty.left, submitDirty.top, submitDirty.right, submitDirty.bottom);
+        LOG_TRACE("手势轨迹异步帧提交完成: 点数={}", m_points.size());
     }
 }
 
