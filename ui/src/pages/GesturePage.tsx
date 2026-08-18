@@ -57,7 +57,6 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  HelpCircle,
   Zap,
   VolumeX,
 } from 'lucide-react';
@@ -898,46 +897,29 @@ export const GesturePage: FC = () => {
                   <div className="trigger-modes-grid">
                     {TRIGGER_ITEM_DEFINITIONS.map((item) => {
                       const st = getTriggerState(item.key);
+                      // 判断当前有效状态：若为 default 则依据全局基准继承 (右键与顶部边缘滑动默认开启)
+                      const isDefaultEnabled = item.key === 'right' || item.key === 'edge_top_slide';
+                      const isEffectiveEnabled = st === 'enabled' || (st === 'default' && isDefaultEnabled);
+
                       return (
-                        <div key={item.key} className={`trigger-item-card trigger-item-card--${st}`}>
+                        <div key={item.key} className={`trigger-item-card trigger-item-card--${isEffectiveEnabled ? 'enabled' : 'disabled'}`}>
                           <div className="trigger-item-info">
                             <span className="trigger-item-name">{item.name}</span>
                             <span className="trigger-item-cat">
                               {item.category === 'mouse' ? '按键轨迹' : '屏幕边缘'}
+                              {st === 'default' && selectedTarget.kind !== 'global' && ' (跟随默认)'}
                             </span>
                           </div>
 
-                          <div className="trigger-item-tri-segmented">
-                            <button
-                              type="button"
-                              className={`tri-btn tri-btn--enabled ${st === 'enabled' ? 'active' : ''}`}
-                              title="启用此触发方式"
-                              onClick={() => void handleSetTriggerState(item.key, 'enabled')}
-                            >
-                              <CheckCircle2 size={12} />
-                              <span>启用</span>
-                            </button>
-                            <button
-                              type="button"
-                              className={`tri-btn tri-btn--disabled ${st === 'disabled' ? 'active' : ''}`}
-                              title="禁用此触发方式"
-                              onClick={() => void handleSetTriggerState(item.key, 'disabled')}
-                            >
-                              <XCircle size={12} />
-                              <span>禁用</span>
-                            </button>
-                            {selectedTarget.kind !== 'global' && (
-                              <button
-                                type="button"
-                                className={`tri-btn tri-btn--default ${st === 'default' ? 'active' : ''}`}
-                                title="继承全局设置"
-                                onClick={() => void handleSetTriggerState(item.key, 'default')}
-                              >
-                                <HelpCircle size={12} />
-                                <span>默认</span>
-                              </button>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            className={`trigger-single-toggle ${isEffectiveEnabled ? 'active' : ''}`}
+                            title={isEffectiveEnabled ? '点击切换为禁用' : '点击切换为启用'}
+                            onClick={() => void handleSetTriggerState(item.key, isEffectiveEnabled ? 'disabled' : 'enabled')}
+                          >
+                            {isEffectiveEnabled ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                            <span>{isEffectiveEnabled ? '已启用' : '已禁用'}</span>
+                          </button>
                         </div>
                       );
                     })}

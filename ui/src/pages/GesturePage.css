@@ -630,50 +630,43 @@
   color: var(--text-muted);
 }
 
-.trigger-item-tri-segmented {
-  display: inline-flex;
-  padding: 2px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-sm);
-  gap: 2px;
-}
-
-.tri-btn {
+.trigger-single-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
-  font-size: 0.72rem;
-  font-weight: 500;
-  border: none;
-  background: transparent;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--bg-elevated);
   color: var(--text-muted);
-  border-radius: 4px;
   cursor: pointer;
   transition: all var(--transition-fast);
+  user-select: none;
 }
 
-.tri-btn:hover {
+.trigger-single-toggle:hover {
+  border-color: var(--text-secondary);
   color: var(--text-primary);
 }
 
-.tri-btn--enabled.active {
-  background: var(--success);
-  color: #ffffff;
-  font-weight: 600;
+.trigger-single-toggle.active {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #10b981;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.12);
 }
 
-.tri-btn--disabled.active {
-  background: var(--danger);
-  color: #ffffff;
-  font-weight: 600;
+.trigger-single-toggle.active:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
 }
 
-.tri-btn--default.active {
-  background: var(--text-muted);
-  color: #ffffff;
-  font-weight: 600;
+[data-theme="dark"] .trigger-single-toggle.active {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.15);
+  border-color: rgba(52, 211, 153, 0.45);
 }
 
 /* ── 手势搜索与过滤 ───────────────────────────────────────────────────────── */
