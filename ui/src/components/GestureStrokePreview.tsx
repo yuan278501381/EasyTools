@@ -1,11 +1,11 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * GestureStrokePreview.tsx — 动态手势矢量轨迹微缩预览 (Animated Vector Gesture Preview)
+ * GestureStrokePreview.tsx — WGestures 2 风格动态手势矢量微缩画板
  *
  * 功能:
- *   - 将手势编码 (如 "R", "D-R", "U-R-D", "UL") 转换为精美自适应的 SVG 矢量轨迹
- *   - 自动居中与等比缩放，适应任何长度的手势序列
- *   - 包含起点发光微光圈与终点实心方向箭头
- *   - 支持鼠标悬停触发运笔轨迹生长与流光循环动效 (WGestures 2 动效复刻)
+ *   - 精致 16:10 宽屏微缩画板 (56x38)，自动居中与等比缩放
+ *   - 起点标有 WGestures 2 标志性的鼠标触发按键图标 (如 ◐ 右键 / ◑ 左键)
+ *   - 清新青蓝色矢量手势线条 (高对比度平滑转角)
+ *   - 悬停/常态下伴随一只真实精巧的 Windows 鼠标小光标沿轨迹动态滑行动画
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useMemo, useState, useRef, useEffect, type FC } from 'react';
@@ -41,14 +41,14 @@ function parseSegments(rawCode: string): string[] {
   if (DIR_VECTORS[clean]) {
     return [clean];
   }
-  // 逐字符回退 (如 "DR" -> ["D", "R"])
   return clean.split('').filter((c) => DIR_VECTORS[c]);
 }
 
 interface Props {
   code: string;
-  size?: number;
-  strokeWidth?: number;
+  width?: number;
+  height?: number;
+  triggerButton?: 'right' | 'left' | 'middle';
   interactive?: boolean;
   autoAnimate?: boolean;
   className?: string;
@@ -57,8 +57,9 @@ interface Props {
 
 export const GestureStrokePreview: FC<Props> = ({
   code,
-  size = 36,
-  strokeWidth = 3,
+  width = 54,
+  height = 36,
+  triggerButton = 'right',
   interactive = true,
   autoAnimate = false,
   className = '',
@@ -70,14 +71,14 @@ export const GestureStrokePreview: FC<Props> = ({
 
   const segments = useMemo(() => parseSegments(code), [code]);
 
-  // 计算几何点坐标与自适应视图
+  // 计算几何点坐标并等比缩放居中到画板安全区域
   const geometry = useMemo(() => {
     if (segments.length === 0) return null;
 
     const points: { x: number; y: number }[] = [{ x: 0, y: 0 }];
     let curX = 0;
     let curY = 0;
-    const step = 30;
+    const step = 28;
 
     for (const seg of segments) {
       const vec = DIR_VECTORS[seg] || { dx: 1, dy: 0 };
@@ -101,21 +102,23 @@ export const GestureStrokePreview: FC<Props> = ({
     const rawW = maxX - minX || 1;
     const rawH = maxY - minY || 1;
 
-    const padding = 7;
-    const availW = size - padding * 2;
-    const availH = size - padding * 2;
+    // 安全留白边距 (保证起点 ◐ 与终点光标不溢出)
+    const paddingX = 9;
+    const paddingY = 8;
+    const availW = width - paddingX * 2;
+    const availH = height - paddingY * 2;
 
     const scale = Math.min(availW / rawW, availH / rawH, 1.0);
 
-    const offsetX = (size - rawW * scale) / 2 - minX * scale;
-    const offsetY = (size - rawH * scale) / 2 - minY * scale;
+    const offsetX = (width - rawW * scale) / 2 - minX * scale;
+    const offsetY = (height - rawH * scale) / 2 - minY * scale;
 
     const scaledPoints = points.map((p) => ({
       x: Number((p.x * scale + offsetX).toFixed(2)),
       y: Number((p.y * scale + offsetY).toFixed(2)),
     }));
 
-    // 构建 SVG 路径指令
+    // 构建平滑 SVG 折线路径
     let d = `M ${scaledPoints[0].x} ${scaledPoints[0].y}`;
     for (let i = 1; i < scaledPoints.length; i++) {
       d += ` L ${scaledPoints[i].x} ${scaledPoints[i].y}`;
@@ -124,20 +127,14 @@ export const GestureStrokePreview: FC<Props> = ({
     const startPoint = scaledPoints[0];
     const endPoint = scaledPoints[scaledPoints.length - 1];
 
-    // 计算终点箭头的朝向角度
-    const prevPoint = scaledPoints[scaledPoints.length - 2] || startPoint;
-    const angleRad = Math.atan2(endPoint.y - prevPoint.y, endPoint.x - prevPoint.x);
-    const angleDeg = (angleRad * 180) / Math.PI;
-
     return {
       d,
       startPoint,
       endPoint,
-      angleDeg,
     };
-  }, [segments, size]);
+  }, [segments, width, height]);
 
-  // 测量路径实际长度以驱动完美的 SVG 描边生长动画
+  // 动态测量路径实际长度以驱动 SVG 描边生长
   useEffect(() => {
     if (pathRef.current) {
       const len = pathRef.current.getTotalLength();
@@ -156,15 +153,15 @@ export const GestureStrokePreview: FC<Props> = ({
     );
   }
 
-  const { d, startPoint, endPoint, angleDeg } = geometry;
+  const { d, startPoint } = geometry;
   const isAnimating = autoAnimate || isHovered;
 
   return (
     <div
       className={`gesture-stroke-preview ${isAnimating ? 'gesture-stroke-preview--animating' : ''} ${className}`}
       style={{
-        width: `${size}px`,
-        height: `${size}px`,
+        width: `${width}px`,
+        height: `${height}px`,
         // @ts-expect-error CSS variable
         '--path-length': `${pathLength}px`,
       }}
@@ -173,44 +170,67 @@ export const GestureStrokePreview: FC<Props> = ({
       onMouseLeave={interactive ? () => setIsHovered(false) : undefined}
     >
       <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
         className="gesture-stroke-preview__svg"
       >
         {/* 1. 底层半透明轨迹轨道 */}
         <path
           d={d}
           className="gesture-stroke-preview__track"
-          strokeWidth={strokeWidth + 1}
+          strokeWidth="3.2"
         />
 
-        {/* 2. 顶层动态高亮流光路径 */}
+        {/* 2. 顶层动态高亮手势线条 (清新青蓝) */}
         <path
           ref={pathRef}
           d={d}
-          className="gesture-stroke-preview__active-path"
-          strokeWidth={strokeWidth}
+          className="gesture-stroke-preview__stroke"
+          strokeWidth="2.2"
           style={{
             strokeDasharray: pathLength,
             strokeDashoffset: isAnimating ? undefined : 0,
           }}
         />
 
-        {/* 3. 起点微光圈 */}
-        <circle
-          cx={startPoint.x}
-          cy={startPoint.y}
-          r={strokeWidth * 0.75}
-          className="gesture-stroke-preview__start-dot"
-        />
+        {/* 3. 起点按键指示器 (WGestures 2 标志性 ◐ 触发图标) */}
+        <g
+          transform={`translate(${startPoint.x}, ${startPoint.y})`}
+          className="gesture-stroke-preview__trigger-indicator"
+        >
+          <circle cx="0" cy="0" r="3.8" />
+          {triggerButton === 'right' && (
+            // 右半圆填充 (右键触发 ◐)
+            <path d="M 0 -3.8 A 3.8 3.8 0 0 1 0 3.8 Z" />
+          )}
+          {triggerButton === 'left' && (
+            // 左半圆填充 (左键触发 ◑)
+            <path d="M 0 -3.8 A 3.8 3.8 0 0 0 0 3.8 Z" />
+          )}
+          {triggerButton === 'middle' && (
+            // 中间滚轮条填充
+            <rect x="-1" y="-3.8" width="2" height="7.6" rx="0.5" />
+          )}
+        </g>
 
-        {/* 4. 终点方向箭头 */}
-        <g transform={`translate(${endPoint.x}, ${endPoint.y}) rotate(${angleDeg})`}>
-          <polygon
-            points={`0,0 -${strokeWidth * 2.2},-${strokeWidth * 1.3} -${strokeWidth * 1.5},0 -${strokeWidth * 2.2},${strokeWidth * 1.3}`}
-            className="gesture-stroke-preview__arrowhead"
+        {/* 4. 沿轨迹滑动的真实 Windows 鼠标光标小箭头 (Cursor Pointer) */}
+        <g className="gesture-stroke-preview__cursor">
+          <path
+            d="M 0 0 L 0 8.5 L 2.1 6.5 L 4.0 10.2 L 5.2 9.5 L 3.3 5.8 L 6.0 5.8 Z"
+            fill="#ffffff"
+            stroke="#1e293b"
+            strokeWidth="0.75"
+            strokeLinejoin="round"
           />
+          {isAnimating && (
+            <animateMotion
+              path={d}
+              dur="1.6s"
+              repeatCount="indefinite"
+              rotate="0"
+            />
+          )}
         </g>
       </svg>
     </div>

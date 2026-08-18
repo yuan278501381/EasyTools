@@ -989,7 +989,7 @@ export const GesturePage: FC = () => {
 
                             {/* 动态矢量手势轨迹展示 (WGestures 2 动效轨迹与悬停运笔演示) */}
                             <span className="gesture-table__col gesture-table__col--arrow">
-                              <GestureStrokePreview code={m.gestureCode} size={34} />
+                              <GestureStrokePreview code={m.gestureCode} width={54} height={34} />
                             </span>
 
                             {/* 动作名称 */}
