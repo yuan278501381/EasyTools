@@ -565,6 +565,24 @@ void MessageBridge::registerBuiltinHandlers() {
         StatsManager::instance().clearToday();
         return {{"success", true}};
     });
+    registerHandler("stats.getKeyboardLockStates", [](const json&) -> json {
+#if defined(_WIN32)
+        const bool numLock = (::GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
+        const bool capsLock = (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+        const bool scrollLock = (::GetKeyState(VK_SCROLL) & 0x0001) != 0;
+        return {
+            {"numLock", numLock},
+            {"capsLock", capsLock},
+            {"scrollLock", scrollLock}
+        };
+#else
+        return {
+            {"numLock", false},
+            {"capsLock", false},
+            {"scrollLock", false}
+        };
+#endif
+    });
 
     // ── 性能监控 ─────────────────────────────────────────────────────────
     registerHandler("perf.getMetrics", [](const json&) -> json {

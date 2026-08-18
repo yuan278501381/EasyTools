@@ -1,7 +1,8 @@
-import { type FC, useMemo, useState } from 'react';
+import { type FC, useMemo, useState, useEffect } from 'react';
 import './KeyboardHeatmap.css';
 import { useTranslation } from 'react-i18next';
 import { Flame, LayoutGrid, Keyboard } from 'lucide-react';
+import { bridgeRequest } from '../hooks/useBridge';
 
 interface KeyboardHeatmapProps {
   keyMap: Record<number, number>;
@@ -64,7 +65,7 @@ const MAIN_ALPHA_ROWS: KeyDef[][] = [
   ],
   // ASDF Row (15u)
   [
-    { label: 'Caps', fullName: '大写锁定', vkCode: 0x14, flex: 1.75 },
+    { label: 'Caps', fullName: '大写锁定 (Caps Lock)', vkCode: 0x14, flex: 1.75 },
     { label: 'A', vkCode: 0x41, flex: 1 }, { label: 'S', vkCode: 0x53, flex: 1 },
     { label: 'D', vkCode: 0x44, flex: 1 }, { label: 'F', vkCode: 0x46, flex: 1 },
     { label: 'G', vkCode: 0x47, flex: 1 }, { label: 'H', vkCode: 0x48, flex: 1 },
@@ -132,7 +133,7 @@ const NAV_ARROW_ROWS: (KeyDef | { empty: true })[][] = [
 // ── 3. 数字小键盘区 (Numpad Cluster - 4u Grid) ────────────────────────────────
 const NUMPAD_GRID_KEYS: (KeyDef & { gridRow?: string; gridCol?: string })[] = [
   // Row 1
-  { label: 'Num', fullName: '小键盘数字锁定 (Num Lock)', vkCode: 0x90, gridRow: '1', gridCol: '1' },
+  { label: 'Num', fullName: '数字键盘锁定 (Num Lock)', vkCode: 0x90, gridRow: '1', gridCol: '1' },
   { label: '/', fullName: '数字除号 (Numpad /)', vkCode: 0x6F, gridRow: '1', gridCol: '2' },
   { label: '*', fullName: '数字乘号 (Numpad *)', vkCode: 0x6A, gridRow: '1', gridCol: '3' },
   { label: '-', fullName: '数字减号 (Numpad -)', vkCode: 0x6D, gridRow: '1', gridCol: '4' },
@@ -233,6 +234,51 @@ function computeKeyHeatStyle(count: number, intensity: number): KeyHeatStyle {
 export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
   const { t } = useTranslation();
   const [layoutMode, setLayoutMode] = useState<KeyboardLayoutMode>('104');
+  const [hoveredKey, setHoveredKey] = useState<KeyDef | null>(null);
+
+  // 物理键盘硬件锁定状态联动 (NUM / CAPS / SCROLL)
+  const [lockStates, setLockStates] = useState({
+    numLock: true,
+    capsLock: false,
+    scrollLock: false
+  });
+
+  useEffect(() => {
+    const syncLockStates = async () => {
+      try {
+        const res = await bridgeRequest<{ numLock: boolean; capsLock: boolean; scrollLock: boolean }>('stats.getKeyboardLockStates');
+        if (res && typeof res.numLock === 'boolean') {
+          setLockStates({
+            numLock: res.numLock,
+            capsLock: res.capsLock,
+            scrollLock: res.scrollLock,
+          });
+        }
+      } catch {
+        // browser fallback
+      }
+    };
+
+    void syncLockStates();
+
+    const handleKeyActivity = (e: KeyboardEvent) => {
+      setLockStates({
+        numLock: e.getModifierState('NumLock'),
+        capsLock: e.getModifierState('CapsLock'),
+        scrollLock: e.getModifierState('ScrollLock'),
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyActivity);
+    window.addEventListener('keyup', handleKeyActivity);
+    window.addEventListener('focus', syncLockStates);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyActivity);
+      window.removeEventListener('keyup', handleKeyActivity);
+      window.removeEventListener('focus', syncLockStates);
+    };
+  }, []);
 
   // 计算今日总击键数
   const totalKeystrokes = useMemo(() => {
@@ -274,22 +320,35 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
     return { count, intensity, percentage, style };
   };
 
-  const renderKeyCap = (keyDef: KeyDef, customClass = '', customStyle: React.CSSProperties = {}) => {
+  const renderKeyCap = (
+    keyDef: KeyDef,
+    customClass = '',
+    customStyle: React.CSSProperties = {},
+    tooltipPlacement: 'top' | 'bottom' = 'top'
+  ) => {
     const { count, percentage, style } = getHeatData(keyDef);
     const isPeak = topKey.count > 0 && topKey.label === keyDef.label;
+
+    // 是否处于键盘锁定激活态 (如 Caps 开启时高亮 Caps 键，Num 开启时高亮 Num 键)
+    const isLockedOn =
+      (keyDef.label === 'Caps' && lockStates.capsLock) ||
+      (keyDef.label === 'Num' && lockStates.numLock) ||
+      (keyDef.label === 'ScrLk' && lockStates.scrollLock);
 
     return (
       <div
         key={keyDef.label}
-        className={`keyboard-keycap ${customClass} ${count > 0 ? 'has-heat' : ''} ${isPeak ? 'is-peak' : ''}`}
+        className={`keyboard-keycap ${customClass} ${count > 0 ? 'has-heat' : ''} ${isPeak ? 'is-peak' : ''} ${isLockedOn ? 'is-locked-on' : ''}`}
         style={{
           flex: keyDef.flex !== undefined ? `${keyDef.flex} 1 0%` : undefined,
           background: style.background,
-          borderColor: style.borderColor,
+          borderColor: isLockedOn ? 'var(--success)' : style.borderColor,
           color: style.color,
-          boxShadow: style.boxShadow,
+          boxShadow: isLockedOn ? '0 0 8px rgba(16, 185, 129, 0.45)' : style.boxShadow,
           ...customStyle,
         }}
+        onMouseEnter={() => setHoveredKey(keyDef)}
+        onMouseLeave={() => setHoveredKey((prev) => (prev?.label === keyDef.label ? null : prev))}
       >
         <span className="keyboard-keycap__label">{keyDef.label}</span>
         {count > 0 && (
@@ -302,11 +361,12 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         )}
         {isPeak && <span className="keyboard-keycap__crown">🔥</span>}
 
-        {/* 浮动玻璃微质感提示卡片 */}
-        <div className="keyboard-heatmap__tooltip">
+        {/* 浮动智能自适应轻量提示卡片 (顶部两行向下翻转，彻底杜绝顶部裁切与遮挡) */}
+        <div className={`keyboard-heatmap__tooltip keyboard-heatmap__tooltip--${tooltipPlacement}`}>
           <div className="tooltip-header">
             <span className="tooltip-key-name">{keyDef.fullName || keyDef.label}</span>
             {isPeak && <span className="tooltip-badge-peak">今日最高频</span>}
+            {isLockedOn && <span className="tooltip-badge-lock">锁定开启</span>}
           </div>
           <div className="tooltip-body">
             <span className="tooltip-count">
@@ -356,11 +416,11 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         </div>
       </div>
 
-      {/* 机械键盘精工盘体框架 */}
+      {/* 机械键盘精工盘体框架 (overflow-visible 确保气泡与阴影完整无遮挡) */}
       <div className={`keyboard-chassis keyboard-chassis--${layoutMode}`}>
         {/* ── 1. 主键区 (Main Cluster 15u) ── */}
         <div className="keyboard-cluster keyboard-cluster--main">
-          {/* F 功能键行 */}
+          {/* F 功能键行 (Tooltip 向下翻转) */}
           <div className="keyboard-row keyboard-row--f-main">
             {MAIN_F_ROW.map((item, idx) => {
               if ('gap' in item) {
@@ -372,17 +432,17 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
                   />
                 );
               }
-              return renderKeyCap(item, 'keycap--f-row');
+              return renderKeyCap(item, 'keycap--f-row', {}, 'bottom');
             })}
           </div>
 
           <div className="keyboard-section-gap" />
 
-          {/* 打字主键区 5 行 */}
+          {/* 打字主键区 5 行 (第一行数字行向下翻转，其余向上翻转) */}
           <div className="keyboard-alpha-block">
             {MAIN_ALPHA_ROWS.map((row, rIdx) => (
               <div key={rIdx} className="keyboard-row">
-                {row.map((k) => renderKeyCap(k))}
+                {row.map((k) => renderKeyCap(k, '', {}, rIdx === 0 ? 'bottom' : 'top'))}
               </div>
             ))}
           </div>
@@ -391,25 +451,25 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         {/* ── 2. 编辑与方向键区 (Nav Cluster 3u) ── */}
         {layoutMode !== '60' && (
           <div className="keyboard-cluster keyboard-cluster--nav">
-            {/* 系统键行 (PrtSc/ScrLk/Pause) */}
+            {/* 系统键行 (PrtSc/ScrLk/Pause, Tooltip 向下翻转) */}
             <div className="keyboard-row keyboard-row--f-nav">
-              {NAV_SYS_ROW.map((k) => renderKeyCap(k, 'keycap--f-row'))}
+              {NAV_SYS_ROW.map((k) => renderKeyCap(k, 'keycap--f-row', {}, 'bottom'))}
             </div>
 
             <div className="keyboard-section-gap" />
 
-            {/* 编辑功能键 2 行 (Ins/Home/PgUp, Del/End/PgDn) */}
+            {/* 编辑功能键 2 行 (Ins/Home/PgUp 向下翻转，Del/End/PgDn 向上翻转) */}
             <div className="keyboard-edit-block">
               {NAV_EDIT_ROWS.map((row, rIdx) => (
                 <div key={rIdx} className="keyboard-row">
-                  {row.map((k) => renderKeyCap(k))}
+                  {row.map((k) => renderKeyCap(k, '', {}, rIdx === 0 ? 'bottom' : 'top'))}
                 </div>
               ))}
             </div>
 
             <div className="keyboard-arrow-divider" />
 
-            {/* 倒 T 型方向键区 (↑, ←↓→) */}
+            {/* 倒 T 型方向键区 (↑, ←↓→, Tooltip 向上翻转) */}
             <div className="keyboard-arrow-block">
               {NAV_ARROW_ROWS.map((row, rIdx) => (
                 <div key={rIdx} className="keyboard-row">
@@ -417,7 +477,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
                     if ('empty' in item) {
                       return <div key={`empty-${cIdx}`} className="keyboard-gap" style={{ flex: '1 1 0%' }} />;
                     }
-                    return renderKeyCap(item, 'keycap--arrow');
+                    return renderKeyCap(item, 'keycap--arrow', {}, 'top');
                   })}
                 </div>
               ))}
@@ -428,18 +488,18 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         {/* ── 3. 数字小键盘区 (Numpad Cluster 4u) ── */}
         {layoutMode === '104' && (
           <div className="keyboard-cluster keyboard-cluster--numpad">
-            {/* 小键盘顶部指示灯面板 */}
+            {/* 小键盘顶部指示灯面板 (与真实硬件键盘实时双向联动) */}
             <div className="keyboard-numpad-status">
               <div className="numpad-led-badge">
-                <span className="numpad-led-dot active" />
+                <span className={`numpad-led-dot ${lockStates.numLock ? 'active' : ''}`} />
                 <span className="numpad-led-label">NUM</span>
               </div>
               <div className="numpad-led-badge">
-                <span className="numpad-led-dot" />
+                <span className={`numpad-led-dot ${lockStates.capsLock ? 'active' : ''}`} />
                 <span className="numpad-led-label">CAPS</span>
               </div>
               <div className="numpad-led-badge">
-                <span className="numpad-led-dot" />
+                <span className={`numpad-led-dot ${lockStates.scrollLock ? 'active' : ''}`} />
                 <span className="numpad-led-label">SCROLL</span>
               </div>
             </div>
@@ -452,14 +512,14 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
                 renderKeyCap(k, 'keycap--numpad', {
                   gridRow: k.gridRow,
                   gridColumn: k.gridCol,
-                })
+                }, k.gridRow === '1' ? 'bottom' : 'top')
               )}
             </div>
           </div>
         )}
       </div>
 
-      {/* 底部专业热力能谱图例栏 */}
+      {/* 底部专业热力能谱图例栏 & 实时悬停 HUD */}
       <div className="keyboard-heatmap__footer">
         <div className="keyboard-heatmap__legend">
           <span className="legend-label">{t('stats.lowHeat', '闲置 / 0')}</span>
@@ -469,7 +529,26 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
           <span className="legend-label">{t('stats.highHeat', '极高频 (Peak)')}</span>
         </div>
 
-        {topKey.count > 0 && (
+        {hoveredKey ? (
+          <div className="keyboard-heatmap__hover-hud">
+            <span className="hover-hud-icon">🎯</span>
+            <span className="hover-hud-label">{hoveredKey.fullName || hoveredKey.label}</span>
+            <span className="hover-hud-divider">│</span>
+            <span className="hover-hud-count">
+              <strong>
+                {(Array.isArray(hoveredKey.vkCode)
+                  ? hoveredKey.vkCode.reduce((sum, c) => sum + (keyMap[c] || 0), 0)
+                  : keyMap[hoveredKey.vkCode] || 0
+                ).toLocaleString()}
+              </strong> 次击键
+            </span>
+            <span className="hover-hud-pct">
+              占比 {totalKeystrokes > 0 ? (((Array.isArray(hoveredKey.vkCode)
+                ? hoveredKey.vkCode.reduce((sum, c) => sum + (keyMap[c] || 0), 0)
+                : keyMap[hoveredKey.vkCode] || 0) / totalKeystrokes) * 100).toFixed(1) : '0.0'}%
+            </span>
+          </div>
+        ) : topKey.count > 0 ? (
           <div className="keyboard-heatmap__top-badge">
             <div className="top-badge-icon-box">
               <Flame size={12} strokeWidth={2.5} className="top-badge-flame-icon" />
@@ -485,7 +564,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
               </span>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

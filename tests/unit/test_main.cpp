@@ -592,6 +592,12 @@ static void test_message_bridge() {
         R"({"id":80,"method":"plugins.setEnabled","params":{"id":"missing","enabled":true}})"));
     CHECK(!invalidPluginToggle["result"]["success"].get<bool>());
     CHECK(invalidPluginToggle["result"]["error"] == "plugin not found");
+
+    auto lockStates = nlohmann::json::parse(
+        bridge.handleMessage(R"({"id":81,"method":"stats.getKeyboardLockStates"})"));
+    CHECK(lockStates["result"].contains("numLock"));
+    CHECK(lockStates["result"].contains("capsLock"));
+    CHECK(lockStates["result"].contains("scrollLock"));
     bridge.clearHandlers();
 
     std::mutex gateMutex;
