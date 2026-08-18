@@ -164,7 +164,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            auto volumeResults = parser->Search(wQuery, 5000, excludeOpts);
+            auto volumeResults = parser->Search(wQuery, 100000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -176,7 +176,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
         for (auto& candidate : candidates) {
             if (candidate.isDirectory) continue;
-            if (candidate.fileSize > 25 * 1024 * 1024) continue; // 忽略大于 25MB 的巨型文件
+            if (candidate.fileSize > 50 * 1024 * 1024) continue; // 忽略大于 50MB 的巨型文件
             
             size_t dotPos = candidate.fullPath.rfind(L'.');
             if (dotPos == std::wstring::npos) continue;
@@ -232,20 +232,18 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             return a.lastWriteTime > b.lastWriteTime;
         });
 
-        if (textCandidates.size() > 5000) textCandidates.resize(5000);
-
         std::mutex resultsMutex;
         std::atomic<size_t> matchCount{0};
         const auto startTime = std::chrono::steady_clock::now();
-        const auto deadline = startTime + std::chrono::milliseconds(2500);
+        const auto deadline = startTime + std::chrono::milliseconds(3000);
 
-        const unsigned int numThreads = (std::min)(4u, (std::max)(1u, std::thread::hardware_concurrency()));
+        const unsigned int numThreads = (std::max)(2u, (std::min)(16u, std::thread::hardware_concurrency()));
         std::vector<std::thread> workers;
         std::atomic<size_t> nextIndex{0};
 
         for (unsigned int t = 0; t < numThreads; ++t) {
             workers.emplace_back([&]() {
-                while (matchCount.load() < 50) {
+                while (matchCount.load() < 100) {
                     if (std::chrono::steady_clock::now() > deadline) break;
                     size_t idx = nextIndex.fetch_add(1);
                     if (idx >= textCandidates.size()) break;
@@ -273,11 +271,11 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                             {"snippets", std::move(snippetsJson)}
                         };
 
-                        {
-                            std::lock_guard<std::mutex> lock(resultsMutex);
+                        std::lock_guard<std::mutex> lock(resultsMutex);
+                        if (responseJson["results"].size() < 100) {
                             responseJson["results"].push_back(std::move(itemJson));
+                            matchCount.fetch_add(1);
                         }
-                        matchCount.fetch_add(1);
                     }
                 }
             });
