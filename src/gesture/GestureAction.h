@@ -53,7 +53,9 @@ enum class BuiltinCommand {
     MediaPlayPause,         // 播放 / 暂停 (全局多媒体)
     VolumeUp,               // 音量增加 (全局多媒体)
     VolumeDown,             // 音量减小 (全局多媒体)
-    VolumeMute              // 静音切换 (全局多媒体)
+    VolumeMute,             // 静音切换 (全局多媒体)
+    PrevVirtualDesktop,     // 上一个虚拟桌面 (Win+Ctrl+Left)
+    NextVirtualDesktop      // 下一个虚拟桌面 (Win+Ctrl+Right)
 };
 
 /// 按键定义 (用于 SendKeys 类型)

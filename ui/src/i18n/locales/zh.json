@@ -450,7 +450,15 @@
       "webSearch": "网页搜索选中文本",
       "search": "切换文件搜索框",
       "radialMenu": "显示轮盘菜单",
-      "pasteAsPin": "将剪贴板内容贴图"
+      "pasteAsPin": "将剪贴板内容贴图",
+      "mediaNext": "下一曲 (媒体)",
+      "mediaPrev": "上一曲 (媒体)",
+      "mediaPlayPause": "播放/暂停 (媒体)",
+      "volumeUp": "增加系统音量",
+      "volumeDown": "减小系统音量",
+      "volumeMute": "静音切换",
+      "prevDesktop": "上一个虚拟桌面",
+      "nextDesktop": "下一个虚拟桌面"
     }
   },
   "gestureGuide": {

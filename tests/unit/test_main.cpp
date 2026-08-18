@@ -305,7 +305,18 @@ static void test_gesture_actions_and_builtin_commands() {
     CHECK(profRestored.getMappings().size() == 2);
     CHECK(profRestored.getTriggerState("right") == TriggerModeState::Enabled);
 
-    // 5. BuiltinCommandDispatcher 应用级回调路由与媒体命令
+    // 5. 桌面与任务栏预设工厂测试
+    auto desktopProf = GestureProfile::createDesktopProfile();
+    CHECK_EQ(desktopProf.name(), "special_desktop");
+    CHECK(desktopProf.getMappings().size() >= 5);
+    CHECK(desktopProf.findAction("U").has_value());
+
+    auto taskbarProf = GestureProfile::createTaskbarProfile();
+    CHECK_EQ(taskbarProf.name(), "special_taskbar");
+    CHECK(taskbarProf.getMappings().size() >= 4);
+    CHECK(taskbarProf.findAction("L").has_value());
+
+    // 6. BuiltinCommandDispatcher 应用级回调路由与媒体/虚拟桌面命令
     auto& dispatcher = BuiltinCommandDispatcher::instance();
     std::atomic<bool> screenshotCalled{false};
     dispatcher.registerHandler(BuiltinCommand::TakeScreenshot, [&screenshotCalled]() {
@@ -315,11 +326,15 @@ static void test_gesture_actions_and_builtin_commands() {
     dispatcher.execute(BuiltinCommand::TakeScreenshot, nullptr);
     CHECK(screenshotCalled.load());
 
-    // 验证多媒体命令在无有效目标窗口与伪窗口上下文下均能稳定分发，不发生异常
+    // 验证多媒体命令与虚拟桌面在无有效目标窗口与伪窗口上下文下均能稳定分发，不发生异常
     dispatcher.execute(BuiltinCommand::MediaNext, nullptr);
     dispatcher.execute(BuiltinCommand::MediaPrev, nullptr);
     dispatcher.execute(BuiltinCommand::MediaPlayPause, nullptr);
+    dispatcher.execute(BuiltinCommand::VolumeUp, nullptr);
+    dispatcher.execute(BuiltinCommand::VolumeDown, nullptr);
     dispatcher.execute(BuiltinCommand::VolumeMute, nullptr);
+    dispatcher.execute(BuiltinCommand::PrevVirtualDesktop, nullptr);
+    dispatcher.execute(BuiltinCommand::NextVirtualDesktop, nullptr);
     dispatcher.clearHandlers();
 }
 

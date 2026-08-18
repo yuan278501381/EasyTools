@@ -450,7 +450,15 @@
       "webSearch": "Search selected text on the web",
       "search": "Toggle file search",
       "radialMenu": "Show radial menu",
-      "pasteAsPin": "Pin clipboard content"
+      "pasteAsPin": "Pin clipboard content",
+      "mediaNext": "Next Track (Media)",
+      "mediaPrev": "Previous Track (Media)",
+      "mediaPlayPause": "Play / Pause (Media)",
+      "volumeUp": "Increase Volume",
+      "volumeDown": "Decrease Volume",
+      "volumeMute": "Toggle Mute",
+      "prevDesktop": "Previous Virtual Desktop",
+      "nextDesktop": "Next Virtual Desktop"
     }
   },
   "gestureGuide": {

@@ -229,6 +229,66 @@ GestureProfile GestureProfile::createBrowserProfile() {
     return profile;
 }
 
+GestureProfile GestureProfile::createDesktopProfile() {
+    GestureProfile profile("special_desktop");
+
+    auto addKeys = [&](const std::string& code, const std::string& name,
+                       const std::string& keys, const std::string& desc = "") {
+        GestureMapping mapping;
+        mapping.gestureCode = code;
+        mapping.action.type = ActionType::SendKeys;
+        mapping.action.name = name;
+        mapping.action.description = desc;
+        mapping.action.keyStroke = KeyStroke::fromString(keys);
+        profile.addMapping(mapping);
+    };
+
+    auto addBuiltin = [&](const std::string& code, const std::string& name,
+                          BuiltinCommand cmd, const std::string& desc = "") {
+        GestureMapping mapping;
+        mapping.gestureCode = code;
+        mapping.action.type = ActionType::BuiltinCommand;
+        mapping.action.name = name;
+        mapping.action.description = desc;
+        mapping.action.builtinCmd = cmd;
+        profile.addMapping(mapping);
+    };
+
+    // 桌面高频实用手势预设
+    addKeys("U",      "刷新桌面",             "F5",               "刷新桌面图标与排列");
+    addBuiltin("D-R", "屏幕截图",             BuiltinCommand::TakeScreenshot, "唤起 EasyTools 屏幕截图");
+    addKeys("L",      "打开此电脑",           "Win+E",            "快速打开 Windows 资源管理器");
+    addBuiltin("R",   "全局秒搜",             BuiltinCommand::ToggleSearch,   "呼出 EasyTools 文件与内容搜索");
+    addBuiltin("D",   "显示桌面",             BuiltinCommand::ShowDesktop,    "一键最小化所有窗口显示桌面");
+
+    LOG_INFO("创建桌面专属手势配置集, 手势数量={}", profile.getMappings().size());
+    return profile;
+}
+
+GestureProfile GestureProfile::createTaskbarProfile() {
+    GestureProfile profile("special_taskbar");
+
+    auto addBuiltin = [&](const std::string& code, const std::string& name,
+                          BuiltinCommand cmd, const std::string& desc = "") {
+        GestureMapping mapping;
+        mapping.gestureCode = code;
+        mapping.action.type = ActionType::BuiltinCommand;
+        mapping.action.name = name;
+        mapping.action.description = desc;
+        mapping.action.builtinCmd = cmd;
+        profile.addMapping(mapping);
+    };
+
+    // 任务栏高频实用手势预设
+    addBuiltin("L",   "上一个虚拟桌面",       BuiltinCommand::PrevVirtualDesktop, "向左滑动切换至上一个虚拟桌面");
+    addBuiltin("R",   "下一个虚拟桌面",       BuiltinCommand::NextVirtualDesktop, "向右滑动切换至下一个虚拟桌面");
+    addBuiltin("U",   "任务视图",             BuiltinCommand::TaskView,           "呼出 Windows 任务视图 / 时间线");
+    addBuiltin("D",   "显示桌面",             BuiltinCommand::ShowDesktop,        "快速显示桌面或还原");
+
+    LOG_INFO("创建任务栏专属手势配置集, 手势数量={}", profile.getMappings().size());
+    return profile;
+}
+
 // ── JSON 序列化 ──────────────────────────────────────────────────────────────
 
 nlohmann::json GestureProfile::toJson() const {

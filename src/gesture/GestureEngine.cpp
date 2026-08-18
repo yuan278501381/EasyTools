@@ -21,9 +21,11 @@ GestureEngine& GestureEngine::instance() {
 }
 
 GestureEngine::GestureEngine() {
-    // 创建默认 Profile
+    // 创建默认 Profile 与特殊目标专属 Profile
     m_profiles["default"] = GestureProfile::createDefaultGlobal();
     m_profiles["browser"] = GestureProfile::createBrowserProfile();
+    m_profiles["special_desktop"] = GestureProfile::createDesktopProfile();
+    m_profiles["special_taskbar"] = GestureProfile::createTaskbarProfile();
 }
 
 bool GestureEngine::start() {

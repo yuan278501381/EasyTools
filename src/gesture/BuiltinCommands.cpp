@@ -184,6 +184,8 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd, void* targetWindowPtr
         case BuiltinCommand::ShowDesktop:        sendCombo(MOD_WIN, 'D'); break;
         case BuiltinCommand::TaskView:           sendCombo(MOD_WIN, VK_TAB); break;
         case BuiltinCommand::SwitchDesktop:      sendCombo(MOD_WIN | MOD_CONTROL, VK_RIGHT); break;
+        case BuiltinCommand::PrevVirtualDesktop: sendCombo(MOD_WIN | MOD_CONTROL, VK_LEFT); break;
+        case BuiltinCommand::NextVirtualDesktop: sendCombo(MOD_WIN | MOD_CONTROL, VK_RIGHT); break;
         case BuiltinCommand::LockScreen:         LockWorkStation(); break;
 
         // ── 应用级 (经回调路由, 保持单向依赖) ─────────────────────────────────

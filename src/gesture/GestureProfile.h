@@ -92,6 +92,12 @@ public:
     /// 创建浏览器专用 Profile
     static GestureProfile createBrowserProfile();
 
+    /// 创建桌面特殊目标专属 Profile
+    static GestureProfile createDesktopProfile();
+
+    /// 创建任务栏特殊目标专属 Profile
+    static GestureProfile createTaskbarProfile();
+
     /// 序列化
     nlohmann::json toJson() const;
     static GestureProfile fromJson(const nlohmann::json& j);

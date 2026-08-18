@@ -67,7 +67,11 @@ export const BUILTIN_COMMAND_KEYS = [
   'gestureEditor.builtin.restoreTab', 'gestureEditor.builtin.topmost',
   'gestureEditor.builtin.transparency', 'gestureEditor.builtin.webSearch',
   'gestureEditor.builtin.search', 'gestureEditor.builtin.radialMenu',
-  'gestureEditor.builtin.pasteAsPin',
+  'gestureEditor.builtin.pasteAsPin', 'gestureEditor.builtin.mediaNext',
+  'gestureEditor.builtin.mediaPrev', 'gestureEditor.builtin.mediaPlayPause',
+  'gestureEditor.builtin.volumeUp', 'gestureEditor.builtin.volumeDown',
+  'gestureEditor.builtin.volumeMute', 'gestureEditor.builtin.prevDesktop',
+  'gestureEditor.builtin.nextDesktop',
 ] as const;
 
 export const CODE_TO_ARROWS: Record<string, string> = {
