@@ -390,6 +390,12 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             return lazyPath;
         };
 
+        // 1. 优先执行毫秒级纯内存表达式比对 (绝大部分非匹配文件在此立即返回 false)
+        if (!expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), getPath)) {
+            return false;
+        }
+
+        // 2. 仅对命中的极少数候选执行排除规则过滤 (避免对 265 万未命中文件强制构建全路径)
         if (!excludeOpts.patterns.empty()) {
             const std::wstring& p = getPath();
             for (const auto& pat : excludeOpts.patterns) {
@@ -400,7 +406,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             }
         }
 
-        return expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), getPath);
+        return true;
     };
 
     std::vector<DWORDLONG> candidates;

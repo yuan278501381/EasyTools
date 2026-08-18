@@ -27,7 +27,9 @@ import {
   Network,
   Disc,
   FileSpreadsheet,
-  RefreshCw
+  RefreshCw,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -177,10 +179,39 @@ const SYNTAX_EXAMPLES = [
   { syntax: 'ext:jpg | ext:png', desc: '逻辑或 OR' },
   { syntax: '"Program Files"', desc: '双引号短语精确匹配' },
   { syntax: 'path:windows', desc: '在完整路径中搜索' },
-  { syntax: 'c: *.dll', desc: '限定在 C 盘检索' },
+  { syntax: 'c: *.dll', desc: '限定在 C盘检索' },
   { syntax: 'regex:^app_\\d+\\.log$', desc: '正则表达式检索' },
   { syntax: 'case:EasyTools', desc: '区分大小写搜索' },
   { syntax: 'pinyin:wx', desc: '显式拼音首字母/全拼检索' },
+];
+
+export interface FormatCategory {
+  id: string;
+  title: string;
+  extensions: string[];
+}
+
+export const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
+  {
+    id: 'code',
+    title: '💻 代码开发 (Code & Scripts)',
+    extensions: ['cpp', 'c', 'h', 'hpp', 'cs', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'svelte', 'rs', 'go', 'swift', 'kt', 'dart', 'lua', 'sql', 'sh', 'bat', 'ps1', 'php', 'rb', 'asm', 'glsl', 'hlsl']
+  },
+  {
+    id: 'docs',
+    title: '📄 办公与文档 (Office & Docs)',
+    extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'wps', 'et', 'dps', 'tex', 'diff', 'patch']
+  },
+  {
+    id: 'config',
+    title: '⚙️ 配置与数据 (Config & Data)',
+    extensions: ['json', 'jsonc', 'json5', 'yaml', 'yml', 'xml', 'toml', 'ini', 'cfg', 'conf', 'config', 'env', 'reg', 'properties']
+  },
+  {
+    id: 'design',
+    title: '🎨 工程与矢量 (Design & CAD)',
+    extensions: ['dxf', 'psd', 'ai', 'cdr', 'xmind']
+  }
 ];
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|bmp|gif|svg|ico)$/i;
@@ -501,6 +532,95 @@ export default function SearchApp() {
   });
   const [isRebuilding, setIsRebuilding] = useState(false);
 
+  const [disabledContentFormats, setDisabledContentFormats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('easytools_search_disabled_formats');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  const [customContentFormats, setCustomContentFormats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('easytools_search_custom_formats');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  const [newFormatInput, setNewFormatInput] = useState('');
+
+  const toggleContentFormat = (ext: string) => {
+    const cleanExt = ext.toLowerCase().replace(/^\./, '').trim();
+    setDisabledContentFormats(prev => {
+      let next: string[];
+      if (prev.includes(cleanExt)) {
+        next = prev.filter(e => e !== cleanExt);
+      } else {
+        next = [...prev, cleanExt];
+      }
+      localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleCategoryFormats = (cat: FormatCategory, enableAll: boolean) => {
+    setDisabledContentFormats(prev => {
+      let next = [...prev];
+      if (enableAll) {
+        next = next.filter(e => !cat.extensions.includes(e));
+      } else {
+        for (const ext of cat.extensions) {
+          if (!next.includes(ext)) next.push(ext);
+        }
+      }
+      localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const addCustomContentFormat = (rawInput: string) => {
+    const parts = rawInput.split(/[,;\s]+/).map(p => p.toLowerCase().replace(/^\./, '').trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    setCustomContentFormats(prev => {
+      const next = [...prev];
+      for (const p of parts) {
+        if (!next.includes(p)) next.push(p);
+      }
+      localStorage.setItem('easytools_search_custom_formats', JSON.stringify(next));
+      return next;
+    });
+    setDisabledContentFormats(prev => {
+      const next = prev.filter(e => !parts.includes(e));
+      localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      return next;
+    });
+    setNewFormatInput('');
+    toast.success(`已添加 ${parts.join(', ')} 到文档内容搜索支持列表`);
+  };
+
+  const removeCustomContentFormat = (ext: string) => {
+    const cleanExt = ext.toLowerCase().replace(/^\./, '').trim();
+    setCustomContentFormats(prev => {
+      const next = prev.filter(e => e !== cleanExt);
+      localStorage.setItem('easytools_search_custom_formats', JSON.stringify(next));
+      return next;
+    });
+    setDisabledContentFormats(prev => {
+      const next = prev.filter(e => e !== cleanExt);
+      localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const resetContentFormats = () => {
+    setDisabledContentFormats([]);
+    setCustomContentFormats([]);
+    localStorage.removeItem('easytools_search_disabled_formats');
+    localStorage.removeItem('easytools_search_custom_formats');
+    toast.success('已恢复文档内容检索默认格式配置');
+  };
+
   const rebuildIndex = async () => {
     setIsRebuilding(true);
     toast.info('正在后台重新扫描全盘索引...');
@@ -741,7 +861,9 @@ export default function SearchApp() {
           query: trimmed,
           drives: enabledDrives.length > 0 ? enabledDrives : undefined,
           excludes: excludesList.length > 0 ? excludesList : undefined,
-          excludeHidden: excludeHidden
+          excludeHidden: excludeHidden,
+          contentCustomExts: customContentFormats.length > 0 ? customContentFormats : undefined,
+          contentDisabledExts: disabledContentFormats.length > 0 ? disabledContentFormats : undefined
         });
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
@@ -765,7 +887,7 @@ export default function SearchApp() {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [query, enabledDrives, excludeGitAndModules, excludeHidden]);
+  }, [query, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -1540,6 +1662,122 @@ export default function SearchApp() {
                   <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
                   <span>{isRebuilding ? '正在重新扫描并重建索引...' : '立即强制重新扫描并刷新全盘索引'}</span>
                 </button>
+              </div>
+
+              {/* 7. 文档内容检索格式定制 (Content Search Formats & Exts) */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <span>文档内容检索支持格式定制 (content: / 内容:)</span>
+                  <button
+                    type="button"
+                    className="popover-quick-action"
+                    onClick={resetContentFormats}
+                    title="恢复出厂支持格式"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                
+                <div className="popover-format-categories">
+                  {CONTENT_FORMAT_CATEGORIES.map(cat => {
+                    const enabledCount = cat.extensions.filter(ext => !disabledContentFormats.includes(ext)).length;
+                    const allEnabled = enabledCount === cat.extensions.length;
+                    return (
+                      <div key={cat.id} className="popover-format-cat-block">
+                        <div className="popover-format-cat-header">
+                          <span className="popover-format-cat-title">
+                            {cat.title} <span className="popover-format-count">({enabledCount}/{cat.extensions.length})</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="popover-cat-toggle-btn"
+                            onClick={() => toggleCategoryFormats(cat, !allEnabled)}
+                          >
+                            {allEnabled ? '全禁' : '全选'}
+                          </button>
+                        </div>
+                        <div className="popover-format-chips">
+                          {cat.extensions.map(ext => {
+                            const isEnabled = !disabledContentFormats.includes(ext);
+                            return (
+                              <button
+                                key={ext}
+                                type="button"
+                                className={`format-chip ${isEnabled ? 'format-chip--enabled' : 'format-chip--disabled'}`}
+                                onClick={() => toggleContentFormat(ext)}
+                                title={isEnabled ? `点击禁用 .${ext}` : `点击启用 .${ext}`}
+                              >
+                                <span>.{ext}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* 用户自定义格式列表 */}
+                  <div className="popover-format-cat-block">
+                    <div className="popover-format-cat-header">
+                      <span className="popover-format-cat-title">
+                        🧩 用户自定义格式 (Custom Formats) <span className="popover-format-count">({customContentFormats.length})</span>
+                      </span>
+                    </div>
+                    {customContentFormats.length > 0 && (
+                      <div className="popover-format-chips">
+                        {customContentFormats.map(ext => {
+                          const isEnabled = !disabledContentFormats.includes(ext);
+                          return (
+                            <div
+                              key={ext}
+                              className={`format-chip format-chip--custom ${isEnabled ? 'format-chip--enabled' : 'format-chip--disabled'}`}
+                            >
+                              <span onClick={() => toggleContentFormat(ext)} className="format-chip-label">
+                                .{ext}
+                              </span>
+                              <button
+                                type="button"
+                                className="format-chip-del"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeCustomContentFormat(ext);
+                                }}
+                                title="删除此自定义格式"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="popover-format-add-row">
+                      <input
+                        type="text"
+                        className="popover-format-add-input"
+                        placeholder="添加自定义后缀 (如 .log2, .proto, .prisma)... 回车添加"
+                        value={newFormatInput}
+                        onChange={(e) => setNewFormatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addCustomContentFormat(newFormatInput);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="popover-format-add-btn"
+                        onClick={() => addCustomContentFormat(newFormatInput)}
+                        title="添加自定义格式"
+                      >
+                        <Plus size={14} />
+                        <span>添加</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="popover-footer">

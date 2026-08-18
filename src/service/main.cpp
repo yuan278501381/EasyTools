@@ -122,6 +122,21 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             if (reqJson.contains("excludeSystem") && reqJson["excludeSystem"].is_boolean()) {
                 excludeOpts.excludeSystem = reqJson["excludeSystem"].get<bool>();
             }
+            if (reqJson.contains("contentCustomExts") || reqJson.contains("contentDisabledExts")) {
+                std::vector<std::wstring> customExts;
+                std::vector<std::wstring> disabledExts;
+                if (reqJson.contains("contentCustomExts") && reqJson["contentCustomExts"].is_array()) {
+                    for (const auto& item : reqJson["contentCustomExts"]) {
+                        if (item.is_string()) customExts.push_back(StringToWString(item.get<std::string>()));
+                    }
+                }
+                if (reqJson.contains("contentDisabledExts") && reqJson["contentDisabledExts"].is_array()) {
+                    for (const auto& item : reqJson["contentDisabledExts"]) {
+                        if (item.is_string()) disabledExts.push_back(StringToWString(item.get<std::string>()));
+                    }
+                }
+                easy::service::content::ContentSearchEngine::instance().configureFormats(customExts, disabledExts);
+            }
         } catch (...) {
             wQuery = rawInput;
         }

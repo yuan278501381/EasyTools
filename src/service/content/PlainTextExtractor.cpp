@@ -289,9 +289,33 @@ bool PlainTextExtractor::canHandle(std::wstring_view extension) const {
     std::wstring lowerExt;
     lowerExt.reserve(extension.size());
     for (wchar_t c : extension) {
-        lowerExt.push_back(std::towlower(c));
+        if (c != L'.') lowerExt.push_back(std::towlower(c));
     }
-    return m_supportedExts.find(lowerExt) != m_supportedExts.end();
+    if (lowerExt.empty()) return false;
+    return m_supportedExts.find(lowerExt) != m_supportedExts.end() ||
+           m_customExts.find(lowerExt) != m_customExts.end();
+}
+
+void PlainTextExtractor::addCustomExtension(std::wstring_view ext) {
+    std::wstring lowerExt;
+    lowerExt.reserve(ext.size());
+    for (wchar_t c : ext) {
+        if (c != L'.') lowerExt.push_back(std::towlower(c));
+    }
+    if (!lowerExt.empty()) {
+        m_customExts.insert(std::move(lowerExt));
+    }
+}
+
+void PlainTextExtractor::removeCustomExtension(std::wstring_view ext) {
+    std::wstring lowerExt;
+    lowerExt.reserve(ext.size());
+    for (wchar_t c : ext) {
+        if (c != L'.') lowerExt.push_back(std::towlower(c));
+    }
+    if (!lowerExt.empty()) {
+        m_customExts.erase(lowerExt);
+    }
 }
 
 bool PlainTextExtractor::searchContent(

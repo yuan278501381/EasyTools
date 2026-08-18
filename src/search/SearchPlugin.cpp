@@ -212,13 +212,16 @@ public:
             std::string payload;
             if ((params.contains("drives") && params["drives"].is_array() && !params["drives"].empty()) ||
                 (params.contains("excludes") && params["excludes"].is_array()) ||
-                params.contains("excludeHidden") || params.contains("excludeSystem")) {
+                params.contains("excludeHidden") || params.contains("excludeSystem") ||
+                params.contains("contentCustomExts") || params.contains("contentDisabledExts")) {
                 nlohmann::json req;
                 req["query"] = query;
                 if (params.contains("drives")) req["drives"] = params["drives"];
                 if (params.contains("excludes")) req["excludes"] = params["excludes"];
                 if (params.contains("excludeHidden")) req["excludeHidden"] = params["excludeHidden"];
                 if (params.contains("excludeSystem")) req["excludeSystem"] = params["excludeSystem"];
+                if (params.contains("contentCustomExts")) req["contentCustomExts"] = params["contentCustomExts"];
+                if (params.contains("contentDisabledExts")) req["contentDisabledExts"] = params["contentDisabledExts"];
                 payload = req.dump();
             } else {
                 payload = query;

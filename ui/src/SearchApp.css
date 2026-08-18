@@ -1433,3 +1433,172 @@ html[data-surface="search"] #root {
 .search-resize-handle:hover {
     opacity: 1;
 }
+
+/* ── 文档内容检索格式定制 (Content Formats Customization) ── */
+.popover-format-categories {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.popover-format-cat-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+}
+
+.popover-format-cat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.popover-format-cat-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.popover-format-count {
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.popover-cat-toggle-btn {
+    background: transparent;
+    border: none;
+    color: var(--primary);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background 0.12s ease;
+}
+
+.popover-cat-toggle-btn:hover {
+    background: var(--primary-dim);
+}
+
+.popover-format-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.format-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    border: 1px solid transparent;
+}
+
+.format-chip--enabled {
+    background: var(--primary-dim);
+    color: var(--primary);
+    border-color: var(--primary);
+    font-weight: 600;
+}
+
+.format-chip--enabled:hover {
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.format-chip--disabled {
+    background: var(--bg-card);
+    color: var(--text-muted);
+    border-color: var(--card-border);
+    opacity: 0.6;
+    text-decoration: line-through;
+}
+
+.format-chip--disabled:hover {
+    opacity: 1;
+    border-color: var(--text-muted);
+}
+
+.format-chip--custom {
+    padding-right: 4px;
+}
+
+.format-chip-label {
+    cursor: pointer;
+}
+
+.format-chip-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    padding: 0;
+}
+
+.format-chip-del:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.popover-format-add-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.popover-format-add-input {
+    flex: 1;
+    height: 26px;
+    padding: 0 8px;
+    font-size: 11px;
+    background: var(--bg-card);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.popover-format-add-input:focus {
+    border-color: var(--primary);
+}
+
+.popover-format-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--primary-dim);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.popover-format-add-btn:hover {
+    background: var(--primary);
+    color: #ffffff;
+}

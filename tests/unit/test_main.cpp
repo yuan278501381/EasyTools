@@ -1967,6 +1967,32 @@ TEST(ContentSearchTest, ExtractorEngines) {
         EXPECT_NE(snippets[0].lineContent.find(L"极客搜索世界级体验"), std::wstring::npos);
     }
     DeleteFileW(testUtf16File.c_str());
+
+    // 8. 动态格式配置测试 (自定义格式扩展与黑名单禁用)
+    engine.configureFormats({L"proto", L"mycustomext"}, {L"psd", L"dxf"});
+    EXPECT_TRUE(engine.canSearchContent(L"proto"));
+    EXPECT_TRUE(engine.canSearchContent(L"mycustomext"));
+    EXPECT_FALSE(engine.canSearchContent(L"psd"));
+    EXPECT_FALSE(engine.canSearchContent(L"dxf"));
+
+    std::wstring testProtoFile = std::wstring(tempPath) + L"easytools_test.proto";
+    {
+        std::ofstream ofs(testProtoFile);
+        ofs << "syntax = \"proto3\";\n";
+        ofs << "message EasyToolsSearchPacket {\n";
+        ofs << "    string query = 1;\n";
+        ofs << "}\n";
+    }
+    snippets.clear();
+    bool protoFound = engine.searchFile(testProtoFile, L"EasyToolsSearchPacket", false, snippets);
+    EXPECT_TRUE(protoFound);
+    EXPECT_FALSE(snippets.empty());
+    DeleteFileW(testProtoFile.c_str());
+
+    // 恢复配置
+    engine.configureFormats({}, {});
+    EXPECT_TRUE(engine.canSearchContent(L"psd"));
+    EXPECT_TRUE(engine.canSearchContent(L"dxf"));
 }
 
 // -----------------------------------------------------------------------------
