@@ -65,8 +65,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # ── 编译选项 ──────────────────────────────────────────────────────────────────
 if(MSVC)
     add_compile_options(
-        /utf-8 /W4 /WX- /permissive- /Zc:__cplusplus /MP
+        /utf-8 /W4 /WX- /permissive- /Zc:__cplusplus /MP /Zi
     )
+    add_link_options(/DEBUG)
     add_compile_definitions(
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
     )
