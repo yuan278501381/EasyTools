@@ -93,6 +93,17 @@
   animation: pulseCardHighlight 1.5s ease-out 1;
 }
 
+.gesture-field-pulse-target {
+  border-radius: var(--radius-md);
+  animation: pulseFieldHighlight 1.6s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+@keyframes pulseFieldHighlight {
+  0% { transform: scale(0.98); box-shadow: 0 0 0 0 var(--primary); }
+  35% { transform: scale(1.015); box-shadow: 0 0 0 4px var(--primary-glow); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+
 @keyframes pulseCardHighlight {
   0% { transform: scale(0.98); box-shadow: 0 0 16px var(--primary); }
   50% { transform: scale(1.02); box-shadow: 0 0 20px var(--primary-glow); }

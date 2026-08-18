@@ -134,7 +134,7 @@ export const GesturePage: FC = () => {
   const [appPickerDefaultDisabled, setAppPickerDefaultDisabled] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMapping, setEditingMapping] = useState<GestureMapping | null>(null);
-  const [editorFocusTarget, setEditorFocusTarget] = useState<'instant' | 'silent' | null>(null);
+  const [editorFocusTarget, setEditorFocusTarget] = useState<'instant' | 'silent' | 'action_type' | 'action_detail' | 'hotkey' | 'lua' | 'builtin' | 'program' | null>(null);
 
   const getHotkey = (name: string) => hotkeys.find(h => h.name === name);
 
@@ -405,7 +405,10 @@ export const GesturePage: FC = () => {
     setEditorOpen(true);
   };
 
-  const openEditMapping = (m: GestureMapping, focusTarget: 'instant' | 'silent' | null = null) => {
+  const openEditMapping = (
+    m: GestureMapping,
+    focusTarget: 'instant' | 'silent' | 'action_type' | 'action_detail' | 'hotkey' | 'lua' | 'builtin' | 'program' | null = null
+  ) => {
     setEditingMapping(m);
     setEditorFocusTarget(focusTarget);
     setEditorOpen(true);
@@ -1027,15 +1030,37 @@ export const GesturePage: FC = () => {
 
                             {/* 3. 动作类型 */}
                             <span className="gesture-table__col gesture-table__col--type">
-                              <Badge
-                                text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
-                                variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
-                              />
+                              <button
+                                type="button"
+                                className="gesture-type-badge-btn"
+                                title="点击直接配置此动作类型与参数"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditMapping(m, 'action_type');
+                                }}
+                              >
+                                <Badge
+                                  text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
+                                  variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
+                                />
+                              </button>
                             </span>
 
                             {/* 4. 详情按键 */}
                             <span className="gesture-table__col gesture-table__col--key">
-                              {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
+                              {actionDetail(m.action) && (
+                                <button
+                                  type="button"
+                                  className="gesture-detail-badge-btn"
+                                  title="点击直接修改此快捷键/参数"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditMapping(m, 'action_detail');
+                                  }}
+                                >
+                                  <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>
+                                </button>
+                              )}
                             </span>
 
                             {/* 5. 极简微型胶囊开关 Micro Switch */}

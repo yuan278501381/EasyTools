@@ -924,3 +924,30 @@
   border: 1px solid var(--card-border);
 }
 
+/* ── 动作类型与按键详情直达按钮 ─────────────────────────────── */
+.gesture-type-badge-btn,
+.gesture-detail-badge-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: transform var(--transition-fast), filter var(--transition-fast);
+  user-select: none;
+}
+
+.gesture-type-badge-btn:hover,
+.gesture-detail-badge-btn:hover {
+  transform: translateY(-1px) scale(1.06);
+  filter: brightness(1.12);
+}
+
+.gesture-detail-badge-btn:hover .gesture-kbd {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+

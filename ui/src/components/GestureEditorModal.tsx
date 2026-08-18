@@ -39,8 +39,8 @@ interface Props {
   initial: GestureMapping | null;
   /** 现有的全部编码, 用于冲突检测 */
   existingCodes: string[];
-  /** 从表格特性徽章直接点击进入时的聚焦目标 */
-  initialFocusTarget?: 'instant' | 'silent' | null;
+  /** 从表格特性徽章或动作类型点击进入时的聚焦目标 */
+  initialFocusTarget?: 'instant' | 'silent' | 'action_type' | 'action_detail' | 'hotkey' | 'lua' | 'builtin' | 'program' | null;
   onSave: (mapping: GestureMapping) => void;
   onClose: () => void;
 }
@@ -53,25 +53,39 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
   const isEdit = initial !== null;
   const code = draft.gestureCode.trim().toUpperCase();
   const [advancedOpen, setAdvancedOpen] = useState(
-    Boolean(initial?.instantExecute || initial?.silentToast || initialFocusTarget)
+    Boolean(initial?.instantExecute || initial?.silentToast || (initialFocusTarget === 'instant' || initialFocusTarget === 'silent'))
   );
   const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
   const advancedRef = useRef<HTMLDivElement>(null);
   const instantCardRef = useRef<HTMLDivElement>(null);
   const silentCardRef = useRef<HTMLDivElement>(null);
+  const actionTypeRef = useRef<HTMLDivElement>(null);
+  const actionDetailRef = useRef<HTMLDivElement>(null);
+  const [pulseTarget, setPulseTarget] = useState<string | null>(() => initialFocusTarget || null);
 
-  // 从表格特性徽章点击进入时，自动展开高级设置并平滑滚动高亮到对应卡片
+  // 从表格特性徽章或类型标签点击进入时，自动展开高级设置或平滑滚动高亮到对应卡片
   useEffect(() => {
     if (initialFocusTarget) {
+      const timer = setTimeout(() => setPulseTarget(null), 2000);
+
       requestAnimationFrame(() => {
         setTimeout(() => {
           if (initialFocusTarget === 'instant') {
             instantCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
           } else if (initialFocusTarget === 'silent') {
             silentCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else if (initialFocusTarget === 'action_type') {
+            actionTypeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            actionTypeRef.current?.querySelector('select')?.focus();
+          } else if (initialFocusTarget === 'action_detail' || initialFocusTarget === 'hotkey' || initialFocusTarget === 'lua' || initialFocusTarget === 'builtin' || initialFocusTarget === 'program') {
+            actionDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const input = actionDetailRef.current?.querySelector('input, textarea, select, [tabindex="0"]') as HTMLElement | null;
+            input?.focus();
           }
         }, 120);
       });
+
+      return () => clearTimeout(timer);
     }
   }, [initialFocusTarget]);
 
@@ -178,62 +192,66 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
         />
       </Field>
 
-      <Field label={t('gestureEditor.actionType')}>
-        <Select
-          value={String(draft.action.type)}
-          options={ACTION_TYPE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
-          onChange={(v) => setAction({ type: Number(v) })}
-        />
-      </Field>
-
-      {draft.action.type === 0 && (
-        <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
-          <HotkeyRecorder
-            id="gesture-hotkey-recorder"
-            value={draft.action.keyStroke ?? ''}
-            onChange={(v) => setAction({ keyStroke: v })}
-          />
-        </Field>
-      )}
-
-      {draft.action.type === 1 && (
-        <Field label={t('gestureEditor.luaScript')} hint={t('gestureEditor.luaScriptHint')}>
-          <TextInput
-            multiline
-            value={draft.action.luaScript ?? ''}
-            onChange={(v) => setAction({ luaScript: v })}
-            placeholder={'easy.shell.open("https://example.com")'}
-          />
-        </Field>
-      )}
-
-      {draft.action.type === 2 && (
-        <Field label={t('gestureEditor.builtinCommand')}>
+      <div ref={actionTypeRef} className={pulseTarget === 'action_type' ? 'gesture-field-pulse-target' : undefined}>
+        <Field label={t('gestureEditor.actionType')}>
           <Select
-            value={String(draft.action.builtinCmd ?? 0)}
-            options={BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) }))}
-            onChange={(v) => setAction({ builtinCmd: Number(v) })}
+            value={String(draft.action.type)}
+            options={ACTION_TYPE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
+            onChange={(v) => setAction({ type: Number(v) })}
           />
         </Field>
-      )}
+      </div>
 
-      {draft.action.type === 3 && (
-        <>
-          <Field label={t('gestureEditor.programPath')}>
-            <TextInput
-              value={draft.action.programPath ?? ''}
-              onChange={(v) => setAction({ programPath: v })}
-              placeholder="C:\\Windows\\System32\\notepad.exe"
+      <div ref={actionDetailRef} className={pulseTarget && pulseTarget !== 'action_type' && pulseTarget !== 'instant' && pulseTarget !== 'silent' ? 'gesture-field-pulse-target' : undefined}>
+        {draft.action.type === 0 && (
+          <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
+            <HotkeyRecorder
+              id="gesture-hotkey-recorder"
+              value={draft.action.keyStroke ?? ''}
+              onChange={(v) => setAction({ keyStroke: v })}
             />
           </Field>
-          <Field label={t('gestureEditor.programArgs')} hint={t('gestureEditor.programArgsHint')}>
+        )}
+
+        {draft.action.type === 1 && (
+          <Field label={t('gestureEditor.luaScript')} hint={t('gestureEditor.luaScriptHint')}>
             <TextInput
-              value={draft.action.programArgs ?? ''}
-              onChange={(v) => setAction({ programArgs: v })}
+              multiline
+              value={draft.action.luaScript ?? ''}
+              onChange={(v) => setAction({ luaScript: v })}
+              placeholder={'easy.shell.open("https://example.com")'}
             />
           </Field>
-        </>
-      )}
+        )}
+
+        {draft.action.type === 2 && (
+          <Field label={t('gestureEditor.builtinCommand')}>
+            <Select
+              value={String(draft.action.builtinCmd ?? 0)}
+              options={BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) }))}
+              onChange={(v) => setAction({ builtinCmd: Number(v) })}
+            />
+          </Field>
+        )}
+
+        {draft.action.type === 3 && (
+          <>
+            <Field label={t('gestureEditor.programPath')}>
+              <TextInput
+                value={draft.action.programPath ?? ''}
+                onChange={(v) => setAction({ programPath: v })}
+                placeholder="C:\\Windows\\System32\\notepad.exe"
+              />
+            </Field>
+            <Field label={t('gestureEditor.programArgs')} hint={t('gestureEditor.programArgsHint')}>
+              <TextInput
+                value={draft.action.programArgs ?? ''}
+                onChange={(v) => setAction({ programArgs: v })}
+              />
+            </Field>
+          </>
+        )}
+      </div>
 
       {/* ── 高级执行特性折叠面板 ────────────────────────────────────── */}
       <div ref={advancedRef} className="gesture-editor-advanced-wrapper">
