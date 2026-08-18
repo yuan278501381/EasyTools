@@ -422,7 +422,7 @@ TEST(GestureActionTest, ExtendedKeyStrokeSpecialKeysAndAliases) {
     EXPECT_EQ(aLuaRestored.requestedPermissions[0], "clipboard");
     EXPECT_EQ(aLuaRestored.requestedPermissions[1], "http");
 
-    // 4. BuiltinCommandDispatcher 全枚举分支安全调度覆盖
+    // 4. BuiltinCommandDispatcher 全枚举分支安全调度覆盖 (注册 Mock Handler 隔离真实系统 API)
     auto& dispatcher = BuiltinCommandDispatcher::instance();
     const std::vector<BuiltinCommand> allCmds = {
         BuiltinCommand::CloseWindow,
@@ -455,8 +455,12 @@ TEST(GestureActionTest, ExtendedKeyStrokeSpecialKeysAndAliases) {
     };
 
     for (auto cmd : allCmds) {
+        std::atomic<bool> called{false};
+        dispatcher.registerHandler(cmd, [&called]() { called = true; });
         dispatcher.execute(cmd, nullptr);
+        EXPECT_TRUE(called.load());
     }
+    dispatcher.clearHandlers();
 }
 
 // -----------------------------------------------------------------------------
