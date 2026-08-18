@@ -236,11 +236,13 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
                     <span className="gesture-scenario-card__desc">{t('gestureEditor.instantExecuteDesc')}</span>
                   </div>
                 </div>
-                <Toggle
-                  id="gesture-instant-execute-toggle"
-                  checked={draft.instantExecute ?? false}
-                  onChange={(checked) => setDraft((d) => ({ ...d, instantExecute: checked }))}
-                />
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Toggle
+                    id="gesture-instant-execute-toggle"
+                    checked={draft.instantExecute ?? false}
+                    onChange={(checked) => setDraft((d) => ({ ...d, instantExecute: checked }))}
+                  />
+                </div>
               </div>
               <div className="gesture-scenario-card__callout">
                 <Lightbulb size={13} className="gesture-scenario-card__callout-icon" />
@@ -265,11 +267,13 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
                     <span className="gesture-scenario-card__desc">{t('gestureEditor.silentToastDesc')}</span>
                   </div>
                 </div>
-                <Toggle
-                  id="gesture-silent-toast-toggle"
-                  checked={draft.silentToast ?? false}
-                  onChange={(checked) => setDraft((d) => ({ ...d, silentToast: checked }))}
-                />
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Toggle
+                    id="gesture-silent-toast-toggle"
+                    checked={draft.silentToast ?? false}
+                    onChange={(checked) => setDraft((d) => ({ ...d, silentToast: checked }))}
+                  />
+                </div>
               </div>
               <div className="gesture-scenario-card__callout">
                 <Lightbulb size={13} className="gesture-scenario-card__callout-icon" />
