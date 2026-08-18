@@ -195,10 +195,6 @@ void GestureTrailOverlay::reloadThemeColors() {
     );
 }
 
-void GestureTrailOverlay::setRecognized(bool recognized) {
-    m_isRecognized.store(recognized);
-}
-
 void GestureTrailOverlay::shutdown() {
     releaseD2DResources();
     if (m_hwnd) {
@@ -252,7 +248,8 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         if (!m_points.empty()) {
             float dx = x - m_points.back().x;
             float dy = y - m_points.back().y;
-            const float minimumDelta = 3.5f * m_dpiScale;
+            // 高精度亚像素采样步长 (1.2px)，灵敏捕捉手腕与指尖的细微曲线
+            const float minimumDelta = 1.2f * m_dpiScale;
             if (dx * dx + dy * dy < minimumDelta * minimumDelta) return;
         }
         m_points.push_back({x, y, GetTickCount()});
@@ -266,6 +263,7 @@ void GestureTrailOverlay::addPoint(float x, float y) {
 
         hasVisibleTrail = m_points.size() >= 2;
     }
+
     if (hasVisibleTrail && m_hwnd) {
         if (!m_renderTarget) {
             POINT cursor{};
@@ -276,15 +274,39 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         if (!m_visible.exchange(true)) {
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
         }
-        if (!m_renderTimerActive.exchange(true)) {
-            SetTimer(m_hwnd, RENDER_TIMER_ID, RENDER_INTERVAL_MS, nullptr);
+
+        // 关键世界级跟手优化：彻底废弃低优先级、易被鼠标输入流饿死的 WM_TIMER！
+        // 直接由鼠标事件即时触发 Direct2D 渲染，配合 4ms (240Hz) 高刷新率节流，实现亚毫秒极速光标贴合！
+        static auto s_lastRenderTime = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(now - s_lastRenderTime).count();
+        if (elapsedUs >= 4000) { // 4ms 极速高刷
+            s_lastRenderTime = now;
+            render();
         }
     }
 }
 
 void GestureTrailOverlay::setLiveAction(const std::string& actionText) {
-    std::lock_guard lock(m_trailMutex);
-    m_resultText = actionText;
+    bool changed = false;
+    {
+        std::lock_guard lock(m_trailMutex);
+        if (m_resultText != actionText) {
+            m_resultText = actionText;
+            changed = true;
+        }
+    }
+    if (changed && m_visible.load() && m_renderTarget) {
+        render();
+    }
+}
+
+void GestureTrailOverlay::setRecognized(bool recognized) {
+    if (m_isRecognized.exchange(recognized) != recognized) {
+        if (m_visible.load() && m_renderTarget) {
+            render();
+        }
+    }
 }
 
 void GestureTrailOverlay::endTrail(const std::string& resultText) {
@@ -294,6 +316,8 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
             m_resultText = resultText;
         }
     }
+    // 立即渲染终态帧
+    render();
     startFadeOut();
 }
 

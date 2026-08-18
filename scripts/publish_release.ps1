@@ -1,12 +1,64 @@
 param(
-    [string]$Tag = "v1.0.4"
+    [string]$Tag = "v1.0.4",
+    [switch]$ForceRebuild = $false
 )
 
 $ErrorActionPreference = "Stop"
+$ScriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition)
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+Set-Location $ScriptDir
+
+$CleanVersion = $Tag.TrimStart('v', 'V')
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "发布 EasyTools $Tag 到 GitHub Releases" -ForegroundColor Cyan
+Write-Host "发布 EasyTools $Tag (版本号: $CleanVersion) 到 GitHub Releases" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
+
+# 1. 自动化版本号级联对齐 (SSOT: 确保 CMakeLists.txt / ui/package.json / installer.iss 严格一致)
+$CMakeFile = Join-Path $ScriptDir "CMakeLists.txt"
+$CMakeContent = Get-Content $CMakeFile -Raw
+if ($CMakeContent -match 'project\s*\(\s*EasyTools\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+    $CurrentCMakeVer = $Matches[1]
+    if ($CurrentCMakeVer -ne $CleanVersion) {
+        Write-Host "[AUTO-SYNC] 更新 CMakeLists.txt 版本: $CurrentCMakeVer -> $CleanVersion" -ForegroundColor Yellow
+        $CMakeContent = $CMakeContent -replace 'project\s*\(\s*EasyTools\s+VERSION\s+[0-9]+\.[0-9]+\.[0-9]+', "project(EasyTools`n    VERSION $CleanVersion"
+        $CMakeContent | Out-File $CMakeFile -Encoding utf8
+        $ForceRebuild = $true
+    }
+}
+
+$UiPackageFile = Join-Path $ScriptDir "ui\package.json"
+if (Test-Path $UiPackageFile) {
+    $UiPkg = Get-Content $UiPackageFile -Raw | ConvertFrom-Json
+    if ($UiPkg.version -ne $CleanVersion) {
+        Write-Host "[AUTO-SYNC] 更新 ui/package.json 版本: $($UiPkg.version) -> $CleanVersion" -ForegroundColor Yellow
+        $UiPkgText = Get-Content $UiPackageFile -Raw
+        $UiPkgText = $UiPkgText -replace '"version":\s*"[^"]+"', "`"version`": `"$CleanVersion`""
+        $UiPkgText | Out-File $UiPackageFile -Encoding utf8
+        $ForceRebuild = $true
+    }
+}
+
+$InstallerFile = Join-Path $ScriptDir "installer.iss"
+if (Test-Path $InstallerFile) {
+    $IssContent = Get-Content $InstallerFile -Raw
+    if ($IssContent -match '#define EasyToolsVersion "([^"]+)"') {
+        if ($Matches[1] -ne $CleanVersion) {
+            Write-Host "[AUTO-SYNC] 更新 installer.iss 版本: $($Matches[1]) -> $CleanVersion" -ForegroundColor Yellow
+            $IssContent = $IssContent -replace '#define EasyToolsVersion "[^"]+"', "#define EasyToolsVersion `"$CleanVersion`""
+            $IssContent | Out-File $InstallerFile -Encoding utf8
+        }
+    }
+}
+
+# 2. 如果版本有更新或强制重构，触发 deploy.ps1 重新打包
+if ($ForceRebuild -or -not (Test-Path "Output\EasyTools-Setup.exe")) {
+    Write-Host "[BUILD] 触发全量一键构建部署流水线..." -ForegroundColor Cyan
+    & pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建部署失败，终止发布！"
+    }
+}
 
 $ReleaseDir = "release_assets"
 if (Test-Path $ReleaseDir) {

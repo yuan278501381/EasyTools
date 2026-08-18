@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.25)
 # ─────────────────────────────────────────────────────────────────────────────
 
 project(EasyTools
-    VERSION 1.0.1
+    VERSION 1.0.4
     DESCRIPTION "High-performance desktop productivity toolkit"
     LANGUAGES CXX
 )
