@@ -285,6 +285,17 @@ export const ScopeTargetsSidebar: FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* ── 底部状态与引导栏 ── */}
+      <div className="scope-sidebar-footer">
+        <div className="scope-sidebar-footer__stats">
+          <span className="scope-sidebar-footer__dot" />
+          <span>已就绪 {1 + rules.length + 2} 个目标作用域</span>
+        </div>
+        <div className="scope-sidebar-footer__tip">
+          专属配置将优先于全局默认手势生效
+        </div>
+      </div>
     </aside>
   );
 };

@@ -3,18 +3,20 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 .scope-targets-sidebar {
-  width: 230px;
+  width: 240px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  padding: 10px 8px;
-  gap: 12px;
+  padding: 12px 10px;
+  gap: 14px;
   user-select: none;
   box-shadow: var(--shadow-sm);
-  max-height: 680px;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
 }
 
@@ -296,4 +298,37 @@
   color: var(--text-muted);
   max-width: 400px;
   line-height: 1.5;
+}
+
+/* 侧边栏底部辅助状态与提示面板 */
+.scope-sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.scope-sidebar-footer__stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.scope-sidebar-footer__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.scope-sidebar-footer__tip {
+  font-size: 0.70rem;
+  color: var(--text-muted);
+  line-height: 1.35;
 }

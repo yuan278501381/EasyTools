@@ -1333,16 +1333,16 @@ static void test_shared_dpi_metrics() {
     const SIZE settings100 = easy::ui::SettingsWindowStyle::windowSizeForDpi(96);
     const SIZE settings150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
     const SIZE settings200 = easy::ui::SettingsWindowStyle::windowSizeForDpi(192);
-    CHECK(settings100.cx == 1260 && settings100.cy == 880);
-    CHECK(settings150.cx == 1890 && settings150.cy == 1320);
-    CHECK(settings200.cx == 2520 && settings200.cy == 1760);
+    CHECK(settings100.cx == 1380 && settings100.cy == 900);
+    CHECK(settings150.cx == 2070 && settings150.cy == 1350);
+    CHECK(settings200.cx == 2760 && settings200.cy == 1800);
 
     const SIZE settingsMin100 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(96);
     const SIZE settingsMin150 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(144);
     const SIZE settingsMin200 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(192);
-    CHECK(settingsMin100.cx == 760 && settingsMin100.cy == 520);
-    CHECK(settingsMin150.cx == 1140 && settingsMin150.cy == 780);
-    CHECK(settingsMin200.cx == 1520 && settingsMin200.cy == 1040);
+    CHECK(settingsMin100.cx == 880 && settingsMin100.cy == 560);
+    CHECK(settingsMin150.cx == 1320 && settingsMin150.cy == 840);
+    CHECK(settingsMin200.cx == 1760 && settingsMin200.cy == 1120);
 
     const auto radial100 = easy::gesture::RadialMenuStyle::metricsForDpi(96);
     const auto radial150 = easy::gesture::RadialMenuStyle::metricsForDpi(144);

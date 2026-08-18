@@ -31,10 +31,10 @@ struct TrayWindowStyle {
 };
 
 struct SettingsWindowStyle {
-    static constexpr int BaseWidth = 1260;
-    static constexpr int BaseHeight = 880;
-    static constexpr int BaseMinWidth = 760;
-    static constexpr int BaseMinHeight = 520;
+    static constexpr int BaseWidth = 1380;
+    static constexpr int BaseHeight = 900;
+    static constexpr int BaseMinWidth = 880;
+    static constexpr int BaseMinHeight = 560;
     static constexpr int BaseScreenMargin = 24;
 
     static SIZE windowSizeForDpi(unsigned dpi) noexcept {
