@@ -15,6 +15,7 @@
       "features": [
         "openh264"
       ]
-    }
+    },
+    "gtest"
   ]
 }

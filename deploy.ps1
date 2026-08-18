@@ -254,11 +254,11 @@ if (-not $SkipTests) {
                                   --excluded_sources "$ScriptDir\packages" `
                                   --export_type "html:$CoverageReportDir" `
                                   --export_type "cobertura:$CoverageReportDir\cobertura.xml" `
-                                  -- $TestExe
+                                  -- $TestExe --gtest_output="xml:$CoverageReportDir\junit.xml"
             if ($LASTEXITCODE -ne 0) {
                 throw "单元测试与代码覆盖率分析执行失败！退出码: $LASTEXITCODE"
             }
-            Write-Log "代码覆盖率报告已生成: $CoverageReportDir" "SUCCESS"
+            Write-Log "代码覆盖率报告与 GTest JUnit 报表已生成: $CoverageReportDir" "SUCCESS"
         } else {
             ctest --test-dir $BuildDir -C $Configuration --output-on-failure
             if ($LASTEXITCODE -ne 0) {

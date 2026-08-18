@@ -239,6 +239,8 @@ target_link_libraries(EasyTools_Service PRIVATE spdlog::spdlog fmt::fmt nlohmann
 # ── 6. 自动化测试 ────────────────────────────────────────────────────────────
 include(CTest)
 if(BUILD_TESTING)
+    find_package(GTest CONFIG REQUIRED)
+
     add_executable(EasyToolsTests
         tests/unit/test_main.cpp
         src/capture/AudioCapture.cpp
@@ -263,7 +265,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore ZLIB::ZLIB user32 shell32 gdi32 d3d11 dxgi ole32 shcore
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 d3d11 dxgi ole32 shcore
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)

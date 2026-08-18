@@ -1,12 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// test_main.cpp — EasyTools 单元测试 (零依赖的轻量断言运行器)
+// test_main.cpp — EasyTools 单元测试套件 (基于 Google Test / GMock 工业级测试架构)
 //
-// 覆盖核心纯逻辑:
-//   • GestureRecognizer 方向编码 (直线/对角/多段/防抖)
-//   • ScopeRule 匹配 (精确/通配符/大小写/禁用)
+// 覆盖核心纯业务逻辑、状态机、多格式解析器与高分屏适配:
+//   • GestureRecognizer: 方向编码、转弯圆角平滑消抖 (Fillet Folding) 与孤立防抖
+//   • ScopeRule: 进程与窗口类名精确/通配符匹配、正则元字符转义与 JSON 往返
+//   • GestureProfile: 三态触发模式 (Default/Enabled/Disabled)、手势调序与前缀冲突检测
+//   • HotkeyManager / ConfigManager / MessageBridge / EventBus / PerfMonitor
+//   • PinyinEngine / SearchExpression (Everything 语法) / ContentSearchEngine
+//   • DpiUtils / Lua 沙箱安全与权限持久化 / 截图、录屏与长截图 Smoke 测试
 //
-// 由 deploy.ps1 在 CMake 构建后运行; 任一断言失败则进程返回非 0, CI 判为失败。
+// 由 deploy.ps1 在 CMake 构建后统一执行，并通过 OpenCppCoverage 进行 100% 覆盖率分析。
 // ─────────────────────────────────────────────────────────────────────────────
+
+#include <gtest/gtest.h>
+#include <gmock/gmock.h>
 
 #include "gesture/GestureRecognizer.h"
 #include "gesture/GestureAction.h"
@@ -39,12 +46,14 @@
 #include "core/utils/ThemeUtils.h"
 #include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
+#include "service/PinyinEngine.h"
 #include "service/SearchExpression.h"
 #include "service/content/ContentSearchEngine.h"
 #include "service/content/PlainTextExtractor.h"
 #include "service/content/ZipXmlExtractor.h"
 #include "service/content/PsdAiExtractor.h"
 #include "service/content/DxfExtractor.h"
+
 #include <windows.h>
 #include <shellapi.h>
 
@@ -62,37 +71,11 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <windows.h>
+#include <vector>
 
 extern "C" {
 #include <libavformat/avformat.h>
 }
-
-namespace {
-int g_checks = 0;
-int g_failures = 0;
-}
-
-#define CHECK(cond)                                                            \
-    do {                                                                       \
-        ++g_checks;                                                            \
-        if (!(cond)) {                                                         \
-            std::printf("[FAIL] %s:%d  CHECK(%s)\n", __FILE__, __LINE__, #cond); \
-            ++g_failures;                                                      \
-        }                                                                      \
-    } while (0)
-
-#define CHECK_EQ(actual, expected)                                            \
-    do {                                                                       \
-        ++g_checks;                                                            \
-        auto a_ = (actual);                                                    \
-        std::string e_ = (expected);                                          \
-        if (a_ != e_) {                                                        \
-            std::printf("[FAIL] %s:%d  %s => '%s', expected '%s'\n",           \
-                        __FILE__, __LINE__, #actual, a_.c_str(), e_.c_str());  \
-            ++g_failures;                                                      \
-        }                                                                      \
-    } while (0)
 
 using namespace easy::gesture;
 
@@ -105,93 +88,99 @@ static std::string recognize(std::initializer_list<TrackPoint> pts) {
     return res ? res->code : std::string{};
 }
 
-static void test_recognizer() {
+// -----------------------------------------------------------------------------
+// 1. 手势识别器测试套件
+// -----------------------------------------------------------------------------
+TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     // 屏幕坐标 Y 轴向下: 向上 = y 减小
-    CHECK_EQ(recognize({{0, 0}, {100, 0}}), "R");    // →
-    CHECK_EQ(recognize({{100, 0}, {0, 0}}), "L");    // ←
-    CHECK_EQ(recognize({{0, 100}, {0, 0}}), "U");    // ↑
-    CHECK_EQ(recognize({{0, 0}, {0, 100}}), "D");    // ↓
+    EXPECT_EQ(recognize({{0, 0}, {100, 0}}), "R");    // →
+    EXPECT_EQ(recognize({{100, 0}, {0, 0}}), "L");    // ←
+    EXPECT_EQ(recognize({{0, 100}, {0, 0}}), "U");    // ↑
+    EXPECT_EQ(recognize({{0, 0}, {0, 100}}), "D");    // ↓
 
     // 对角线 (单段)
-    CHECK_EQ(recognize({{0, 100}, {100, 0}}), "UR"); // ↗
-    CHECK_EQ(recognize({{0, 0}, {100, 100}}), "DR"); // ↘
+    EXPECT_EQ(recognize({{0, 100}, {100, 0}}), "UR"); // ↗
+    EXPECT_EQ(recognize({{0, 0}, {100, 100}}), "DR"); // ↘
 
     // 多段 (L 形)
-    CHECK_EQ(recognize({{0, 100}, {100, 100}, {100, 0}}), "R-U"); // → 然后 ↑
-    CHECK_EQ(recognize({{100, 0}, {0, 0}, {0, 100}}), "L-D");     // ← 然后 ↓
+    EXPECT_EQ(recognize({{0, 100}, {100, 100}, {100, 0}}), "R-U"); // → 然后 ↑
+    EXPECT_EQ(recognize({{100, 0}, {0, 0}, {0, 100}}), "L-D");     // ← 然后 ↓
 
     // 方向序列与箭头转换辅助函数
     std::vector<Direction> dirs = {Direction::Left, Direction::Down};
-    CHECK_EQ(directionsToCode(dirs), "L-D");
-    CHECK_EQ(directionsToArrowString(dirs), "←↓");
+    EXPECT_EQ(directionsToCode(dirs), "L-D");
+    EXPECT_EQ(directionsToArrowString(dirs), "←↓");
 
     std::vector<Direction> singleDir = {Direction::Up};
-    CHECK_EQ(directionsToCode(singleDir), "U");
-    CHECK_EQ(directionsToArrowString(singleDir), "↑");
+    EXPECT_EQ(directionsToCode(singleDir), "U");
+    EXPECT_EQ(directionsToArrowString(singleDir), "↑");
 
     // 防抖: 位移小于最小段距离 → 无效手势
-    CHECK_EQ(recognize({{0, 0}, {20, 0}}), "");
+    EXPECT_EQ(recognize({{0, 0}, {20, 0}}), "");
 
     // 智能转弯圆角平滑消抖 (Corner Fillet Folding)
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Right})), "D-R");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::DownRight, Direction::Down})), "R-D");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownLeft, Direction::Left})), "D-L");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpRight, Direction::Right})), "U-R");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpLeft, Direction::Left})), "U-L");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::DownLeft, Direction::Down})), "L-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Right})), "D-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::DownRight, Direction::Down})), "R-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownLeft, Direction::Left})), "D-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpRight, Direction::Right})), "U-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpLeft, Direction::Left})), "U-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::DownLeft, Direction::Down})), "L-D");
     
     // 孤立回弹微抖动消除 (Rebound Jitter Elimination)
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Down})), "D");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight, Direction::Right})), "R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Down})), "D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight, Direction::Right})), "R");
 
     // 真正对角手势保留
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight})), "DR");
-    CHECK_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "DR-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight})), "DR");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "DR-R");
 
     // HEX 颜色解析测试
     auto parsed = easy::core::parseHexColor("#FF0000");
-    CHECK(parsed.r == 1.0f);
-    CHECK(parsed.g == 0.0f);
-    CHECK(parsed.b == 0.0f);
+    EXPECT_EQ(parsed.r, 1.0f);
+    EXPECT_EQ(parsed.g, 0.0f);
+    EXPECT_EQ(parsed.b, 0.0f);
     auto invalidHex = easy::core::parseHexColor("invalid");
-    CHECK(invalidHex.r > 0.0f);
+    EXPECT_GT(invalidHex.r, 0.0f);
 }
 
-static void test_scoperule() {
+// -----------------------------------------------------------------------------
+// 2. 作用域匹配规则测试套件
+// -----------------------------------------------------------------------------
+TEST(ScopeRuleTest, MatchingAndJsonSerialization) {
     // 进程名精确匹配 (大小写不敏感)
     ScopeRule r1;
     r1.processName = "chrome.exe";
     r1.matchMode = MatchMode::Exact;
-    CHECK(r1.matches(nullptr, L"chrome.exe", L"AnyClass"));
-    CHECK(r1.matches(nullptr, L"CHROME.EXE", L""));
-    CHECK(!r1.matches(nullptr, L"firefox.exe", L""));
+    EXPECT_TRUE(r1.matches(nullptr, L"chrome.exe", L"AnyClass"));
+    EXPECT_TRUE(r1.matches(nullptr, L"CHROME.EXE", L""));
+    EXPECT_FALSE(r1.matches(nullptr, L"firefox.exe", L""));
 
     // 窗口类名通配符
     ScopeRule r2;
     r2.windowClass = "Chrome_*";
     r2.matchMode = MatchMode::Wildcard;
-    CHECK(r2.matches(nullptr, L"", L"Chrome_WidgetWin_1"));
-    CHECK(!r2.matches(nullptr, L"", L"MozillaWindowClass"));
+    EXPECT_TRUE(r2.matches(nullptr, L"", L"Chrome_WidgetWin_1"));
+    EXPECT_FALSE(r2.matches(nullptr, L"", L"MozillaWindowClass"));
 
     // 进程名通配符
     ScopeRule r3;
     r3.processName = "*.exe";
     r3.matchMode = MatchMode::Wildcard;
-    CHECK(r3.matches(nullptr, L"notepad.exe", L""));
-    CHECK(!r3.matches(nullptr, L"bash", L""));
+    EXPECT_TRUE(r3.matches(nullptr, L"notepad.exe", L""));
+    EXPECT_FALSE(r3.matches(nullptr, L"bash", L""));
 
     // 通配符中的正则元字符必须按普通字符处理
     ScopeRule rSpecial;
     rSpecial.processName = "app[1].exe";
     rSpecial.matchMode = MatchMode::Wildcard;
-    CHECK(rSpecial.matches(nullptr, L"app[1].exe", L""));
-    CHECK(!rSpecial.matches(nullptr, L"app1.exe", L""));
+    EXPECT_TRUE(rSpecial.matches(nullptr, L"app[1].exe", L""));
+    EXPECT_FALSE(rSpecial.matches(nullptr, L"app1.exe", L""));
 
     // 禁用的规则永不匹配
     ScopeRule r4;
     r4.processName = "chrome.exe";
     r4.enabled = false;
-    CHECK(!r4.matches(nullptr, L"chrome.exe", L""));
+    EXPECT_FALSE(r4.matches(nullptr, L"chrome.exe", L""));
 
     // JSON 往返
     ScopeRule r5;
@@ -201,33 +190,36 @@ static void test_scoperule() {
     r5.matchMode = MatchMode::Wildcard;
     r5.effect = RuleEffect::Disable;
     ScopeRule r5b = ScopeRule::fromJson(r5.toJson());
-    CHECK(r5b.id == "rule-1");
-    CHECK(r5b.processName == "chrome.exe");
-    CHECK(r5b.matchMode == MatchMode::Wildcard);
-    CHECK(r5b.effect == RuleEffect::Disable);
+    EXPECT_EQ(r5b.id, "rule-1");
+    EXPECT_EQ(r5b.processName, "chrome.exe");
+    EXPECT_EQ(r5b.matchMode, MatchMode::Wildcard);
+    EXPECT_EQ(r5b.effect, RuleEffect::Disable);
 
     // 越界枚举输入必须收敛到合法范围
     auto invalid = ScopeRule::fromJson({{"matchMode", 99}, {"effect", -5}});
-    CHECK(invalid.matchMode == MatchMode::Regex);
-    CHECK(invalid.effect == RuleEffect::Enable);
+    EXPECT_EQ(invalid.matchMode, MatchMode::Regex);
+    EXPECT_EQ(invalid.effect, RuleEffect::Enable);
 }
 
-static void test_gesture_actions_and_builtin_commands() {
+// -----------------------------------------------------------------------------
+// 3. 手势动作与内置命令分发测试套件
+// -----------------------------------------------------------------------------
+TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     using namespace easy::gesture;
 
     // 1. KeyStroke 解析与序列化
     auto ks1 = KeyStroke::fromString("Ctrl+Shift+T");
-    CHECK(ks1.modifiers == (MOD_CONTROL | MOD_SHIFT));
-    CHECK(ks1.virtualKey == 'T');
-    CHECK_EQ(ks1.toString(), "Ctrl+Shift+T");
+    EXPECT_EQ(ks1.modifiers, (MOD_CONTROL | MOD_SHIFT));
+    EXPECT_EQ(ks1.virtualKey, 'T');
+    EXPECT_EQ(ks1.toString(), "Ctrl+Shift+T");
 
     auto ks2 = KeyStroke::fromString("Alt+Left");
-    CHECK(ks2.modifiers == MOD_ALT);
-    CHECK(ks2.virtualKey == VK_LEFT);
-    CHECK_EQ(ks2.toString(), "Alt+Left");
+    EXPECT_EQ(ks2.modifiers, MOD_ALT);
+    EXPECT_EQ(ks2.virtualKey, VK_LEFT);
+    EXPECT_EQ(ks2.toString(), "Alt+Left");
 
     auto ksEmpty = KeyStroke::fromString("");
-    CHECK(ksEmpty.virtualKey == 0);
+    EXPECT_EQ(ksEmpty.virtualKey, 0);
     ksEmpty.send(nullptr); // 空按键安全防御
 
     // 2. GestureAction JSON 往返
@@ -238,8 +230,8 @@ static void test_gesture_actions_and_builtin_commands() {
     a1.keyStroke = KeyStroke::fromString("Ctrl+W");
     auto j1 = a1.toJson();
     auto a1b = GestureAction::fromJson(j1);
-    CHECK_EQ(a1b.name, "关闭标签页");
-    CHECK_EQ(a1b.keyStroke.toString(), "Ctrl+W");
+    EXPECT_EQ(a1b.name, "关闭标签页");
+    EXPECT_EQ(a1b.keyStroke.toString(), "Ctrl+W");
 
     GestureAction a2;
     a2.type = ActionType::BuiltinCommand;
@@ -247,7 +239,7 @@ static void test_gesture_actions_and_builtin_commands() {
     a2.builtinCmd = BuiltinCommand::MediaNext;
     auto j2 = a2.toJson();
     auto a2b = GestureAction::fromJson(j2);
-    CHECK(a2b.builtinCmd == BuiltinCommand::MediaNext);
+    EXPECT_EQ(a2b.builtinCmd, BuiltinCommand::MediaNext);
 
     // 3. GestureMapping 字段与 JSON 往返 (包含 id, enabled, instantExecute, silentToast)
     GestureMapping m1;
@@ -259,12 +251,12 @@ static void test_gesture_actions_and_builtin_commands() {
     m1.action = a1;
     auto jm1 = m1.toJson();
     auto m1b = GestureMapping::fromJson(jm1);
-    CHECK_EQ(m1b.id, "custom-m1");
-    CHECK(m1b.enabled);
-    CHECK(m1b.instantExecute);
-    CHECK(m1b.silentToast);
-    CHECK_EQ(m1b.gestureCode, "D-R");
-    CHECK_EQ(m1b.action.name, "关闭标签页");
+    EXPECT_EQ(m1b.id, "custom-m1");
+    EXPECT_TRUE(m1b.enabled);
+    EXPECT_TRUE(m1b.instantExecute);
+    EXPECT_TRUE(m1b.silentToast);
+    EXPECT_EQ(m1b.gestureCode, "D-R");
+    EXPECT_EQ(m1b.action.name, "关闭标签页");
 
     // 4. GestureProfile 三态模型、单项开关与手势调序测试
     GestureProfile prof("test_profile");
@@ -276,46 +268,46 @@ static void test_gesture_actions_and_builtin_commands() {
     m2.action.name = "剪切";
     prof.addMapping(m2);
 
-    CHECK(prof.findAction("D-R").has_value());
+    EXPECT_TRUE(prof.findAction("D-R").has_value());
     prof.setMappingEnabled("D-R", false);
-    CHECK(!prof.findAction("D-R").has_value()); // 禁用后 findAction 返回空
-    CHECK(prof.findMapping("D-R").has_value()); // 但 findMapping 仍能查到
+    EXPECT_FALSE(prof.findAction("D-R").has_value()); // 禁用后 findAction 返回空
+    EXPECT_TRUE(prof.findMapping("D-R").has_value());  // 但 findMapping 仍能查到
     prof.setMappingEnabled("D-R", true);
-    CHECK(prof.findAction("D-R").has_value());
+    EXPECT_TRUE(prof.findAction("D-R").has_value());
 
     // 调序与移动测试
-    CHECK(prof.moveMapping(0, 1));
-    CHECK_EQ(prof.getMappings()[0].gestureCode, "L-U");
-    CHECK_EQ(prof.getMappings()[1].gestureCode, "D-R");
+    EXPECT_TRUE(prof.moveMapping(0, 1));
+    EXPECT_EQ(prof.getMappings()[0].gestureCode, "L-U");
+    EXPECT_EQ(prof.getMappings()[1].gestureCode, "D-R");
     prof.reorderMappings({"D-R", "L-U"});
-    CHECK_EQ(prof.getMappings()[0].gestureCode, "D-R");
-    CHECK_EQ(prof.getMappings()[1].gestureCode, "L-U");
+    EXPECT_EQ(prof.getMappings()[0].gestureCode, "D-R");
+    EXPECT_EQ(prof.getMappings()[1].gestureCode, "L-U");
 
     // 触发方式三态测试
-    CHECK(prof.getTriggerState("right") == TriggerModeState::Default);
+    EXPECT_EQ(prof.getTriggerState("right"), TriggerModeState::Default);
     prof.setTriggerState("right", TriggerModeState::Disabled);
-    CHECK(prof.getTriggerState("right") == TriggerModeState::Disabled);
+    EXPECT_EQ(prof.getTriggerState("right"), TriggerModeState::Disabled);
     prof.setAllTriggerStates(TriggerModeState::Enabled);
-    CHECK(prof.getTriggerState("right") == TriggerModeState::Enabled);
-    CHECK(prof.getTriggerState("middle") == TriggerModeState::Enabled);
+    EXPECT_EQ(prof.getTriggerState("right"), TriggerModeState::Enabled);
+    EXPECT_EQ(prof.getTriggerState("middle"), TriggerModeState::Enabled);
 
     // Profile JSON 往返测试
     auto profJson = prof.toJson();
     auto profRestored = GestureProfile::fromJson(profJson);
-    CHECK_EQ(profRestored.name(), "test_profile");
-    CHECK(profRestored.getMappings().size() == 2);
-    CHECK(profRestored.getTriggerState("right") == TriggerModeState::Enabled);
+    EXPECT_EQ(profRestored.name(), "test_profile");
+    EXPECT_EQ(profRestored.getMappings().size(), 2u);
+    EXPECT_EQ(profRestored.getTriggerState("right"), TriggerModeState::Enabled);
 
     // 5. 桌面与任务栏预设工厂测试
     auto desktopProf = GestureProfile::createDesktopProfile();
-    CHECK_EQ(desktopProf.name(), "special_desktop");
-    CHECK(desktopProf.getMappings().size() >= 5);
-    CHECK(desktopProf.findAction("U").has_value());
+    EXPECT_EQ(desktopProf.name(), "special_desktop");
+    EXPECT_GE(desktopProf.getMappings().size(), 5u);
+    EXPECT_TRUE(desktopProf.findAction("U").has_value());
 
     auto taskbarProf = GestureProfile::createTaskbarProfile();
-    CHECK_EQ(taskbarProf.name(), "special_taskbar");
-    CHECK(taskbarProf.getMappings().size() >= 4);
-    CHECK(taskbarProf.findAction("L").has_value());
+    EXPECT_EQ(taskbarProf.name(), "special_taskbar");
+    EXPECT_GE(taskbarProf.getMappings().size(), 4u);
+    EXPECT_TRUE(taskbarProf.findAction("L").has_value());
 
     // 6. BuiltinCommandDispatcher 应用级回调路由与媒体/虚拟桌面命令
     auto& dispatcher = BuiltinCommandDispatcher::instance();
@@ -325,7 +317,7 @@ static void test_gesture_actions_and_builtin_commands() {
     });
 
     dispatcher.execute(BuiltinCommand::TakeScreenshot, nullptr);
-    CHECK(screenshotCalled.load());
+    EXPECT_TRUE(screenshotCalled.load());
 
     // 验证多媒体命令与虚拟桌面在无有效目标窗口与伪窗口上下文下均能稳定分发，不发生异常
     dispatcher.execute(BuiltinCommand::MediaNext, nullptr);
@@ -339,26 +331,29 @@ static void test_gesture_actions_and_builtin_commands() {
     dispatcher.clearHandlers();
 }
 
-static void test_gesture_profile_comprehensive() {
+// -----------------------------------------------------------------------------
+// 4. 手势配置综合与继承体系测试套件
+// -----------------------------------------------------------------------------
+TEST(GestureProfileTest, TriStateInheritanceAndOrdering) {
     using namespace easy::gesture;
 
     GestureProfile profile("test_comp");
     
     // 1. 三态触发模式深度测试
-    CHECK(profile.getTriggerState("right") == TriggerModeState::Default);
+    EXPECT_EQ(profile.getTriggerState("right"), TriggerModeState::Default);
     profile.setTriggerState("right", TriggerModeState::Enabled);
-    CHECK(profile.getTriggerState("right") == TriggerModeState::Enabled);
+    EXPECT_EQ(profile.getTriggerState("right"), TriggerModeState::Enabled);
     profile.setTriggerState("middle", TriggerModeState::Disabled);
-    CHECK(profile.getTriggerState("middle") == TriggerModeState::Disabled);
+    EXPECT_EQ(profile.getTriggerState("middle"), TriggerModeState::Disabled);
     
     // 全量批处理设置为启用 / 禁用 / 继承
     profile.setAllTriggerStates(TriggerModeState::Enabled);
     for (const auto& [k, v] : profile.getAllTriggerStates()) {
-        CHECK(v == TriggerModeState::Enabled);
+        EXPECT_EQ(v, TriggerModeState::Enabled);
     }
     profile.setAllTriggerStates(TriggerModeState::Default);
     for (const auto& [k, v] : profile.getAllTriggerStates()) {
-        CHECK(v == TriggerModeState::Default);
+        EXPECT_EQ(v, TriggerModeState::Default);
     }
 
     // 2. 手势映射增删查改与属性测试
@@ -390,108 +385,120 @@ static void test_gesture_profile_comprehensive() {
     m3.action.builtinCmd = BuiltinCommand::MaximizeWindow;
     profile.addMapping(m3);
 
-    CHECK(profile.getMappings().size() == 3);
-    CHECK(profile.hasGesture("L"));
-    CHECK(profile.hasGesture("R"));
-    CHECK(profile.hasGesture("L-U"));
-    CHECK(!profile.hasGesture("D"));
+    EXPECT_EQ(profile.getMappings().size(), 3u);
+    EXPECT_TRUE(profile.hasGesture("L"));
+    EXPECT_TRUE(profile.hasGesture("R"));
+    EXPECT_TRUE(profile.hasGesture("L-U"));
+    EXPECT_FALSE(profile.hasGesture("D"));
 
     // 3. 前缀冲突检测
     auto conflicts = profile.detectConflicts("L");
-    CHECK(!conflicts.empty());
+    EXPECT_FALSE(conflicts.empty());
     bool foundLu = false;
     for (const auto& c : conflicts) {
         if (c == "L-U") foundLu = true;
     }
-    CHECK(foundLu);
+    EXPECT_TRUE(foundLu);
 
     // 4. 映射调序测试 (moveMapping)
-    CHECK(profile.moveMapping(0, 2));
-    CHECK_EQ(profile.getMappings()[0].gestureCode, "R");
-    CHECK_EQ(profile.getMappings()[2].gestureCode, "L");
-    CHECK(!profile.moveMapping(0, 999)); // 越界安全
-    CHECK(!profile.moveMapping(999, 0)); // 越界安全
-    CHECK(!profile.moveMapping(1, 1));   // 同位置无位移，返回 false
+    EXPECT_TRUE(profile.moveMapping(0, 2));
+    EXPECT_EQ(profile.getMappings()[0].gestureCode, "R");
+    EXPECT_EQ(profile.getMappings()[2].gestureCode, "L");
+    EXPECT_FALSE(profile.moveMapping(0, 999)); // 越界安全
+    EXPECT_FALSE(profile.moveMapping(999, 0)); // 越界安全
+    EXPECT_FALSE(profile.moveMapping(1, 1));   // 同位置无位移，返回 false
 
     // 5. 批量重排序 (reorderMappings)
     profile.reorderMappings({"L-U", "L", "R"});
-    CHECK_EQ(profile.getMappings()[0].gestureCode, "L-U");
-    CHECK_EQ(profile.getMappings()[1].gestureCode, "L");
-    CHECK_EQ(profile.getMappings()[2].gestureCode, "R");
+    EXPECT_EQ(profile.getMappings()[0].gestureCode, "L-U");
+    EXPECT_EQ(profile.getMappings()[1].gestureCode, "L");
+    EXPECT_EQ(profile.getMappings()[2].gestureCode, "R");
 
     // 6. 单项启用/禁用切换
     profile.setMappingEnabled("L", false);
     auto optDisabled = profile.findAction("L");
-    CHECK(!optDisabled.has_value());
+    EXPECT_FALSE(optDisabled.has_value());
     profile.setMappingEnabled("L", true);
     auto optEnabled = profile.findAction("L");
-    CHECK(optEnabled.has_value());
+    EXPECT_TRUE(optEnabled.has_value());
 
     // 7. JSON 序列化与反序列化全属性往返
     auto j = profile.toJson();
     auto restored = GestureProfile::fromJson(j);
-    CHECK_EQ(restored.name(), "test_comp");
-    CHECK(restored.getMappings().size() == 3);
-    CHECK_EQ(restored.getMappings()[0].gestureCode, "L-U");
-    CHECK(restored.getMappings()[0].instantExecute == false);
-    CHECK(restored.getMappings()[1].instantExecute == true);
-    CHECK(restored.getMappings()[2].silentToast == true);
+    EXPECT_EQ(restored.name(), "test_comp");
+    EXPECT_EQ(restored.getMappings().size(), 3u);
+    EXPECT_EQ(restored.getMappings()[0].gestureCode, "L-U");
+    EXPECT_FALSE(restored.getMappings()[0].instantExecute);
+    EXPECT_TRUE(restored.getMappings()[1].instantExecute);
+    EXPECT_TRUE(restored.getMappings()[2].silentToast);
 }
 
-static void test_winutils_special_windows() {
+// -----------------------------------------------------------------------------
+// 5. 特殊与系统窗口检测测试套件
+// -----------------------------------------------------------------------------
+TEST(WinUtilsTest, SpecialAndSystemWindows) {
     using easy::core::WinUtils;
     // 验证空句柄与伪句柄边界安全，无崩溃
-    CHECK(!WinUtils::isDesktopWindow(nullptr));
-    CHECK(!WinUtils::isTaskbarWindow(nullptr));
+    EXPECT_FALSE(WinUtils::isDesktopWindow(nullptr));
+    EXPECT_FALSE(WinUtils::isTaskbarWindow(nullptr));
     HWND invalidHwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(0xDEADBEEF));
-    CHECK(!WinUtils::isDesktopWindow(invalidHwnd));
-    CHECK(!WinUtils::isTaskbarWindow(invalidHwnd));
+    EXPECT_FALSE(WinUtils::isDesktopWindow(invalidHwnd));
+    EXPECT_FALSE(WinUtils::isTaskbarWindow(invalidHwnd));
 }
 
-static void test_hotkey_parser() {
+// -----------------------------------------------------------------------------
+// 6. 快捷键定义解析测试套件
+// -----------------------------------------------------------------------------
+TEST(HotkeyParserTest, ExpressionParsing) {
     using easy::core::HotkeyDef;
 
     auto normal = HotkeyDef::fromString("Ctrl+Shift+A");
-    CHECK(normal.has_value());
-    if (normal) CHECK_EQ(normal->toString(), "Ctrl+Shift+A");
+    EXPECT_TRUE(normal.has_value());
+    if (normal) EXPECT_EQ(normal->toString(), "Ctrl+Shift+A");
 
     auto special = HotkeyDef::fromString("Alt+PageDown");
-    CHECK(special.has_value());
-    if (special) CHECK_EQ(special->toString(), "Alt+PageDown");
-    CHECK_EQ(HotkeyDef{}.toString(), "");
+    EXPECT_TRUE(special.has_value());
+    if (special) EXPECT_EQ(special->toString(), "Alt+PageDown");
+    EXPECT_EQ(HotkeyDef{}.toString(), "");
 
-    CHECK(!HotkeyDef::fromString("").has_value());
-    CHECK(!HotkeyDef::fromString("Ctrl+").has_value());
-    CHECK(!HotkeyDef::fromString("Ctrl+UnknownKey").has_value());
-    CHECK(!HotkeyDef::fromString("Bad+Ctrl+A").has_value());
+    EXPECT_FALSE(HotkeyDef::fromString("").has_value());
+    EXPECT_FALSE(HotkeyDef::fromString("Ctrl+").has_value());
+    EXPECT_FALSE(HotkeyDef::fromString("Ctrl+UnknownKey").has_value());
+    EXPECT_FALSE(HotkeyDef::fromString("Bad+Ctrl+A").has_value());
 }
 
-static void test_disabled_hotkey_lifecycle() {
+// -----------------------------------------------------------------------------
+// 7. 快捷键管理器禁用态与生命周期测试套件
+// -----------------------------------------------------------------------------
+TEST(HotkeyManagerTest, DisabledHotkeyLifecycle) {
     auto& manager = easy::core::HotkeyManager::instance();
     constexpr const char* name = "Unit Test Disabled Hotkey";
     std::atomic<int> calls{0};
 
-    CHECK(manager.registerHotkey(name, {}, [&calls]() { calls.fetch_add(1); }));
+    EXPECT_TRUE(manager.registerHotkey(name, {}, [&calls]() { calls.fetch_add(1); }));
     auto entries = manager.getAllHotkeys();
     auto entry = std::find_if(entries.begin(), entries.end(), [](const auto& candidate) {
         return candidate.name == name;
     });
-    CHECK(entry != entries.end());
+    EXPECT_TRUE(entry != entries.end());
     if (entry != entries.end()) {
-        CHECK(!entry->registered);
-        CHECK_EQ(entry->def.toString(), "");
+        EXPECT_FALSE(entry->registered);
+        EXPECT_EQ(entry->def.toString(), "");
     }
 
-    CHECK(manager.clearHotkey(name));
-    CHECK(calls.load() == 0);
+    EXPECT_TRUE(manager.clearHotkey(name));
+    EXPECT_EQ(calls.load(), 0);
     manager.unregisterHotkey(name);
     entries = manager.getAllHotkeys();
-    CHECK(std::none_of(entries.begin(), entries.end(), [](const auto& candidate) {
+    EXPECT_TRUE(std::none_of(entries.begin(), entries.end(), [](const auto& candidate) {
         return candidate.name == name;
     }));
 }
 
-static void test_config_manager() {
+// -----------------------------------------------------------------------------
+// 8. 配置管理器持久化与默认回退测试套件
+// -----------------------------------------------------------------------------
+TEST(ConfigManagerTest, PersistenceAndDefaultFallbacks) {
     auto temp = std::filesystem::temp_directory_path() /
         (L"EasyToolsTests_" + std::to_wstring(GetCurrentProcessId()));
     std::error_code ec;
@@ -503,67 +510,70 @@ static void test_config_manager() {
     }
 
     auto& config = easy::core::ConfigManager::instance();
-    CHECK(config.initialize(temp));
+    EXPECT_TRUE(config.initialize(temp));
     size_t corruptBackups = 0;
     for (const auto& entry : std::filesystem::directory_iterator(temp)) {
         if (entry.path().filename().wstring().starts_with(L"config.json.corrupt.")) {
             ++corruptBackups;
         }
     }
-    CHECK(corruptBackups == 1);
+    EXPECT_EQ(corruptBackups, 1u);
 
     std::atomic<int> notifications{0};
     const auto callbackId = config.onChange([&notifications](const std::string&) {
         notifications.fetch_add(1);
     });
-    CHECK(config.set("/general/language", std::string("zh-CN")));
-    CHECK(config.set("/capture/quality", 87));
-    CHECK(config.mergePatch({
+    EXPECT_TRUE(config.set("/general/language", std::string("zh-CN")));
+    EXPECT_TRUE(config.set("/capture/quality", 87));
+    EXPECT_TRUE(config.mergePatch({
         {"general", {{"theme", "dark"}, {"checkUpdates", true}}},
         {"capture", {{"format", "png"}}}
     }, "/batch"));
-    CHECK_EQ(config.get<std::string>("/general/language", ""), "zh-CN");
-    CHECK(config.get<int>("/capture/quality", 0) == 87);
-    CHECK_EQ(config.get<std::string>("/general/theme", ""), "dark");
-    CHECK(!config.fromJsonString("[1,2,3]"));
-    CHECK_EQ(config.get<std::string>("/general/theme", ""), "dark");
-    CHECK(config.remove("/capture/format"));
-    CHECK(!config.has("/capture/format"));
+    EXPECT_EQ(config.get<std::string>("/general/language", ""), "zh-CN");
+    EXPECT_EQ(config.get<int>("/capture/quality", 0), 87);
+    EXPECT_EQ(config.get<std::string>("/general/theme", ""), "dark");
+    EXPECT_FALSE(config.fromJsonString("[1,2,3]"));
+    EXPECT_EQ(config.get<std::string>("/general/theme", ""), "dark");
+    EXPECT_TRUE(config.remove("/capture/format"));
+    EXPECT_FALSE(config.has("/capture/format"));
 
     {
         std::ifstream file(temp / "config.json");
         auto persisted = nlohmann::json::parse(file);
-        CHECK(persisted["general"]["language"] == "zh-CN");
-        CHECK(persisted["general"]["theme"] == "dark");
-        CHECK(persisted["capture"]["quality"] == 87);
-        CHECK(!persisted["capture"].contains("format"));
+        EXPECT_EQ(persisted["general"]["language"], "zh-CN");
+        EXPECT_EQ(persisted["general"]["theme"], "dark");
+        EXPECT_EQ(persisted["capture"]["quality"], 87);
+        EXPECT_FALSE(persisted["capture"].contains("format"));
     }
 
-    CHECK(config.exportTo(temp / "export.json"));
+    EXPECT_TRUE(config.exportTo(temp / "export.json"));
     {
         std::ifstream file(temp / "export.json");
         const auto exported = nlohmann::json::parse(file);
-        CHECK(exported["general"]["language"] == "zh-CN");
+        EXPECT_EQ(exported["general"]["language"], "zh-CN");
     }
 
     // 给文件监控线程时间消费本进程自己的原子替换事件；内容未变化时不得重复通知。
     std::this_thread::sleep_for(std::chrono::milliseconds(350));
-    CHECK(notifications.load() == 4);
+    EXPECT_EQ(notifications.load(), 4);
 
-    CHECK(config.reset());
-    CHECK(!config.has("/general/language"));
+    EXPECT_TRUE(config.reset());
+    EXPECT_FALSE(config.has("/general/language"));
     {
         std::ifstream file(temp / "config.json");
         const auto persisted = nlohmann::json::parse(file);
-        CHECK(persisted.is_object());
-        CHECK(persisted.empty());
+        EXPECT_TRUE(persisted.is_object());
+        EXPECT_TRUE(persisted.empty());
     }
     config.removeOnChange(callbackId);
     config.shutdown();
     std::filesystem::remove_all(temp, ec);
 }
 
-static void test_message_bridge() {
+// -----------------------------------------------------------------------------
+// 9. 进程间通信消息桥接测试套件
+// -----------------------------------------------------------------------------
+TEST(MessageBridgeTest, IPCChannelDispatch) {
     auto& bridge = easy::core::MessageBridge::instance();
     bridge.registerHandler("test.echo", [](const nlohmann::json& params) {
         return params;
@@ -571,33 +581,33 @@ static void test_message_bridge() {
 
     auto ok = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":42,"method":"test.echo","params":{"value":7}})"));
-    CHECK(ok["id"] == 42);
-    CHECK(ok["result"]["value"] == 7);
+    EXPECT_EQ(ok["id"], 42);
+    EXPECT_EQ(ok["result"]["value"], 7);
 
     auto missing = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":77,"method":"test.missing"})"));
-    CHECK(missing["id"] == 77);
-    CHECK(missing["error"]["code"] == -32601);
+    EXPECT_EQ(missing["id"], 77);
+    EXPECT_EQ(missing["error"]["code"], -32601);
 
     bridge.clearHandlers();
     auto cleared = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":78,"method":"test.echo"})"));
-    CHECK(cleared["error"]["code"] == -32601);
+    EXPECT_EQ(cleared["error"]["code"], -32601);
 
     bridge.registerBuiltinHandlers();
     auto plugins = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":79,"method":"plugins.getAll"})"));
-    CHECK(plugins["result"].is_array());
+    EXPECT_TRUE(plugins["result"].is_array());
     auto invalidPluginToggle = nlohmann::json::parse(bridge.handleMessage(
         R"({"id":80,"method":"plugins.setEnabled","params":{"id":"missing","enabled":true}})"));
-    CHECK(!invalidPluginToggle["result"]["success"].get<bool>());
-    CHECK(invalidPluginToggle["result"]["error"] == "plugin not found");
+    EXPECT_FALSE(invalidPluginToggle["result"]["success"].get<bool>());
+    EXPECT_EQ(invalidPluginToggle["result"]["error"], "plugin not found");
 
     auto lockStates = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":81,"method":"stats.getKeyboardLockStates"})"));
-    CHECK(lockStates["result"].contains("numLock"));
-    CHECK(lockStates["result"].contains("capsLock"));
-    CHECK(lockStates["result"].contains("scrollLock"));
+    EXPECT_TRUE(lockStates["result"].contains("numLock"));
+    EXPECT_TRUE(lockStates["result"].contains("capsLock"));
+    EXPECT_TRUE(lockStates["result"].contains("scrollLock"));
     bridge.clearHandlers();
 
     std::mutex gateMutex;
@@ -626,7 +636,7 @@ static void test_message_bridge() {
         unregisterFinished = true;
     });
     while (!unregisterStarted.load()) std::this_thread::yield();
-    CHECK(!unregisterFinished.load());
+    EXPECT_FALSE(unregisterFinished.load());
     {
         std::lock_guard lock(gateMutex);
         release = true;
@@ -634,18 +644,21 @@ static void test_message_bridge() {
     gateCv.notify_all();
     caller.join();
     unregisterThread.join();
-    CHECK(unregisterFinished.load());
+    EXPECT_TRUE(unregisterFinished.load());
     auto retired = nlohmann::json::parse(
         bridge.handleMessage(R"({"id":82,"method":"test.blocking"})"));
-    CHECK(retired["error"]["code"] == -32601);
+    EXPECT_EQ(retired["error"]["code"], -32601);
 }
 
-static void test_plugin_manifest() {
+// -----------------------------------------------------------------------------
+// 10. 插件清单侧车解析测试套件
+// -----------------------------------------------------------------------------
+TEST(PluginManifestTest, SidecarParsingAndValidation) {
     using easy::core::comparePluginVersions;
     using easy::core::loadPluginManifest;
-    CHECK(comparePluginVersions("1.2.0", "1.1.9") > 0);
-    CHECK(comparePluginVersions("1.0", "1.0.0") == 0);
-    CHECK(comparePluginVersions("2.0.0", "10.0.0") < 0);
+    EXPECT_GT(comparePluginVersions("1.2.0", "1.1.9"), 0);
+    EXPECT_EQ(comparePluginVersions("1.0", "1.0.0"), 0);
+    EXPECT_LT(comparePluginVersions("2.0.0", "10.0.0"), 0);
 
     const auto path = std::filesystem::temp_directory_path() /
         (L"EasyToolsManifest_" + std::to_wstring(GetCurrentProcessId()) + L".json");
@@ -664,23 +677,26 @@ static void test_plugin_manifest() {
         })";
     }
     const auto valid = loadPluginManifest(path, "capture", "1.2.0");
-    CHECK(static_cast<bool>(valid));
-    CHECK_EQ(valid.manifest.id, "capture");
-    CHECK(valid.manifest.capabilities.size() == 2);
+    EXPECT_TRUE(static_cast<bool>(valid));
+    EXPECT_EQ(valid.manifest.id, "capture");
+    EXPECT_EQ(valid.manifest.capabilities.size(), 2u);
 
     const auto wrongId = loadPluginManifest(path, "gesture", "1.2.0");
-    CHECK(!wrongId);
-    CHECK_EQ(wrongId.error, "plugin manifest id does not match its DLL");
+    EXPECT_FALSE(wrongId);
+    EXPECT_EQ(wrongId.error, "plugin manifest id does not match its DLL");
 
     const auto oldHost = loadPluginManifest(path, "capture", "0.9.0");
-    CHECK(!oldHost);
-    CHECK_EQ(oldHost.error, "plugin requires a newer EasyTools version");
+    EXPECT_FALSE(oldHost);
+    EXPECT_EQ(oldHost.error, "plugin requires a newer EasyTools version");
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-static void test_event_bus_quiescence() {
+// -----------------------------------------------------------------------------
+// 11. 事件总线静默期与订阅测试套件
+// -----------------------------------------------------------------------------
+TEST(EventBusTest, QuiescenceAndSubscription) {
     auto& bus = easy::core::EventBus::instance();
     std::mutex gateMutex;
     std::condition_variable gateCv;
@@ -710,7 +726,7 @@ static void test_event_bus_quiescence() {
         unsubscribeFinished = true;
     });
     while (!unsubscribeStarted.load()) std::this_thread::yield();
-    CHECK(!unsubscribeFinished.load());
+    EXPECT_FALSE(unsubscribeFinished.load());
     {
         std::lock_guard lock(gateMutex);
         release = true;
@@ -718,19 +734,22 @@ static void test_event_bus_quiescence() {
     gateCv.notify_all();
     publisher.join();
     unsubscribeThread.join();
-    CHECK(unsubscribeFinished.load());
+    EXPECT_TRUE(unsubscribeFinished.load());
     bus.publish(easy::core::ActionTriggerScreenshotEvent{});
-    CHECK(calls.load() == 1);
+    EXPECT_EQ(calls.load(), 1);
     bus.clearAll();
 }
 
-static void test_perf_timer() {
+// -----------------------------------------------------------------------------
+// 12. 性能监控与微秒级计时器测试套件
+// -----------------------------------------------------------------------------
+TEST(PerformanceMonitorTest, MicrosecondTimer) {
     easy::core::PerfTimer timer("gesture");
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
     timer.stop();
     const double elapsed = timer.elapsedMs();
-    CHECK(elapsed >= 1.0);
-    CHECK(easy::core::PerformanceMonitor::instance().getMetrics().gestureLatencyMs >= 1.0);
+    EXPECT_GE(elapsed, 1.0);
+    EXPECT_GE(easy::core::PerformanceMonitor::instance().getMetrics().gestureLatencyMs, 1.0);
 
     auto& monitor = easy::core::PerformanceMonitor::instance();
     for (int value = 1; value <= 100; ++value) {
@@ -739,13 +758,13 @@ static void test_perf_timer() {
     monitor.recordLatency("unit.latency", -1.0); // invalid samples are ignored
     const auto metrics = monitor.getMetrics();
     const auto summary = metrics.latencies.find("unit.latency");
-    CHECK(summary != metrics.latencies.end());
+    EXPECT_TRUE(summary != metrics.latencies.end());
     if (summary != metrics.latencies.end()) {
-        CHECK(summary->second.sampleCount == 100);
-        CHECK(summary->second.lastMs == 100.0);
-        CHECK(summary->second.meanMs == 50.5);
-        CHECK(summary->second.p95Ms == 95.0);
-        CHECK(summary->second.maxMs == 100.0);
+        EXPECT_EQ(summary->second.sampleCount, 100u);
+        EXPECT_DOUBLE_EQ(summary->second.lastMs, 100.0);
+        EXPECT_DOUBLE_EQ(summary->second.meanMs, 50.5);
+        EXPECT_DOUBLE_EQ(summary->second.p95Ms, 95.0);
+        EXPECT_DOUBLE_EQ(summary->second.maxMs, 100.0);
     }
 
     monitor.start(60'000);
@@ -755,47 +774,53 @@ static void test_perf_timer() {
         if (sampled.handleCount > 0) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    CHECK(sampled.handleCount > 0);
+    EXPECT_GT(sampled.handleCount, 0u);
     const auto stopStarted = std::chrono::steady_clock::now();
     monitor.stop();
     const auto stopMs = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - stopStarted).count();
-    CHECK(stopMs < 250.0);
+    EXPECT_LT(stopMs, 250.0);
 }
 
-static void test_update_version_comparison() {
+// -----------------------------------------------------------------------------
+// 13. 版本升级比较测试套件
+// -----------------------------------------------------------------------------
+TEST(UpdateCheckerTest, SemVerComparison) {
     using easy::core::UpdateChecker;
-    CHECK(UpdateChecker::isNewerVersion("v1.2.3", "1.2.2"));
-    CHECK(UpdateChecker::isNewerVersion("1.10.0", "1.9.9"));
-    CHECK(UpdateChecker::isNewerVersion("2.0", "1.99.99"));
-    CHECK(UpdateChecker::isNewerVersion("EasyTools v1.2.3 正式发布", "1.2.2"));
-    CHECK(!UpdateChecker::isNewerVersion("1.2.3", "1.2.3"));
-    CHECK(!UpdateChecker::isNewerVersion("1.2", "1.2.1"));
-    CHECK(!UpdateChecker::isNewerVersion("1.2.3-beta.1", "1.2.3"));
-    CHECK(!UpdateChecker::isNewerVersion("not-a-version", "1.0.0"));
-    CHECK(!UpdateChecker::isNewerVersion("发行", "1.0.0"));
+    EXPECT_TRUE(UpdateChecker::isNewerVersion("v1.2.3", "1.2.2"));
+    EXPECT_TRUE(UpdateChecker::isNewerVersion("1.10.0", "1.9.9"));
+    EXPECT_TRUE(UpdateChecker::isNewerVersion("2.0", "1.99.99"));
+    EXPECT_TRUE(UpdateChecker::isNewerVersion("EasyTools v1.2.3 正式发布", "1.2.2"));
+    EXPECT_FALSE(UpdateChecker::isNewerVersion("1.2.3", "1.2.3"));
+    EXPECT_FALSE(UpdateChecker::isNewerVersion("1.2", "1.2.1"));
+    EXPECT_FALSE(UpdateChecker::isNewerVersion("1.2.3-beta.1", "1.2.3"));
+    EXPECT_FALSE(UpdateChecker::isNewerVersion("not-a-version", "1.0.0"));
+    EXPECT_FALSE(UpdateChecker::isNewerVersion("发行", "1.0.0"));
 }
 
-#include "service/PinyinEngine.h"
-#include "core/utils/WinUtils.h"
-
-static void test_pinyin_engine() {
+// -----------------------------------------------------------------------------
+// 14. 拼音索引引擎测试套件
+// -----------------------------------------------------------------------------
+TEST(PinyinEngineTest, FuzzyAndInitialMatching) {
     auto wx_init = PinyinEngine::GetInitials(L"微信");
     auto wx_full = PinyinEngine::GetFullPinyin(L"微信");
     std::wprintf(L"[DEBUG] 微信 initials: %ls, full: %ls\n", wx_init.c_str(), wx_full.c_str());
 
     // 拼音首字母
-    CHECK(PinyinEngine::GetInitials(L"微信") == L"wx");
-    CHECK(PinyinEngine::GetInitials(L"你好世界") == L"nhsj");
-    CHECK(PinyinEngine::GetInitials(L"EasyTools工具") == L"easytoolsgj");
+    EXPECT_EQ(PinyinEngine::GetInitials(L"微信"), L"wx");
+    EXPECT_EQ(PinyinEngine::GetInitials(L"你好世界"), L"nhsj");
+    EXPECT_EQ(PinyinEngine::GetInitials(L"EasyTools工具"), L"easytoolsgj");
 
     // 拼音全拼
-    CHECK(PinyinEngine::GetFullPinyin(L"微信") == L"weixin");
-    CHECK(PinyinEngine::GetFullPinyin(L"你好") == L"nihao");
-    CHECK(PinyinEngine::GetFullPinyin(L"EasyTools") == L"easytools");
+    EXPECT_EQ(PinyinEngine::GetFullPinyin(L"微信"), L"weixin");
+    EXPECT_EQ(PinyinEngine::GetFullPinyin(L"你好"), L"nihao");
+    EXPECT_EQ(PinyinEngine::GetFullPinyin(L"EasyTools"), L"easytools");
 }
 
-static void test_search_everything_expressions() {
+// -----------------------------------------------------------------------------
+// 15. Everything 风格搜索表达式解析测试套件
+// -----------------------------------------------------------------------------
+TEST(SearchExpressionTest, EverythingSyntaxParsing) {
     FileRecord txtFile{1, 0, L"readme.txt", L"readme.txt", L"readme.txt", L"readme.txt", false};
     FileRecord pngFile{2, 0, L"screenshot.png", L"screenshot.png", L"screenshot.png", L"screenshot.png", false};
     FileRecord docDir{3, 0, L"Documents", L"documents", L"documents", L"documents", true};
@@ -805,64 +830,67 @@ static void test_search_everything_expressions() {
 
     // 1. 标准通配符与扩展名
     auto expr1 = SearchExpression::parse(L"*.txt");
-    CHECK(expr1.matches(txtFile, L'C', L"C:\\readme.txt"));
-    CHECK(!expr1.matches(pngFile, L'C', L"C:\\screenshot.png"));
+    EXPECT_TRUE(expr1.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_FALSE(expr1.matches(pngFile, L'C', L"C:\\screenshot.png"));
 
     auto exprExt = SearchExpression::parse(L"ext:png;jpg;webp");
-    CHECK(exprExt.matches(pngFile, L'C', L"C:\\screenshot.png"));
-    CHECK(!exprExt.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_TRUE(exprExt.matches(pngFile, L'C', L"C:\\screenshot.png"));
+    EXPECT_FALSE(exprExt.matches(txtFile, L'C', L"C:\\readme.txt"));
 
     // 2. 类型过滤器 (file: / folder: / dir:)
     auto exprFile = SearchExpression::parse(L"file: *.txt");
-    CHECK(exprFile.matches(txtFile, L'C', L"C:\\readme.txt"));
-    CHECK(!exprFile.matches(docDir, L'C', L"C:\\Documents"));
+    EXPECT_TRUE(exprFile.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_FALSE(exprFile.matches(docDir, L'C', L"C:\\Documents"));
 
     auto exprDir = SearchExpression::parse(L"folder: documents");
-    CHECK(exprDir.matches(docDir, L'C', L"C:\\Documents"));
-    CHECK(!exprDir.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_TRUE(exprDir.matches(docDir, L'C', L"C:\\Documents"));
+    EXPECT_FALSE(exprDir.matches(txtFile, L'C', L"C:\\readme.txt"));
 
     // 3. 逻辑与、或、非 (AND / OR / NOT)
     auto exprNot = SearchExpression::parse(L"*.cpp !test");
     FileRecord normalCpp{7, 0, L"main.cpp", L"main.cpp", L"main.cpp", L"main.cpp", false};
-    CHECK(!exprNot.matches(cppFile, L'C', L"C:\\test_main.cpp"));
-    CHECK(exprNot.matches(normalCpp, L'C', L"C:\\main.cpp"));
+    EXPECT_FALSE(exprNot.matches(cppFile, L'C', L"C:\\test_main.cpp"));
+    EXPECT_TRUE(exprNot.matches(normalCpp, L'C', L"C:\\main.cpp"));
 
     auto exprOr = SearchExpression::parse(L"ext:txt | ext:png");
-    CHECK(exprOr.matches(txtFile, L'C', L"C:\\readme.txt"));
-    CHECK(exprOr.matches(pngFile, L'C', L"C:\\screenshot.png"));
-    CHECK(!exprOr.matches(cppFile, L'C', L"C:\\test_main.cpp"));
+    EXPECT_TRUE(exprOr.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_TRUE(exprOr.matches(pngFile, L'C', L"C:\\screenshot.png"));
+    EXPECT_FALSE(exprOr.matches(cppFile, L'C', L"C:\\test_main.cpp"));
 
     // 4. 正则表达式 (regex: / r:)
     auto exprRegex = SearchExpression::parse(L"regex:^app_[0-9]+\\.log$");
-    CHECK(exprRegex.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
-    CHECK(!exprRegex.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_TRUE(exprRegex.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
+    EXPECT_FALSE(exprRegex.matches(txtFile, L'C', L"C:\\readme.txt"));
 
     // 5. 盘符与路径过滤 (c: / path: / parent:)
     auto exprDrive = SearchExpression::parse(L"c: *.txt");
-    CHECK(exprDrive.matches(txtFile, L'C', L"C:\\readme.txt"));
-    CHECK(!exprDrive.matches(txtFile, L'D', L"D:\\readme.txt"));
+    EXPECT_TRUE(exprDrive.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_FALSE(exprDrive.matches(txtFile, L'D', L"D:\\readme.txt"));
 
     auto exprPath = SearchExpression::parse(L"path:logs");
-    CHECK(exprPath.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
-    CHECK(!exprPath.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_TRUE(exprPath.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
+    EXPECT_FALSE(exprPath.matches(txtFile, L'C', L"C:\\readme.txt"));
 
     // 6. 拼音检索与禁用拼音 (pinyin: / nopy:)
     auto exprPy = SearchExpression::parse(L"wx");
-    CHECK(exprPy.matches(wxFile, L'C', L"C:\\微信.exe"));
+    EXPECT_TRUE(exprPy.matches(wxFile, L'C', L"C:\\微信.exe"));
 
     auto exprNoPy = SearchExpression::parse(L"nopy:wx");
-    CHECK(!exprNoPy.matches(wxFile, L'C', L"C:\\微信.exe"));
+    EXPECT_FALSE(exprNoPy.matches(wxFile, L'C', L"C:\\微信.exe"));
 
     // 7. 双引号带空格短语
     auto exprQuote = SearchExpression::parse(L"\"test main\"");
     FileRecord spaceFile{8, 0, L"test main.cpp", L"test main.cpp", L"test main.cpp", L"test main.cpp", false};
-    CHECK(exprQuote.matches(spaceFile, L'C', L"C:\\test main.cpp"));
+    EXPECT_TRUE(exprQuote.matches(spaceFile, L'C', L"C:\\test main.cpp"));
 }
 
-static void test_winutils_fullscreen() {
+// -----------------------------------------------------------------------------
+// 16. 全屏检测与窗口排除测试套件
+// -----------------------------------------------------------------------------
+TEST(WinUtilsTest, FullscreenDetection) {
     // 空句柄或无效句柄返回 false
-    CHECK(!easy::core::WinUtils::isWindowFullscreen(nullptr));
-    CHECK(!easy::core::WinUtils::isWindowFullscreen((HWND)(uintptr_t)0x12345678));
+    EXPECT_FALSE(easy::core::WinUtils::isWindowFullscreen(nullptr));
+    EXPECT_FALSE(easy::core::WinUtils::isWindowFullscreen((HWND)(uintptr_t)0x12345678));
 
     HWND overlay = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"EasyTools affinity test",
@@ -873,46 +901,28 @@ static void test_winutils_fullscreen() {
     }
     if (easy::core::WinUtils::excludeWindowFromCapture(overlay)) {
         DWORD affinity = WDA_NONE;
-        CHECK(GetWindowDisplayAffinity(overlay, &affinity));
-        CHECK(affinity == WDA_EXCLUDEFROMCAPTURE);
+        EXPECT_TRUE(GetWindowDisplayAffinity(overlay, &affinity));
+        EXPECT_EQ(affinity, static_cast<DWORD>(WDA_EXCLUDEFROMCAPTURE));
     } else {
         std::printf("[SKIP] WDA_EXCLUDEFROMCAPTURE unavailable: error=%lu\n", GetLastError());
     }
     DestroyWindow(overlay);
 }
 
-static void test_plugin_discovery() {
-    std::array<wchar_t, 32768> executablePath{};
-    const DWORD length = GetModuleFileNameW(
-        nullptr, executablePath.data(), static_cast<DWORD>(executablePath.size()));
-    CHECK(length > 0 && length < executablePath.size());
-    if (length == 0 || length >= executablePath.size()) return;
-
-    const auto executableDir = std::filesystem::path(executablePath.data()).parent_path();
-    const auto pluginDir = executableDir.parent_path() / L"plugins" / executableDir.filename();
-    auto& manager = easy::core::PluginManager::instance();
-    CHECK(manager.loadPlugins(easy::core::WinUtils::wstringToUtf8(pluginDir.wstring())));
-    const auto plugins = manager.getPluginStatuses();
-    CHECK(plugins.size() == 4);
-    for (const auto& plugin : plugins) {
-        CHECK(plugin.error.empty());
-        CHECK(plugin.abiVersion == easy::core::CurrentPluginAbiVersion);
-        CHECK(!plugin.capabilities.empty());
-    }
-    manager.shutdownPlugins();
-}
-
-static void test_capture_backend_smoke() {
+// -----------------------------------------------------------------------------
+// 17. 截图后端能力与 Smoke 测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureBackendTest, Direct3DAndGdiSmoke) {
     const auto capabilities = easy::capture::captureBackendCapabilities();
-    CHECK(capabilities.size() >= 2);
+    EXPECT_GE(capabilities.size(), 2u);
     bool hasGdi = false;
     bool hasDxgi = false;
     for (const auto& capability : capabilities) {
         if (capability.id == "gdi-bitblt") hasGdi = capability.available;
         if (capability.id == "dxgi-desktop-duplication") hasDxgi = true;
     }
-    CHECK(hasGdi);
-    CHECK(hasDxgi);
+    EXPECT_TRUE(hasGdi);
+    EXPECT_TRUE(hasDxgi);
 
     const easy::capture::CaptureRegion region{
         GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), 64, 64
@@ -929,16 +939,19 @@ static void test_capture_backend_smoke() {
         backend->shutdown();
         return;
     }
-    CHECK(frame.data != nullptr);
-    CHECK(frame.width == 64);
-    CHECK(frame.height == 64);
-    CHECK(frame.stride >= frame.width * 3);
+    EXPECT_NE(frame.data, nullptr);
+    EXPECT_EQ(frame.width, 64);
+    EXPECT_EQ(frame.height, 64);
+    EXPECT_GE(frame.stride, frame.width * 3);
     std::printf("[INFO] capture backend: %s\n", backend->info().id.c_str());
     backend->releaseFrame();
     backend->shutdown();
 }
 
-static void test_audio_capture_smoke() {
+// -----------------------------------------------------------------------------
+// 18. WASAPI 音频捕获与 Loopback 测试套件
+// -----------------------------------------------------------------------------
+TEST(AudioCaptureTest, LoopbackWasapiSmoke) {
     const auto devices = easy::capture::AudioCapture::devices();
     const auto outputDevice = std::find_if(devices.begin(), devices.end(),
         [](const auto& device) { return device.systemAudio; });
@@ -946,8 +959,8 @@ static void test_audio_capture_smoke() {
         std::printf("[SKIP] WASAPI device enumeration: no active output device\n");
         return;
     }
-    CHECK(!outputDevice->id.empty());
-    CHECK(!outputDevice->name.empty());
+    EXPECT_FALSE(outputDevice->id.empty());
+    EXPECT_FALSE(outputDevice->name.empty());
 
     easy::capture::AudioCapture capture;
     easy::capture::AudioCaptureOptions options;
@@ -959,25 +972,26 @@ static void test_audio_capture_smoke() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
     const auto status = capture.status();
-    CHECK(status.systemAudioActive);
-    CHECK(status.mixedPeak >= 0.0f && status.mixedPeak <= 1.0f);
+    EXPECT_TRUE(status.systemAudioActive);
+    EXPECT_GE(status.mixedPeak, 0.0f);
+    EXPECT_LE(status.mixedPeak, 1.0f);
     std::vector<float> frames;
-    CHECK(capture.readFrames(easy::capture::AudioCapture::SampleRate / 100, frames));
-    CHECK(frames.size() == static_cast<std::size_t>(
+    EXPECT_TRUE(capture.readFrames(easy::capture::AudioCapture::SampleRate / 100, frames));
+    EXPECT_EQ(frames.size(), static_cast<std::size_t>(
         easy::capture::AudioCapture::SampleRate / 100 * easy::capture::AudioCapture::Channels));
     capture.setVolumes(0.75f, 1.0f);
     capture.setSystemMuted(true);
-    CHECK(capture.status().systemMuted);
-    CHECK(capture.status().systemPeak == 0.0f);
+    EXPECT_TRUE(capture.status().systemMuted);
+    EXPECT_EQ(capture.status().systemPeak, 0.0f);
     capture.setSystemMuted(false);
-    CHECK(!capture.status().systemMuted);
+    EXPECT_FALSE(capture.status().systemMuted);
     capture.stop();
 
     // The same object must be reusable after a full endpoint teardown. This
     // exercises the same close/reinitialize path used by runtime reconnection.
-    CHECK(capture.start(options));
+    EXPECT_TRUE(capture.start(options));
     std::this_thread::sleep_for(std::chrono::milliseconds(60));
-    CHECK(capture.status().systemAudioActive);
+    EXPECT_TRUE(capture.status().systemAudioActive);
     capture.stop();
 }
 
@@ -995,7 +1009,10 @@ static bool canCaptureDisplayFrames() {
     return success;
 }
 
-static void test_scroll_capture_bounded_preview() {
+// -----------------------------------------------------------------------------
+// 19. 长截图与滚动预览拼接测试套件
+// -----------------------------------------------------------------------------
+TEST(ScrollCaptureTest, BoundedPreviewAndStitching) {
     if (!canCaptureDisplayFrames()) {
         std::printf("[SKIP] scroll capture smoke: display capture unavailable in current session\n");
         return;
@@ -1029,16 +1046,19 @@ static void test_scroll_capture_bounded_preview() {
     capture.captureCurrentFrame();
     capture.captureCurrentFrame();
     capture.stop();
-    CHECK(completed.success);
-    CHECK(completed.frameCount == 2);
-    CHECK(completed.stitchedImage.cols == 64);
-    CHECK(completed.stitchedImage.rows >= 64);
-    CHECK(progressCalls == 2);
-    CHECK(largestPreviewRows <= 128);
+    EXPECT_TRUE(completed.success);
+    EXPECT_EQ(completed.frameCount, 2);
+    EXPECT_EQ(completed.stitchedImage.cols, 64);
+    EXPECT_GE(completed.stitchedImage.rows, 64);
+    EXPECT_EQ(progressCalls, 2);
+    EXPECT_LE(largestPreviewRows, 128);
     capture.shutdown();
 }
 
-static void test_screen_recorder_smoke() {
+// -----------------------------------------------------------------------------
+// 20. 屏幕录制编码管道测试套件
+// -----------------------------------------------------------------------------
+TEST(ScreenRecorderTest, FrameEncodingSmoke) {
     if (!canCaptureDisplayFrames()) {
         std::printf("[SKIP] screen recorder smoke: display capture unavailable in current session\n");
         return;
@@ -1063,7 +1083,7 @@ static void test_screen_recorder_smoke() {
     options.outputPath = easy::core::WinUtils::wstringToUtf8(output.wstring());
 
     auto& recorder = easy::capture::ScreenRecorder::instance();
-    CHECK(recorder.initialize());
+    EXPECT_TRUE(recorder.initialize());
     if (!recorder.startRecording(options)) {
         std::printf("[SKIP] screen recorder smoke: encoder unavailable\n");
         recorder.shutdown();
@@ -1071,42 +1091,45 @@ static void test_screen_recorder_smoke() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(450));
     if (recorder.stats().systemAudioActive) {
-        CHECK(recorder.toggleSystemAudioMuted());
-        CHECK(recorder.stats().systemAudioMuted);
+        EXPECT_TRUE(recorder.toggleSystemAudioMuted());
+        EXPECT_TRUE(recorder.stats().systemAudioMuted);
         recorder.setAudioVolumes(0.8f, 1.0f);
-        CHECK(recorder.toggleSystemAudioMuted());
-        CHECK(!recorder.stats().systemAudioMuted);
+        EXPECT_TRUE(recorder.toggleSystemAudioMuted());
+        EXPECT_FALSE(recorder.stats().systemAudioMuted);
     }
     const auto completedPath = recorder.stopRecording();
     const auto stats = recorder.stats();
-    CHECK_EQ(completedPath, options.outputPath);
-    CHECK(stats.frameCount > 0);
-    CHECK(!stats.captureBackend.empty());
-    CHECK(!stats.encoderName.empty());
-    CHECK(stats.diskFreeBytes > 0);
-    CHECK(stats.estimatedRemainingSec >= 0);
-    CHECK(stats.captureLatencyMs >= 0.0);
-    CHECK(stats.conversionLatencyMs >= 0.0);
-    CHECK(stats.encodeLatencyMs >= 0.0);
-    CHECK(stats.pipelineLatencyMs >= stats.captureLatencyMs * 0.5);
-    CHECK(stats.effectiveFps > 0.0 && stats.effectiveFps <= options.fps);
-    CHECK(stats.adaptiveFrameStep >= 1 && stats.adaptiveFrameStep <= 4);
-    CHECK(std::filesystem::file_size(output, ec) > 0 && !ec);
-    CHECK(!std::filesystem::exists(std::filesystem::path(output.wstring() + L".partial")));
+    EXPECT_EQ(completedPath, options.outputPath);
+    EXPECT_GT(stats.frameCount, 0);
+    EXPECT_FALSE(stats.captureBackend.empty());
+    EXPECT_FALSE(stats.encoderName.empty());
+    EXPECT_GT(stats.diskFreeBytes, 0u);
+    EXPECT_GE(stats.estimatedRemainingSec, 0);
+    EXPECT_GE(stats.captureLatencyMs, 0.0);
+    EXPECT_GE(stats.conversionLatencyMs, 0.0);
+    EXPECT_GE(stats.encodeLatencyMs, 0.0);
+    EXPECT_GE(stats.pipelineLatencyMs, stats.captureLatencyMs * 0.5);
+    EXPECT_GT(stats.effectiveFps, 0.0);
+    EXPECT_LE(stats.effectiveFps, static_cast<double>(options.fps));
+    EXPECT_GE(stats.adaptiveFrameStep, 1);
+    EXPECT_LE(stats.adaptiveFrameStep, 4);
+    EXPECT_GT(std::filesystem::file_size(output, ec), 0u);
+    EXPECT_FALSE(ec);
+    EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(output.wstring() + L".partial")));
     AVFormatContext* probe = nullptr;
-    CHECK(avformat_open_input(&probe, options.outputPath.c_str(), nullptr, nullptr) >= 0);
+    EXPECT_GE(avformat_open_input(&probe, options.outputPath.c_str(), nullptr, nullptr), 0);
     if (probe) {
-        CHECK(avformat_find_stream_info(probe, nullptr) >= 0);
+        EXPECT_GE(avformat_find_stream_info(probe, nullptr), 0);
         bool hasVideo = false;
         bool hasAudio = false;
         for (unsigned index = 0; index < probe->nb_streams; ++index) {
             hasVideo |= probe->streams[index]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO;
             hasAudio |= probe->streams[index]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO;
         }
-        CHECK(hasVideo);
+        EXPECT_TRUE(hasVideo);
         if (stats.systemAudioActive) {
-            CHECK(hasAudio);
-            CHECK(!stats.audioEncoderName.empty());
+            EXPECT_TRUE(hasAudio);
+            EXPECT_FALSE(stats.audioEncoderName.empty());
         }
         avformat_close_input(&probe);
     }
@@ -1125,13 +1148,13 @@ static void test_screen_recorder_smoke() {
     options.captureSystemAudio = false;
     options.outputPath = easy::core::WinUtils::wstringToUtf8(cancelledOutput.wstring());
     options.countdownSeconds = 2;
-    CHECK(recorder.initialize());
-    CHECK(recorder.startRecording(options));
-    CHECK(recorder.state() == easy::capture::RecordState::Countdown);
-    CHECK(recorder.stats().countdownRemaining > 0);
-    CHECK(recorder.stopRecording().empty());
-    CHECK(!std::filesystem::exists(cancelledOutput));
-    CHECK(!std::filesystem::exists(partialOutput));
+    EXPECT_TRUE(recorder.initialize());
+    EXPECT_TRUE(recorder.startRecording(options));
+    EXPECT_EQ(recorder.state(), easy::capture::RecordState::Countdown);
+    EXPECT_GT(recorder.stats().countdownRemaining, 0);
+    EXPECT_TRUE(recorder.stopRecording().empty());
+    EXPECT_FALSE(std::filesystem::exists(cancelledOutput));
+    EXPECT_FALSE(std::filesystem::exists(partialOutput));
     recorder.shutdown();
 
     // A path whose parent is a regular file must fail during preflight without
@@ -1145,16 +1168,19 @@ static void test_screen_recorder_smoke() {
     const auto invalidOutput = invalidParent / L"record.mp4";
     options.countdownSeconds = 0;
     options.outputPath = easy::core::WinUtils::wstringToUtf8(invalidOutput.wstring());
-    CHECK(recorder.initialize());
-    CHECK(!recorder.startRecording(options));
-    CHECK(recorder.stats().stopReason == "output_directory_unavailable" ||
-          recorder.stats().stopReason == "output_directory_not_writable");
-    CHECK(!std::filesystem::exists(std::filesystem::path(invalidOutput.wstring() + L".partial")));
+    EXPECT_TRUE(recorder.initialize());
+    EXPECT_FALSE(recorder.startRecording(options));
+    EXPECT_TRUE(recorder.stats().stopReason == "output_directory_unavailable" ||
+                recorder.stats().stopReason == "output_directory_not_writable");
+    EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(invalidOutput.wstring() + L".partial")));
     recorder.shutdown();
     std::filesystem::remove(invalidParent, ec);
 }
 
-static void test_cursor_overlay_restore() {
+// -----------------------------------------------------------------------------
+// 21. 光标叠加与图层复原测试套件
+// -----------------------------------------------------------------------------
+TEST(CursorOverlayTest, StateRestoration) {
     CURSORINFO cursorInfo{sizeof(CURSORINFO)};
     if (!GetCursorInfo(&cursorInfo) || !(cursorInfo.flags & CURSOR_SHOWING)) {
         std::printf("[SKIP] cursor overlay smoke: pointer is hidden\n");
@@ -1213,7 +1239,7 @@ static void test_cursor_overlay_restore() {
         // Restoration is still validated below; do not make CI depend on live UI.
         std::printf("[SKIP] cursor overlay smoke: live cursor produced no pixel delta\n");
     } else {
-        CHECK(changed);
+        EXPECT_TRUE(changed);
     }
     bool restored = true;
     for (int row = 0; row < frame.height && restored; ++row) {
@@ -1222,18 +1248,21 @@ static void test_cursor_overlay_restore() {
             frame.data + static_cast<std::size_t>(row) * frame.stride,
             rowBytes) == 0;
     }
-    CHECK(restored);
+    EXPECT_TRUE(restored);
     backend->releaseFrame();
     backend->shutdown();
 }
 
-static void test_capture_micro_actions_and_hints() {
+// -----------------------------------------------------------------------------
+// 22. 截图微调与快捷键提示测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureToolbarTest, MicroActionsAndHintDisplay) {
     using easy::capture::ShortcutHintOverlay;
     using easy::capture::ShortcutHintContext;
 
     auto& overlay = ShortcutHintOverlay::instance();
     auto selectingItems = overlay.getItemsForContext(ShortcutHintContext::CaptureSelecting);
-    CHECK(!selectingItems.empty());
+    EXPECT_FALSE(selectingItems.empty());
     bool hasSpacePan = false;
     bool hasWasdNudge = false;
     bool hasColorCopy = false;
@@ -1242,138 +1271,147 @@ static void test_capture_micro_actions_and_hints() {
         if (item.key == L"WASD") hasWasdNudge = true;
         if (item.key == L"C") hasColorCopy = true;
     }
-    CHECK(hasSpacePan);
-    CHECK(hasWasdNudge);
-    CHECK(hasColorCopy);
+    EXPECT_TRUE(hasSpacePan);
+    EXPECT_TRUE(hasWasdNudge);
+    EXPECT_TRUE(hasColorCopy);
 
     auto selectedItems = overlay.getItemsForContext(ShortcutHintContext::CaptureSelected);
-    CHECK(!selectedItems.empty());
+    EXPECT_FALSE(selectedItems.empty());
     bool hasWasdMove = false;
     bool hasShiftWasdResize = false;
     for (const auto& item : selectedItems) {
         if (item.key == L"WASD") hasWasdMove = true;
         if (item.key == L"Shift+WASD") hasShiftWasdResize = true;
     }
-    CHECK(hasWasdMove);
-    CHECK(hasShiftWasdResize);
+    EXPECT_TRUE(hasWasdMove);
+    EXPECT_TRUE(hasShiftWasdResize);
 
     auto recordSelectingItems = overlay.getItemsForContext(ShortcutHintContext::RecordSelecting);
-    CHECK(!recordSelectingItems.empty());
+    EXPECT_FALSE(recordSelectingItems.empty());
     bool hasRecordSpacePan = false;
     for (const auto& item : recordSelectingItems) {
         if (item.key == L"Space") hasRecordSpacePan = true;
     }
-    CHECK(hasRecordSpacePan);
+    EXPECT_TRUE(hasRecordSpacePan);
 }
 
-static void test_shortcut_hint_dpi_metrics() {
+// -----------------------------------------------------------------------------
+// 23. 快捷键提示 DPI 度量测试套件
+// -----------------------------------------------------------------------------
+TEST(ShortcutHintTest, DpiMetricsAndAlignment) {
     using easy::capture::ShortcutHintStyle;
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(0) - 1.0f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(96) - 1.0f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(120) - 1.25f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(144) - 1.5f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(192) - 2.0f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(288) - 3.0f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(480) - 5.0f) < 0.001f);
-    CHECK(std::abs(ShortcutHintStyle::scaleForDpi(768) - 5.0f) < 0.001f);
-    CHECK(ShortcutHintStyle::BaseKeyFont >= 13.0f);
-    CHECK(ShortcutHintStyle::BaseLabelFont >= 13.0f);
-    CHECK(ShortcutHintStyle::BaseKeyHeight >= ShortcutHintStyle::BaseKeyFont * 2.0f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(0), 1.0f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(96), 1.0f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(120), 1.25f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(144), 1.5f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(192), 2.0f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(288), 3.0f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(480), 5.0f, 0.001f);
+    EXPECT_NEAR(ShortcutHintStyle::scaleForDpi(768), 5.0f, 0.001f);
+    EXPECT_GE(ShortcutHintStyle::BaseKeyFont, 13.0f);
+    EXPECT_GE(ShortcutHintStyle::BaseLabelFont, 13.0f);
+    EXPECT_GE(ShortcutHintStyle::BaseKeyHeight, ShortcutHintStyle::BaseKeyFont * 2.0f);
 
     float previousFontPixels = 0.0f;
     for (const unsigned dpi : {96u, 120u, 144u, 192u, 240u, 288u, 384u, 480u}) {
         const float fontPixels = ShortcutHintStyle::BaseLabelFont *
                                  ShortcutHintStyle::scaleForDpi(dpi);
-        CHECK(fontPixels >= previousFontPixels);
+        EXPECT_GE(fontPixels, previousFontPixels);
         previousFontPixels = fontPixels;
     }
 }
 
-static void test_shared_dpi_metrics() {
+// -----------------------------------------------------------------------------
+// 24. 高分屏共享 DPI 度量与自适应换算测试套件
+// -----------------------------------------------------------------------------
+TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     using namespace easy::core::dpi;
-    CHECK(std::abs(scaleForDpi(0) - 1.0f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(96) - 1.0f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(120) - 1.25f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(144) - 1.5f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(192) - 2.0f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(480) - 5.0f) < 0.001f);
-    CHECK(std::abs(scaleForDpi(768) - 5.0f) < 0.001f);
-    CHECK(scaleMetric(36, 1.0f) == 36);
-    CHECK(scaleMetric(36, 1.25f) == 45);
-    CHECK(scaleMetric(36, 1.5f) == 54);
-    CHECK(scaleMetric(1, 0.0f) == 1);
+    EXPECT_NEAR(scaleForDpi(0), 1.0f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(96), 1.0f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(120), 1.25f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(144), 1.5f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(192), 2.0f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(480), 5.0f, 0.001f);
+    EXPECT_NEAR(scaleForDpi(768), 5.0f, 0.001f);
+    EXPECT_EQ(scaleMetric(36, 1.0f), 36);
+    EXPECT_EQ(scaleMetric(36, 1.25f), 45);
+    EXPECT_EQ(scaleMetric(36, 1.5f), 54);
+    EXPECT_EQ(scaleMetric(1, 0.0f), 1);
 
     const SIZE toast100 = easy::ui::ToastStyle::windowSizeForDpi(96);
     const SIZE toast150 = easy::ui::ToastStyle::windowSizeForDpi(144);
     const SIZE toast200 = easy::ui::ToastStyle::windowSizeForDpi(192);
-    CHECK(toast100.cx == 600 && toast100.cy == 80);
-    CHECK(toast150.cx == 900 && toast150.cy == 120);
-    CHECK(toast200.cx == 1200 && toast200.cy == 160);
+    EXPECT_TRUE(toast100.cx == 600 && toast100.cy == 80);
+    EXPECT_TRUE(toast150.cx == 900 && toast150.cy == 120);
+    EXPECT_TRUE(toast200.cx == 1200 && toast200.cy == 160);
 
     const SIZE keycast150 = easy::keycast::KeycastStyle::windowSizeForDpi(144);
-    CHECK(keycast150.cx == 1200 && keycast150.cy == 240);
+    EXPECT_TRUE(keycast150.cx == 1200 && keycast150.cy == 240);
 
     const SIZE ocr100 = easy::ocr::OcrResultStyle::windowSizeForDpi(96);
     const SIZE ocr125 = easy::ocr::OcrResultStyle::windowSizeForDpi(120);
     const SIZE ocr150 = easy::ocr::OcrResultStyle::windowSizeForDpi(144);
     const SIZE ocr200 = easy::ocr::OcrResultStyle::windowSizeForDpi(192);
-    CHECK(ocr100.cx == 600 && ocr100.cy == 400);
-    CHECK(ocr125.cx == 750 && ocr125.cy == 500);
-    CHECK(ocr150.cx == 900 && ocr150.cy == 600);
-    CHECK(ocr200.cx == 1200 && ocr200.cy == 800);
+    EXPECT_TRUE(ocr100.cx == 600 && ocr100.cy == 400);
+    EXPECT_TRUE(ocr125.cx == 750 && ocr125.cy == 500);
+    EXPECT_TRUE(ocr150.cx == 900 && ocr150.cy == 600);
+    EXPECT_TRUE(ocr200.cx == 1200 && ocr200.cy == 800);
 
     const SIZE search100 = easy::ui::SearchWindowStyle::windowSizeForDpi(96);
     const SIZE search150 = easy::ui::SearchWindowStyle::windowSizeForDpi(144);
     const SIZE search200 = easy::ui::SearchWindowStyle::windowSizeForDpi(192);
-    CHECK(search100.cx == 800 && search100.cy == 600);
-    CHECK(search150.cx == 1200 && search150.cy == 900);
-    CHECK(search200.cx == 1600 && search200.cy == 1200);
+    EXPECT_TRUE(search100.cx == 800 && search100.cy == 600);
+    EXPECT_TRUE(search150.cx == 1200 && search150.cy == 900);
+    EXPECT_TRUE(search200.cx == 1600 && search200.cy == 1200);
 
     const SIZE tray100 = easy::ui::TrayWindowStyle::windowSizeForDpi(96);
     const SIZE tray150 = easy::ui::TrayWindowStyle::windowSizeForDpi(144);
     const SIZE tray200 = easy::ui::TrayWindowStyle::windowSizeForDpi(192);
-    CHECK(tray100.cx == 200 && tray100.cy == 265);
-    CHECK(tray150.cx == 300 && tray150.cy == 398);
-    CHECK(tray200.cx == 400 && tray200.cy == 530);
+    EXPECT_TRUE(tray100.cx == 200 && tray100.cy == 265);
+    EXPECT_TRUE(tray150.cx == 300 && tray150.cy == 398);
+    EXPECT_TRUE(tray200.cx == 400 && tray200.cy == 530);
 
     const SIZE settings100 = easy::ui::SettingsWindowStyle::windowSizeForDpi(96);
     const SIZE settings150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
     const SIZE settings200 = easy::ui::SettingsWindowStyle::windowSizeForDpi(192);
-    CHECK(settings100.cx == 1380 && settings100.cy == 900);
-    CHECK(settings150.cx == 2070 && settings150.cy == 1350);
-    CHECK(settings200.cx == 2760 && settings200.cy == 1800);
+    EXPECT_TRUE(settings100.cx == 1380 && settings100.cy == 900);
+    EXPECT_TRUE(settings150.cx == 2070 && settings150.cy == 1350);
+    EXPECT_TRUE(settings200.cx == 2760 && settings200.cy == 1800);
 
     const SIZE settingsMin100 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(96);
     const SIZE settingsMin150 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(144);
     const SIZE settingsMin200 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(192);
-    CHECK(settingsMin100.cx == 880 && settingsMin100.cy == 560);
-    CHECK(settingsMin150.cx == 1320 && settingsMin150.cy == 840);
-    CHECK(settingsMin200.cx == 1760 && settingsMin200.cy == 1120);
+    EXPECT_TRUE(settingsMin100.cx == 880 && settingsMin100.cy == 560);
+    EXPECT_TRUE(settingsMin150.cx == 1320 && settingsMin150.cy == 840);
+    EXPECT_TRUE(settingsMin200.cx == 1760 && settingsMin200.cy == 1120);
 
     const auto radial100 = easy::gesture::RadialMenuStyle::metricsForDpi(96);
     const auto radial150 = easy::gesture::RadialMenuStyle::metricsForDpi(144);
     const auto radial200 = easy::gesture::RadialMenuStyle::metricsForDpi(192);
-    CHECK(radial100.windowSize == 400 && radial100.outerRadius == 150 &&
-          radial100.innerRadius == 40);
-    CHECK(radial150.windowSize == 600 && radial150.outerRadius == 225 &&
-          radial150.innerRadius == 60);
-    CHECK(radial200.windowSize == 800 && radial200.outerRadius == 300 &&
-          radial200.innerRadius == 80);
+    EXPECT_TRUE(radial100.windowSize == 400 && radial100.outerRadius == 150 &&
+                radial100.innerRadius == 40);
+    EXPECT_TRUE(radial150.windowSize == 600 && radial150.outerRadius == 225 &&
+                radial150.innerRadius == 60);
+    EXPECT_TRUE(radial200.windowSize == 800 && radial200.outerRadius == 300 &&
+                radial200.innerRadius == 80);
 }
 
 static void check_toolbar_inside_surface(const easy::capture::CaptureState& state,
                                          D2D1_SIZE_F surface) {
     for (const auto& button : state.toolbarButtons) {
-        CHECK(button.rect.left >= 0.0f);
-        CHECK(button.rect.top >= 0.0f);
-        CHECK(button.rect.right <= surface.width + 0.01f);
-        CHECK(button.rect.bottom <= surface.height + 0.01f);
-        CHECK(button.rect.right > button.rect.left);
-        CHECK(button.rect.bottom > button.rect.top);
+        EXPECT_GE(button.rect.left, 0.0f);
+        EXPECT_GE(button.rect.top, 0.0f);
+        EXPECT_LE(button.rect.right, surface.width + 0.01f);
+        EXPECT_LE(button.rect.bottom, surface.height + 0.01f);
+        EXPECT_GT(button.rect.right, button.rect.left);
+        EXPECT_GT(button.rect.bottom, button.rect.top);
     }
 }
 
-static void test_capture_toolbar_dpi_layout() {
+// -----------------------------------------------------------------------------
+// 25. 工具栏自适应 DPI 布局测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     using namespace easy::capture;
 
     CaptureState screenshot;
@@ -1382,21 +1420,21 @@ static void test_capture_toolbar_dpi_layout() {
     const D2D1_SIZE_F desktop150 = D2D1::SizeF(2304.0f, 1440.0f);
     rebuildCaptureToolbar(screenshot, D2D1::RectF(180.0f, 120.0f, 1600.0f, 980.0f),
                           desktop150);
-    CHECK(screenshot.toolbarButtons.size() == 25);
-    CHECK(std::abs((screenshot.toolbarButtons.front().rect.bottom -
-                    screenshot.toolbarButtons.front().rect.top) - 45.0f) < 0.01f);
+    EXPECT_EQ(screenshot.toolbarButtons.size(), 25u);
+    EXPECT_NEAR(screenshot.toolbarButtons.front().rect.bottom -
+                screenshot.toolbarButtons.front().rect.top, 45.0f, 0.01f);
     check_toolbar_inside_surface(screenshot, desktop150);
     const auto* cachedButtons = screenshot.toolbarButtons.data();
     rebuildCaptureToolbar(screenshot, D2D1::RectF(180.0f, 120.0f, 1600.0f, 980.0f),
                           desktop150);
-    CHECK(screenshot.toolbarButtons.data() == cachedButtons);
+    EXPECT_EQ(screenshot.toolbarButtons.data(), cachedButtons);
 
     CaptureState wrapped;
     wrapped.mode = OverlayMode::Screenshot;
     wrapped.dpiScale = 2.0f;
     const D2D1_SIZE_F compact = D2D1::SizeF(1000.0f, 700.0f);
     rebuildCaptureToolbar(wrapped, D2D1::RectF(80.0f, 100.0f, 850.0f, 480.0f), compact);
-    CHECK(wrapped.toolbarButtons.size() == 25);
+    EXPECT_EQ(wrapped.toolbarButtons.size(), 25u);
     bool hasSecondRow = false;
     for (const auto& button : wrapped.toolbarButtons) {
         if (button.rect.top > wrapped.toolbarButtons.front().rect.top + 0.01f) {
@@ -1404,7 +1442,7 @@ static void test_capture_toolbar_dpi_layout() {
             break;
         }
     }
-    CHECK(hasSecondRow);
+    EXPECT_TRUE(hasSecondRow);
     check_toolbar_inside_surface(wrapped, compact);
 
     CaptureState recording;
@@ -1412,11 +1450,11 @@ static void test_capture_toolbar_dpi_layout() {
     recording.dpiScale = 1.5f;
     rebuildCaptureToolbar(recording, D2D1::RectF(200.0f, 100.0f, 1200.0f, 800.0f),
                           desktop150);
-    CHECK(recording.toolbarButtons.size() == 2);
-    CHECK(std::abs((recording.toolbarButtons[0].rect.right -
-                    recording.toolbarButtons[0].rect.left) - 102.0f) < 0.01f);
-    CHECK(std::abs((recording.toolbarButtons[1].rect.right -
-                    recording.toolbarButtons[1].rect.left) - 117.0f) < 0.01f);
+    EXPECT_EQ(recording.toolbarButtons.size(), 2u);
+    EXPECT_NEAR(recording.toolbarButtons[0].rect.right -
+                recording.toolbarButtons[0].rect.left, 102.0f, 0.01f);
+    EXPECT_NEAR(recording.toolbarButtons[1].rect.right -
+                recording.toolbarButtons[1].rect.left, 117.0f, 0.01f);
     check_toolbar_inside_surface(recording, desktop150);
 
     CaptureState extreme;
@@ -1425,104 +1463,116 @@ static void test_capture_toolbar_dpi_layout() {
     const D2D1_SIZE_F desktop500 = D2D1::SizeF(7680.0f, 4320.0f);
     rebuildCaptureToolbar(extreme, D2D1::RectF(500.0f, 400.0f, 7000.0f, 3600.0f),
                           desktop500);
-    CHECK(extreme.toolbarButtons.size() == 25);
+    EXPECT_EQ(extreme.toolbarButtons.size(), 25u);
     check_toolbar_inside_surface(extreme, desktop500);
 }
 
-static void test_pin_window_transform() {
+// -----------------------------------------------------------------------------
+// 26. 贴图窗口几何变换测试套件
+// -----------------------------------------------------------------------------
+TEST(PinWindowTest, TransformAndBoundsCalculation) {
     cv::Mat original = (cv::Mat_<uint8_t>(3, 2) << 10, 20,
                                                    30, 40,
                                                    50, 60);
     // 旋转 90 度
     cv::Mat rotated90;
     cv::rotate(original, rotated90, cv::ROTATE_90_CLOCKWISE);
-    CHECK(rotated90.rows == 2 && rotated90.cols == 3);
-    CHECK(rotated90.at<uint8_t>(0, 0) == 50);
-    CHECK(rotated90.at<uint8_t>(0, 2) == 10);
-    CHECK(rotated90.at<uint8_t>(1, 0) == 60);
-    CHECK(rotated90.at<uint8_t>(1, 2) == 20);
+    EXPECT_TRUE(rotated90.rows == 2 && rotated90.cols == 3);
+    EXPECT_EQ(rotated90.at<uint8_t>(0, 0), 50);
+    EXPECT_EQ(rotated90.at<uint8_t>(0, 2), 10);
+    EXPECT_EQ(rotated90.at<uint8_t>(1, 0), 60);
+    EXPECT_EQ(rotated90.at<uint8_t>(1, 2), 20);
 
     // 水平镜像翻转
     cv::Mat flippedH;
     cv::flip(original, flippedH, 1);
-    CHECK(flippedH.rows == 3 && flippedH.cols == 2);
-    CHECK(flippedH.at<uint8_t>(0, 0) == 20 && flippedH.at<uint8_t>(0, 1) == 10);
-    CHECK(flippedH.at<uint8_t>(2, 0) == 60 && flippedH.at<uint8_t>(2, 1) == 50);
+    EXPECT_TRUE(flippedH.rows == 3 && flippedH.cols == 2);
+    EXPECT_TRUE(flippedH.at<uint8_t>(0, 0) == 20 && flippedH.at<uint8_t>(0, 1) == 10);
+    EXPECT_TRUE(flippedH.at<uint8_t>(2, 0) == 60 && flippedH.at<uint8_t>(2, 1) == 50);
 
     // 垂直镜像翻转
     cv::Mat flippedV;
     cv::flip(original, flippedV, 0);
-    CHECK(flippedV.rows == 3 && flippedV.cols == 2);
-    CHECK(flippedV.at<uint8_t>(0, 0) == 50 && flippedV.at<uint8_t>(0, 1) == 60);
-    CHECK(flippedV.at<uint8_t>(2, 0) == 10 && flippedV.at<uint8_t>(2, 1) == 20);
+    EXPECT_TRUE(flippedV.rows == 3 && flippedV.cols == 2);
+    EXPECT_TRUE(flippedV.at<uint8_t>(0, 0) == 50 && flippedV.at<uint8_t>(0, 1) == 60);
+    EXPECT_TRUE(flippedV.at<uint8_t>(2, 0) == 10 && flippedV.at<uint8_t>(2, 1) == 20);
 }
 
-static void test_winutils_clipboard_and_encoding() {
-    CHECK_EQ(easy::core::WinUtils::toLower("EasyTools_PRO"), "easytools_pro");
+// -----------------------------------------------------------------------------
+// 27. 剪贴板与字符编码转换测试套件
+// -----------------------------------------------------------------------------
+TEST(WinUtilsTest, ClipboardAndEncoding) {
+    EXPECT_EQ(easy::core::WinUtils::toLower("EasyTools_PRO"), "easytools_pro");
     std::string text = "EasyTools 截图 & OCR 测试 🚀";
     std::wstring wtext = easy::core::WinUtils::utf8ToWstring(text);
-    CHECK(!wtext.empty());
+    EXPECT_FALSE(wtext.empty());
     std::string roundtrip = easy::core::WinUtils::wstringToUtf8(wtext);
-    CHECK_EQ(roundtrip, text);
+    EXPECT_EQ(roundtrip, text);
 
     std::vector<uint8_t> raw = {0x45, 0x61, 0x73, 0x79}; // "Easy"
     std::string b64 = easy::core::WinUtils::base64Encode(raw);
-    CHECK_EQ(b64, "RWFzeQ==");
+    EXPECT_EQ(b64, "RWFzeQ==");
 }
 
-static void test_lua_engine_security() {
+// -----------------------------------------------------------------------------
+// 28. Lua 脚本引擎沙箱与安全测试套件
+// -----------------------------------------------------------------------------
+TEST(LuaEngineTest, SandboxSecurityAndBindings) {
     auto& lua = easy::core::LuaEngine::instance();
-    CHECK(lua.initialize());
+    EXPECT_TRUE(lua.initialize());
 
     // 1. Safe 绝对无害只读权限 (仅 Log 与 Url)
-    CHECK(lua.executeScript("local a = 1 + 2; easy.log.info('Safe test'); local enc = easy.url.encode('abc 123')", easy::core::LuaPermission::Safe));
+    EXPECT_TRUE(lua.executeScript("local a = 1 + 2; easy.log.info('Safe test'); local enc = easy.url.encode('abc 123')", easy::core::LuaPermission::Safe));
 
     // 2. Safe 模式下必须严格拦截 Window / Keyboard / Clipboard / Screen / Shell / Fs / Http
-    CHECK(!lua.executeScript("easy.window.minimize()", easy::core::LuaPermission::Safe));
-    CHECK(!lua.executeScript("easy.keyboard.sendKeys('Ctrl+C')", easy::core::LuaPermission::Safe));
-    CHECK(!lua.executeScript("easy.clipboard.getText()", easy::core::LuaPermission::Safe));
-    CHECK(!lua.executeScript("easy.screen.getPixelColor(0, 0)", easy::core::LuaPermission::Safe));
-    CHECK(!lua.executeScript("easy.shell.run('notepad.exe')", easy::core::LuaPermission::Safe));
-    CHECK(!lua.executeScript("easy.fs.exists('test.txt')", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.window.minimize()", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.keyboard.sendKeys('Ctrl+C')", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.clipboard.getText()", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.screen.getPixelColor(0, 0)", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.shell.run('notepad.exe')", easy::core::LuaPermission::Safe));
+    EXPECT_FALSE(lua.executeScript("easy.fs.exists('test.txt')", easy::core::LuaPermission::Safe));
 
     // 3. 超时保护测试（死循环被 100ms 钩子及时中断）
     auto t0 = std::chrono::steady_clock::now();
     bool timeoutResult = lua.executeScript("while true do end", easy::core::LuaPermission::Standard, std::chrono::milliseconds(100));
     auto t1 = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    CHECK(!timeoutResult);
-    CHECK(elapsed < 1000);
+    EXPECT_FALSE(timeoutResult);
+    EXPECT_LT(elapsed, 1000);
 
     // 4. 取消令牌测试
     std::atomic<bool> cancelToken{true};
-    CHECK(!lua.executeScript("local x = 0; for i = 1, 10000000 do x = x + i end", easy::core::LuaPermission::Standard, std::chrono::milliseconds(5000), &cancelToken));
+    EXPECT_FALSE(lua.executeScript("local x = 0; for i = 1, 10000000 do x = x + i end", easy::core::LuaPermission::Standard, std::chrono::milliseconds(5000), &cancelToken));
 
     // 5. 沙箱安全性：危险系统调用已被封禁
-    CHECK(!lua.executeScript("os.execute('echo hack')"));
-    CHECK(!lua.executeScript("os.remove('test.txt')"));
+    EXPECT_FALSE(lua.executeScript("os.execute('echo hack')"));
+    EXPECT_FALSE(lua.executeScript("os.remove('test.txt')"));
 
     // 6. 显式授予敏感权限时允许调用
-    CHECK(lua.executeScript("local ok = easy.fs.exists('CMakeLists.txt')", easy::core::LuaPermission::Fs));
+    EXPECT_TRUE(lua.executeScript("local ok = easy.fs.exists('CMakeLists.txt')", easy::core::LuaPermission::Fs));
 
     // 7. 用户授权决策流与授权持久化测试
     const std::string testScriptId = "gesture:test_action";
     lua.revokePermissions(testScriptId);
-    CHECK(!lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
+    EXPECT_FALSE(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
 
     // 显式授权后立即可用
     lua.grantPermissions(testScriptId, easy::core::LuaPermission::Keyboard | easy::core::LuaPermission::Window);
-    CHECK(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
-    CHECK(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Window));
-    CHECK(!lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Shell));
+    EXPECT_TRUE(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
+    EXPECT_TRUE(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Window));
+    EXPECT_FALSE(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Shell));
 
     // 撤销授权测试
     lua.revokePermissions(testScriptId);
-    CHECK(!lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
+    EXPECT_FALSE(lua.isScriptAuthorized(testScriptId, easy::core::LuaPermission::Keyboard));
 
     lua.shutdown();
 }
 
-static void test_tray_notification() {
+// -----------------------------------------------------------------------------
+// 29. 系统托盘图标与通知测试套件
+// -----------------------------------------------------------------------------
+TEST(TrayTest, NotificationAndBalloonDispatch) {
     WNDCLASSEXW wcex = { sizeof(WNDCLASSEXW) };
     wcex.lpfnWndProc = DefWindowProcW;
     wcex.hInstance   = GetModuleHandleW(nullptr);
@@ -1537,7 +1587,7 @@ static void test_tray_notification() {
         0, 0, 0, 0,
         nullptr, nullptr, wcex.hInstance, nullptr
     );
-    CHECK(hwnd != nullptr);
+    EXPECT_NE(hwnd, nullptr);
 
     // 动态生成保证有效的 16x16 测试图标
     int cx = 16, cy = 16;
@@ -1562,7 +1612,7 @@ static void test_tray_notification() {
     DeleteObject(hbmColor);
     DeleteObject(hbmMask);
 
-    CHECK(hIcon != nullptr);
+    EXPECT_NE(hIcon, nullptr);
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(NOTIFYICONDATAW);
@@ -1586,19 +1636,22 @@ static void test_tray_notification() {
     }
     DestroyIcon(hIcon);
     DestroyWindow(hwnd);
-    CHECK(ok);
+    EXPECT_TRUE(ok);
 }
 
-static void test_quicklook_and_translation() {
+// -----------------------------------------------------------------------------
+// 30. 划词翻译与快捷预览测试套件
+// -----------------------------------------------------------------------------
+TEST(QuickLookTest, TranslationAndWindowPreview) {
     // 1. Explorer 选中文件判定冒烟（安全不崩溃）
     auto sel = easy::core::WinUtils::getSelectedExplorerFile();
     // 在无前台 Explorer 的测试环境下应返回 nullopt，不可抛异常或悬挂
-    CHECK(!sel.has_value() || !sel->empty());
+    EXPECT_TRUE(!sel.has_value() || !sel->empty());
 
     // 2. 划词提取冒烟测试
     std::string captured = easy::core::WinUtils::captureSelectedText();
     // 允许为空或剪贴板原有内容
-    CHECK(captured.size() >= 0);
+    EXPECT_GE(captured.size(), 0u);
 
     // 3. 键盘钩子拦截器注册测试
     bool hookCallbackCalled = false;
@@ -1618,9 +1671,9 @@ static void test_quicklook_and_translation() {
     std::string resp = easy::core::MessageBridge::instance().handleMessage(
         R"({"id":999,"method":"quicklook.test","params":{"path":"C:\\test.md"}})");
     auto jResp = nlohmann::json::parse(resp);
-    CHECK(jResp["id"] == 999);
-    CHECK(jResp["result"]["ok"] == true);
-    CHECK(jResp["result"]["path"] == "C:\\test.md");
+    EXPECT_EQ(jResp["id"], 999);
+    EXPECT_EQ(jResp["result"]["ok"], true);
+    EXPECT_EQ(jResp["result"]["path"], "C:\\test.md");
 
     // 5. 快捷键冲突检测与分类判定测试
     auto& hkManager = easy::core::HotkeyManager::instance();
@@ -1629,32 +1682,35 @@ static void test_quicklook_and_translation() {
 
     // 同名重绑不应自相冲突
     auto selfConflict = hkManager.checkConflict(dummyKey, "Test Feature A");
-    CHECK(!selfConflict.hasConflict);
+    EXPECT_FALSE(selfConflict.hasConflict);
 
     // 异名重绑应检测出内部冲突
     auto interConflict = hkManager.checkConflict(dummyKey, "Test Feature B");
-    CHECK(interConflict.hasConflict);
-    CHECK(interConflict.conflictType == "internal");
+    EXPECT_TRUE(interConflict.hasConflict);
+    EXPECT_EQ(interConflict.conflictType, "internal");
 
     // 清理测试热键
     hkManager.unregisterHotkey("Test Feature A");
 }
 
-static void test_content_search_extractors() {
+// -----------------------------------------------------------------------------
+// 31. 文档全文索引引擎与格式解析器测试套件
+// -----------------------------------------------------------------------------
+TEST(ContentSearchTest, ExtractorEngines) {
     // 1. SearchExpression content 语法解析验证
     auto expr1 = SearchExpression::parse(L"content:SELECT");
-    CHECK(expr1.hasContentFilter());
-    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr1.getContentQuery()), "SELECT");
-    CHECK(!expr1.requiresFullPath());
+    EXPECT_TRUE(expr1.hasContentFilter());
+    EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(expr1.getContentQuery()), "SELECT");
+    EXPECT_FALSE(expr1.requiresFullPath());
 
     auto expr2 = SearchExpression::parse(L"ext:cpp;h c:EasyTools c:\\projects\\");
-    CHECK(expr2.hasContentFilter());
-    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr2.getContentQuery()), "EasyTools");
-    CHECK(expr2.requiresFullPath());
+    EXPECT_TRUE(expr2.hasContentFilter());
+    EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(expr2.getContentQuery()), "EasyTools");
+    EXPECT_TRUE(expr2.requiresFullPath());
 
     auto expr3 = SearchExpression::parse(L"内容:工程图纸");
-    CHECK(expr3.hasContentFilter());
-    CHECK_EQ(easy::core::WinUtils::wstringToUtf8(expr3.getContentQuery()), "工程图纸");
+    EXPECT_TRUE(expr3.hasContentFilter());
+    EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(expr3.getContentQuery()), "工程图纸");
 
     // 拼音音节分隔符 (如输入法 tong'xi 匹配同喜 tongxi)
     auto exprPinyinSyllable = SearchExpression::parse(L"tong'xi");
@@ -1663,25 +1719,25 @@ static void test_content_search_extractors() {
     recTongXi.normalizedName = L"同喜.txt";
     recTongXi.pinyinFull = L"tongxi";
     recTongXi.pinyinInitials = L"tx";
-    CHECK(exprPinyinSyllable.matches(recTongXi, L'C'));
+    EXPECT_TRUE(exprPinyinSyllable.matches(recTongXi, L'C'));
 
     // 2. ContentSearchEngine 格式支持测试
     auto& engine = easy::service::content::ContentSearchEngine::instance();
-    CHECK(engine.canSearchContent(L"cpp"));
-    CHECK(engine.canSearchContent(L"rs"));
-    CHECK(engine.canSearchContent(L"py"));
-    CHECK(engine.canSearchContent(L"sql"));
-    CHECK(engine.canSearchContent(L"md"));
-    CHECK(engine.canSearchContent(L"docx"));
-    CHECK(engine.canSearchContent(L"xlsx"));
-    CHECK(engine.canSearchContent(L"pptx"));
-    CHECK(engine.canSearchContent(L"psd"));
-    CHECK(engine.canSearchContent(L"ai"));
-    CHECK(engine.canSearchContent(L"cdr"));
-    CHECK(engine.canSearchContent(L"xmind"));
-    CHECK(engine.canSearchContent(L"dxf"));
-    CHECK(!engine.canSearchContent(L"exe"));
-    CHECK(!engine.canSearchContent(L"dll"));
+    EXPECT_TRUE(engine.canSearchContent(L"cpp"));
+    EXPECT_TRUE(engine.canSearchContent(L"rs"));
+    EXPECT_TRUE(engine.canSearchContent(L"py"));
+    EXPECT_TRUE(engine.canSearchContent(L"sql"));
+    EXPECT_TRUE(engine.canSearchContent(L"md"));
+    EXPECT_TRUE(engine.canSearchContent(L"docx"));
+    EXPECT_TRUE(engine.canSearchContent(L"xlsx"));
+    EXPECT_TRUE(engine.canSearchContent(L"pptx"));
+    EXPECT_TRUE(engine.canSearchContent(L"psd"));
+    EXPECT_TRUE(engine.canSearchContent(L"ai"));
+    EXPECT_TRUE(engine.canSearchContent(L"cdr"));
+    EXPECT_TRUE(engine.canSearchContent(L"xmind"));
+    EXPECT_TRUE(engine.canSearchContent(L"dxf"));
+    EXPECT_FALSE(engine.canSearchContent(L"exe"));
+    EXPECT_FALSE(engine.canSearchContent(L"dll"));
 
     // 3. PlainTextExtractor 实际文件扫描测试 (创建临时测试文件)
     wchar_t tempPath[MAX_PATH]{};
@@ -1699,12 +1755,12 @@ static void test_content_search_extractors() {
 
     std::vector<easy::service::content::ContentSnippet> snippets;
     bool found = engine.searchFile(testCppFile, L"TestWorldClassContentSearch", false, snippets);
-    CHECK(found);
-    CHECK(snippets.size() == 1);
+    EXPECT_TRUE(found);
+    EXPECT_EQ(snippets.size(), 1u);
     if (!snippets.empty()) {
-        CHECK(snippets[0].lineNumber == 3);
-        CHECK(snippets[0].lineContent.find(L"TestWorldClassContentSearch") != std::wstring::npos);
-        CHECK(snippets[0].matchLength == wcslen(L"TestWorldClassContentSearch"));
+        EXPECT_EQ(snippets[0].lineNumber, 3);
+        EXPECT_NE(snippets[0].lineContent.find(L"TestWorldClassContentSearch"), std::wstring::npos);
+        EXPECT_EQ(snippets[0].matchLength, wcslen(L"TestWorldClassContentSearch"));
     }
 
     DeleteFileW(testCppFile.c_str());
@@ -1720,52 +1776,43 @@ static void test_content_search_extractors() {
 
     snippets.clear();
     bool dxfFound = engine.searchFile(testDxfFile, L"PROJECT_NUM_A88", false, snippets);
-    CHECK(dxfFound);
-    CHECK(!snippets.empty());
+    EXPECT_TRUE(dxfFound);
+    EXPECT_FALSE(snippets.empty());
     if (!snippets.empty()) {
-        CHECK(snippets[0].lineContent.find(L"DWG_PROJECT_NUM_A88") != std::wstring::npos);
+        EXPECT_NE(snippets[0].lineContent.find(L"DWG_PROJECT_NUM_A88"), std::wstring::npos);
     }
 
     DeleteFileW(testDxfFile.c_str());
 }
 
-int main() {
-    test_tray_notification();
-    test_quicklook_and_translation();
-    test_recognizer();
-    test_scoperule();
-    test_gesture_actions_and_builtin_commands();
-    test_gesture_profile_comprehensive();
-    test_winutils_special_windows();
-    test_hotkey_parser();
-    test_disabled_hotkey_lifecycle();
-    test_config_manager();
-    test_message_bridge();
-    test_plugin_manifest();
-    test_event_bus_quiescence();
-    test_perf_timer();
-    test_update_version_comparison();
-    test_pinyin_engine();
-    test_search_everything_expressions();
-    test_content_search_extractors();
-    test_winutils_fullscreen();
-    test_winutils_clipboard_and_encoding();
-    test_pin_window_transform();
-    test_lua_engine_security();
-    test_capture_backend_smoke();
-    test_audio_capture_smoke();
-    test_scroll_capture_bounded_preview();
-    test_cursor_overlay_restore();
-    test_capture_micro_actions_and_hints();
-    test_shortcut_hint_dpi_metrics();
-    test_shared_dpi_metrics();
-    test_capture_toolbar_dpi_layout();
-    test_screen_recorder_smoke();
-    // Keep discovery last: PluginManager shutdown intentionally retires shared
-    // callback registries as part of the real DLL-unload path.
-    test_plugin_discovery();
+// -----------------------------------------------------------------------------
+// 32. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
+// -----------------------------------------------------------------------------
+TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
+    std::array<wchar_t, 32768> executablePath{};
+    const DWORD length = GetModuleFileNameW(
+        nullptr, executablePath.data(), static_cast<DWORD>(executablePath.size()));
+    EXPECT_TRUE(length > 0 && length < executablePath.size());
+    if (length == 0 || length >= executablePath.size()) return;
 
-    std::printf("\n==== EasyTools 单元测试: %d 断言, %d 失败 ====\n",
-                g_checks, g_failures);
-    return g_failures == 0 ? 0 : 1;
+    const auto executableDir = std::filesystem::path(executablePath.data()).parent_path();
+    const auto pluginDir = executableDir.parent_path() / L"plugins" / executableDir.filename();
+    auto& manager = easy::core::PluginManager::instance();
+    EXPECT_TRUE(manager.loadPlugins(easy::core::WinUtils::wstringToUtf8(pluginDir.wstring())));
+    const auto plugins = manager.getPluginStatuses();
+    EXPECT_EQ(plugins.size(), 4u);
+    for (const auto& plugin : plugins) {
+        EXPECT_TRUE(plugin.error.empty());
+        EXPECT_EQ(plugin.abiVersion, easy::core::CurrentPluginAbiVersion);
+        EXPECT_FALSE(plugin.capabilities.empty());
+    }
+    manager.shutdownPlugins();
+}
+
+// -----------------------------------------------------------------------------
+// 单元测试主入口 (Google Test 初始化与执行)
+// -----------------------------------------------------------------------------
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
