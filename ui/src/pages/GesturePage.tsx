@@ -58,6 +58,7 @@ import {
   CheckCircle2,
   Zap,
   VolumeX,
+  GripVertical,
 } from 'lucide-react';
 import './GesturePage.css';
 
@@ -275,11 +276,25 @@ export const GesturePage: FC = () => {
   };
 
   // ── 手势调序与单项开关 ──────────────────────────────────────────────────────
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+
   const handleMoveMapping = async (index: number, direction: -1 | 1) => {
     const target = index + direction;
     if (target < 0 || target >= currentMappings.length) return;
     const nextList = [...currentMappings];
     [nextList[index], nextList[target]] = [nextList[target], nextList[index]];
+    await persistMappings(nextList);
+  };
+
+  const handleDropMapping = async (targetIdx: number) => {
+    if (draggedIdx === null || draggedIdx === targetIdx || targetIdx < 0 || targetIdx >= currentMappings.length) {
+      setDraggedIdx(null);
+      return;
+    }
+    const nextList = [...currentMappings];
+    const [moved] = nextList.splice(draggedIdx, 1);
+    nextList.splice(targetIdx, 0, moved);
+    setDraggedIdx(null);
     await persistMappings(nextList);
   };
 
@@ -928,12 +943,11 @@ export const GesturePage: FC = () => {
                   <div className="gesture-table-container">
                     <div className="gesture-table">
                       <div className="gesture-table__header">
-                        <span className="gesture-table__col gesture-table__col--reorder">排序</span>
-                        <span className="gesture-table__col gesture-table__col--switch">启用</span>
-                        <span className="gesture-table__col gesture-table__col--arrow">{tr('gesture.colGesture')}</span>
+                        <span className="gesture-table__col gesture-table__col--gesture">{tr('gesture.colGesture')}</span>
                         <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
                         <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
                         <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
+                        <span className="gesture-table__col gesture-table__col--switch">启用</span>
                         <span className="gesture-table__col gesture-table__col--actions" />
                       </div>
 
@@ -946,53 +960,59 @@ export const GesturePage: FC = () => {
                       {filteredMappings.map((m, i) => {
                         const actualIdx = currentMappings.findIndex((x) => x.gestureCode === m.gestureCode);
                         const isEnabled = m.enabled ?? true;
+                        const isDragging = draggedIdx === actualIdx;
                         return (
                           <div
                             key={m.gestureCode}
-                            className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''}`}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedIdx(actualIdx);
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', String(actualIdx));
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                            }}
+                            onDragEnd={() => setDraggedIdx(null)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              void handleDropMapping(actualIdx);
+                            }}
+                            className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''} ${isDragging ? 'gesture-table__row--dragging' : ''}`}
                             style={{ animationDelay: `${i * 20}ms` }}
                           >
-                            {/* 上下调序按钮 */}
-                            <span className="gesture-table__col gesture-table__col--reorder">
-                              <div className="gesture-reorder-btns">
-                                <button
-                                  type="button"
-                                  className="gesture-reorder-btn"
-                                  disabled={actualIdx <= 0}
-                                  title="上移 (提升匹配优先级)"
-                                  onClick={() => void handleMoveMapping(actualIdx, -1)}
-                                >
-                                  <ArrowUp size={12} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="gesture-reorder-btn"
-                                  disabled={actualIdx >= currentMappings.length - 1}
-                                  title="下移 (降低匹配优先级)"
-                                  onClick={() => void handleMoveMapping(actualIdx, 1)}
-                                >
-                                  <ArrowDown size={12} />
-                                </button>
+                            {/* 1. 拖拽抓手 + WGestures 2 动态手势画板 */}
+                            <span className="gesture-table__col gesture-table__col--gesture">
+                              <div className="gesture-handle-box">
+                                <div className="gesture-drag-handle" title="按住拖拽或点击上下调序">
+                                  <GripVertical size={13} className="gesture-grip-icon" />
+                                  <div className="gesture-reorder-float">
+                                    <button
+                                      type="button"
+                                      className="gesture-micro-arrow-btn"
+                                      disabled={actualIdx <= 0}
+                                      title="上移"
+                                      onClick={(e) => { e.stopPropagation(); void handleMoveMapping(actualIdx, -1); }}
+                                    >
+                                      <ArrowUp size={10} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="gesture-micro-arrow-btn"
+                                      disabled={actualIdx >= currentMappings.length - 1}
+                                      title="下移"
+                                      onClick={(e) => { e.stopPropagation(); void handleMoveMapping(actualIdx, 1); }}
+                                    >
+                                      <ArrowDown size={10} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <GestureStrokePreview code={m.gestureCode} width={58} height={36} />
                               </div>
                             </span>
 
-                            {/* 单项启用/禁用 Switch */}
-                            <span className="gesture-table__col gesture-table__col--switch">
-                              <input
-                                type="checkbox"
-                                className="gesture-item-switch"
-                                checked={isEnabled}
-                                onChange={() => void handleToggleMappingEnabled(actualIdx)}
-                                title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
-                              />
-                            </span>
-
-                            {/* 动态矢量手势轨迹展示 (WGestures 2 动效轨迹与悬停运笔演示) */}
-                            <span className="gesture-table__col gesture-table__col--arrow">
-                              <GestureStrokePreview code={m.gestureCode} width={54} height={34} />
-                            </span>
-
-                            {/* 动作名称 */}
+                            {/* 2. 动作名称与特性徽章 */}
                             <span className="gesture-table__col gesture-table__col--action">
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span className="gesture-action-name">{m.action.name}</span>
@@ -1014,7 +1034,7 @@ export const GesturePage: FC = () => {
                               )}
                             </span>
 
-                            {/* 动作类型 */}
+                            {/* 3. 动作类型 */}
                             <span className="gesture-table__col gesture-table__col--type">
                               <Badge
                                 text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
@@ -1022,12 +1042,26 @@ export const GesturePage: FC = () => {
                               />
                             </span>
 
-                            {/* 详情按键 */}
+                            {/* 4. 详情按键 */}
                             <span className="gesture-table__col gesture-table__col--key">
                               {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
                             </span>
 
-                            {/* 编辑与删除 */}
+                            {/* 5. 极简微型胶囊开关 Micro Switch */}
+                            <span className="gesture-table__col gesture-table__col--switch">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isEnabled}
+                                className={`gesture-micro-switch ${isEnabled ? 'active' : ''}`}
+                                title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
+                                onClick={() => void handleToggleMappingEnabled(actualIdx)}
+                              >
+                                <span className="gesture-micro-switch__thumb" />
+                              </button>
+                            </span>
+
+                            {/* 6. 编辑与删除 */}
                             <span className="gesture-table__col gesture-table__col--actions">
                               <div style={{ display: 'flex', gap: '4px' }}>
                                 <button className="gesture-icon-btn" title={tr('common.edit')} onClick={() => openEditMapping(m)}>

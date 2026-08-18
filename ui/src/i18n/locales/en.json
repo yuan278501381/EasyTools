@@ -343,7 +343,7 @@
     "btnLeft": "Left Button",
     "mapping": "Gesture Mappings",
     "mappingCount": "Total {{count}} gestures",
-    "addMapping": "＋ Add Gesture",
+    "addMapping": "Add Gesture",
     "colGesture": "Gesture",
     "colCode": "Code",
     "colAction": "Action",

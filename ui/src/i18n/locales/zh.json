@@ -343,7 +343,7 @@
     "btnLeft": "鼠标左键",
     "mapping": "手势映射",
     "mappingCount": "共 {{count}} 个手势",
-    "addMapping": "＋ 添加手势",
+    "addMapping": "添加手势",
     "colGesture": "手势",
     "colCode": "编码",
     "colAction": "动作",
