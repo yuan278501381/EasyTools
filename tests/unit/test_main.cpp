@@ -345,7 +345,7 @@ static void test_gesture_profile_comprehensive() {
     GestureProfile profile("test_comp");
     
     // 1. 三态触发模式深度测试
-    CHECK(profile.getTriggerState("right") == TriggerModeState::Inherit);
+    CHECK(profile.getTriggerState("right") == TriggerModeState::Default);
     profile.setTriggerState("right", TriggerModeState::Enabled);
     CHECK(profile.getTriggerState("right") == TriggerModeState::Enabled);
     profile.setTriggerState("middle", TriggerModeState::Disabled);
@@ -356,9 +356,9 @@ static void test_gesture_profile_comprehensive() {
     for (const auto& [k, v] : profile.getAllTriggerStates()) {
         CHECK(v == TriggerModeState::Enabled);
     }
-    profile.setAllTriggerStates(TriggerModeState::Inherit);
+    profile.setAllTriggerStates(TriggerModeState::Default);
     for (const auto& [k, v] : profile.getAllTriggerStates()) {
-        CHECK(v == TriggerModeState::Inherit);
+        CHECK(v == TriggerModeState::Default);
     }
 
     // 2. 手势映射增删查改与属性测试
@@ -379,7 +379,7 @@ static void test_gesture_profile_comprehensive() {
     m2.instantExecute = false;
     m2.silentToast = true;
     m2.action.type = ActionType::BuiltinCommand;
-    m2.action.builtinCmd = BuiltinCommand::RestoreTab;
+    m2.action.builtinCmd = BuiltinCommand::RestoreClosedTab;
     profile.addMapping(m2);
 
     GestureMapping m3;
@@ -420,10 +420,12 @@ static void test_gesture_profile_comprehensive() {
     CHECK_EQ(profile.getMappings()[2].gestureCode, "R");
 
     // 6. 单项启用/禁用切换
-    CHECK(profile.setMappingEnabled("L", false));
-    auto optL = profile.findAction("L");
-    // 已禁用的手势应被 findAction 跳过或标记
-    CHECK(profile.setMappingEnabled("L", true));
+    profile.setMappingEnabled("L", false);
+    auto optDisabled = profile.findAction("L");
+    CHECK(!optDisabled.has_value());
+    profile.setMappingEnabled("L", true);
+    auto optEnabled = profile.findAction("L");
+    CHECK(optEnabled.has_value());
 
     // 7. JSON 序列化与反序列化全属性往返
     auto j = profile.toJson();
