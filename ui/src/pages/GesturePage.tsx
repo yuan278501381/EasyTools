@@ -56,7 +56,6 @@ import {
   Palette,
   Search,
   CheckCircle2,
-  XCircle,
   Zap,
   VolumeX,
 } from 'lucide-react';
@@ -272,32 +271,6 @@ export const GesturePage: FC = () => {
     } catch (err) {
       console.error('Failed to set trigger state:', err);
       toast.error('修改触发方式失败', { description: String(err) });
-    }
-  };
-
-  const handleSetAllTriggers = async (state: TriggerState) => {
-    const profName = getCurrentProfileName();
-    const nextStates: Record<string, TriggerState> = {};
-    TRIGGER_ITEM_DEFINITIONS.forEach((def) => {
-      if (state !== 'default') nextStates[def.key] = state;
-    });
-    const updatedProf: GestureProfileData = {
-      ...(profiles[profName] ?? { name: profName, mappings: [] }),
-      triggerStates: nextStates,
-    };
-    setProfiles((prev) => ({ ...prev, [profName]: updatedProf }));
-
-    try {
-      const result = await bridgeRequest<OperationResult>('gesture.setTriggerBatch', {
-        profile: profName,
-        state: state,
-      });
-      if (!result.success) throw new Error(result.error || 'Failed to batch update triggers');
-      const label = state === 'enabled' ? '全部启用' : state === 'disabled' ? '全部禁用' : '全部默认';
-      toast.success(`已将此目标触发方式设置为「${label}」`);
-    } catch (err) {
-      console.error('Failed to batch set triggers:', err);
-      toast.error('批量设置触发方式失败', { description: String(err) });
     }
   };
 
@@ -895,76 +868,36 @@ export const GesturePage: FC = () => {
               </div>
             ) : (
               <>
-                {/* ── 允许的触发方式 (Three-State Inheritance & Batch Controls) ── */}
-                <Card>
-                  <div className="trigger-modes-header">
-                    <div className="trigger-modes-header__texts">
-                      <span className="trigger-modes-header__title">允许的触发方式</span>
-                      <span className="trigger-modes-header__desc">
-                        {selectedTarget.kind === 'global'
-                          ? '设置全局生效的鼠标与边缘触发方式'
-                          : '可按目标独立覆盖启用、禁用或继承全局默认'}
-                      </span>
-                    </div>
-
-                    <div className="trigger-modes-batch-actions">
-                      <button
-                        type="button"
-                        className="trigger-batch-btn"
-                        onClick={() => void handleSetAllTriggers('enabled')}
-                      >
-                        全部启用
-                      </button>
-                      <button
-                        type="button"
-                        className="trigger-batch-btn"
-                        onClick={() => void handleSetAllTriggers('disabled')}
-                      >
-                        全部禁用
-                      </button>
-                      {selectedTarget.kind !== 'global' && (
-                        <button
-                          type="button"
-                          className="trigger-batch-btn"
-                          onClick={() => void handleSetAllTriggers('default')}
-                        >
-                          全部默认
-                        </button>
-                      )}
-                    </div>
+                {/* ── 允许的触发方式 (极简单行药丸横向条) ── */}
+                <div className="trigger-strip-container">
+                  <div className="trigger-strip-label">
+                    <span className="trigger-strip-title">触发方式</span>
+                    <span className="trigger-strip-hint">
+                      {selectedTarget.kind === 'global' ? '点击按键药丸快速启/禁' : '(覆盖目标)'}
+                    </span>
                   </div>
 
-                  <div className="trigger-modes-grid">
+                  <div className="trigger-pills-row">
                     {TRIGGER_ITEM_DEFINITIONS.map((item) => {
                       const st = getTriggerState(item.key);
-                      // 判断当前有效状态：若为 default 则依据全局基准继承 (右键与顶部边缘滑动默认开启)
                       const isDefaultEnabled = item.key === 'right' || item.key === 'edge_top_slide';
                       const isEffectiveEnabled = st === 'enabled' || (st === 'default' && isDefaultEnabled);
 
                       return (
-                        <div key={item.key} className={`trigger-item-card trigger-item-card--${isEffectiveEnabled ? 'enabled' : 'disabled'}`}>
-                          <div className="trigger-item-info">
-                            <span className="trigger-item-name">{item.name}</span>
-                            <span className="trigger-item-cat">
-                              {item.category === 'mouse' ? '按键轨迹' : '屏幕边缘'}
-                              {st === 'default' && selectedTarget.kind !== 'global' && ' (跟随默认)'}
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            className={`trigger-single-toggle ${isEffectiveEnabled ? 'active' : ''}`}
-                            title={isEffectiveEnabled ? '点击切换为禁用' : '点击切换为启用'}
-                            onClick={() => void handleSetTriggerState(item.key, isEffectiveEnabled ? 'disabled' : 'enabled')}
-                          >
-                            {isEffectiveEnabled ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-                            <span>{isEffectiveEnabled ? '已启用' : '已禁用'}</span>
-                          </button>
-                        </div>
+                        <button
+                          key={item.key}
+                          type="button"
+                          className={`trigger-pill-btn trigger-pill-btn--${isEffectiveEnabled ? 'active' : 'inactive'}`}
+                          title={`${item.name} (${item.category === 'mouse' ? '按键轨迹' : '屏幕边缘'}) - 点击切换为${isEffectiveEnabled ? '禁用' : '启用'}`}
+                          onClick={() => void handleSetTriggerState(item.key, isEffectiveEnabled ? 'disabled' : 'enabled')}
+                        >
+                          {isEffectiveEnabled ? <CheckCircle2 size={12} className="trigger-pill-icon" /> : null}
+                          <span>{item.name}</span>
+                        </button>
                       );
                     })}
                   </div>
-                </Card>
+                </div>
 
                 {/* ── 手势映射表 (手势列表 + 单项开关 + 调序 + 过滤 + CRUD) ── */}
                 <Card>

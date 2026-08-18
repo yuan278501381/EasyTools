@@ -601,94 +601,96 @@
   color: var(--primary);
 }
 
-.trigger-modes-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
-}
-
-.trigger-item-card {
+/* ── 极简单行触发方式横向条 ──────────────────────────────────────────────── */
+.trigger-strip-container {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 8px 12px;
-  background: var(--bg-primary);
+  background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
+  margin-bottom: var(--spacing-sm);
 }
 
-.trigger-item-card:hover {
-  border-color: var(--primary);
-}
-
-.trigger-item-card--enabled {
-  border-left: 3px solid var(--success);
-}
-
-.trigger-item-card--disabled {
-  border-left: 3px solid var(--danger);
-  opacity: 0.85;
-}
-
-.trigger-item-card--default {
-  border-left: 3px solid var(--text-muted);
-}
-
-.trigger-item-info {
+.trigger-strip-label {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  flex-shrink: 0;
+  gap: 1px;
+  min-width: 60px;
 }
 
-.trigger-item-name {
-  font-size: 0.84rem;
+.trigger-strip-title {
+  font-size: 0.80rem;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
-.trigger-item-cat {
-  font-size: 0.70rem;
+.trigger-strip-hint {
+  font-size: 0.66rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
-.trigger-single-toggle {
+.trigger-pills-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+}
+
+.trigger-pill-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  font-size: 0.76rem;
-  font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid var(--card-border);
-  background: var(--bg-elevated);
-  color: var(--text-muted);
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border-radius: 12px;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition-fast);
   user-select: none;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
-.trigger-single-toggle:hover {
-  border-color: var(--text-secondary);
-  color: var(--text-primary);
-}
-
-.trigger-single-toggle.active {
+.trigger-pill-btn--active {
   background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.4);
   color: #10b981;
-  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
 }
 
-.trigger-single-toggle.active:hover {
-  background: rgba(16, 185, 129, 0.2);
+.trigger-pill-btn--active:hover {
+  background: rgba(16, 185, 129, 0.22);
   border-color: #10b981;
+  transform: translateY(-1px);
 }
 
-[data-theme="dark"] .trigger-single-toggle.active {
+[data-theme="dark"] .trigger-pill-btn--active {
   color: #34d399;
   background: rgba(52, 211, 153, 0.15);
   border-color: rgba(52, 211, 153, 0.45);
+}
+
+.trigger-pill-btn--inactive {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-color: var(--card-border);
+  opacity: 0.70;
+}
+
+.trigger-pill-btn--inactive:hover {
+  opacity: 1;
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.trigger-pill-icon {
+  flex-shrink: 0;
 }
 
 /* ── 手势搜索与过滤 ───────────────────────────────────────────────────────── */
@@ -770,13 +772,29 @@
 .gesture-item-switch {
   width: 15px;
   height: 15px;
-  accent-color: var(--primary);
-  cursor: pointer;
 }
 
 .gesture-table__row--disabled {
-  opacity: 0.45;
-  filter: grayscale(0.7);
+  opacity: 0.40;
+  filter: grayscale(1);
+  background: transparent !important;
+}
+
+.gesture-table__row--disabled .gesture-action-name {
+  color: var(--text-muted) !important;
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.gesture-table__row--disabled .gesture-type-badge,
+.gesture-table__row--disabled .gesture-key-pill,
+.gesture-table__row--disabled .gesture-stroke-preview {
+  color: var(--text-muted) !important;
+  border-color: var(--card-border) !important;
+  background: var(--bg-elevated) !important;
+  box-shadow: none !important;
+  opacity: 0.75;
 }
 
 .gesture-action-name {
