@@ -9,10 +9,11 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, type FC } from 'react';
-import { Modal, Field, Button, Select, TextInput } from './UIKit';
+import { Modal, Field, Button, Select, TextInput, Toggle } from './UIKit';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { GestureDrawCanvas } from './GestureDrawCanvas';
 import { useTranslation } from 'react-i18next';
+import { Zap, VolumeX, Sliders, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 import {
   type GestureMapping,
   ACTION_TYPE_KEYS,
@@ -20,6 +21,7 @@ import {
   GESTURE_CODE_PATTERN,
   codeToArrows,
 } from './gestureModel';
+import './GestureEditorModal.css';
 
 let gMappingCounter = 0;
 function generateMappingId(code: string): string {
@@ -47,6 +49,8 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
 
   const isEdit = initial !== null;
   const code = draft.gestureCode.trim().toUpperCase();
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initial?.instantExecute || initial?.silentToast));
+  const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
 
   // ── 校验 ──────────────────────────────────────────────────────────────────
   let codeError = '';
@@ -111,22 +115,20 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       }
     >
       <Field
-        label={t('gestureEditor.gestureCode')}
+        label={t('gestureEditor.gestureDraw')}
         error={codeError}
-        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.join(', ') }) : t('gestureEditor.gestureCodeHint')}
+        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.join(', ') }) : t('gestureEditor.gestureDrawHint')}
       >
         <GestureDrawCanvas
           value={draft.gestureCode}
           onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
         />
-        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <TextInput
-            value={draft.gestureCode}
-            onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
-            placeholder={t('gestureEditor.gestureCodePlaceholder')}
-          />
-          <div className="gesture-code-preview">{codeToArrows(code)}</div>
-        </div>
+        {code && (
+          <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t('gestureEditor.recognizedGesture')}:</span>
+            <span className="gesture-arrow" title={`底层编码: ${code}`}>{codeToArrows(code)}</span>
+          </div>
+        )}
       </Field>
 
       <Field label={t('gestureEditor.actionName')} error={nameError}>
@@ -194,26 +196,88 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
         </>
       )}
 
-      <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem', color: 'var(--text-primary)' }}>
-          <input
-            type="checkbox"
-            checked={draft.instantExecute ?? false}
-            onChange={(e) => setDraft((d) => ({ ...d, instantExecute: e.target.checked }))}
-            style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
-          />
-          <span>⚡ 识别手势时立即执行 (无需等待松开按键)</span>
-        </label>
+      {/* ── 高级执行特性折叠面板 ────────────────────────────────────── */}
+      <div className="gesture-editor-advanced-wrapper">
+        <button
+          type="button"
+          className="gesture-editor-advanced-toggle"
+          onClick={() => setAdvancedOpen(!advancedOpen)}
+        >
+          <div className="gesture-editor-advanced-toggle__left">
+            <Sliders size={16} className="gesture-editor-advanced-toggle__icon" />
+            <span>{t('gestureEditor.advancedTitle')}</span>
+          </div>
+          <div className="gesture-editor-advanced-toggle__right">
+            {activeAdvancedCount > 0 && (
+              <span className="gesture-editor-advanced-badge">
+                {t('gestureEditor.advancedActiveCount', { count: activeAdvancedCount })}
+              </span>
+            )}
+            {advancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+        </button>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem', color: 'var(--text-primary)' }}>
-          <input
-            type="checkbox"
-            checked={draft.silentToast ?? false}
-            onChange={(e) => setDraft((d) => ({ ...d, silentToast: e.target.checked }))}
-            style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
-          />
-          <span>🔕 执行时不显示手势名称提示 (静默模式)</span>
-        </label>
+        {advancedOpen && (
+          <div className="gesture-editor-advanced-content">
+            {/* 卡片 1: 即时执行 */}
+            <div
+              className={`gesture-scenario-card ${draft.instantExecute ? 'gesture-scenario-card--active' : ''}`}
+            >
+              <div
+                className="gesture-scenario-card__header"
+                onClick={() => setDraft((d) => ({ ...d, instantExecute: !d.instantExecute }))}
+              >
+                <div className="gesture-scenario-card__main">
+                  <div className="gesture-scenario-card__icon-box gesture-scenario-card__icon-box--instant">
+                    <Zap size={16} />
+                  </div>
+                  <div className="gesture-scenario-card__text-group">
+                    <span className="gesture-scenario-card__title">{t('gestureEditor.instantExecuteTitle')}</span>
+                    <span className="gesture-scenario-card__desc">{t('gestureEditor.instantExecuteDesc')}</span>
+                  </div>
+                </div>
+                <Toggle
+                  id="gesture-instant-execute-toggle"
+                  checked={draft.instantExecute ?? false}
+                  onChange={(checked) => setDraft((d) => ({ ...d, instantExecute: checked }))}
+                />
+              </div>
+              <div className="gesture-scenario-card__callout">
+                <Lightbulb size={13} className="gesture-scenario-card__callout-icon" />
+                <span>{t('gestureEditor.instantExecuteScenario')}</span>
+              </div>
+            </div>
+
+            {/* 卡片 2: 静默模式 */}
+            <div
+              className={`gesture-scenario-card ${draft.silentToast ? 'gesture-scenario-card--active' : ''}`}
+            >
+              <div
+                className="gesture-scenario-card__header"
+                onClick={() => setDraft((d) => ({ ...d, silentToast: !d.silentToast }))}
+              >
+                <div className="gesture-scenario-card__main">
+                  <div className="gesture-scenario-card__icon-box gesture-scenario-card__icon-box--silent">
+                    <VolumeX size={16} />
+                  </div>
+                  <div className="gesture-scenario-card__text-group">
+                    <span className="gesture-scenario-card__title">{t('gestureEditor.silentToastTitle')}</span>
+                    <span className="gesture-scenario-card__desc">{t('gestureEditor.silentToastDesc')}</span>
+                  </div>
+                </div>
+                <Toggle
+                  id="gesture-silent-toast-toggle"
+                  checked={draft.silentToast ?? false}
+                  onChange={(checked) => setDraft((d) => ({ ...d, silentToast: checked }))}
+                />
+              </div>
+              <div className="gesture-scenario-card__callout">
+                <Lightbulb size={13} className="gesture-scenario-card__callout-icon" />
+                <span>{t('gestureEditor.silentToastScenario')}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

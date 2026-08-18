@@ -958,11 +958,9 @@ export const GesturePage: FC = () => {
                         <span className="gesture-table__col gesture-table__col--reorder">排序</span>
                         <span className="gesture-table__col gesture-table__col--switch">启用</span>
                         <span className="gesture-table__col gesture-table__col--arrow">{tr('gesture.colGesture')}</span>
-                        <span className="gesture-table__col gesture-table__col--code">{tr('gesture.colCode')}</span>
                         <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
                         <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
                         <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
-                        <span className="gesture-table__col gesture-table__col--flags">执行特性</span>
                         <span className="gesture-table__col gesture-table__col--actions" />
                       </div>
 
@@ -1016,19 +1014,31 @@ export const GesturePage: FC = () => {
                               />
                             </span>
 
-                            {/* 箭头视觉展示 */}
-                            <span className="gesture-table__col gesture-table__col--arrow">
+                            {/* 箭头视觉展示 (悬停 Tooltip 包含底层编码供参考) */}
+                            <span
+                              className="gesture-table__col gesture-table__col--arrow"
+                              title={`手势: ${codeToArrows(m.gestureCode) || m.gestureCode} (底层编码: ${m.gestureCode})`}
+                            >
                               <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
-                            </span>
-
-                            {/* 编码 */}
-                            <span className="gesture-table__col gesture-table__col--code">
-                              <code>{m.gestureCode}</code>
                             </span>
 
                             {/* 动作名称 */}
                             <span className="gesture-table__col gesture-table__col--action">
-                              <span className="gesture-action-name">{m.action.name}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span className="gesture-action-name">{m.action.name}</span>
+                                {m.instantExecute && (
+                                  <span className="gesture-flag-badge gesture-flag-badge--instant" title="即时执行 (无需等待按键松开)">
+                                    <Zap size={10} />
+                                    <span>即时</span>
+                                  </span>
+                                )}
+                                {m.silentToast && (
+                                  <span className="gesture-flag-badge gesture-flag-badge--silent" title="静默模式 (不弹出名称提示)">
+                                    <VolumeX size={10} />
+                                    <span>静默</span>
+                                  </span>
+                                )}
+                              </div>
                               {m.action.description && (
                                 <span className="gesture-action-desc">{m.action.description}</span>
                               )}
@@ -1045,27 +1055,6 @@ export const GesturePage: FC = () => {
                             {/* 详情按键 */}
                             <span className="gesture-table__col gesture-table__col--key">
                               {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
-                            </span>
-
-                            {/* 高级特性标签 (即时执行 / 静默执行) */}
-                            <span className="gesture-table__col gesture-table__col--flags">
-                              <div className="gesture-flags-list">
-                                {m.instantExecute && (
-                                  <span className="gesture-flag-badge gesture-flag-badge--instant" title="识别手势时立即执行">
-                                    <Zap size={11} />
-                                    <span>即时</span>
-                                  </span>
-                                )}
-                                {m.silentToast && (
-                                  <span className="gesture-flag-badge gesture-flag-badge--silent" title="执行时不弹出名称提示">
-                                    <VolumeX size={11} />
-                                    <span>静默</span>
-                                  </span>
-                                )}
-                                {!m.instantExecute && !m.silentToast && (
-                                  <span className="gesture-flag-badge gesture-flag-badge--normal">标准</span>
-                                )}
-                              </div>
                             </span>
 
                             {/* 编辑与删除 */}

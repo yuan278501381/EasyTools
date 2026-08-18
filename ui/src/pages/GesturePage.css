@@ -127,29 +127,35 @@
 }
 
 .gesture-table__col--arrow {
-  width: 56px;
+  width: 64px;
   flex-shrink: 0;
   text-align: center;
 }
 
-.gesture-table__col--code {
-  width: 60px;
-  flex-shrink: 0;
+.gesture-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  min-width: 44px;
+  cursor: default;
+  transition: transform var(--transition-fast), background var(--transition-fast);
 }
 
-.gesture-table__col--code code {
-  font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.76rem;
-  color: var(--primary);
-  background: var(--primary-dim);
-  padding: 2px 5px;
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
+.gesture-arrow:hover {
+  transform: scale(1.06);
+  background: var(--primary-glow);
 }
 
 .gesture-table__col--action {
-  flex: 1 1 140px;
-  min-width: 130px;
+  flex: 1 1 150px;
+  min-width: 140px;
   color: var(--text-primary);
   font-weight: 500;
   overflow: hidden;
