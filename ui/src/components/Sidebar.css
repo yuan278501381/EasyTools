@@ -350,3 +350,27 @@
   color: var(--primary);
   font-weight: 600;
 }
+
+/* ── 极窄屏幕或微型窗口响应式紧凑模式 ────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 64px;
+  }
+  .sidebar__logo {
+    justify-content: center;
+    padding: var(--spacing-md) 0;
+  }
+  .sidebar__logo-text,
+  .sidebar__item-label,
+  .sidebar__appearance-mode-text {
+    display: none;
+  }
+  .sidebar__item {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .sidebar__appearance-trigger {
+    justify-content: center;
+    padding: 8px 0;
+  }
+}

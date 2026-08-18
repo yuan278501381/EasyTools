@@ -332,3 +332,17 @@
   color: var(--text-muted);
   line-height: 1.35;
 }
+
+/* ── 响应式适配 ───────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .gesture-master-detail-layout {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .scope-targets-sidebar {
+    width: 100%;
+    position: static;
+    max-height: 220px;
+  }
+}

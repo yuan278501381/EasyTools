@@ -41,6 +41,8 @@
   flex-direction: column;
   gap: 12px;
   width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 顶部布局切换控制栏 */
@@ -100,7 +102,7 @@
   box-shadow: 0 1px 3px var(--primary-glow);
 }
 
-/* 机械键盘精工盘体框架 (Zero Overflow, 100% Fit) */
+/* 机械键盘精工盘体框架 (自适应防挤压，极小窗口支持平滑横滑) */
 .keyboard-chassis {
   display: flex;
   flex-direction: row;
@@ -115,7 +117,18 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--key-frame-inset), 0 8px 24px rgba(0, 0, 0, 0.1);
-  overflow-x: hidden;
+}
+
+.keyboard-chassis--104 {
+  min-width: 600px;
+}
+
+.keyboard-chassis--87 {
+  min-width: 480px;
+}
+
+.keyboard-chassis--60 {
+  min-width: 360px;
 }
 
 /* 键盘三大区域 Cluster 拓扑 */
