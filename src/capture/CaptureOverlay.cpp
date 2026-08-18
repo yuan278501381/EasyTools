@@ -194,30 +194,6 @@ bool CaptureOverlay::freezeScreen() {
         return false;
     }
 
-    // 优先尝试硬件加速捕获后端 (DXGI Desktop Duplication / WGC)
-    auto backend = createCaptureBackend();
-    std::string backendError;
-    CaptureRegion region{x, y, w, h};
-    if (backend && backend->initialize(region, backendError)) {
-        CaptureFrameView frame;
-        if (backend->capture(frame, backendError) && frame.data && frame.width == w && frame.height == h) {
-            if (frame.format == CapturePixelFormat::Bgra32) {
-                m_state.frozenScreen = cv::Mat(h, w, CV_8UC4, frame.data, frame.stride).clone();
-            } else {
-                cv::Mat bgr(h, w, CV_8UC3, frame.data, frame.stride);
-                cv::cvtColor(bgr, m_state.frozenScreen, cv::COLOR_BGR2BGRA);
-            }
-            backend->releaseFrame();
-            backend->shutdown();
-            if (!m_state.frozenScreen.empty()) {
-                LOG_DEBUG("截图覆盖层使用硬件加速后端捕获成功: {}x{}", w, h);
-                return true;
-            }
-        }
-        backend->releaseFrame();
-        backend->shutdown();
-    }
-
     HDC hdcScreen = GetDC(nullptr);
     if (!hdcScreen) {
         LOG_ERROR("GetDC(nullptr) 失败, error={}", GetLastError());
@@ -233,7 +209,7 @@ bool CaptureOverlay::freezeScreen() {
     BITMAPINFO bitmapInfo{};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bitmapInfo.bmiHeader.biWidth = w;
-    bitmapInfo.bmiHeader.biHeight = -h;
+    bitmapInfo.bmiHeader.biHeight = -h;  // 自顶向下 DIB
     bitmapInfo.bmiHeader.biPlanes = 1;
     bitmapInfo.bmiHeader.biBitCount = 32;
     bitmapInfo.bmiHeader.biCompression = BI_RGB;
@@ -252,14 +228,12 @@ bool CaptureOverlay::freezeScreen() {
     const BOOL copied = BitBlt(
         hdcMem, 0, 0, w, h, hdcScreen, x, y, SRCCOPY | CAPTUREBLT);
     if (copied) {
-        // Keep the DIB section alive for the duration of the interaction and
-        // let cv::Mat reference it directly. This removes the full-screen
-        // BGRA->BGR conversion here and the BGR->BGRA conversion during D2D
-        // upload. Selection/markup paths convert only the much smaller ROI.
+        // 直接引用 DIBSection 零拷贝，保持生命周期安全
         m_state.frozenScreen = cv::Mat(
             h, w, CV_8UC4, pixels, static_cast<size_t>(w) * 4);
         m_frozenBitmap = bitmap;
         bitmap = nullptr;
+        LOG_DEBUG("截图覆盖层桌面底图捕获成功: {}x{} (坐标=[{}, {}])", w, h, x, y);
     } else {
         LOG_ERROR("截图覆盖层 BitBlt 失败, error={}", GetLastError());
         m_state.frozenScreen.release();

@@ -133,7 +133,11 @@ private:
     // 缓存平滑贝塞尔曲线 PathGeometry 以提升渲染性能
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> m_smoothPathGeometry;
 
-    // Direct2D 资源
+    // Direct2D 资源与并发安全渲染锁
+    std::mutex m_renderMutex;
+    RECT m_prevDirtyRect{};
+    bool m_hasPrevDirtyRect = false;
+
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     HDC m_memoryDC = nullptr;

@@ -300,13 +300,6 @@ void GestureTrailOverlay::addPoint(float x, float y) {
             if (dx * dx + dy * dy < minimumDelta * minimumDelta) return;
         }
         m_points.push_back({x, y, GetTickCount()});
-
-        // 关键性能防护：限制连续作画时的最大点数（300 点滑窗）
-        constexpr size_t MAX_TRAIL_POINTS = 300;
-        if (m_points.size() > MAX_TRAIL_POINTS) {
-            m_points.erase(m_points.begin(), m_points.begin() + (m_points.size() - MAX_TRAIL_POINTS));
-        }
-
         hasVisibleTrail = m_points.size() >= 2;
     }
 
@@ -336,6 +329,12 @@ void GestureTrailOverlay::setLiveAction(const std::string& actionText) {
 
 void GestureTrailOverlay::setRecognized(bool recognized) {
     if (m_isRecognized.exchange(recognized) != recognized) {
+        if (!recognized) {
+            std::lock_guard lock(m_trailMutex);
+            if (m_resultText != "•••") {
+                m_resultText.clear();
+            }
+        }
         if (m_visible.load(std::memory_order_relaxed)) {
             m_renderRequested.store(true, std::memory_order_release);
             m_renderCv.notify_one();
@@ -535,6 +534,8 @@ bool GestureTrailOverlay::updateTextFormat(float dpiScale) {
 }
 
 void GestureTrailOverlay::releaseD2DResources() {
+    std::lock_guard lock(m_renderMutex);
+    m_hasPrevDirtyRect = false;
     m_smoothPathGeometry.Reset();
     m_headCoreBrush.Reset();
     m_glowBrush.Reset();
@@ -574,6 +575,7 @@ void GestureTrailOverlay::releaseD2DResources() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::render() {
+    std::lock_guard lock(m_renderMutex);
     if (!m_renderTarget) {
         POINT cursor{};
         GetCursorPos(&cursor);
@@ -585,11 +587,12 @@ void GestureTrailOverlay::render() {
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));  // 完全透明背景
 
-    std::lock_guard lock(m_trailMutex);
+    std::lock_guard trailLock(m_trailMutex);
 
     // 根据识别状态动态切换线条画笔（没识别到为灰色，识别到为主体色）
-    ID2D1SolidColorBrush* activeGlow = m_isRecognized.load() ? m_glowBrush.Get() : m_greyGlowBrush.Get();
-    ID2D1SolidColorBrush* activeLine = m_isRecognized.load() ? m_lineBrush.Get() : m_greyLineBrush.Get();
+    const bool isRecognized = m_isRecognized.load(std::memory_order_relaxed);
+    ID2D1SolidColorBrush* activeGlow = isRecognized ? m_glowBrush.Get() : m_greyGlowBrush.Get();
+    ID2D1SolidColorBrush* activeLine = isRecognized ? m_lineBrush.Get() : m_greyLineBrush.Get();
 
     if (m_points.size() >= 2 && m_d2dFactory) {
         ComPtr<ID2D1PathGeometry> pathGeometry;
@@ -643,8 +646,11 @@ void GestureTrailOverlay::render() {
         }
     }
 
-    // 绘制识别结果与实时动作名称文字（屏幕底部 82% 高度居中按键回显风格卡片）
-    if (!m_resultText.empty() && !m_points.empty()) {
+    // 绘制识别结果与实时动作名称文字（仅在识别成功或处于调侃状态时才显示 Toast，未识别时绝不显示残留文本）
+    const bool isExcessive = (m_resultText == "•••");
+    const bool shouldShowToast = (isRecognized && !m_resultText.empty()) || isExcessive;
+
+    if (shouldShowToast && !m_points.empty()) {
         POINT ptCursor;
         GetCursorPos(&ptCursor);
         HMONITOR hMon = MonitorFromPoint(ptCursor, MONITOR_DEFAULTTONEAREST);
@@ -654,8 +660,6 @@ void GestureTrailOverlay::render() {
 
         float centerX = static_cast<float>(work.left + work.right) / 2.0f - m_originX;
         float centerY = work.top + static_cast<float>(work.bottom - work.top) * 0.82f - m_originY;
-
-        const bool isExcessive = (m_resultText == "•••");
 
         if (isExcessive) {
             // 调侃状态：红底卡片 + 3 个饱满圆滑的白色大圆点（更大气舒展的黄金比例）
@@ -733,7 +737,7 @@ void GestureTrailOverlay::render() {
                 );
 
                 // 1. 底色：画完松手时变成主题色底，绘制过程中为透明灰色底
-                if (m_fading && m_themeBgBrush) {
+                if (m_fading.load(std::memory_order_relaxed) && m_themeBgBrush) {
                     m_themeBgBrush->SetOpacity(0.95f * m_fadeAlpha);
                     m_renderTarget->FillRoundedRectangle(&rrect, m_themeBgBrush.Get());
                 } else if (m_textBgBrush) {
@@ -763,9 +767,9 @@ void GestureTrailOverlay::render() {
         }
     }
 
-    // 计算当前画面脏矩形（Dirty Bounding Box），避免全屏几十兆内存冗余拷贝
-    bool hasDirtyRect = false;
-    RECT dirtyRect{};
+    // 计算当前画面脏矩形（Dirty Bounding Box），与上一帧脏矩形取并集提交，彻底杜绝线条断开与残影
+    bool hasCurrentDirty = false;
+    RECT currentDirty{};
     if (!m_points.empty()) {
         float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
         for (const auto& pt : m_points) {
@@ -777,7 +781,7 @@ void GestureTrailOverlay::render() {
             if (py > maxY) maxY = py;
         }
 
-        if (!m_resultText.empty()) {
+        if (shouldShowToast) {
             POINT ptCursor;
             GetCursorPos(&ptCursor);
             HMONITOR hMon = MonitorFromPoint(ptCursor, MONITOR_DEFAULTTONEAREST);
@@ -793,20 +797,34 @@ void GestureTrailOverlay::render() {
             maxY = (std::max)(maxY, cY + maxBoxH / 2.0f);
         }
 
-        float margin = 50.0f * m_dpiScale;
-        dirtyRect.left = (std::max)(0L, static_cast<LONG>(minX - margin));
-        dirtyRect.top = (std::max)(0L, static_cast<LONG>(minY - margin));
-        dirtyRect.right = (std::min)(static_cast<LONG>(m_width), static_cast<LONG>(maxX + margin));
-        dirtyRect.bottom = (std::min)(static_cast<LONG>(m_height), static_cast<LONG>(maxY + margin));
-        hasDirtyRect = (dirtyRect.right > dirtyRect.left && dirtyRect.bottom > dirtyRect.top);
+        float margin = 60.0f * m_dpiScale;
+        currentDirty.left = (std::max)(0L, static_cast<LONG>(minX - margin));
+        currentDirty.top = (std::max)(0L, static_cast<LONG>(minY - margin));
+        currentDirty.right = (std::min)(static_cast<LONG>(m_width), static_cast<LONG>(maxX + margin));
+        currentDirty.bottom = (std::min)(static_cast<LONG>(m_height), static_cast<LONG>(maxY + margin));
+        hasCurrentDirty = (currentDirty.right > currentDirty.left && currentDirty.bottom > currentDirty.top);
     }
+
+    RECT submitDirty = currentDirty;
+    if (m_hasPrevDirtyRect) {
+        if (hasCurrentDirty) {
+            submitDirty.left = (std::min)(submitDirty.left, m_prevDirtyRect.left);
+            submitDirty.top = (std::min)(submitDirty.top, m_prevDirtyRect.top);
+            submitDirty.right = (std::max)(submitDirty.right, m_prevDirtyRect.right);
+            submitDirty.bottom = (std::max)(submitDirty.bottom, m_prevDirtyRect.bottom);
+        } else {
+            submitDirty = m_prevDirtyRect;
+        }
+    }
+    m_prevDirtyRect = currentDirty;
+    m_hasPrevDirtyRect = hasCurrentDirty;
 
     if (FAILED(m_renderTarget->EndDraw())) {
         LOG_WARN("手势轨迹 Direct2D 帧提交失败");
         return;
     }
     
-    // 使用 UpdateLayeredWindowIndirect 局部脏矩形极速提交（只复制发生变化的区域，大幅降低全屏 GDI 拷贝开销）
+    // 使用 UpdateLayeredWindowIndirect 局部脏矩形极速提交（并集区域消除残影与折断）
     if (m_memoryDC) {
         HDC hdcScreen = GetDC(nullptr);
         POINT ptSrc = {0, 0};
@@ -823,15 +841,15 @@ void GestureTrailOverlay::render() {
         ulwInfo.pptSrc = &ptSrc;
         ulwInfo.pblend = &blend;
         ulwInfo.dwFlags = ULW_ALPHA;
-        if (hasDirtyRect) {
-            ulwInfo.prcDirty = &dirtyRect;
+        if (hasCurrentDirty || m_hasPrevDirtyRect) {
+            ulwInfo.prcDirty = &submitDirty;
         }
 
         UpdateLayeredWindowIndirect(m_hwnd, &ulwInfo);
         ReleaseDC(nullptr, hdcScreen);
 
         LOG_TRACE("手势轨迹异步帧提交完成: 点数={}, 脏矩形=[{}, {}, {}, {}]",
-                  m_points.size(), dirtyRect.left, dirtyRect.top, dirtyRect.right, dirtyRect.bottom);
+                  m_points.size(), submitDirty.left, submitDirty.top, submitDirty.right, submitDirty.bottom);
     }
 }
 
