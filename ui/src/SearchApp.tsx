@@ -23,13 +23,32 @@ import {
   Calendar,
   ChevronDown,
   Check,
-  Tag
+  Tag,
+  Network,
+  Disc
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import './SearchApp.css';
+
+export interface DriveInfo {
+  letter: string;
+  path: string;
+  volumeLabel: string;
+  fileSystem: string;
+  type: 'fixed' | 'remote' | 'removable' | 'cdrom' | 'ramdisk' | 'unknown';
+  totalBytes: number;
+  freeBytes: number;
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
 
 interface ContentSnippet {
   lineNumber: number;
@@ -328,6 +347,65 @@ export default function SearchApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
 
+  const [systemDrives, setSystemDrives] = useState<DriveInfo[]>([]);
+  const [enabledDrives, setEnabledDrives] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('easytools_search_enabled_drives');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // fallback
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    void bridgeRequest<DriveInfo[]>('search.getDrives')
+      .then((drives) => {
+        if (Array.isArray(drives) && drives.length > 0) {
+          setSystemDrives(drives);
+          setEnabledDrives((prev) => {
+            if (prev.length === 0) {
+              const allLetters = drives.map((d) => d.letter);
+              localStorage.setItem('easytools_search_enabled_drives', JSON.stringify(allLetters));
+              return allLetters;
+            }
+            return prev;
+          });
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const toggleDrive = (letter: string) => {
+    setEnabledDrives((prev) => {
+      let next: string[];
+      if (prev.includes(letter)) {
+        next = prev.filter((l) => l !== letter);
+      } else {
+        next = [...prev, letter];
+      }
+      localStorage.setItem('easytools_search_enabled_drives', JSON.stringify(next));
+      void bridgeRequest('search.saveSettings', { enabledDrives: next.join(',') }).catch(() => undefined);
+      return next;
+    });
+  };
+
+  const selectAllDrives = () => {
+    const all = systemDrives.map((d) => d.letter);
+    setEnabledDrives(all);
+    localStorage.setItem('easytools_search_enabled_drives', JSON.stringify(all));
+    void bridgeRequest('search.saveSettings', { enabledDrives: all.join(',') }).catch(() => undefined);
+  };
+
+  const deselectAllDrives = () => {
+    setEnabledDrives([]);
+    localStorage.setItem('easytools_search_enabled_drives', JSON.stringify([]));
+    void bridgeRequest('search.saveSettings', { enabledDrives: '' }).catch(() => undefined);
+  };
+
   useEffect(() => {
     void bridgeRequest<{ width?: number; height?: number }>('search.getWindowSize')
       .then((res) => {
@@ -483,7 +561,10 @@ export default function SearchApp() {
       }, 80);
 
       try {
-        const response = await bridgeRequest<SearchResponse>('search.query', { query: trimmed });
+        const response = await bridgeRequest<SearchResponse>('search.query', { 
+          query: trimmed,
+          drives: enabledDrives.length > 0 ? enabledDrives : undefined
+        });
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
         startTransition(() => {
@@ -506,7 +587,7 @@ export default function SearchApp() {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, enabledDrives]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -1198,6 +1279,70 @@ export default function SearchApp() {
                   <span className="slider-label">宽</span>
                 </div>
               </div>
+
+              {/* 5. 搜索驱动器与磁盘位置 */}
+              {systemDrives.length > 0 && (
+                <div className="popover-section">
+                  <div className="popover-section-title">
+                    <span>搜索磁盘与网络位置</span>
+                    <div className="popover-drives-actions">
+                      <button
+                        type="button"
+                        className="popover-mini-link"
+                        onClick={selectAllDrives}
+                      >
+                        全选
+                      </button>
+                      <span className="popover-action-divider">/</span>
+                      <button
+                        type="button"
+                        className="popover-mini-link"
+                        onClick={deselectAllDrives}
+                      >
+                        全不选
+                      </button>
+                    </div>
+                  </div>
+                  <div className="popover-drives-grid">
+                    {systemDrives.map((drv) => {
+                      const isChecked = enabledDrives.includes(drv.letter);
+                      const isRemote = drv.type === 'remote';
+                      const isRemovable = drv.type === 'removable';
+                      const totalStr = drv.totalBytes > 0 ? formatBytes(drv.totalBytes) : '';
+                      const freeStr = drv.freeBytes > 0 ? `(可用 ${formatBytes(drv.freeBytes)})` : '';
+                      const label = drv.volumeLabel ? `${drv.volumeLabel} (${drv.letter}:)` : (isRemote ? `网络驱动器 (${drv.letter}:)` : `本地磁盘 (${drv.letter}:)`);
+
+                      return (
+                        <div
+                          key={drv.letter}
+                          className={`popover-drive-card ${isChecked ? 'popover-drive-card--active' : ''}`}
+                          onClick={() => toggleDrive(drv.letter)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="drive-card-checkbox"
+                            aria-label={`启用 ${drv.letter} 盘`}
+                          />
+                          <div className="drive-card-icon">
+                            {isRemote ? <Network size={15} /> : isRemovable ? <Disc size={15} /> : <HardDrive size={15} />}
+                          </div>
+                          <div className="drive-card-details">
+                            <div className="drive-card-title-row">
+                              <span className="drive-card-title">{label}</span>
+                              <span className="drive-card-tag">{drv.fileSystem || (isRemote ? '网络共享' : '本地')}</span>
+                            </div>
+                            <div className="drive-card-meta">
+                              {totalStr} {freeStr}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="popover-footer">
                 <button

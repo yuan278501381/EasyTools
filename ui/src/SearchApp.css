@@ -1201,6 +1201,116 @@ html[data-surface="search"] #root {
     cursor: pointer;
 }
 
+.popover-drives-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.popover-mini-link {
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+    font-size: 10px;
+    color: var(--primary);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    transition: opacity 0.12s ease;
+}
+
+.popover-mini-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
+.popover-action-divider {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.popover-drives-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.popover-drive-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.popover-drive-card:hover {
+    background: var(--search-surface-pill-hover);
+    border-color: var(--card-border);
+}
+
+.popover-drive-card--active {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+}
+
+.drive-card-checkbox {
+    accent-color: var(--primary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.drive-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.drive-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.drive-card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.drive-card-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--search-text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drive-card-tag {
+    font-size: 9.5px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--search-surface-pill);
+    color: var(--search-text-muted);
+    font-family: 'Consolas', monospace;
+    flex-shrink: 0;
+}
+
+.drive-card-meta {
+    font-size: 10px;
+    color: var(--search-text-muted);
+}
+
 .popover-footer {
     display: flex;
     align-items: center;

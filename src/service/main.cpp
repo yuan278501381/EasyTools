@@ -75,13 +75,51 @@ void InitLogger() {
 #include <mutex>
 #include <chrono>
 
-nlohmann::json ProcessSearchQuery(const std::wstring& wQuery) {
+nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
+    std::wstring wQuery;
+    std::vector<char> enabledDrives;
+
+    std::string utf8Input = WStringToString(rawInput);
+    if (!utf8Input.empty() && utf8Input.front() == '{') {
+        try {
+            auto reqJson = nlohmann::json::parse(utf8Input);
+            if (reqJson.contains("query") && reqJson["query"].is_string()) {
+                wQuery = StringToWString(reqJson["query"].get<std::string>());
+            }
+            if (reqJson.contains("drives") && reqJson["drives"].is_array()) {
+                for (const auto& d : reqJson["drives"]) {
+                    if (d.is_string()) {
+                        std::string s = d.get<std::string>();
+                        if (!s.empty()) enabledDrives.push_back(static_cast<char>(std::toupper(s[0])));
+                    }
+                }
+            }
+        } catch (...) {
+            wQuery = rawInput;
+        }
+    } else {
+        wQuery = rawInput;
+    }
+
+    if (wQuery.empty()) {
+        return {{"results", nlohmann::json::array()}};
+    }
+
+    auto isDriveEnabled = [&](char driveLetter) {
+        if (enabledDrives.empty()) return true;
+        for (char d : enabledDrives) {
+            if (std::toupper(d) == std::toupper(driveLetter)) return true;
+        }
+        return false;
+    };
+
     SearchExpression expr = SearchExpression::parse(wQuery);
     nlohmann::json responseJson = {{"results", nlohmann::json::array()}};
 
     if (expr.hasContentFilter() && !expr.getContentQuery().empty()) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
+            if (!isDriveEnabled(parser->getDriveLetter())) continue;
             auto volumeResults = parser->Search(wQuery, 400);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
@@ -170,6 +208,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& wQuery) {
         std::vector<std::future<std::vector<SearchResult>>> futures;
         futures.reserve(g_MftParsers.size());
         for (auto& parser : g_MftParsers) {
+            if (!isDriveEnabled(parser->getDriveLetter())) continue;
             futures.push_back(std::async(std::launch::async, [&parser, &wQuery]() {
                 return parser->Search(wQuery, 50);
             }));
@@ -264,7 +303,8 @@ void IPCServerThread() {
         if (!(driveMask & (1u << (drive - 'A')))) continue;
         const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\', L'\0'};
         UINT driveType = GetDriveTypeW(root.c_str());
-        if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOVABLE) continue;
+        if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOTE &&
+            driveType != DRIVE_REMOVABLE && driveType != DRIVE_RAMDISK) continue;
 
         auto parser = std::make_unique<MftParser>();
         if (parser->Initialize(drive)) {

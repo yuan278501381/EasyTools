@@ -479,6 +479,58 @@ public:
 
         return initialText;
     }
+
+    struct SystemDriveInfo {
+        char letter = 0;
+        std::wstring path;
+        std::wstring volumeLabel;
+        std::wstring fileSystem;
+        std::wstring typeStr; // "fixed", "remote", "removable", "cdrom", "ramdisk", "unknown"
+        uint64_t totalBytes = 0;
+        uint64_t freeBytes = 0;
+    };
+
+    /// 枚举当前系统所有驱动器（包括本地磁盘、映射网络驱动器、U盘/移动硬盘等）
+    static std::vector<SystemDriveInfo> getSystemDrives() {
+        std::vector<SystemDriveInfo> drives;
+        DWORD driveMask = GetLogicalDrives();
+        for (char letter = 'A'; letter <= 'Z'; ++letter) {
+            if (!(driveMask & (1u << (letter - 'A')))) continue;
+
+            SystemDriveInfo info;
+            info.letter = letter;
+            info.path = std::wstring{static_cast<wchar_t>(letter), L':', L'\\', L'\0'};
+
+            UINT driveType = GetDriveTypeW(info.path.c_str());
+            switch (driveType) {
+                case DRIVE_FIXED:     info.typeStr = L"fixed"; break;
+                case DRIVE_REMOTE:    info.typeStr = L"remote"; break;
+                case DRIVE_REMOVABLE: info.typeStr = L"removable"; break;
+                case DRIVE_CDROM:     info.typeStr = L"cdrom"; break;
+                case DRIVE_RAMDISK:   info.typeStr = L"ramdisk"; break;
+                default:              info.typeStr = L"unknown"; break;
+            }
+
+            wchar_t volumeName[MAX_PATH + 1] = {};
+            wchar_t fileSystemName[MAX_PATH + 1] = {};
+            DWORD serialNumber = 0, maxComponentLen = 0, flags = 0;
+            if (GetVolumeInformationW(info.path.c_str(), volumeName, MAX_PATH + 1,
+                                     &serialNumber, &maxComponentLen, &flags,
+                                     fileSystemName, MAX_PATH + 1)) {
+                info.volumeLabel = volumeName;
+                info.fileSystem = fileSystemName;
+            }
+
+            ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
+            if (GetDiskFreeSpaceExW(info.path.c_str(), &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
+                info.totalBytes = totalNumberOfBytes.QuadPart;
+                info.freeBytes = totalNumberOfFreeBytes.QuadPart;
+            }
+
+            drives.push_back(std::move(info));
+        }
+        return drives;
+    }
 };
 
 }  // namespace easy::core

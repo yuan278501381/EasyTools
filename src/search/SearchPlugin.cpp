@@ -208,8 +208,19 @@ public:
             }
 
             if (query.size() > 1024) query.resize(1024);
+
+            std::string payload;
+            if (params.contains("drives") && params["drives"].is_array() && !params["drives"].empty()) {
+                nlohmann::json req;
+                req["query"] = query;
+                req["drives"] = params["drives"];
+                payload = req.dump();
+            } else {
+                payload = query;
+            }
+
             DWORD pipeError = ERROR_SUCCESS;
-            auto response = querySearchService(query, pipeError);
+            auto response = querySearchService(payload, pipeError);
 
             if (response) {
                 try {
@@ -229,6 +240,23 @@ public:
                 {"available", isAlive},
                 {"error", isAlive ? "search service busy" : "search service unavailable"}
             };
+        });
+
+        mb.registerHandler("search.getDrives", [](const nlohmann::json&) -> nlohmann::json {
+            auto drives = easy::core::WinUtils::getSystemDrives();
+            nlohmann::json arr = nlohmann::json::array();
+            for (const auto& d : drives) {
+                arr.push_back({
+                    {"letter", std::string(1, d.letter)},
+                    {"path", easy::core::WinUtils::wstringToUtf8(d.path)},
+                    {"volumeLabel", easy::core::WinUtils::wstringToUtf8(d.volumeLabel)},
+                    {"fileSystem", easy::core::WinUtils::wstringToUtf8(d.fileSystem)},
+                    {"type", easy::core::WinUtils::wstringToUtf8(d.typeStr)},
+                    {"totalBytes", d.totalBytes},
+                    {"freeBytes", d.freeBytes}
+                });
+            }
+            return arr;
         });
 
         mb.registerHandler("search.openFile", [](const nlohmann::json& params) -> nlohmann::json {
@@ -281,6 +309,7 @@ public:
             bool caseSensitive = cfg.get<bool>("/search/caseSensitive", false);
             bool matchPath = cfg.get<bool>("/search/matchPath", false);
             bool pinyinEnabled = cfg.get<bool>("/search/pinyinEnabled", true);
+            std::string enabledDrives = cfg.get<std::string>("/search/enabledDrives", "");
 
             return {
                 {"hotkey", hotkey},
@@ -288,7 +317,8 @@ public:
                 {"defaultCategory", defaultCategory},
                 {"caseSensitive", caseSensitive},
                 {"matchPath", matchPath},
-                {"pinyinEnabled", pinyinEnabled}
+                {"pinyinEnabled", pinyinEnabled},
+                {"enabledDrives", enabledDrives}
             };
         });
 
@@ -311,6 +341,9 @@ public:
             }
             if (params.contains("pinyinEnabled") && params["pinyinEnabled"].is_boolean()) {
                 cfg.set("/search/pinyinEnabled", params["pinyinEnabled"].get<bool>());
+            }
+            if (params.contains("enabledDrives") && params["enabledDrives"].is_string()) {
+                cfg.set("/search/enabledDrives", params["enabledDrives"].get<std::string>());
             }
             return {{"success", true}};
         });

@@ -1035,8 +1035,24 @@ TEST(SearchExpressionTest, EverythingSyntaxParsing) {
 }
 
 // -----------------------------------------------------------------------------
-// 16. 全屏检测与窗口排除测试套件
+// 16. 全屏检测与驱动器枚举测试套件
 // -----------------------------------------------------------------------------
+TEST(WinUtilsTest, GetSystemDrives) {
+    auto drives = easy::core::WinUtils::getSystemDrives();
+    EXPECT_FALSE(drives.empty());
+    bool foundC = false;
+    for (const auto& d : drives) {
+        EXPECT_TRUE(d.letter >= 'A' && d.letter <= 'Z');
+        EXPECT_FALSE(d.path.empty());
+        EXPECT_FALSE(d.typeStr.empty());
+        if (d.letter == 'C') {
+            foundC = true;
+            EXPECT_EQ(d.path, L"C:\\");
+        }
+    }
+    EXPECT_TRUE(foundC);
+}
+
 TEST(WinUtilsTest, FullscreenDetection) {
     // 空句柄或无效句柄返回 false
     EXPECT_FALSE(easy::core::WinUtils::isWindowFullscreen(nullptr));

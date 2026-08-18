@@ -35,10 +35,14 @@ public:
     // Quick search
     std::vector<SearchResult> Search(const std::wstring& query, int limit = 100);
 
+    char getDriveLetter() const { return m_DriveLetter; }
+    UINT getDriveType() const { return m_DriveType; }
+
 private:
-    char m_DriveLetter;
-    HANDLE m_hVolume;
-    USN_JOURNAL_DATA_V0 m_UsnJournalData;
+    char m_DriveLetter = 0;
+    UINT m_DriveType = DRIVE_UNKNOWN;
+    HANDLE m_hVolume = INVALID_HANDLE_VALUE;
+    USN_JOURNAL_DATA_V0 m_UsnJournalData{};
     
     // Listener Thread
     std::atomic<bool> m_IsListening{false};

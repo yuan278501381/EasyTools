@@ -102,6 +102,9 @@ void MftParser::StopListening() {
 
 bool MftParser::Initialize(char driveLetter) {
     m_DriveLetter = driveLetter;
+    const std::wstring root{static_cast<wchar_t>(driveLetter), L':', L'\\', L'\0'};
+    m_DriveType = GetDriveTypeW(root.c_str());
+
     std::string volumePath = "\\\\.\\";
     volumePath += driveLetter;
     volumePath += ":";
@@ -381,7 +384,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     {
         std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
         if (generation == m_CachedGeneration && !m_CachedQuery.empty() &&
-            lowerQuery.rfind(m_CachedQuery, 0) == 0) {
+            lowerQuery.rfind(m_CachedQuery, 0) == 0 &&
+            lowerQuery.find_first_of(L"*?|/\\:") == std::wstring::npos &&
+            m_CachedQuery.find_first_of(L"*?|/\\:") == std::wstring::npos) {
             candidates = m_CachedCandidates;
             canNarrow = true;
         }
