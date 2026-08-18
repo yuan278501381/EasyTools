@@ -453,9 +453,37 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             }
         }
     }
-    const auto compareRank = [&expr](const auto& a, const auto& b) {
+    const auto compareRank = [&expr, this](const auto& a, const auto& b) {
         if (a.rank != b.rank) return a.rank < b.rank;
         if (expr.hasContentFilter()) {
+            auto getFolderPriority = [this](const FileRecord* r) -> int {
+                auto it = m_FolderPaths.find(r->parentFileReferenceNumber);
+                if (it != m_FolderPaths.end()) {
+                    const std::wstring& p = it->second;
+                    if (p.find(L"\\AppData\\") != std::wstring::npos ||
+                        p.find(L"\\Program Files") != std::wstring::npos ||
+                        p.find(L"\\ProgramData\\") != std::wstring::npos ||
+                        p.find(L"\\Windows\\") != std::wstring::npos ||
+                        p.find(L"\\Temp\\") != std::wstring::npos) {
+                        return 10;
+                    }
+                    if (p.find(L"\\Desktop") != std::wstring::npos ||
+                        p.find(L"\\Documents") != std::wstring::npos ||
+                        p.find(L"\\Downloads") != std::wstring::npos ||
+                        p.find(L"\\repo") != std::wstring::npos ||
+                        p.find(L"\\workspace") != std::wstring::npos ||
+                        p.find(L"\\Projects") != std::wstring::npos ||
+                        p.find(L"\\Chosen") != std::wstring::npos) {
+                        return 90;
+                    }
+                }
+                // 非系统盘根目录及用户工作目录
+                if (m_DriveLetter != 'C' && m_DriveLetter != 'c') return 100;
+                return 50;
+            };
+            int pA = getFolderPriority(a.record);
+            int pB = getFolderPriority(b.record);
+            if (pA != pB) return pA > pB;
             return a.record->lastWriteTime > b.record->lastWriteTime;
         }
         if (a.record->normalizedName.size() != b.record->normalizedName.size())

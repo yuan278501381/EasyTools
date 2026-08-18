@@ -164,7 +164,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            auto volumeResults = parser->Search(wQuery, 3000, excludeOpts);
+            auto volumeResults = parser->Search(wQuery, 5000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -194,7 +194,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             textCandidates.push_back(std::move(candidate));
         }
 
-        // 智能优先级权重排序：将非系统工作盘（D:、E:）、用户桌面/文档优先放置在前面扫描
+        // 智能优先级权重排序：将非系统工作盘（D:、E:）、用户桌面/文档/Chosen优先放置在前面扫描
         auto getPathPriority = [](const std::wstring& path) -> int {
             // 缓存与垃圾构建路径降权
             if (path.find(L"\\AppData\\Local\\npm-cache\\") != std::wstring::npos ||
@@ -212,13 +212,14 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             if (path.size() >= 2 && path[1] == L':' && path[0] != L'C' && path[0] != L'c') {
                 return 100;
             }
-            // C 盘中的工作区/桌面/文档
+            // C 盘中的工作区/桌面/文档/Chosen
             if (path.find(L"\\Desktop\\") != std::wstring::npos ||
                 path.find(L"\\Documents\\") != std::wstring::npos ||
                 path.find(L"\\Downloads\\") != std::wstring::npos ||
                 path.find(L"\\repo\\") != std::wstring::npos ||
                 path.find(L"\\workspace\\") != std::wstring::npos ||
-                path.find(L"\\Projects\\") != std::wstring::npos) {
+                path.find(L"\\Projects\\") != std::wstring::npos ||
+                path.find(L"\\Chosen\\") != std::wstring::npos) {
                 return 90;
             }
             return 50;
@@ -231,7 +232,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             return a.lastWriteTime > b.lastWriteTime;
         });
 
-        if (textCandidates.size() > 2500) textCandidates.resize(2500);
+        if (textCandidates.size() > 5000) textCandidates.resize(5000);
 
         std::mutex resultsMutex;
         std::atomic<size_t> matchCount{0};

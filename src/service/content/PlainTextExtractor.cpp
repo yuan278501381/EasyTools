@@ -196,7 +196,18 @@ DetectedEncoding detectEncoding(const uint8_t* data, size_t length, size_t& outB
 
 std::wstring decodeLine(const char* data, size_t length, UINT codePage) {
     if (length == 0) return {};
-    int wideLen = MultiByteToWideChar(codePage, 0, data, static_cast<int>(length), nullptr, 0);
+
+    // 1. 优先尝试严格 UTF-8 解码 (即使文件全局被判定为 GBK，对于 UTF-8 行也能完美还原，彻底杜绝 "琛ㄥご" 乱码)
+    int wideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, static_cast<int>(length), nullptr, 0);
+    if (wideLen > 0) {
+        std::wstring result(wideLen, L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, static_cast<int>(length), result.data(), wideLen) > 0) {
+            return result;
+        }
+    }
+
+    // 2. 如果 UTF-8 解码失败，按传入的 codePage (如 GBK/CP936) 进行解码
+    wideLen = MultiByteToWideChar(codePage, 0, data, static_cast<int>(length), nullptr, 0);
     if (wideLen <= 0) return {};
     std::wstring result(wideLen, L'\0');
     MultiByteToWideChar(codePage, 0, data, static_cast<int>(length), result.data(), wideLen);
