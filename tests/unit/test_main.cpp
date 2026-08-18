@@ -19,6 +19,7 @@
 #include "capture/CursorOverlay.h"
 #include "capture/ScreenRecorder.h"
 #include "capture/ScrollCapture.h"
+#include "capture/ShortcutHintOverlay.h"
 #include "capture/ShortcutHintStyle.h"
 #include "keycast/KeycastStyle.h"
 #include "ocr/OcrResultStyle.h"
@@ -1111,6 +1112,45 @@ static void test_cursor_overlay_restore() {
     backend->shutdown();
 }
 
+static void test_capture_micro_actions_and_hints() {
+    using easy::capture::ShortcutHintOverlay;
+    using easy::capture::ShortcutHintContext;
+
+    auto& overlay = ShortcutHintOverlay::instance();
+    auto selectingItems = overlay.getItemsForContext(ShortcutHintContext::CaptureSelecting);
+    CHECK(!selectingItems.empty());
+    bool hasSpacePan = false;
+    bool hasWasdNudge = false;
+    bool hasColorCopy = false;
+    for (const auto& item : selectingItems) {
+        if (item.key == L"Space") hasSpacePan = true;
+        if (item.key == L"WASD") hasWasdNudge = true;
+        if (item.key == L"C") hasColorCopy = true;
+    }
+    CHECK(hasSpacePan);
+    CHECK(hasWasdNudge);
+    CHECK(hasColorCopy);
+
+    auto selectedItems = overlay.getItemsForContext(ShortcutHintContext::CaptureSelected);
+    CHECK(!selectedItems.empty());
+    bool hasWasdMove = false;
+    bool hasShiftWasdResize = false;
+    for (const auto& item : selectedItems) {
+        if (item.key == L"WASD") hasWasdMove = true;
+        if (item.key == L"Shift+WASD") hasShiftWasdResize = true;
+    }
+    CHECK(hasWasdMove);
+    CHECK(hasShiftWasdResize);
+
+    auto recordSelectingItems = overlay.getItemsForContext(ShortcutHintContext::RecordSelecting);
+    CHECK(!recordSelectingItems.empty());
+    bool hasRecordSpacePan = false;
+    for (const auto& item : recordSelectingItems) {
+        if (item.key == L"Space") hasRecordSpacePan = true;
+    }
+    CHECK(hasRecordSpacePan);
+}
+
 static void test_shortcut_hint_dpi_metrics() {
     using easy::capture::ShortcutHintStyle;
     CHECK(std::abs(ShortcutHintStyle::scaleForDpi(0) - 1.0f) < 0.001f);
@@ -1599,6 +1639,7 @@ int main() {
     test_audio_capture_smoke();
     test_scroll_capture_bounded_preview();
     test_cursor_overlay_restore();
+    test_capture_micro_actions_and_hints();
     test_shortcut_hint_dpi_metrics();
     test_shared_dpi_metrics();
     test_capture_toolbar_dpi_layout();

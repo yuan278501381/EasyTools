@@ -35,6 +35,7 @@ public:
     void hide();
     void shutdown() { hide(); }
     bool isVisible() const;
+    std::vector<ShortcutHintItem> getItemsForContext(ShortcutHintContext context) const { return itemsFor(context); }
 
 private:
     struct PositionedItem {

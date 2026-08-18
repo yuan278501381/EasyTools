@@ -247,6 +247,7 @@ if(BUILD_TESTING)
         src/capture/CursorOverlay.cpp
         src/capture/ScreenRecorder.cpp
         src/capture/ScrollCapture.cpp
+        src/capture/ShortcutHintOverlay.cpp
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
         src/gesture/GestureAction.cpp
