@@ -363,7 +363,8 @@ void MftParser::rebuildFolderPaths() {
     spdlog::info("Pre-computed {} folder paths for drive {}:", m_FolderPaths.size(), m_DriveLetter);
 }
 
-std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit) {
+std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit,
+                                           const SearchExcludeOptions& excludeOpts) {
     std::vector<SearchResult> results;
     if (query.empty()) return results;
 
@@ -374,9 +375,30 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     const uint64_t generation = m_IndexGeneration.load(std::memory_order_acquire);
 
     auto testCandidate = [&](DWORDLONG id, const FileRecord& record) {
-        return expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), [&]() {
-            return buildFullPath(id);
-        });
+        if (excludeOpts.excludeHidden && (record.fileAttributes & FILE_ATTRIBUTE_HIDDEN)) return false;
+        if (excludeOpts.excludeSystem && (record.fileAttributes & FILE_ATTRIBUTE_SYSTEM)) return false;
+
+        std::wstring lazyPath;
+        bool hasLazyPath = false;
+        auto getPath = [&]() -> const std::wstring& {
+            if (!hasLazyPath) {
+                lazyPath = buildFullPath(id);
+                hasLazyPath = true;
+            }
+            return lazyPath;
+        };
+
+        if (!excludeOpts.patterns.empty()) {
+            const std::wstring& p = getPath();
+            for (const auto& pat : excludeOpts.patterns) {
+                if (pat.empty()) continue;
+                if (p.find(pat) != std::wstring::npos || record.normalizedName.find(pat) != std::wstring::npos) {
+                    return false;
+                }
+            }
+        }
+
+        return expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), getPath);
     };
 
     std::vector<DWORDLONG> candidates;

@@ -20,6 +20,12 @@ struct SearchResult {
     uint64_t lastWriteTime = 0;
 };
 
+struct SearchExcludeOptions {
+    std::vector<std::wstring> patterns;
+    bool excludeHidden = false;
+    bool excludeSystem = false;
+};
+
 class MftParser {
 public:
     MftParser();
@@ -33,7 +39,8 @@ public:
     void StopListening();
     
     // Quick search
-    std::vector<SearchResult> Search(const std::wstring& query, int limit = 100);
+    std::vector<SearchResult> Search(const std::wstring& query, int limit = 100,
+                                     const SearchExcludeOptions& excludeOpts = {});
 
     char getDriveLetter() const { return m_DriveLetter; }
     UINT getDriveType() const { return m_DriveType; }

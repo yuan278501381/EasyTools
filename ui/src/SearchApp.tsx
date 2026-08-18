@@ -25,7 +25,9 @@ import {
   Check,
   Tag,
   Network,
-  Disc
+  Disc,
+  FileSpreadsheet,
+  RefreshCw
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -48,6 +50,41 @@ function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode {
+  if (!text || queryKeywords.length === 0) return text;
+
+  const validKeywords = queryKeywords
+    .map(k => k.trim())
+    .filter(k => k.length > 0)
+    .sort((a, b) => b.length - a.length);
+
+  if (validKeywords.length === 0) return text;
+
+  const escaped = validKeywords
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+
+  if (!escaped) return text;
+
+  try {
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, idx) => {
+      const isMatch = validKeywords.some(k => k.toLowerCase() === part.toLowerCase());
+      if (isMatch) {
+        return (
+          <mark key={idx} className="search-match-highlight">
+            {part}
+          </mark>
+        );
+      }
+      return part;
+    });
+  } catch {
+    return text;
+  }
 }
 
 interface ContentSnippet {
@@ -271,6 +308,56 @@ function renderFileIcon(name: string, isDirectory: boolean, density: SearchDensi
   return <File className="file-icon" size={iconSize} aria-hidden="true" />;
 }
 
+function getSortedResults(
+  results: SearchResult[],
+  sortField: SortField,
+  sortDirection: SortDirection,
+  foldersFirst: boolean,
+  groupByType: boolean
+): SearchResult[] {
+  if (results.length <= 1) return results;
+  return [...results].sort((a, b) => {
+    // 1. 组合规则第 1 级: 📁 文件夹置顶
+    if (foldersFirst && a.isDirectory !== b.isDirectory) {
+      return a.isDirectory ? -1 : 1;
+    }
+
+    // 2. 组合规则第 2 级: 🏷️ 按扩展名/类型分组
+    if (groupByType && !a.isDirectory && !b.isDirectory) {
+      const extA = a.name.includes('.') ? a.name.slice(a.name.lastIndexOf('.')).toLowerCase() : '';
+      const extB = b.name.includes('.') ? b.name.slice(b.name.lastIndexOf('.')).toLowerCase() : '';
+      const extCmp = extA.localeCompare(extB);
+      if (extCmp !== 0) return extCmp;
+    }
+
+    // 3. 业务主排序列
+    let cmp = 0;
+    if (sortField === 'modified') {
+      const timeA = Number(a.lastWriteTime) || 0;
+      const timeB = Number(b.lastWriteTime) || 0;
+      cmp = timeA - timeB;
+    } else if (sortField === 'created') {
+      const timeA = Number(a.creationTime) || 0;
+      const timeB = Number(b.creationTime) || 0;
+      cmp = timeA - timeB;
+    } else if (sortField === 'size') {
+      const sizeA = a.isDirectory ? -1 : (Number(a.size) || 0);
+      const sizeB = b.isDirectory ? -1 : (Number(b.size) || 0);
+      cmp = sizeA - sizeB;
+    } else if (sortField === 'name') {
+      cmp = a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' });
+    }
+
+    if (cmp !== 0) {
+      return sortDirection === 'asc' ? cmp : -cmp;
+    }
+
+    // 4. 稳定性兜底: 按文件名 A-Z 保证顺序稳定
+    return a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' });
+  });
+}
+
+// ── 组件主入口 ──────────────────────────────────────────────────
 export default function SearchApp() {
   useAppearance();
   const { t } = useTranslation();
@@ -404,6 +491,90 @@ export default function SearchApp() {
     setEnabledDrives([]);
     localStorage.setItem('easytools_search_enabled_drives', JSON.stringify([]));
     void bridgeRequest('search.saveSettings', { enabledDrives: '' }).catch(() => undefined);
+  };
+
+  const [excludeGitAndModules, setExcludeGitAndModules] = useState<boolean>(() => {
+    return localStorage.getItem('easytools_search_exclude_dev') !== 'false';
+  });
+  const [excludeHidden, setExcludeHidden] = useState<boolean>(() => {
+    return localStorage.getItem('easytools_search_exclude_hidden') === 'true';
+  });
+  const [isRebuilding, setIsRebuilding] = useState(false);
+
+  const rebuildIndex = async () => {
+    setIsRebuilding(true);
+    toast.info('正在后台重新扫描全盘索引...');
+    try {
+      await bridgeRequest('search.rebuildIndex');
+      toast.success('全盘索引已发起后台重建，稍后完成！');
+    } catch {
+      toast.error('索引重建请求失败');
+    } finally {
+      setTimeout(() => setIsRebuilding(false), 2000);
+    }
+  };
+
+  const queryKeywords = useMemo(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const tokens = trimmed.split(/[\s|]+/).filter(Boolean);
+    const keywords: string[] = [];
+    for (const token of tokens) {
+      let clean = token.replace(/^!/, '');
+      const colonPos = clean.indexOf(':');
+      if (colonPos !== -1 && colonPos < 8) {
+        clean = clean.substring(colonPos + 1);
+      }
+      clean = clean.replace(/[*?"]/g, '').trim();
+      if (clean.length > 0 && !keywords.includes(clean)) {
+        keywords.push(clean);
+      }
+    }
+    return keywords;
+  }, [query]);
+
+  const exportResultsToCsv = () => {
+    if (sortedResults.length === 0) {
+      toast.error('当前无搜索结果可导出');
+      return;
+    }
+
+    const headers = ['文件名', '完整路径', '类型', '大小(字节)', '大小(易读)', '修改时间', '创建时间'];
+    const rows = sortedResults.map((item) => {
+      const isDir = item.isDirectory;
+      const typeStr = isDir ? '文件夹' : (item.name.includes('.') ? item.name.split('.').pop()?.toUpperCase() || '文件' : '文件');
+      const sizeBytes = item.size ?? 0;
+      const sizeFormatted = isDir ? '-' : formatFileSize(sizeBytes, isDir);
+      const modTime = item.lastWriteTime ? formatWindowsTime(item.lastWriteTime) : '-';
+      const createTime = item.creationTime ? formatWindowsTime(item.creationTime) : '-';
+
+      const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
+
+      return [
+        escapeCsv(item.name),
+        escapeCsv(item.path),
+        escapeCsv(typeStr),
+        sizeBytes,
+        escapeCsv(sizeFormatted),
+        escapeCsv(modTime),
+        escapeCsv(createTime)
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const nowStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const queryTag = query.trim() ? `_${query.trim().slice(0, 20).replace(/[/\\:*?"<>|]/g, '_')}` : '';
+    link.setAttribute('download', `EasyTools_Search_Export${queryTag}_${nowStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success(`已成功导出 ${sortedResults.length} 条搜索结果为 CSV 文件`);
   };
 
   useEffect(() => {
@@ -560,10 +731,17 @@ export default function SearchApp() {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);
 
+      const excludesList: string[] = [];
+      if (excludeGitAndModules) {
+        excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__');
+      }
+
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { 
           query: trimmed,
-          drives: enabledDrives.length > 0 ? enabledDrives : undefined
+          drives: enabledDrives.length > 0 ? enabledDrives : undefined,
+          excludes: excludesList.length > 0 ? excludesList : undefined,
+          excludeHidden: excludeHidden
         });
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
@@ -587,7 +765,7 @@ export default function SearchApp() {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [query, enabledDrives]);
+  }, [query, enabledDrives, excludeGitAndModules, excludeHidden]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -627,49 +805,9 @@ export default function SearchApp() {
   }, [showSortMenu, showViewSettings]);
 
   // 高性能多级组合排序管道 (Multi-level Pipeline Sorting)
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const sortedResults = useMemo(() => {
-    if (results.length <= 1) return results;
-    const list = [...results];
-    list.sort((a, b) => {
-      // 1. 组合规则第 1 级: 📁 文件夹置顶
-      if (foldersFirst && a.isDirectory !== b.isDirectory) {
-        return a.isDirectory ? -1 : 1;
-      }
-
-      // 2. 组合规则第 2 级: 🏷️ 按扩展名/类型分组
-      if (groupByType && !a.isDirectory && !b.isDirectory) {
-        const extA = a.name.includes('.') ? a.name.slice(a.name.lastIndexOf('.')).toLowerCase() : '';
-        const extB = b.name.includes('.') ? b.name.slice(b.name.lastIndexOf('.')).toLowerCase() : '';
-        const extCmp = extA.localeCompare(extB);
-        if (extCmp !== 0) return extCmp;
-      }
-
-      // 3. 业务主排序列
-      let cmp = 0;
-      if (sortField === 'modified') {
-        const timeA = Number(a.lastWriteTime) || 0;
-        const timeB = Number(b.lastWriteTime) || 0;
-        cmp = timeA - timeB;
-      } else if (sortField === 'created') {
-        const timeA = Number(a.creationTime) || 0;
-        const timeB = Number(b.creationTime) || 0;
-        cmp = timeA - timeB;
-      } else if (sortField === 'size') {
-        const sizeA = a.isDirectory ? -1 : (Number(a.size) || 0);
-        const sizeB = b.isDirectory ? -1 : (Number(b.size) || 0);
-        cmp = sizeA - sizeB;
-      } else if (sortField === 'name') {
-        cmp = a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' });
-      }
-
-      if (cmp !== 0) {
-        return sortDirection === 'asc' ? cmp : -cmp;
-      }
-
-      // 4. 稳定性兜底: 按文件名 A-Z 保证顺序稳定
-      return a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' });
-    });
-    return list;
+    return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
   }, [results, sortField, sortDirection, foldersFirst, groupByType]);
 
   const handleSetSortDirect = (field: SortField, dir: SortDirection) => {
@@ -913,6 +1051,9 @@ export default function SearchApp() {
         event.preventDefault();
         copyPathResult(sortedResults[selectedIndex]);
       }
+    } else if (event.key.toLowerCase() === 'e' && event.ctrlKey) {
+      event.preventDefault();
+      exportResultsToCsv();
     } else if (event.key.toLowerCase() === 'p' && event.ctrlKey) {
       event.preventDefault();
       void pinResult(sortedResults[selectedIndex]);
@@ -984,6 +1125,19 @@ export default function SearchApp() {
           </div>
 
           <div className="search-bar-right-group">
+            {/* 导出当前搜索结果为 CSV */}
+            {sortedResults.length > 0 && (
+              <button
+                type="button"
+                className="search-action-pill-btn"
+                onClick={exportResultsToCsv}
+                title={`导出当前搜索结果清单为 CSV / Excel 格式 (Ctrl+E) - 共 ${sortedResults.length} 项`}
+              >
+                <FileSpreadsheet size={13} />
+                <span>导出 CSV ({sortedResults.length})</span>
+              </button>
+            )}
+
             {/* ── 极客排序双区域分裂微胶囊 (Split Pill) ── */}
             <div className="search-sort-wrapper" ref={sortDropdownRef}>
               <div className={`sort-split-pill ${sortField !== 'relevance' ? 'sort-split-pill--active' : ''}`}>
@@ -1032,7 +1186,7 @@ export default function SearchApp() {
                     >
                       <div className="sort-row-left">
                         <Zap size={13} />
-                        <span>智能相关度 (默认)</span>
+                        <span>智能匹配相关度</span>
                       </div>
                       {sortField === 'relevance' && <Check size={12} className="sort-active-check" />}
                     </div>
@@ -1126,7 +1280,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'created' && sortDirection === 'desc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'desc'); }}
-                          title="最新创建优先"
+                          title="从新到旧"
                         >
                           新→旧 ↓
                         </button>
@@ -1134,7 +1288,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'created' && sortDirection === 'asc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'asc'); }}
-                          title="最早创建优先"
+                          title="从旧到新"
                         >
                           旧→新 ↑
                         </button>
@@ -1195,45 +1349,49 @@ export default function SearchApp() {
             <div className="popover-body">
               {/* 1. 布局密度 */}
               <div className="popover-section">
-                <div className="popover-section-title">排版密度</div>
+                <div className="popover-section-title">
+                  <span>列表显示密度</span>
+                  <span className="popover-badge-curr">
+                    {density === 'compact' ? '紧凑' : density === 'comfortable' ? '宽松' : '标准'}
+                  </span>
+                </div>
                 <div className="popover-segmented-control">
                   <button
                     type="button"
                     className={`popover-segment ${density === 'compact' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('compact')}
                   >
-                    紧凑 (单行)
+                    紧凑 (极客)
                   </button>
                   <button
                     type="button"
                     className={`popover-segment ${density === 'standard' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('standard')}
                   >
-                    适中 (双行)
+                    标准
                   </button>
                   <button
                     type="button"
                     className={`popover-segment ${density === 'comfortable' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('comfortable')}
                   >
-                    宽松 (大卡片)
+                    宽松
                   </button>
                 </div>
               </div>
 
-              {/* 2. 窗口尺寸 */}
+              {/* 2. 窗口尺寸快捷预设 */}
               <div className="popover-section">
                 <div className="popover-section-title">
-                  <span>窗口尺寸预设</span>
-                  <span className="popover-badge-curr">{windowSize.width} × {windowSize.height}</span>
+                  <span>窗口尺寸预设 ({windowSize.width} × {windowSize.height})</span>
                 </div>
                 <div className="popover-presets-grid">
-                  {WINDOW_PRESETS.map(preset => (
+                  {WINDOW_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
+                      type="button"
                       className={`popover-preset-btn ${windowSize.width === preset.width && windowSize.height === preset.height ? 'popover-preset-btn--active' : ''}`}
                       onClick={() => changeWindowSize(preset.width, preset.height)}
-                      type="button"
                     >
                       {preset.label}
                     </button>
@@ -1241,10 +1399,10 @@ export default function SearchApp() {
                 </div>
               </div>
 
-              {/* 3. 结果信息列显隐 */}
+              {/* 3. 列显示开关 */}
               <div className="popover-section">
                 <div className="popover-section-title">
-                  <span>结果信息列显隐</span>
+                  <span>结果列显示控制</span>
                 </div>
                 <div className="popover-cols-grid">
                   {columns.map(col => (
@@ -1343,6 +1501,46 @@ export default function SearchApp() {
                   </div>
                 </div>
               )}
+
+              {/* 6. 排除规则与索引维护 */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <span>排除规则与索引维护</span>
+                </div>
+                <div className="popover-exclude-options">
+                  <label className="popover-col-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={excludeGitAndModules}
+                      onChange={(e) => {
+                        setExcludeGitAndModules(e.target.checked);
+                        localStorage.setItem('easytools_search_exclude_dev', String(e.target.checked));
+                      }}
+                    />
+                    <span>排除开发依赖与回收站 (node_modules, .git, $Recycle.Bin)</span>
+                  </label>
+                  <label className="popover-col-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={excludeHidden}
+                      onChange={(e) => {
+                        setExcludeHidden(e.target.checked);
+                        localStorage.setItem('easytools_search_exclude_hidden', String(e.target.checked));
+                      }}
+                    />
+                    <span>排除系统隐藏文件与受保护文件</span>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className={`popover-rebuild-btn ${isRebuilding ? 'popover-rebuild-btn--loading' : ''}`}
+                  onClick={rebuildIndex}
+                  disabled={isRebuilding}
+                >
+                  <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
+                  <span>{isRebuilding ? '正在重新扫描并重建索引...' : '立即强制重新扫描并刷新全盘索引'}</span>
+                </button>
+              </div>
 
               <div className="popover-footer">
                 <button
@@ -1443,7 +1641,7 @@ export default function SearchApp() {
                     <div className="file-row-main">
                       {isColVisible('name') && (
                         <span className="file-name" style={{ flex: `${nameFlex} 1 0` }} title={result.name}>
-                          <span className="file-name-text">{result.name}</span>
+                          <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
                           {isColVisible('ext') && (
                             <span className={`file-ext-badge ${getFileTypeBadge(result.name, result.isDirectory).colorClass}`}>
                               {getFileTypeBadge(result.name, result.isDirectory).label}
@@ -1455,10 +1653,10 @@ export default function SearchApp() {
                         <span className="file-path-inline" style={{ flex: `${pathFlex} 1 0` }} title={result.path}>
                           {isColVisible('parent') && extractParentFolder(result.path) && (
                             <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                              📂 {extractParentFolder(result.path)}
+                              📂 {highlightMatch(extractParentFolder(result.path), queryKeywords)}
                             </span>
                           )}
-                          <span className="file-path-text">{result.path}</span>
+                          <span className="file-path-text">{highlightMatch(result.path, queryKeywords)}</span>
                         </span>
                       )}
                       <div className="file-meta-top">
@@ -1482,7 +1680,7 @@ export default function SearchApp() {
                       <div className="file-row-main">
                         {isColVisible('name') && (
                           <span className="file-name" title={result.name}>
-                            <span className="file-name-text">{result.name}</span>
+                            <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
                             {isColVisible('ext') && (
                               <span className={`file-ext-badge ${getFileTypeBadge(result.name, result.isDirectory).colorClass}`}>
                                 {getFileTypeBadge(result.name, result.isDirectory).label}
@@ -1506,10 +1704,10 @@ export default function SearchApp() {
                           <div className="file-path-wrapper" title={result.path}>
                             {isColVisible('parent') && extractParentFolder(result.path) && (
                               <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                                📂 {extractParentFolder(result.path)}
+                                📂 {highlightMatch(extractParentFolder(result.path), queryKeywords)}
                               </span>
                             )}
-                            <span className="file-path">{result.path}</span>
+                            <span className="file-path">{highlightMatch(result.path, queryKeywords)}</span>
                           </div>
                         )}
                         {isColVisible('created') && result.creationTime ? (
@@ -1543,6 +1741,7 @@ export default function SearchApp() {
           <span className="search-hint"><kbd>Enter</kbd> {t('search.open', '打开')}</span>
           <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder', '定位目录')}</span>
           <span className="search-hint"><kbd>Ctrl+C</kbd> {t('search.copyPath', '复制路径')}</span>
+          <span className="search-hint"><kbd>Ctrl+E</kbd> 导出CSV</span>
           <span className="search-hint"><kbd>Ctrl+Shift+D</kbd> 排序</span>
           <span className="search-hint"><kbd>F1</kbd> 语法手册</span>
           <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>

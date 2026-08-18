@@ -78,11 +78,25 @@ void InitLogger() {
 nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     std::wstring wQuery;
     std::vector<char> enabledDrives;
+    SearchExcludeOptions excludeOpts;
 
     std::string utf8Input = WStringToString(rawInput);
     if (!utf8Input.empty() && utf8Input.front() == '{') {
         try {
             auto reqJson = nlohmann::json::parse(utf8Input);
+            if (reqJson.contains("action") && reqJson["action"].is_string()) {
+                std::string act = reqJson["action"].get<std::string>();
+                if (act == "rebuild" || act == "reindex") {
+                    for (auto& parser : g_MftParsers) {
+                        MftParser* pRaw = parser.get();
+                        std::thread([pRaw]() {
+                            pRaw->EnumerateFiles();
+                        }).detach();
+                    }
+                    return {{"success", true}, {"rebuilding", true}};
+                }
+            }
+
             if (reqJson.contains("query") && reqJson["query"].is_string()) {
                 wQuery = StringToWString(reqJson["query"].get<std::string>());
             }
@@ -93,6 +107,20 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         if (!s.empty()) enabledDrives.push_back(static_cast<char>(std::toupper(s[0])));
                     }
                 }
+            }
+            if (reqJson.contains("excludes") && reqJson["excludes"].is_array()) {
+                for (const auto& ex : reqJson["excludes"]) {
+                    if (ex.is_string()) {
+                        std::string s = ex.get<std::string>();
+                        if (!s.empty()) excludeOpts.patterns.push_back(StringToWString(s));
+                    }
+                }
+            }
+            if (reqJson.contains("excludeHidden") && reqJson["excludeHidden"].is_boolean()) {
+                excludeOpts.excludeHidden = reqJson["excludeHidden"].get<bool>();
+            }
+            if (reqJson.contains("excludeSystem") && reqJson["excludeSystem"].is_boolean()) {
+                excludeOpts.excludeSystem = reqJson["excludeSystem"].get<bool>();
             }
         } catch (...) {
             wQuery = rawInput;
@@ -120,7 +148,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            auto volumeResults = parser->Search(wQuery, 400);
+            auto volumeResults = parser->Search(wQuery, 400, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -209,8 +237,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         futures.reserve(g_MftParsers.size());
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            futures.push_back(std::async(std::launch::async, [&parser, &wQuery]() {
-                return parser->Search(wQuery, 50);
+            futures.push_back(std::async(std::launch::async, [&parser, &wQuery, &excludeOpts]() {
+                return parser->Search(wQuery, 50, excludeOpts);
             }));
         }
 

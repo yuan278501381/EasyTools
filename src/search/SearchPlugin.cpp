@@ -210,10 +210,15 @@ public:
             if (query.size() > 1024) query.resize(1024);
 
             std::string payload;
-            if (params.contains("drives") && params["drives"].is_array() && !params["drives"].empty()) {
+            if ((params.contains("drives") && params["drives"].is_array() && !params["drives"].empty()) ||
+                (params.contains("excludes") && params["excludes"].is_array()) ||
+                params.contains("excludeHidden") || params.contains("excludeSystem")) {
                 nlohmann::json req;
                 req["query"] = query;
-                req["drives"] = params["drives"];
+                if (params.contains("drives")) req["drives"] = params["drives"];
+                if (params.contains("excludes")) req["excludes"] = params["excludes"];
+                if (params.contains("excludeHidden")) req["excludeHidden"] = params["excludeHidden"];
+                if (params.contains("excludeSystem")) req["excludeSystem"] = params["excludeSystem"];
                 payload = req.dump();
             } else {
                 payload = query;
@@ -240,6 +245,19 @@ public:
                 {"available", isAlive},
                 {"error", isAlive ? "search service busy" : "search service unavailable"}
             };
+        });
+
+        mb.registerHandler("search.rebuildIndex", [](const nlohmann::json&) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "rebuild";
+            DWORD pipeError = ERROR_SUCCESS;
+            auto resp = querySearchService(req.dump(), pipeError);
+            if (resp) {
+                try {
+                    return nlohmann::json::parse(*resp);
+                } catch (...) {}
+            }
+            return {{"success", false}};
         });
 
         mb.registerHandler("search.getDrives", [](const nlohmann::json&) -> nlohmann::json {
@@ -310,6 +328,9 @@ public:
             bool matchPath = cfg.get<bool>("/search/matchPath", false);
             bool pinyinEnabled = cfg.get<bool>("/search/pinyinEnabled", true);
             std::string enabledDrives = cfg.get<std::string>("/search/enabledDrives", "");
+            std::string excludePatterns = cfg.get<std::string>("/search/excludePatterns", "$Recycle.Bin,System Volume Information,node_modules,.git,__pycache__");
+            bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
+            bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
 
             return {
                 {"hotkey", hotkey},
@@ -318,7 +339,10 @@ public:
                 {"caseSensitive", caseSensitive},
                 {"matchPath", matchPath},
                 {"pinyinEnabled", pinyinEnabled},
-                {"enabledDrives", enabledDrives}
+                {"enabledDrives", enabledDrives},
+                {"excludePatterns", excludePatterns},
+                {"excludeHidden", excludeHidden},
+                {"excludeSystem", excludeSystem}
             };
         });
 
@@ -344,6 +368,15 @@ public:
             }
             if (params.contains("enabledDrives") && params["enabledDrives"].is_string()) {
                 cfg.set("/search/enabledDrives", params["enabledDrives"].get<std::string>());
+            }
+            if (params.contains("excludePatterns") && params["excludePatterns"].is_string()) {
+                cfg.set("/search/excludePatterns", params["excludePatterns"].get<std::string>());
+            }
+            if (params.contains("excludeHidden") && params["excludeHidden"].is_boolean()) {
+                cfg.set("/search/excludeHidden", params["excludeHidden"].get<bool>());
+            }
+            if (params.contains("excludeSystem") && params["excludeSystem"].is_boolean()) {
+                cfg.set("/search/excludeSystem", params["excludeSystem"].get<bool>());
             }
             return {{"success", true}};
         });

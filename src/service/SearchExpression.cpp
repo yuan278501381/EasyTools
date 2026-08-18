@@ -153,12 +153,24 @@ SearchClause parseSingleToken(std::wstring token) {
     return clause;
 }
 
+static std::wstring expandEnvStrings(const std::wstring& input) {
+    if (input.find(L'%') == std::wstring::npos) return input;
+    DWORD needed = ExpandEnvironmentStringsW(input.c_str(), nullptr, 0);
+    if (needed == 0) return input;
+    std::wstring expanded(needed, L'\0');
+    DWORD result = ExpandEnvironmentStringsW(input.c_str(), &expanded[0], needed);
+    if (result == 0 || result > needed) return input;
+    expanded.resize(result - 1);
+    return expanded;
+}
+
 } // namespace
 
 SearchExpression SearchExpression::parse(const std::wstring& query) {
+    std::wstring workingQuery = expandEnvStrings(query);
     SearchExpression expr;
     expr.m_rawQuery = query;
-    expr.m_normalizedQuery = normalize(query);
+    expr.m_normalizedQuery = normalize(workingQuery);
     expr.m_isAsciiQuery = std::all_of(expr.m_normalizedQuery.begin(), expr.m_normalizedQuery.end(),
                                       [](wchar_t c) { return static_cast<unsigned int>(c) < 128; });
     if (expr.m_isAsciiQuery) {
@@ -170,19 +182,19 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
 
     std::vector<std::wstring> rawTokens;
     size_t i = 0;
-    while (i < query.size()) {
-        while (i < query.size() && iswspace(query[i])) ++i;
-        if (i >= query.size()) break;
+    while (i < workingQuery.size()) {
+        while (i < workingQuery.size() && iswspace(workingQuery[i])) ++i;
+        if (i >= workingQuery.size()) break;
 
-        if (query[i] == L'"') {
+        if (workingQuery[i] == L'"') {
             size_t start = ++i;
-            while (i < query.size() && query[i] != L'"') ++i;
-            rawTokens.push_back(query.substr(start, i - start));
-            if (i < query.size()) ++i;
+            while (i < workingQuery.size() && workingQuery[i] != L'"') ++i;
+            rawTokens.push_back(workingQuery.substr(start, i - start));
+            if (i < workingQuery.size()) ++i;
         } else {
             size_t start = i;
-            while (i < query.size() && !iswspace(query[i])) ++i;
-            rawTokens.push_back(query.substr(start, i - start));
+            while (i < workingQuery.size() && !iswspace(workingQuery[i])) ++i;
+            rawTokens.push_back(workingQuery.substr(start, i - start));
         }
     }
 

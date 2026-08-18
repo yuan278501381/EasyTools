@@ -1034,6 +1034,23 @@ TEST(SearchExpressionTest, EverythingSyntaxParsing) {
     EXPECT_TRUE(exprPinyinDir.matches(nestedPassFile, L'D', nestedPassPath));
 }
 
+TEST(SearchExpressionTest, EnvironmentVariableExpansion) {
+    FileRecord appDataFile;
+    appDataFile.fileName = L"EasyTools.json";
+    appDataFile.normalizedName = L"easytools.json";
+    appDataFile.isDirectory = false;
+
+    wchar_t appDataBuf[MAX_PATH] = {0};
+    GetEnvironmentVariableW(L"APPDATA", appDataBuf, MAX_PATH);
+    std::wstring appDataStr = appDataBuf;
+    if (!appDataStr.empty()) {
+        std::wstring targetPath = appDataStr + L"\\EasyTools\\EasyTools.json";
+        auto expr = SearchExpression::parse(L"%APPDATA%\\EasyTools\\EasyTools.json");
+        EXPECT_TRUE(expr.requiresFullPath());
+        EXPECT_TRUE(expr.matches(appDataFile, appDataStr[0], targetPath));
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 16. 全屏检测与驱动器枚举测试套件
 // -----------------------------------------------------------------------------
