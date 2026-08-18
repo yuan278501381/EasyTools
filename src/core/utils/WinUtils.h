@@ -251,6 +251,28 @@ public:
         return SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) != FALSE;
     }
 
+    /// 判断窗口是否为桌面背景窗口 (Progman / WorkerW)
+    static bool isDesktopWindow(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) return false;
+        std::wstring cls = getWindowClassName(hwnd);
+        if (cls == L"Progman" || cls == L"WorkerW") return true;
+        HWND parent = GetParent(hwnd);
+        if (parent) {
+            std::wstring pCls = getWindowClassName(parent);
+            if (pCls == L"Progman" || pCls == L"WorkerW") return true;
+        }
+        return false;
+    }
+
+    /// 判断窗口是否为任务栏窗口 (Shell_TrayWnd / Shell_SecondaryTrayWnd)
+    static bool isTaskbarWindow(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) return false;
+        HWND root = GetAncestor(hwnd, GA_ROOT);
+        if (!root) root = hwnd;
+        std::wstring cls = getWindowClassName(root);
+        return (cls == L"Shell_TrayWnd" || cls == L"Shell_SecondaryTrayWnd");
+    }
+
     /// 判断系统界面语言是否为中文
     static bool isSystemLanguageChinese() {
         LANGID langId = GetUserDefaultUILanguage();

@@ -3,7 +3,33 @@
  * (与组件分离, 以满足 react-refresh 的「文件仅导出组件」约束)
  * ───────────────────────────────────────────────────────────────────────────── */
 
+export type TriggerState = 'default' | 'enabled' | 'disabled';
+
+export interface TriggerItemDef {
+  key: string;
+  name: string;
+  category: 'mouse' | 'edge';
+  iconType: 'rclick' | 'mclick' | 'lclick' | 'xbutton1' | 'xbutton2' | 'edge_slide' | 'edge_wheel' | 'edge_rclick' | 'edge_mclick' | 'edge_lclick';
+}
+
+export const TRIGGER_ITEM_DEFINITIONS: TriggerItemDef[] = [
+  { key: 'right', name: '鼠标右键', category: 'mouse', iconType: 'rclick' },
+  { key: 'middle', name: '鼠标中键', category: 'mouse', iconType: 'mclick' },
+  { key: 'left', name: '鼠标左键', category: 'mouse', iconType: 'lclick' },
+  { key: 'xbutton1', name: '鼠标侧键1', category: 'mouse', iconType: 'xbutton1' },
+  { key: 'xbutton2', name: '鼠标侧键2', category: 'mouse', iconType: 'xbutton2' },
+  { key: 'edge_top_slide', name: '屏幕上边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_top_wheel', name: '屏幕上边缘 + 滚轮', category: 'edge', iconType: 'edge_wheel' },
+  { key: 'edge_top_right', name: '屏幕上边缘 + 鼠标右键', category: 'edge', iconType: 'edge_rclick' },
+  { key: 'edge_top_middle', name: '屏幕上边缘 + 鼠标中键', category: 'edge', iconType: 'edge_mclick' },
+  { key: 'edge_top_left', name: '屏幕上边缘 + 鼠标左键', category: 'edge', iconType: 'edge_lclick' },
+];
+
 export interface GestureMapping {
+  id?: string;
+  enabled?: boolean;
+  instantExecute?: boolean;
+  silentToast?: boolean;
   gestureCode: string;
   action: {
     type: number;
@@ -15,6 +41,12 @@ export interface GestureMapping {
     programPath?: string;
     programArgs?: string;
   };
+}
+
+export interface GestureProfileData {
+  name: string;
+  mappings: GestureMapping[];
+  triggerStates?: Record<string, TriggerState>;
 }
 
 export const ACTION_TYPE_KEYS = [

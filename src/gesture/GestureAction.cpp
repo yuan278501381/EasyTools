@@ -296,6 +296,10 @@ GestureAction GestureAction::fromJson(const nlohmann::json& j) {
 
 nlohmann::json GestureMapping::toJson() const {
     nlohmann::json j;
+    if (!id.empty()) j["id"] = id;
+    j["enabled"] = enabled;
+    j["instantExecute"] = instantExecute;
+    j["silentToast"] = silentToast;
     j["gestureCode"] = gestureCode;
     j["action"] = action.toJson();
     return j;
@@ -303,6 +307,10 @@ nlohmann::json GestureMapping::toJson() const {
 
 GestureMapping GestureMapping::fromJson(const nlohmann::json& j) {
     GestureMapping mapping;
+    mapping.id = j.value("id", "");
+    mapping.enabled = j.value("enabled", true);
+    mapping.instantExecute = j.value("instantExecute", false);
+    mapping.silentToast = j.value("silentToast", false);
     mapping.gestureCode = j.value("gestureCode", "");
     if (j.contains("action")) {
         mapping.action = GestureAction::fromJson(j["action"]);

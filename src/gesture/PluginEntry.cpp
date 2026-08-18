@@ -372,6 +372,56 @@ public:
             return {{"success", true}};
         });
 
+        mb.registerHandler("gesture.setTriggerState", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string profName = params.value("profile", "default");
+            std::string trigger = params.value("trigger", "");
+            std::string stateStr = params.value("state", "default");
+            if (trigger.empty()) return {{"success", false}, {"error", "trigger is required"}};
+
+            auto& engine = easy::gesture::GestureEngine::instance();
+            auto profile = engine.getProfile(profName);
+            if (!profile) profile = easy::gesture::GestureProfile(profName);
+
+            profile->setTriggerState(trigger, easy::gesture::triggerStateFromString(stateStr));
+            engine.setProfile(profName, *profile);
+            bool ok = engine.saveToConfig();
+            return {{"success", ok}};
+        });
+
+        mb.registerHandler("gesture.setTriggerBatch", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string profName = params.value("profile", "default");
+            std::string stateStr = params.value("state", "default");
+
+            auto& engine = easy::gesture::GestureEngine::instance();
+            auto profile = engine.getProfile(profName);
+            if (!profile) profile = easy::gesture::GestureProfile(profName);
+
+            profile->setAllTriggerStates(easy::gesture::triggerStateFromString(stateStr));
+            engine.setProfile(profName, *profile);
+            bool ok = engine.saveToConfig();
+            return {{"success", ok}};
+        });
+
+        mb.registerHandler("gesture.reorderMappings", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string profName = params.value("profile", "default");
+            auto& engine = easy::gesture::GestureEngine::instance();
+            auto profile = engine.getProfile(profName);
+            if (!profile) return {{"success", false}, {"error", "profile not found"}};
+
+            if (params.contains("fromIndex") && params.contains("toIndex")) {
+                size_t fromIdx = params["fromIndex"].get<size_t>();
+                size_t toIdx = params["toIndex"].get<size_t>();
+                profile->moveMapping(fromIdx, toIdx);
+            } else if (params.contains("orderedCodes") && params["orderedCodes"].is_array()) {
+                std::vector<std::string> codes = params["orderedCodes"].get<std::vector<std::string>>();
+                profile->reorderMappings(codes);
+            }
+
+            engine.setProfile(profName, *profile);
+            bool ok = engine.saveToConfig();
+            return {{"success", ok}};
+        });
+
         mb.registerHandler("gesture.setPaused", [](const nlohmann::json& params) -> nlohmann::json {
             bool paused = params.value("paused", false);
             const bool success = easy::gesture::GestureEngine::instance().setPaused(paused);

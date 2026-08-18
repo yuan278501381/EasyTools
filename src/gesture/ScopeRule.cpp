@@ -154,17 +154,29 @@ std::optional<std::string> ScopeRuleEngine::evaluate(HWND hwnd) const {
 
     auto info = getWindowInfo(hwnd);
 
-    // 按优先级排序: 句柄规则 > 类名规则 > 进程规则
+    // 按优先级排序: 特殊系统目标 (桌面/任务栏) > 句柄规则 > 类名规则 > 进程规则
     std::optional<std::string> result = "";
     bool matchedHigherPriority = false;
 
+    // 特殊目标 1: 桌面背景
+    if (easy::core::WinUtils::isDesktopWindow(hwnd)) {
+        result = "special_desktop";
+        matchedHigherPriority = true;
+    } else if (easy::core::WinUtils::isTaskbarWindow(hwnd)) {
+        // 特殊目标 2: 任务栏
+        result = "special_taskbar";
+        matchedHigherPriority = true;
+    }
+
     // 先检查句柄规则
-    for (const auto& rule : m_rules) {
-        if (rule.windowHandle != nullptr && rule.matches(hwnd, info.processName, info.className)) {
-            matchedHigherPriority = true;
-            if (rule.effect == RuleEffect::Disable) { result = std::nullopt; break; }
-            if (rule.effect == RuleEffect::UseProfile) { result = rule.profileName; break; }
-            break;
+    if (!matchedHigherPriority) {
+        for (const auto& rule : m_rules) {
+            if (rule.windowHandle != nullptr && rule.matches(hwnd, info.processName, info.className)) {
+                matchedHigherPriority = true;
+                if (rule.effect == RuleEffect::Disable) { result = std::nullopt; break; }
+                if (rule.effect == RuleEffect::UseProfile) { result = rule.profileName; break; }
+                break;
+            }
         }
     }
 

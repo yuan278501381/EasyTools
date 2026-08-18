@@ -10,6 +10,7 @@
 
 #include "gesture/GestureRecognizer.h"
 #include "gesture/GestureAction.h"
+#include "gesture/GestureProfile.h"
 #include "gesture/BuiltinCommands.h"
 #include "gesture/ScopeRule.h"
 #include "gesture/RadialMenuStyle.h"
@@ -247,16 +248,64 @@ static void test_gesture_actions_and_builtin_commands() {
     auto a2b = GestureAction::fromJson(j2);
     CHECK(a2b.builtinCmd == BuiltinCommand::MediaNext);
 
-    // 3. GestureMapping JSON 往返
+    // 3. GestureMapping 字段与 JSON 往返 (包含 id, enabled, instantExecute, silentToast)
     GestureMapping m1;
+    m1.id = "custom-m1";
+    m1.enabled = true;
+    m1.instantExecute = true;
+    m1.silentToast = true;
     m1.gestureCode = "D-R";
     m1.action = a1;
     auto jm1 = m1.toJson();
     auto m1b = GestureMapping::fromJson(jm1);
+    CHECK_EQ(m1b.id, "custom-m1");
+    CHECK(m1b.enabled);
+    CHECK(m1b.instantExecute);
+    CHECK(m1b.silentToast);
     CHECK_EQ(m1b.gestureCode, "D-R");
     CHECK_EQ(m1b.action.name, "关闭标签页");
 
-    // 4. BuiltinCommandDispatcher 应用级回调路由与媒体命令
+    // 4. GestureProfile 三态模型、单项开关与手势调序测试
+    GestureProfile prof("test_profile");
+    prof.addMapping(m1);
+
+    GestureMapping m2;
+    m2.id = "custom-m2";
+    m2.gestureCode = "L-U";
+    m2.action.name = "剪切";
+    prof.addMapping(m2);
+
+    CHECK(prof.findAction("D-R").has_value());
+    prof.setMappingEnabled("D-R", false);
+    CHECK(!prof.findAction("D-R").has_value()); // 禁用后 findAction 返回空
+    CHECK(prof.findMapping("D-R").has_value()); // 但 findMapping 仍能查到
+    prof.setMappingEnabled("D-R", true);
+    CHECK(prof.findAction("D-R").has_value());
+
+    // 调序与移动测试
+    CHECK(prof.moveMapping(0, 1));
+    CHECK_EQ(prof.getMappings()[0].gestureCode, "L-U");
+    CHECK_EQ(prof.getMappings()[1].gestureCode, "D-R");
+    prof.reorderMappings({"D-R", "L-U"});
+    CHECK_EQ(prof.getMappings()[0].gestureCode, "D-R");
+    CHECK_EQ(prof.getMappings()[1].gestureCode, "L-U");
+
+    // 触发方式三态测试
+    CHECK(prof.getTriggerState("right") == TriggerModeState::Default);
+    prof.setTriggerState("right", TriggerModeState::Disabled);
+    CHECK(prof.getTriggerState("right") == TriggerModeState::Disabled);
+    prof.setAllTriggerStates(TriggerModeState::Enabled);
+    CHECK(prof.getTriggerState("right") == TriggerModeState::Enabled);
+    CHECK(prof.getTriggerState("middle") == TriggerModeState::Enabled);
+
+    // Profile JSON 往返测试
+    auto profJson = prof.toJson();
+    auto profRestored = GestureProfile::fromJson(profJson);
+    CHECK_EQ(profRestored.name(), "test_profile");
+    CHECK(profRestored.getMappings().size() == 2);
+    CHECK(profRestored.getTriggerState("right") == TriggerModeState::Enabled);
+
+    // 5. BuiltinCommandDispatcher 应用级回调路由与媒体命令
     auto& dispatcher = BuiltinCommandDispatcher::instance();
     std::atomic<bool> screenshotCalled{false};
     dispatcher.registerHandler(BuiltinCommand::TakeScreenshot, [&screenshotCalled]() {

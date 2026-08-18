@@ -32,12 +32,99 @@ void GestureProfile::removeMapping(const std::string& gestureCode) {
     }
 }
 
+void GestureProfile::setMappingEnabled(const std::string& gestureCode, bool enabled) {
+    auto it = m_codeIndex.find(gestureCode);
+    if (it != m_codeIndex.end()) {
+        m_mappings[it->second].enabled = enabled;
+        LOG_DEBUG("设置手势状态: profile={}, code={}, enabled={}", m_name, gestureCode, enabled);
+    }
+}
+
 std::optional<GestureAction> GestureProfile::findAction(const std::string& gestureCode) const {
     auto it = m_codeIndex.find(gestureCode);
     if (it != m_codeIndex.end()) {
+        if (!m_mappings[it->second].enabled) {
+            LOG_DEBUG("手势已禁用，忽略动作: profile={}, code={}", m_name, gestureCode);
+            return std::nullopt;
+        }
         return m_mappings[it->second].action;
     }
     return std::nullopt;
+}
+
+std::optional<GestureMapping> GestureProfile::findMapping(const std::string& gestureCode) const {
+    auto it = m_codeIndex.find(gestureCode);
+    if (it != m_codeIndex.end()) {
+        return m_mappings[it->second];
+    }
+    return std::nullopt;
+}
+
+void GestureProfile::reorderMappings(const std::vector<std::string>& orderedCodes) {
+    std::vector<GestureMapping> newMappings;
+    newMappings.reserve(m_mappings.size());
+    std::unordered_set<std::string> placed;
+
+    for (const auto& code : orderedCodes) {
+        if (auto it = m_codeIndex.find(code); it != m_codeIndex.end()) {
+            newMappings.push_back(m_mappings[it->second]);
+            placed.insert(code);
+        }
+    }
+
+    // 保留未在 orderedCodes 中的已有映射
+    for (const auto& m : m_mappings) {
+        if (!placed.contains(m.gestureCode)) {
+            newMappings.push_back(m);
+        }
+    }
+
+    m_mappings = std::move(newMappings);
+    rebuildIndex();
+}
+
+bool GestureProfile::moveMapping(size_t fromIndex, size_t toIndex) {
+    if (fromIndex >= m_mappings.size() || toIndex >= m_mappings.size() || fromIndex == toIndex) {
+        return false;
+    }
+    auto item = m_mappings[fromIndex];
+    m_mappings.erase(m_mappings.begin() + static_cast<ptrdiff_t>(fromIndex));
+    m_mappings.insert(m_mappings.begin() + static_cast<ptrdiff_t>(toIndex), item);
+    rebuildIndex();
+    return true;
+}
+
+TriggerModeState GestureProfile::getTriggerState(const std::string& triggerKey) const {
+    if (auto it = m_triggerStates.find(triggerKey); it != m_triggerStates.end()) {
+        return it->second;
+    }
+    return TriggerModeState::Default;
+}
+
+void GestureProfile::setTriggerState(const std::string& triggerKey, TriggerModeState state) {
+    if (state == TriggerModeState::Default) {
+        m_triggerStates.erase(triggerKey);
+    } else {
+        m_triggerStates[triggerKey] = state;
+    }
+    LOG_DEBUG("设置触发方式状态: profile={}, trigger={}, state={}",
+              m_name, triggerKey, triggerStateToString(state));
+}
+
+void GestureProfile::setAllTriggerStates(TriggerModeState state) {
+    static const std::vector<std::string> kKnownTriggers = {
+        "right", "middle", "left", "xbutton1", "xbutton2",
+        "edge_top_slide", "edge_top_wheel", "edge_top_right", "edge_top_middle", "edge_top_left"
+    };
+
+    if (state == TriggerModeState::Default) {
+        m_triggerStates.clear();
+    } else {
+        for (const auto& key : kKnownTriggers) {
+            m_triggerStates[key] = state;
+        }
+    }
+    LOG_INFO("批量设置触发方式: profile={}, state={}", m_name, triggerStateToString(state));
 }
 
 bool GestureProfile::hasGesture(const std::string& gestureCode) const {
@@ -149,6 +236,11 @@ nlohmann::json GestureProfile::toJson() const {
     for (const auto& mapping : m_mappings) {
         j["mappings"].push_back(mapping.toJson());
     }
+
+    j["triggerStates"] = nlohmann::json::object();
+    for (const auto& [key, state] : m_triggerStates) {
+        j["triggerStates"][key] = triggerStateToString(state);
+    }
     return j;
 }
 
@@ -157,6 +249,14 @@ GestureProfile GestureProfile::fromJson(const nlohmann::json& j) {
     if (j.contains("mappings") && j["mappings"].is_array()) {
         for (const auto& item : j["mappings"]) {
             profile.addMapping(GestureMapping::fromJson(item));
+        }
+    }
+
+    if (j.contains("triggerStates") && j["triggerStates"].is_object()) {
+        for (const auto& [key, val] : j["triggerStates"].items()) {
+            if (val.is_string()) {
+                profile.setTriggerState(key, triggerStateFromString(val.get<std::string>()));
+            }
         }
     }
     return profile;

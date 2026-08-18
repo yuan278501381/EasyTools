@@ -21,6 +21,12 @@ import {
   codeToArrows,
 } from './gestureModel';
 
+let gMappingCounter = 0;
+function generateMappingId(code: string): string {
+  gMappingCounter = (gMappingCounter + 1) % 1000000;
+  return `gm_${code.replace(/[^a-zA-Z0-9]/g, '_')}_${gMappingCounter}`;
+}
+
 function emptyMapping(): GestureMapping {
   return { gestureCode: '', action: { type: 0, name: '', keyStroke: '' } };
 }
@@ -82,7 +88,14 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
       action.programPath = draft.action.programPath ?? '';
       action.programArgs = draft.action.programArgs ?? '';
     }
-    onSave({ gestureCode: code, action });
+    onSave({
+      id: draft.id || generateMappingId(code),
+      enabled: draft.enabled ?? true,
+      instantExecute: draft.instantExecute ?? false,
+      silentToast: draft.silentToast ?? false,
+      gestureCode: code,
+      action,
+    });
   };
 
   return (
@@ -180,6 +193,28 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, onSave, 
           </Field>
         </>
       )}
+
+      <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+          <input
+            type="checkbox"
+            checked={draft.instantExecute ?? false}
+            onChange={(e) => setDraft((d) => ({ ...d, instantExecute: e.target.checked }))}
+            style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+          />
+          <span>⚡ 识别手势时立即执行 (无需等待松开按键)</span>
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+          <input
+            type="checkbox"
+            checked={draft.silentToast ?? false}
+            onChange={(e) => setDraft((d) => ({ ...d, silentToast: e.target.checked }))}
+            style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+          />
+          <span>🔕 执行时不显示手势名称提示 (静默模式)</span>
+        </label>
+      </div>
     </Modal>
   );
 };

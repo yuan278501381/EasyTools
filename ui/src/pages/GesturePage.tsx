@@ -1,11 +1,12 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * GesturePage — 鼠标手势设置页 (WGesture 2 风格 Master-Detail 作用目标架构)
+ * GesturePage — 鼠标手势设置页 (WGestures 2 风格 Master-Detail 架构)
  *
  * 功能:
  *   - 左侧作用目标树: 全局 / 禁用免打扰组 / 应用程序 / 特殊目标(桌面/任务栏)
- *   - 右侧专属手势与触发管理: 支持独立配置、覆盖全局、禁用响应
+ *   - 右上触发管控: 允许的触发方式三态模型 (启用 / 禁用 / 默认继承) + 批量操作
+ *   - 右下手势列表: 手势单项启用/禁用、上下调序、删除、即时执行/静默提示
  *   - 轮盘菜单 (RadialMenu) 配置
- *   - 全局开关 / 轨迹显示 / 触发按钮 / 游戏免打扰
+ *   - 全局开关 / 轨迹流光显示 / 游戏全屏免打扰
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, type FC } from 'react';
@@ -26,7 +27,10 @@ import {
   codeToArrows,
   ACTION_TYPE_KEYS,
   BUILTIN_COMMAND_KEYS,
+  TRIGGER_ITEM_DEFINITIONS,
   type GestureMapping,
+  type GestureProfileData,
+  type TriggerState,
 } from '../components/gestureModel';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
@@ -50,6 +54,12 @@ import {
   AppWindow,
   Sparkles,
   Palette,
+  Search,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+  Zap,
+  VolumeX,
 } from 'lucide-react';
 import './GesturePage.css';
 
@@ -83,13 +93,13 @@ interface OperationResult {
   error?: string;
 }
 
-interface GestureProfileData {
-  name: string;
-  mappings: GestureMapping[];
-}
-
 export const GesturePage: FC = () => {
   const { t } = useTranslation();
+  // 类型安全的 i18n 辅助函数，避免 TS2345 严格类型与 eslint no-explicit-any 冲突
+  const tr = useCallback((key: string, options?: Record<string, unknown>): string => {
+    return (t as (k: string, opts?: Record<string, unknown>) => string)(key, options);
+  }, [t]);
+
   const [enabled, setEnabled] = useState(true);
   const [trailVisible, setTrailVisible] = useState(true);
   const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(false);
@@ -99,7 +109,9 @@ export const GesturePage: FC = () => {
   const [trailWidth, setTrailWidth] = useState(4.0);
   
   // Profiles & Rules
-  const [profiles, setProfiles] = useState<Record<string, GestureMapping[]>>({ default: [] });
+  const [profiles, setProfiles] = useState<Record<string, GestureProfileData>>({
+    default: { name: 'default', mappings: [], triggerStates: {} }
+  });
   const [rules, setRules] = useState<ScopeRule[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<ScopeTargetItem>({
     id: 'global',
@@ -108,6 +120,7 @@ export const GesturePage: FC = () => {
     kind: 'global',
   });
 
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [radialItems, setRadialItems] = useState<RadialMenuItem[]>([]);
@@ -126,10 +139,10 @@ export const GesturePage: FC = () => {
   const actionDetail = (action: GestureMapping['action']): string => {
     switch (action.type) {
       case 0: return action.keyStroke ?? '';
-      case 1: return '';
+      case 1: return action.luaScript ? 'Lua 脚本' : '';
       case 2: {
         const key = BUILTIN_COMMAND_KEYS[action.builtinCmd ?? 0];
-        return key ? t(key) : '';
+        return key ? tr(key) : '';
       }
       case 3: return action.programPath ?? '';
       default: return '';
@@ -160,13 +173,17 @@ export const GesturePage: FC = () => {
         setTrailColor(state.trailColor ?? '#8B5CF6');
         setTrailWidth(state.trailWidth ?? 4.0);
 
-        const pMap: Record<string, GestureMapping[]> = {};
+        const pMap: Record<string, GestureProfileData> = {};
         if (Array.isArray(profileList)) {
           profileList.forEach((p) => {
-            pMap[p.name] = Array.isArray(p.mappings) ? p.mappings : [];
+            pMap[p.name] = {
+              name: p.name,
+              mappings: Array.isArray(p.mappings) ? p.mappings : [],
+              triggerStates: p.triggerStates ?? {},
+            };
           });
         }
-        if (!pMap.default) pMap.default = [];
+        if (!pMap.default) pMap.default = { name: 'default', mappings: [], triggerStates: {} };
         setProfiles(pMap);
 
         const rList = Array.isArray(ruleList) ? ruleList : [];
@@ -182,14 +199,14 @@ export const GesturePage: FC = () => {
       .catch((err) => {
         if (!isMounted) return;
         console.error('Failed to load gesture config:', err);
-        toast.error(t('gesture.loadFailed'));
+        toast.error(tr('gesture.loadFailed'));
         setLoading(false);
       });
 
     return () => {
       isMounted = false;
     };
-  }, [t]);
+  }, [tr]);
 
   // ── 获取当前选中 Target 对应的 Profile 名称 ────────────────────────────────
   const getCurrentProfileName = useCallback((): string => {
@@ -203,28 +220,101 @@ export const GesturePage: FC = () => {
   }, [selectedTarget]);
 
   const currentProfileName = getCurrentProfileName();
-  const currentMappings: GestureMapping[] = profiles[currentProfileName] ?? (
-    selectedTarget.kind === 'global' ? [] : (profiles.default ?? [])
+  const currentProfile = profiles[currentProfileName] ?? (
+    selectedTarget.kind === 'global' ? { name: 'default', mappings: [], triggerStates: {} } : (profiles.default ?? { name: 'default', mappings: [], triggerStates: {} })
   );
+  const currentMappings: GestureMapping[] = currentProfile.mappings ?? [];
+  const currentTriggerStates: Record<string, TriggerState> = currentProfile.triggerStates ?? {};
 
   // ── 持久化当前 Profile 的手势映射 ──────────────────────────────────────────
   const persistMappings = useCallback(async (nextMappings: GestureMapping[]) => {
     const profName = getCurrentProfileName();
-    const prevMap = profiles[profName];
-    setProfiles((prev) => ({ ...prev, [profName]: nextMappings }));
+    const prevProf = profiles[profName] ?? { name: profName, mappings: [], triggerStates: {} };
+    const updatedProf: GestureProfileData = { ...prevProf, mappings: nextMappings };
+    setProfiles((prev) => ({ ...prev, [profName]: updatedProf }));
 
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateProfile', {
         name: profName,
         mappings: nextMappings,
+        triggerStates: updatedProf.triggerStates ?? {},
       });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       console.error('Failed to save gesture profile:', err);
-      setProfiles((prev) => ({ ...prev, [profName]: prevMap ?? [] }));
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      setProfiles((prev) => ({ ...prev, [profName]: prevProf }));
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
-  }, [getCurrentProfileName, profiles, t]);
+  }, [getCurrentProfileName, profiles, tr]);
+
+  // ── 触发方式状态管控 ────────────────────────────────────────────────────────
+  const getTriggerState = (key: string): TriggerState => {
+    return currentTriggerStates[key] || 'default';
+  };
+
+  const handleSetTriggerState = async (triggerKey: string, nextState: TriggerState) => {
+    const profName = getCurrentProfileName();
+    const nextStates = { ...currentTriggerStates, [triggerKey]: nextState };
+    const updatedProf: GestureProfileData = {
+      ...(profiles[profName] ?? { name: profName, mappings: [] }),
+      triggerStates: nextStates,
+    };
+    setProfiles((prev) => ({ ...prev, [profName]: updatedProf }));
+
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.setTriggerState', {
+        profile: profName,
+        trigger: triggerKey,
+        state: nextState,
+      });
+      if (!result.success) throw new Error(result.error || 'Failed to update trigger state');
+    } catch (err) {
+      console.error('Failed to set trigger state:', err);
+      toast.error('修改触发方式失败', { description: String(err) });
+    }
+  };
+
+  const handleSetAllTriggers = async (state: TriggerState) => {
+    const profName = getCurrentProfileName();
+    const nextStates: Record<string, TriggerState> = {};
+    TRIGGER_ITEM_DEFINITIONS.forEach((def) => {
+      if (state !== 'default') nextStates[def.key] = state;
+    });
+    const updatedProf: GestureProfileData = {
+      ...(profiles[profName] ?? { name: profName, mappings: [] }),
+      triggerStates: nextStates,
+    };
+    setProfiles((prev) => ({ ...prev, [profName]: updatedProf }));
+
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.setTriggerBatch', {
+        profile: profName,
+        state: state,
+      });
+      if (!result.success) throw new Error(result.error || 'Failed to batch update triggers');
+      const label = state === 'enabled' ? '全部启用' : state === 'disabled' ? '全部禁用' : '全部默认';
+      toast.success(`已将此目标触发方式设置为「${label}」`);
+    } catch (err) {
+      console.error('Failed to batch set triggers:', err);
+      toast.error('批量设置触发方式失败', { description: String(err) });
+    }
+  };
+
+  // ── 手势调序与单项开关 ──────────────────────────────────────────────────────
+  const handleMoveMapping = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= currentMappings.length) return;
+    const nextList = [...currentMappings];
+    [nextList[index], nextList[target]] = [nextList[target], nextList[index]];
+    await persistMappings(nextList);
+  };
+
+  const handleToggleMappingEnabled = async (index: number) => {
+    const nextList = [...currentMappings];
+    const item = nextList[index];
+    nextList[index] = { ...item, enabled: !(item.enabled ?? true) };
+    await persistMappings(nextList);
+  };
 
   // ── 持久化 ScopeRules ───────────────────────────────────────────────────────
   const persistRules = useCallback(async (nextRules: ScopeRule[]) => {
@@ -257,11 +347,11 @@ export const GesturePage: FC = () => {
     const nextRules = [...rules, newRule];
     void persistRules(nextRules);
 
-    // 如果是自定义手势，初始化该 profile (继承当前 default 手势)
+    // 如果是自定义手势，初始化该 profile
     if (res.effect === 2 && profName && !profiles[profName]) {
-      const initialMappings = profiles.default ? structuredClone(profiles.default) : [];
-      setProfiles((p) => ({ ...p, [profName]: initialMappings }));
-      void bridgeRequest('gesture.updateProfile', { name: profName, mappings: initialMappings });
+      const initialMappings = profiles.default?.mappings ? structuredClone(profiles.default.mappings) : [];
+      setProfiles((p) => ({ ...p, [profName]: { name: profName, mappings: initialMappings, triggerStates: {} } }));
+      void bridgeRequest('gesture.updateProfile', { name: profName, mappings: initialMappings, triggerStates: {} });
     }
 
     setAppPickerOpen(false);
@@ -312,11 +402,10 @@ export const GesturePage: FC = () => {
 
     void persistRules(nextRules);
 
-    // 如果切换为自定义手势且 Profile 尚不存在，则复制全局手势
     if (newEffect === 2 && profName && !profiles[profName]) {
-      const initMaps = profiles.default ? structuredClone(profiles.default) : [];
-      setProfiles((p) => ({ ...p, [profName]: initMaps }));
-      void bridgeRequest('gesture.updateProfile', { name: profName, mappings: initMaps });
+      const initMaps = profiles.default?.mappings ? structuredClone(profiles.default.mappings) : [];
+      setProfiles((p) => ({ ...p, [profName]: { name: profName, mappings: initMaps, triggerStates: {} } }));
+      void bridgeRequest('gesture.updateProfile', { name: profName, mappings: initMaps, triggerStates: {} });
     }
 
     const updatedRule = nextRules.find((r) => r.id === ruleId);
@@ -352,9 +441,11 @@ export const GesturePage: FC = () => {
     setEditorOpen(false);
   };
 
-  const handleDeleteMapping = (m: GestureMapping) => {
-    if (!window.confirm(t('gesture.deleteConfirm', { name: m.action.name, code: m.gestureCode }))) return;
-    void persistMappings(currentMappings.filter((x) => x.gestureCode !== m.gestureCode));
+  const handleDeleteMapping = (index: number) => {
+    const m = currentMappings[index];
+    if (!m) return;
+    if (!window.confirm(tr('gesture.deleteConfirm', { name: m.action.name, code: m.gestureCode }))) return;
+    void persistMappings(currentMappings.filter((_, i) => i !== index));
   };
 
   // ── 触发与全局配置变更 ──────────────────────────────────────────────────────
@@ -362,11 +453,11 @@ export const GesturePage: FC = () => {
     setEnabled(checked);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.setPaused', { paused: !checked });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       setEnabled(!checked);
       console.error('Failed to update gesture enabled state:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -374,11 +465,11 @@ export const GesturePage: FC = () => {
     setTrailVisible(checked);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailVisible: checked });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       setTrailVisible(!checked);
       console.error('Failed to update gesture trail state:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -386,10 +477,10 @@ export const GesturePage: FC = () => {
     setTrailColorMode(mode);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailColorMode: mode });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       console.error('Failed to update trail color mode:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -397,10 +488,10 @@ export const GesturePage: FC = () => {
     setTrailColor(color);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailColor: color });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       console.error('Failed to update trail color:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -409,10 +500,10 @@ export const GesturePage: FC = () => {
     setTrailWidth(w);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailWidth: w });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       console.error('Failed to update trail width:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -420,11 +511,11 @@ export const GesturePage: FC = () => {
     setAutoBypassFullscreen(checked);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { autoBypassFullscreen: checked });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       setAutoBypassFullscreen(!checked);
       console.error('Failed to update gesture autoBypassFullscreen state:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -433,11 +524,11 @@ export const GesturePage: FC = () => {
     setTriggerButton(value);
     try {
       const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { triggerButton: value });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
       setTriggerButton(previous);
       console.error('Failed to update gesture trigger button:', err);
-      toast.error(t('gesture.saveFailed'), { description: String(err) });
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
 
@@ -476,7 +567,7 @@ export const GesturePage: FC = () => {
     if (radialItems.length >= 8) return;
     setRadialItems((items) => [
       ...items,
-      { label: t('gesture.radialDefaultLabel', { count: items.length + 1 }), command: '10' },
+      { label: tr('gesture.radialDefaultLabel', { count: items.length + 1 }), command: '10' },
     ]);
     setRadialDirty(true);
   };
@@ -484,28 +575,39 @@ export const GesturePage: FC = () => {
   const saveRadialItems = async () => {
     const normalized = radialItems.map((item) => ({ ...item, label: item.label.trim() }));
     if (normalized.some((item) => !item.label)) {
-      toast.error(t('gesture.radialLabelRequired'));
+      toast.error(tr('gesture.radialLabelRequired'));
       return;
     }
     setRadialSaving(true);
     try {
       const result = await bridgeRequest<OperationResult>('radialmenu.updateItems', { items: normalized });
-      if (!result.success) throw new Error(result.error || t('gesture.saveFailed'));
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
       setRadialItems(normalized);
       setRadialDirty(false);
-      toast.success(t('gesture.radialSaved'));
+      toast.success(tr('gesture.radialSaved'));
     } catch (error) {
-      toast.error(t('gesture.saveFailed'), { description: String(error) });
+      toast.error(tr('gesture.saveFailed'), { description: String(error) });
     } finally {
       setRadialSaving(false);
     }
   };
 
+  const filteredMappings = currentMappings.filter((m) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      m.gestureCode.toLowerCase().includes(q) ||
+      m.action.name.toLowerCase().includes(q) ||
+      (m.action.keyStroke || '').toLowerCase().includes(q) ||
+      (m.action.description || '').toLowerCase().includes(q)
+    );
+  });
+
   if (loading) {
     return (
       <div className="page-loading">
         <div className="page-loading__spinner" />
-        <span>{t('common.loading')}</span>
+        <span>{tr('common.loading')}</span>
       </div>
     );
   }
@@ -524,11 +626,11 @@ export const GesturePage: FC = () => {
   return (
     <div className="gesture-page" style={{ animation: 'fadeIn 0.3s ease', paddingBottom: '2.5rem' }}>
       {/* ── 顶部全局开关与触发设置 ──────────────────────────────────── */}
-      <SettingGroup title={t('gesture.title')} icon={<MousePointer2 size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={tr('gesture.title')} icon={<MousePointer2 size={20} strokeWidth={2.5} />}>
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
-            <span className="gesture-status__text">{enabled ? t('gesture.statusRunning') : t('gesture.statusPaused')}</span>
+            <span className="gesture-status__text">{enabled ? tr('gesture.statusRunning') : tr('gesture.statusPaused')}</span>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <kbd className="gesture-status__hotkey">{pauseHotkey}</kbd>
               <HotkeyStatusBadge entry={getHotkey('Pause Gestures')} />
@@ -536,21 +638,21 @@ export const GesturePage: FC = () => {
           </div>
           <Toggle
             id="gesture-enabled"
-            label={t('gesture.enabled')}
-            description={t('gesture.enabledDesc')}
+            label={tr('gesture.enabled')}
+            description={tr('gesture.enabledDesc')}
             checked={enabled}
             onChange={handleToggleEnabled}
           />
           <Toggle
             id="gesture-trail"
-            label={t('gesture.showTrail')}
-            description={t('gesture.showTrailDesc')}
+            label={tr('gesture.showTrail')}
+            description={tr('gesture.showTrailDesc')}
             checked={trailVisible}
             onChange={handleToggleTrail}
           />
           {trailVisible && (
             <div className="gesture-trail-subgroup">
-              <SettingRow label={t('gesture.trailColorMode')} description={t('gesture.trailColorModeDesc')}>
+              <SettingRow label={tr('gesture.trailColorMode')} description={tr('gesture.trailColorModeDesc')}>
                 <div className="gesture-trail-mode-segmented">
                   <button
                     type="button"
@@ -558,7 +660,7 @@ export const GesturePage: FC = () => {
                     onClick={() => void handleToggleTrailColorMode('auto')}
                   >
                     <Sparkles size={14} />
-                    <span>{t('gesture.trailColorAuto')}</span>
+                    <span>{tr('gesture.trailColorAuto')}</span>
                   </button>
                   <button
                     type="button"
@@ -566,13 +668,13 @@ export const GesturePage: FC = () => {
                     onClick={() => void handleToggleTrailColorMode('custom')}
                   >
                     <Palette size={14} />
-                    <span>{t('gesture.trailColorCustom')}</span>
+                    <span>{tr('gesture.trailColorCustom')}</span>
                   </button>
                 </div>
               </SettingRow>
 
               {trailColorMode === 'custom' && (
-                <SettingRow label={t('gesture.trailCustomColor')} description={t('gesture.trailCustomColorDesc')}>
+                <SettingRow label={tr('gesture.trailCustomColor')} description={tr('gesture.trailCustomColorDesc')}>
                   <div className="gesture-color-picker-row">
                     <div className="gesture-color-swatches">
                       {TRAIL_COLOR_PRESETS.map((preset) => (
@@ -599,15 +701,15 @@ export const GesturePage: FC = () => {
                 </SettingRow>
               )}
 
-              <SettingRow label={t('gesture.trailWidth')} description={t('gesture.trailWidthDesc')}>
+              <SettingRow label={tr('gesture.trailWidth')} description={tr('gesture.trailWidthDesc')}>
                 <Select
                   id="gesture-trail-width"
                   value={String(trailWidth)}
                   onChange={handleTrailWidthChange}
                   options={[
-                    { value: '2.5', label: t('gesture.trailWidthFine') },
-                    { value: '4', label: t('gesture.trailWidthStandard') },
-                    { value: '6', label: t('gesture.trailWidthBold') },
+                    { value: '2.5', label: tr('gesture.trailWidthFine') },
+                    { value: '4', label: tr('gesture.trailWidthStandard') },
+                    { value: '6', label: tr('gesture.trailWidthBold') },
                   ]}
                 />
               </SettingRow>
@@ -616,7 +718,6 @@ export const GesturePage: FC = () => {
               <div className="gesture-trail-preview-card">
                 <div className="gesture-trail-preview-label">轨迹流光渲染预览</div>
                 <svg className="gesture-trail-preview-svg" viewBox="0 0 400 50" preserveAspectRatio="none">
-                  {/* 外层霓虹光晕 */}
                   <path
                     d="M 20 25 Q 110 5, 200 25 T 370 25"
                     fill="none"
@@ -625,7 +726,6 @@ export const GesturePage: FC = () => {
                     strokeOpacity="0.30"
                     strokeLinecap="round"
                   />
-                  {/* 核心流光曲线 */}
                   <path
                     d="M 20 25 Q 110 5, 200 25 T 370 25"
                     fill="none"
@@ -634,7 +734,6 @@ export const GesturePage: FC = () => {
                     strokeOpacity="0.95"
                     strokeLinecap="round"
                   />
-                  {/* 头部发光粒子 */}
                   <circle
                     cx="370"
                     cy="25"
@@ -662,25 +761,25 @@ export const GesturePage: FC = () => {
           )}
           <Toggle
             id="gesture-bypass-fullscreen"
-            label={t('gesture.autoBypassFullscreen')}
-            description={t('gesture.autoBypassFullscreenDesc')}
+            label={tr('gesture.autoBypassFullscreen')}
+            description={tr('gesture.autoBypassFullscreenDesc')}
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
           />
-          <SettingRow label={t('gesture.triggerButton')} description={t('gesture.triggerButtonDesc')}>
+          <SettingRow label={tr('gesture.triggerButton')} description={tr('gesture.triggerButtonDesc')}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '380px' }}>
               <Select
                 id="gesture-trigger"
                 value={triggerButton}
                 onChange={handleTriggerChange}
                 options={[
-                  { value: 'both', label: t('gesture.btnBoth') },
-                  { value: 'right', label: t('gesture.btnRight') },
-                  { value: 'middle', label: t('gesture.btnMiddle') },
+                  { value: 'both', label: tr('gesture.btnBoth') },
+                  { value: 'right', label: tr('gesture.btnRight') },
+                  { value: 'middle', label: tr('gesture.btnMiddle') },
                 ]}
               />
               <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                {t('gesture.triggerAdaptiveHint')}
+                {tr('gesture.triggerAdaptiveHint')}
               </div>
             </div>
           </SettingRow>
@@ -689,7 +788,7 @@ export const GesturePage: FC = () => {
         </Card>
       </SettingGroup>
 
-      {/* ── WGesture 2 风格作用目标与专属手势配置 (Master-Detail) ─────── */}
+      {/* ── WGestures 2 风格作用目标与手势管理 (Master-Detail) ─────── */}
       <SettingGroup title="作用目标与手势配置" icon={<Hand size={20} strokeWidth={2.5} />}>
         <div className="gesture-master-detail-layout">
           {/* 左侧目标导航树 */}
@@ -713,7 +812,7 @@ export const GesturePage: FC = () => {
                 <div className="target-header-texts">
                   <span className="target-header-title">{selectedTarget.title}</span>
                   <span className="target-header-sub">
-                    {selectedTarget.kind === 'global' ? '全局通用手势映射' : (selectedTarget.subtitle || '专属手势规则')}
+                    {selectedTarget.kind === 'global' ? '全局通用手势与触发方式' : (selectedTarget.subtitle || '专属手势规则')}
                   </span>
                 </div>
               </div>
@@ -756,83 +855,270 @@ export const GesturePage: FC = () => {
                 </Button>
               </div>
             ) : (
-              /* 否则展示手势映射列表卡片 */
-              <Card>
-                <div className="gesture-toolbar">
-                  <span className="gesture-toolbar__count">
-                    {selectedTarget.kind === 'global' ? '全局手势表' : `「${selectedTarget.title}」专属手势`}
-                    {' '}({currentMappings.length})
-                  </span>
-                  <Button size="sm" variant="primary" onClick={openAddMapping}>
-                    <Plus size={14} />
-                    <span>{t('gesture.addMapping')}</span>
-                  </Button>
-                </div>
-
-                <div className="gesture-table">
-                  <div className="gesture-table__header">
-                    <span className="gesture-table__col gesture-table__col--arrow">{t('gesture.colGesture')}</span>
-                    <span className="gesture-table__col gesture-table__col--code">{t('gesture.colCode')}</span>
-                    <span className="gesture-table__col gesture-table__col--action">{t('gesture.colAction')}</span>
-                    <span className="gesture-table__col gesture-table__col--type">{t('gesture.colType')}</span>
-                    <span className="gesture-table__col gesture-table__col--key">{t('gesture.colDetail')}</span>
-                    <span className="gesture-table__col gesture-table__col--actions" />
-                  </div>
-
-                  {currentMappings.length === 0 && (
-                    <div className="gesture-empty">{t('gesture.emptyMapping')}</div>
-                  )}
-
-                  {currentMappings.map((m, i) => (
-                    <div key={m.gestureCode} className="gesture-table__row" style={{ animationDelay: `${i * 30}ms` }}>
-                      <span className="gesture-table__col gesture-table__col--arrow">
-                        <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
-                      </span>
-                      <span className="gesture-table__col gesture-table__col--code">
-                        <code>{m.gestureCode}</code>
-                      </span>
-                      <span className="gesture-table__col gesture-table__col--action">{m.action.name}</span>
-                      <span className="gesture-table__col gesture-table__col--type">
-                        <Badge
-                          text={ACTION_TYPE_KEYS[m.action.type] ? t(ACTION_TYPE_KEYS[m.action.type]) : t('common.unknown')}
-                          variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
-                        />
-                      </span>
-                      <span className="gesture-table__col gesture-table__col--key">
-                        {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
-                      </span>
-                      <span className="gesture-table__col gesture-table__col--actions">
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <button className="gesture-icon-btn" title={t('common.edit')} onClick={() => openEditMapping(m)}>
-                            <Edit3 size={16} />
-                          </button>
-                          <button
-                            className="gesture-icon-btn"
-                            title={t('common.delete')}
-                            onClick={() => handleDeleteMapping(m)}
-                            style={{ color: 'var(--error, #ef4444)' }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+              <>
+                {/* ── 允许的触发方式 (Three-State Inheritance & Batch Controls) ── */}
+                <Card>
+                  <div className="trigger-modes-header">
+                    <div className="trigger-modes-header__texts">
+                      <span className="trigger-modes-header__title">允许的触发方式</span>
+                      <span className="trigger-modes-header__desc">
+                        {selectedTarget.kind === 'global'
+                          ? '设置全局生效的鼠标与边缘触发方式'
+                          : '可按目标独立覆盖启用、禁用或继承全局默认'}
                       </span>
                     </div>
-                  ))}
-                </div>
-              </Card>
+
+                    <div className="trigger-modes-batch-actions">
+                      <button
+                        type="button"
+                        className="trigger-batch-btn"
+                        onClick={() => void handleSetAllTriggers('enabled')}
+                      >
+                        全部启用
+                      </button>
+                      <button
+                        type="button"
+                        className="trigger-batch-btn"
+                        onClick={() => void handleSetAllTriggers('disabled')}
+                      >
+                        全部禁用
+                      </button>
+                      {selectedTarget.kind !== 'global' && (
+                        <button
+                          type="button"
+                          className="trigger-batch-btn"
+                          onClick={() => void handleSetAllTriggers('default')}
+                        >
+                          全部默认
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="trigger-modes-grid">
+                    {TRIGGER_ITEM_DEFINITIONS.map((item) => {
+                      const st = getTriggerState(item.key);
+                      return (
+                        <div key={item.key} className={`trigger-item-card trigger-item-card--${st}`}>
+                          <div className="trigger-item-info">
+                            <span className="trigger-item-name">{item.name}</span>
+                            <span className="trigger-item-cat">
+                              {item.category === 'mouse' ? '按键轨迹' : '屏幕边缘'}
+                            </span>
+                          </div>
+
+                          <div className="trigger-item-tri-segmented">
+                            <button
+                              type="button"
+                              className={`tri-btn tri-btn--enabled ${st === 'enabled' ? 'active' : ''}`}
+                              title="启用此触发方式"
+                              onClick={() => void handleSetTriggerState(item.key, 'enabled')}
+                            >
+                              <CheckCircle2 size={12} />
+                              <span>启用</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={`tri-btn tri-btn--disabled ${st === 'disabled' ? 'active' : ''}`}
+                              title="禁用此触发方式"
+                              onClick={() => void handleSetTriggerState(item.key, 'disabled')}
+                            >
+                              <XCircle size={12} />
+                              <span>禁用</span>
+                            </button>
+                            {selectedTarget.kind !== 'global' && (
+                              <button
+                                type="button"
+                                className={`tri-btn tri-btn--default ${st === 'default' ? 'active' : ''}`}
+                                title="继承全局设置"
+                                onClick={() => void handleSetTriggerState(item.key, 'default')}
+                              >
+                                <HelpCircle size={12} />
+                                <span>默认</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+
+                {/* ── 手势映射表 (手势列表 + 单项开关 + 调序 + 过滤 + CRUD) ── */}
+                <Card>
+                  <div className="gesture-toolbar">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                      <span className="gesture-toolbar__count">
+                        {selectedTarget.kind === 'global' ? '全局手势表' : `「${selectedTarget.title}」专属手势`}
+                        {' '}({filteredMappings.length}/{currentMappings.length})
+                      </span>
+                      <div className="gesture-search-box">
+                        <Search size={13} className="gesture-search-icon" />
+                        <input
+                          type="text"
+                          className="gesture-search-input"
+                          placeholder="过滤手势或动作名称..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <Button size="sm" variant="primary" onClick={openAddMapping}>
+                      <Plus size={14} />
+                      <span>{tr('gesture.addMapping')}</span>
+                    </Button>
+                  </div>
+
+                  <div className="gesture-table">
+                    <div className="gesture-table__header">
+                      <span className="gesture-table__col gesture-table__col--reorder">排序</span>
+                      <span className="gesture-table__col gesture-table__col--switch">启用</span>
+                      <span className="gesture-table__col gesture-table__col--arrow">{tr('gesture.colGesture')}</span>
+                      <span className="gesture-table__col gesture-table__col--code">{tr('gesture.colCode')}</span>
+                      <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
+                      <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
+                      <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
+                      <span className="gesture-table__col gesture-table__col--flags">执行特性</span>
+                      <span className="gesture-table__col gesture-table__col--actions" />
+                    </div>
+
+                    {filteredMappings.length === 0 && (
+                      <div className="gesture-empty">
+                        {searchQuery ? '未找到符合条件的手势' : tr('gesture.emptyMapping')}
+                      </div>
+                    )}
+
+                    {filteredMappings.map((m, i) => {
+                      const actualIdx = currentMappings.findIndex((x) => x.gestureCode === m.gestureCode);
+                      const isEnabled = m.enabled ?? true;
+                      return (
+                        <div
+                          key={m.gestureCode}
+                          className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''}`}
+                          style={{ animationDelay: `${i * 20}ms` }}
+                        >
+                          {/* 上下调序按钮 */}
+                          <span className="gesture-table__col gesture-table__col--reorder">
+                            <div className="gesture-reorder-btns">
+                              <button
+                                type="button"
+                                className="gesture-reorder-btn"
+                                disabled={actualIdx <= 0}
+                                title="上移 (提升匹配优先级)"
+                                onClick={() => void handleMoveMapping(actualIdx, -1)}
+                              >
+                                <ArrowUp size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="gesture-reorder-btn"
+                                disabled={actualIdx >= currentMappings.length - 1}
+                                title="下移 (降低匹配优先级)"
+                                onClick={() => void handleMoveMapping(actualIdx, 1)}
+                              >
+                                <ArrowDown size={12} />
+                              </button>
+                            </div>
+                          </span>
+
+                          {/* 单项启用/禁用 Switch */}
+                          <span className="gesture-table__col gesture-table__col--switch">
+                            <input
+                              type="checkbox"
+                              className="gesture-item-switch"
+                              checked={isEnabled}
+                              onChange={() => void handleToggleMappingEnabled(actualIdx)}
+                              title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
+                            />
+                          </span>
+
+                          {/* 箭头视觉展示 */}
+                          <span className="gesture-table__col gesture-table__col--arrow">
+                            <span className="gesture-arrow">{codeToArrows(m.gestureCode) || m.gestureCode}</span>
+                          </span>
+
+                          {/* 编码 */}
+                          <span className="gesture-table__col gesture-table__col--code">
+                            <code>{m.gestureCode}</code>
+                          </span>
+
+                          {/* 动作名称 */}
+                          <span className="gesture-table__col gesture-table__col--action">
+                            <span className="gesture-action-name">{m.action.name}</span>
+                            {m.action.description && (
+                              <span className="gesture-action-desc">{m.action.description}</span>
+                            )}
+                          </span>
+
+                          {/* 动作类型 */}
+                          <span className="gesture-table__col gesture-table__col--type">
+                            <Badge
+                              text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
+                              variant={m.action.type === 0 ? 'primary' : m.action.type === 2 ? 'success' : 'muted'}
+                            />
+                          </span>
+
+                          {/* 详情按键 */}
+                          <span className="gesture-table__col gesture-table__col--key">
+                            {actionDetail(m.action) && <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>}
+                          </span>
+
+                          {/* 高级特性标签 (即时执行 / 静默执行) */}
+                          <span className="gesture-table__col gesture-table__col--flags">
+                            <div className="gesture-flags-list">
+                              {m.instantExecute && (
+                                <span className="gesture-flag-badge gesture-flag-badge--instant" title="识别手势时立即执行">
+                                  <Zap size={11} />
+                                  <span>即时</span>
+                                </span>
+                              )}
+                              {m.silentToast && (
+                                <span className="gesture-flag-badge gesture-flag-badge--silent" title="执行时不弹出名称提示">
+                                  <VolumeX size={11} />
+                                  <span>静默</span>
+                                </span>
+                              )}
+                              {!m.instantExecute && !m.silentToast && (
+                                <span className="gesture-flag-badge gesture-flag-badge--normal">标准</span>
+                              )}
+                            </div>
+                          </span>
+
+                          {/* 编辑与删除 */}
+                          <span className="gesture-table__col gesture-table__col--actions">
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button className="gesture-icon-btn" title={tr('common.edit')} onClick={() => openEditMapping(m)}>
+                                <Edit3 size={15} />
+                              </button>
+                              <button
+                                className="gesture-icon-btn gesture-icon-btn--danger"
+                                title={tr('common.delete')}
+                                onClick={() => handleDeleteMapping(actualIdx)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              </>
             )}
           </main>
         </div>
       </SettingGroup>
 
       {/* ── 轮盘菜单 ──────────────────────────────────────────────── */}
-      <SettingGroup title={t('gesture.radialMenu')} icon={<Compass size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={tr('gesture.radialMenu')} icon={<Compass size={20} strokeWidth={2.5} />}>
         <Card>
           <div className="gesture-radial-toolbar">
-            <span>{t('gesture.radialHint')}</span>
+            <span>{tr('gesture.radialHint')}</span>
             <div className="gesture-radial-toolbar__actions">
               <Button size="sm" variant="ghost" onClick={addRadialItem} disabled={radialItems.length >= 8}>
-                {t('common.add')}
+                {tr('common.add')}
               </Button>
               <Button
                 size="sm"
@@ -840,13 +1126,13 @@ export const GesturePage: FC = () => {
                 onClick={() => void saveRadialItems()}
                 disabled={!radialDirty || radialSaving}
               >
-                {radialSaving ? t('common.saving') : t('common.save')}
+                {radialSaving ? tr('common.saving') : tr('common.save')}
               </Button>
             </div>
           </div>
           <div className="gesture-radial-list">
             {radialItems.length === 0 && (
-              <div className="gesture-empty">{t('common.empty')}</div>
+              <div className="gesture-empty">{tr('common.empty')}</div>
             )}
             {radialItems.map((item, i) => (
               <div key={i} className="gesture-radial-row">
@@ -855,7 +1141,7 @@ export const GesturePage: FC = () => {
                   id={`radial-label-${i}`}
                   value={item.label}
                   onChange={(label) => updateRadialItem(i, { label })}
-                  placeholder={t('gesture.radialLabelPlaceholder')}
+                  placeholder={tr('gesture.radialLabelPlaceholder')}
                 />
                 <Select
                   id={`radial-command-${i}`}
@@ -863,17 +1149,17 @@ export const GesturePage: FC = () => {
                   onChange={(command) => updateRadialItem(i, { command })}
                   options={BUILTIN_COMMAND_KEYS.map((key, commandIndex) => ({
                     value: String(commandIndex),
-                    label: t(key),
+                    label: tr(key),
                   }))}
                 />
                 <div className="gesture-radial-actions">
-                  <button className="gesture-icon-btn" disabled={i === 0} title={t('common.moveUp')} onClick={() => moveRadialItem(i, -1)}>
+                  <button className="gesture-icon-btn" disabled={i === 0} title={tr('common.moveUp')} onClick={() => moveRadialItem(i, -1)}>
                     <ArrowUp size={15} />
                   </button>
-                  <button className="gesture-icon-btn" disabled={i === radialItems.length - 1} title={t('common.moveDown')} onClick={() => moveRadialItem(i, 1)}>
+                  <button className="gesture-icon-btn" disabled={i === radialItems.length - 1} title={tr('common.moveDown')} onClick={() => moveRadialItem(i, 1)}>
                     <ArrowDown size={15} />
                   </button>
-                  <button className="gesture-icon-btn gesture-icon-btn--danger" title={t('common.delete')} onClick={() => removeRadialItem(i)}>
+                  <button className="gesture-icon-btn gesture-icon-btn--danger" title={tr('common.delete')} onClick={() => removeRadialItem(i)}>
                     <Trash2 size={15} />
                   </button>
                 </div>

@@ -94,6 +94,10 @@ struct GestureAction {
 
 /// 手势映射条目: 方向编码 → 动作
 struct GestureMapping {
+    std::string id;                  // 唯一标识 (若为空可由 gestureCode 生成)
+    bool enabled = true;             // 单项手势启用/禁用
+    bool instantExecute = false;     // 识别到方向时立即执行 (无需等待松开按键)
+    bool silentToast = false;        // 执行时不显示手势名称卡片
     std::string gestureCode;         // 方向编码 (如 "L", "DR", "L-U-R")
     GestureAction action;
 

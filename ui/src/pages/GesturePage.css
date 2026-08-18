@@ -528,3 +528,285 @@
   overflow: visible;
 }
 
+/* ── 允许的触发方式三态模型 ───────────────────────────────────────────────── */
+.trigger-modes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.trigger-modes-header__texts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trigger-modes-header__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.trigger-modes-header__desc {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.trigger-modes-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trigger-batch-btn {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.trigger-batch-btn:hover {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.trigger-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.trigger-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.trigger-item-card:hover {
+  border-color: var(--primary);
+}
+
+.trigger-item-card--enabled {
+  border-left: 3px solid var(--success);
+}
+
+.trigger-item-card--disabled {
+  border-left: 3px solid var(--danger);
+  opacity: 0.85;
+}
+
+.trigger-item-card--default {
+  border-left: 3px solid var(--text-muted);
+}
+
+.trigger-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trigger-item-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.trigger-item-cat {
+  font-size: 0.70rem;
+  color: var(--text-muted);
+}
+
+.trigger-item-tri-segmented {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+
+.tri-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tri-btn:hover {
+  color: var(--text-primary);
+}
+
+.tri-btn--enabled.active {
+  background: var(--success);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.tri-btn--disabled.active {
+  background: var(--danger);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.tri-btn--default.active {
+  background: var(--text-muted);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ── 手势搜索与过滤 ───────────────────────────────────────────────────────── */
+.gesture-search-box {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 220px;
+}
+
+.gesture-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.gesture-search-input {
+  width: 100%;
+  padding: 4px 8px 4px 28px;
+  font-size: 0.78rem;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.gesture-search-input:focus {
+  border-color: var(--primary);
+}
+
+/* ── 列表列定义 ───────────────────────────────────────────────────────────── */
+.gesture-table__col--reorder {
+  width: 44px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.gesture-table__col--switch {
+  width: 44px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.gesture-table__col--flags {
+  width: 110px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.gesture-reorder-btns {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.gesture-reorder-btn {
+  padding: 1px 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all var(--transition-fast);
+}
+
+.gesture-reorder-btn:hover:not(:disabled) {
+  background: var(--primary-dim);
+  color: var(--primary);
+}
+
+.gesture-reorder-btn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.gesture-item-switch {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.gesture-table__row--disabled {
+  opacity: 0.45;
+  filter: grayscale(0.7);
+}
+
+.gesture-action-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.gesture-action-desc {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.gesture-flags-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gesture-flag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 3px;
+}
+
+.gesture-flag-badge--instant {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.gesture-flag-badge--silent {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.gesture-flag-badge--normal {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--card-border);
+}
+

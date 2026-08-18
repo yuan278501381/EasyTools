@@ -18,6 +18,28 @@
 
 namespace easy::gesture {
 
+/// 触发方式三态模型
+enum class TriggerModeState : uint8_t {
+    Default = 0,   // 继承全局默认
+    Enabled = 1,   // 强制启用
+    Disabled = 2   // 强制禁用
+};
+
+inline std::string triggerStateToString(TriggerModeState state) {
+    switch (state) {
+        case TriggerModeState::Enabled:  return "enabled";
+        case TriggerModeState::Disabled: return "disabled";
+        case TriggerModeState::Default:
+        default:                         return "default";
+    }
+}
+
+inline TriggerModeState triggerStateFromString(const std::string& str) {
+    if (str == "enabled" || str == "1")  return TriggerModeState::Enabled;
+    if (str == "disabled" || str == "2") return TriggerModeState::Disabled;
+    return TriggerModeState::Default;
+}
+
 class GestureProfile {
 public:
     explicit GestureProfile(const std::string& name = "default");
@@ -25,14 +47,26 @@ public:
     /// Profile 名称
     const std::string& name() const { return m_name; }
 
-    /// 添加手势映射
+    /// 添加或更新手势映射
     void addMapping(const GestureMapping& mapping);
 
     /// 删除手势映射
     void removeMapping(const std::string& gestureCode);
 
-    /// 根据手势编码查找动作
+    /// 启用/禁用单个手势
+    void setMappingEnabled(const std::string& gestureCode, bool enabled);
+
+    /// 根据手势编码查找生效的动作 (若手势被禁用则返回 nullopt)
     std::optional<GestureAction> findAction(const std::string& gestureCode) const;
+
+    /// 查找完整手势映射条目
+    std::optional<GestureMapping> findMapping(const std::string& gestureCode) const;
+
+    /// 调整手势顺序 (通过新的手势编码顺序列表)
+    void reorderMappings(const std::vector<std::string>& orderedCodes);
+
+    /// 移动手势顺序 (上移/下移)
+    bool moveMapping(size_t fromIndex, size_t toIndex);
 
     /// 检查手势编码是否已存在
     bool hasGesture(const std::string& gestureCode) const;
@@ -45,6 +79,12 @@ public:
 
     /// 清除所有映射
     void clearMappings() { m_mappings.clear(); m_codeIndex.clear(); }
+
+    /// 触发方式三态管控
+    TriggerModeState getTriggerState(const std::string& triggerKey) const;
+    void setTriggerState(const std::string& triggerKey, TriggerModeState state);
+    void setAllTriggerStates(TriggerModeState state);
+    const std::unordered_map<std::string, TriggerModeState>& getAllTriggerStates() const { return m_triggerStates; }
 
     /// 创建默认全局 Profile
     static GestureProfile createDefaultGlobal();
@@ -60,6 +100,7 @@ private:
     std::string m_name;
     std::vector<GestureMapping> m_mappings;
     std::unordered_map<std::string, size_t> m_codeIndex;  // gestureCode → m_mappings 索引
+    std::unordered_map<std::string, TriggerModeState> m_triggerStates; // 触发方式三态状态表
 
     void rebuildIndex();
 };
