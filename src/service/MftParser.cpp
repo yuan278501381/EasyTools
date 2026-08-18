@@ -313,11 +313,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     const uint64_t generation = m_IndexGeneration.load(std::memory_order_acquire);
 
     auto testCandidate = [&](DWORDLONG id, const FileRecord& record) {
-        if (!expr.requiresFullPath()) {
-            return expr.matches(record, static_cast<wchar_t>(m_DriveLetter));
-        }
-        const std::wstring path = buildFullPath(id);
-        return expr.matches(record, static_cast<wchar_t>(m_DriveLetter), path);
+        return expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), [&]() {
+            return buildFullPath(id);
+        });
     };
 
     std::vector<DWORDLONG> candidates;

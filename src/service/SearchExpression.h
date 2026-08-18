@@ -55,6 +55,8 @@ struct SearchOrGroup {
 
 class SearchExpression {
 public:
+    using PathGetter = std::function<std::wstring()>;
+
     static SearchExpression parse(const std::wstring& query);
 
     bool isEmpty() const { return m_orGroups.empty(); }
@@ -64,6 +66,9 @@ public:
 
     bool matches(const FileRecord& record, wchar_t driveLetter,
                  const std::wstring& fullPath = L"") const;
+
+    bool matchesWithLazyPath(const FileRecord& record, wchar_t driveLetter,
+                             const PathGetter& getFullPath) const;
 
     int calculateRank(const FileRecord& record) const;
 

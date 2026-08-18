@@ -220,8 +220,9 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
     return expr;
 }
 
-static bool matchSingleClause(const SearchClause& clause, const FileRecord& record,
-                              wchar_t driveLetter, const std::wstring& fullPath) {
+template <typename PathSupplier>
+static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& record,
+                                  wchar_t driveLetter, PathSupplier&& getPath) {
     bool matched = false;
 
     switch (clause.filterType) {
@@ -291,6 +292,7 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
             break;
 
         case SearchFilterType::Path: {
+            const std::wstring& fullPath = getPath();
             std::wstring normPath = SearchExpression::normalize(fullPath);
             if (clause.hasWildcard) {
                 matched = SearchExpression::matchWildcard(clause.pattern, normPath);
@@ -301,6 +303,7 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
         }
 
         case SearchFilterType::Parent: {
+            const std::wstring& fullPath = getPath();
             std::wstring normPath = SearchExpression::normalize(fullPath);
             const auto slashPos = normPath.rfind(L'\\');
             if (slashPos != std::wstring::npos) {
@@ -321,6 +324,12 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
         case SearchFilterType::Regex:
             if (clause.regexObj) {
                 matched = std::regex_search(record.fileName, *clause.regexObj);
+                if (!matched) {
+                    const std::wstring& fullPath = getPath();
+                    if (!fullPath.empty()) {
+                        matched = std::regex_search(fullPath, *clause.regexObj);
+                    }
+                }
             }
             break;
 
@@ -329,6 +338,16 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
                 matched = SearchExpression::matchWildcard(clause.rawPattern, record.fileName);
             } else {
                 matched = record.fileName.find(clause.rawPattern) != std::wstring::npos;
+            }
+            if (!matched) {
+                const std::wstring& fullPath = getPath();
+                if (!fullPath.empty()) {
+                    if (clause.hasWildcard) {
+                        matched = SearchExpression::matchWildcard(clause.rawPattern, fullPath);
+                    } else {
+                        matched = fullPath.find(clause.rawPattern) != std::wstring::npos;
+                    }
+                }
             }
             break;
 
@@ -350,10 +369,22 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
             } else {
                 matched = record.normalizedName.find(clause.pattern) != std::wstring::npos;
             }
+            if (!matched) {
+                const std::wstring& fullPath = getPath();
+                if (!fullPath.empty()) {
+                    std::wstring normPath = SearchExpression::normalize(fullPath);
+                    if (clause.hasWildcard) {
+                        matched = SearchExpression::matchWildcard(clause.pattern, normPath);
+                    } else {
+                        matched = normPath.find(clause.pattern) != std::wstring::npos;
+                    }
+                }
+            }
             break;
 
         case SearchFilterType::None:
         default:
+            // 1. 优先在文件名中匹配 (零路径回溯，极致毫秒级热路径)
             if (clause.hasWildcard) {
                 matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
                 if (!matched && clause.isAsciiOnly) {
@@ -370,20 +401,45 @@ static bool matchSingleClause(const SearchClause& clause, const FileRecord& reco
                                record.pinyinFull.find(pat) != std::wstring::npos);
                 }
             }
+
+            // 2. 文件名未命中时，兜底在完整路径中匹配 (支持跨目录联合搜索，例如 *中源*账号密码* 或 中源 账号密码)
+            if (!matched) {
+                const std::wstring& fullPath = getPath();
+                if (!fullPath.empty()) {
+                    std::wstring normPath = SearchExpression::normalize(fullPath);
+                    if (clause.hasWildcard) {
+                        matched = SearchExpression::matchWildcard(clause.pattern, normPath);
+                    } else {
+                        matched = normPath.find(clause.pattern) != std::wstring::npos;
+                    }
+                }
+            }
             break;
     }
 
     return clause.isNegated ? !matched : matched;
 }
 
-bool SearchExpression::matches(const FileRecord& record, wchar_t driveLetter,
-                               const std::wstring& fullPath) const {
+bool SearchExpression::matchesWithLazyPath(const FileRecord& record, wchar_t driveLetter,
+                                           const PathGetter& getFullPath) const {
     if (m_orGroups.empty()) return true;
+
+    std::wstring cachedFullPath;
+    bool pathLoaded = false;
+    auto getOrFetchPath = [&]() -> const std::wstring& {
+        if (!pathLoaded) {
+            if (getFullPath) {
+                cachedFullPath = getFullPath();
+            }
+            pathLoaded = true;
+        }
+        return cachedFullPath;
+    };
 
     for (const auto& group : m_orGroups) {
         bool groupPassed = false;
         for (const auto& clause : group.clauses) {
-            if (matchSingleClause(clause, record, driveLetter, fullPath)) {
+            if (matchSingleClauseLazy(clause, record, driveLetter, getOrFetchPath)) {
                 groupPassed = true;
                 break;
             }
@@ -391,6 +447,13 @@ bool SearchExpression::matches(const FileRecord& record, wchar_t driveLetter,
         if (!groupPassed) return false;
     }
     return true;
+}
+
+bool SearchExpression::matches(const FileRecord& record, wchar_t driveLetter,
+                               const std::wstring& fullPath) const {
+    return matchesWithLazyPath(record, driveLetter, [&fullPath]() {
+        return fullPath;
+    });
 }
 
 int SearchExpression::calculateRank(const FileRecord& record) const {

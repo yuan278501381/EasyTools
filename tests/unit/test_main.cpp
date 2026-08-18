@@ -1014,6 +1014,24 @@ TEST(SearchExpressionTest, EverythingSyntaxParsing) {
     auto exprQuote = SearchExpression::parse(L"\"test main\"");
     FileRecord spaceFile{8, 0, L"test main.cpp", L"test main.cpp", L"test main.cpp", L"test main.cpp", false};
     EXPECT_TRUE(exprQuote.matches(spaceFile, L'C', L"C:\\test main.cpp"));
+
+    // 8. 跨目录与文件名联合搜索及跨层级通配符 (*中源*账号密码* 与 中源 账号密码)
+    FileRecord nestedPassFile{9, 0, L"账号密码.txt", L"账号密码.txt", L"zhmm.txt", L"zhanghaomima.txt", false};
+    std::wstring nestedPassPath = L"D:\\Chosen\\216-北京中源\\账号密码.txt";
+
+    // 通配符跨目录搜索: *中源*账号密码*
+    auto exprWildcardPath = SearchExpression::parse(L"*中源*账号密码*");
+    EXPECT_TRUE(exprWildcardPath.matches(nestedPassFile, L'D', nestedPassPath));
+    EXPECT_FALSE(exprWildcardPath.matches(txtFile, L'C', L"C:\\readme.txt"));
+
+    // 多关键词空格组合跨目录搜索: 中源 账号密码
+    auto exprMultiTerms = SearchExpression::parse(L"中源 账号密码");
+    EXPECT_TRUE(exprMultiTerms.matches(nestedPassFile, L'D', nestedPassPath));
+    EXPECT_FALSE(exprMultiTerms.matches(txtFile, L'C', L"C:\\readme.txt"));
+
+    // 拼音与目录联合匹配: 中源 zhmm
+    auto exprPinyinDir = SearchExpression::parse(L"中源 zhmm");
+    EXPECT_TRUE(exprPinyinDir.matches(nestedPassFile, L'D', nestedPassPath));
 }
 
 // -----------------------------------------------------------------------------
