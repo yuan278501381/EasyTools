@@ -1048,19 +1048,26 @@ export const GesturePage: FC = () => {
 
                             {/* 4. 详情按键 */}
                             <span className="gesture-table__col gesture-table__col--key">
-                              {actionDetail(m.action) && (
-                                <button
-                                  type="button"
-                                  className="gesture-detail-badge-btn"
-                                  title="点击直接修改此快捷键/参数"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openEditMapping(m, 'action_detail');
-                                  }}
-                                >
-                                  <kbd className="gesture-kbd">{actionDetail(m.action)}</kbd>
-                                </button>
-                              )}
+                              {actionDetail(m.action) && (() => {
+                                const detailText = actionDetail(m.action);
+                                const len = detailText.length;
+                                const fontSize = len >= 10 ? '0.62rem' : len >= 7 ? '0.67rem' : len >= 5 ? '0.73rem' : '0.78rem';
+                                return (
+                                  <button
+                                    type="button"
+                                    className="gesture-detail-badge-btn"
+                                    title={`点击直接修改此参数: ${detailText}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditMapping(m, 'action_detail');
+                                    }}
+                                  >
+                                    <kbd className="gesture-kbd" style={{ fontSize }}>
+                                      {detailText}
+                                    </kbd>
+                                  </button>
+                                );
+                              })()}
                             </span>
 
                             {/* 5. 极简微型胶囊开关 Micro Switch */}

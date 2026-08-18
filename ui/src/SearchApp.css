@@ -73,7 +73,7 @@ html[data-surface="search"] #root {
     align-items: stretch;
     padding: 8px;
     background: transparent !important;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
     box-sizing: border-box;
 }
 
@@ -443,6 +443,16 @@ html[data-surface="search"] #root {
 
 .sort-composite-option:hover {
     color: var(--text-primary);
+}
+
+.sort-option-icon {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: color 0.12s ease;
+}
+
+.sort-composite-option:hover .sort-option-icon {
+    color: var(--primary);
 }
 
 .sort-composite-option input[type="checkbox"] {

@@ -22,7 +22,8 @@ import {
   HardDrive,
   Calendar,
   ChevronDown,
-  Check
+  Check,
+  Tag
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -374,8 +375,13 @@ export default function SearchApp() {
     localStorage.setItem('easytools_search_columns_v2', JSON.stringify(updated));
   };
 
-  const updateColumnFlex = (id: ColumnId, flex: number) => {
-    const updated = columns.map(col => col.id === id ? { ...col, flex } : col);
+  const updateNameAndPathFlex = (nameVal: number) => {
+    const pathVal = Math.max(15, 80 - nameVal);
+    const updated = columns.map(col => {
+      if (col.id === 'name') return { ...col, flex: nameVal };
+      if (col.id === 'path') return { ...col, flex: pathVal };
+      return col;
+    });
     setColumns(updated);
     localStorage.setItem('easytools_search_columns_v2', JSON.stringify(updated));
   };
@@ -1057,10 +1063,10 @@ export default function SearchApp() {
 
                   <div className="sort-menu-divider" />
 
-                  {/* 极客组合排序微开关 */}
+                  {/* 多维组合排序微开关 */}
                   <div className="sort-composite-section">
                     <div className="sort-composite-header">
-                      <span>极客组合排序规则</span>
+                      <span>组合排序规则</span>
                     </div>
                     <label className="sort-composite-option">
                       <input
@@ -1068,7 +1074,8 @@ export default function SearchApp() {
                         checked={foldersFirst}
                         onChange={toggleFoldersFirst}
                       />
-                      <span>📁 文件夹始终优先置顶</span>
+                      <Folder size={13} className="sort-option-icon" />
+                      <span>文件夹始终优先置顶</span>
                     </label>
                     <label className="sort-composite-option">
                       <input
@@ -1076,7 +1083,8 @@ export default function SearchApp() {
                         checked={groupByType}
                         onChange={toggleGroupByType}
                       />
-                      <span>🏷️ 按文件扩展名/类型分组</span>
+                      <Tag size={13} className="sort-option-icon" />
+                      <span>按文件扩展名/类型分组</span>
                     </label>
                   </div>
                 </div>
@@ -1152,7 +1160,7 @@ export default function SearchApp() {
                 </div>
               </div>
 
-              {/* 3. 极客列显隐 */}
+              {/* 3. 结果信息列显隐 */}
               <div className="popover-section">
                 <div className="popover-section-title">
                   <span>结果信息列显隐</span>
@@ -1180,14 +1188,11 @@ export default function SearchApp() {
                   <span className="slider-label">窄</span>
                   <input
                     type="range"
-                    min="20"
+                    min="15"
                     max="65"
+                    step="1"
                     value={nameFlex}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      updateColumnFlex('name', val);
-                      updateColumnFlex('path', 80 - val);
-                    }}
+                    onChange={(e) => updateNameAndPathFlex(parseInt(e.target.value, 10))}
                     className="popover-ratio-slider"
                   />
                   <span className="slider-label">宽</span>
