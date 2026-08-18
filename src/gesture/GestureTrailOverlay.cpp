@@ -829,6 +829,9 @@ void GestureTrailOverlay::render() {
 
         UpdateLayeredWindowIndirect(m_hwnd, &ulwInfo);
         ReleaseDC(nullptr, hdcScreen);
+
+        LOG_TRACE("手势轨迹异步帧提交完成: 点数={}, 脏矩形=[{}, {}, {}, {}]",
+                  m_points.size(), dirtyRect.left, dirtyRect.top, dirtyRect.right, dirtyRect.bottom);
     }
 }
 

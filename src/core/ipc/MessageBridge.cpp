@@ -216,6 +216,7 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
             return response.dump();
         }
 
+        const auto start = std::chrono::steady_clock::now();
         json result;
         try {
             result = slot->handler(params);
@@ -228,20 +229,24 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
             std::lock_guard lock(slot->mutex);
             if (--slot->activeCalls == 0) slot->idle.notify_all();
         }
+        const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        LOG_DEBUG("IPC 响应完成: method={}, id={}, 耗时={}us", method, id, elapsedUs);
+
         json response = {
             {"id", id},
             {"result", result}
         };
         return response.dump();
     } catch (const std::exception& e) {
-        LOG_ERROR("IPC 处理器异常: {}", e.what());
+        LOG_ERROR("IPC 处理器异常: id={}, error={}", id, e.what());
         json response = {
             {"id", id},
             {"error", {{"code", -32603}, {"message", std::string("Internal error: ") + e.what()}}}
         };
         return response.dump();
     } catch (...) {
-        LOG_ERROR("IPC 处理器未知异常");
+        LOG_ERROR("IPC 处理器未知异常: id={}", id);
         json response = {
             {"id", id},
             {"error", {{"code", -32603}, {"message", "Internal error: unknown exception"}}}

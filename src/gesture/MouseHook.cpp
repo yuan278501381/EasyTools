@@ -251,18 +251,22 @@ bool MouseHook::processEvent(const MouseEvent& event) {
     }
 
     if (cb) {
-        auto start_time = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
         
         bool intercepted = cb(event);
         
-        auto end_time = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        const auto end_time = std::chrono::steady_clock::now();
+        const auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+        const auto durationMs = durationUs / 1000;
         
-        if (duration > 20) {
-            LOG_WARN("鼠标钩子回调执行耗时过长: {} ms (建议优化以避免系统卡顿)", duration);
+        if (durationMs > 15) {
+            LOG_WARN("鼠标钩子回调执行耗时过长: {} ms ({} us) (建议优化以避免系统卡顿)", durationMs, durationUs);
+        } else {
+            LOG_TRACE("鼠标钩子事件处理完成: type={}, pos=({}, {}), 耗时={}us, 拦截={}",
+                      static_cast<int>(event.type), event.position.x, event.position.y, durationUs, intercepted);
         }
-        if (duration > CIRCUIT_BREAKER_TIMEOUT_MS) {
-            LOG_CRITICAL("【熔断告警】鼠标钩子回调耗时 {} ms (阈值 {} ms)，触发全局熔断机制保护系统！", duration, CIRCUIT_BREAKER_TIMEOUT_MS);
+        if (durationMs > CIRCUIT_BREAKER_TIMEOUT_MS) {
+            LOG_CRITICAL("【熔断告警】鼠标钩子回调耗时 {} ms (阈值 {} ms)，触发全局熔断机制保护系统！", durationMs, CIRCUIT_BREAKER_TIMEOUT_MS);
             m_circuitBreakerTripped.store(true, std::memory_order_relaxed);
             m_circuitBreakerTime = std::chrono::steady_clock::now();
         }
