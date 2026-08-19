@@ -2459,7 +2459,7 @@ export default function SearchApp() {
         <footer className="search-footer">
           <div className="search-footer-left">
             {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
-            <div className="search-footer-stat-item" title="当前匹配到的文件与文件夹对象总数">
+            <div className="search-footer-stat-item search-footer-stat-item--interactive" title="当前匹配到的文件与文件夹对象总数 · 点击右侧图标刷新 (F5)">
               <span>
                 {sortedResults.length > 0 ? (
                   <><strong>{sortedResults.length.toLocaleString()}</strong> 个对象</>
@@ -2467,16 +2467,19 @@ export default function SearchApp() {
                   <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '1,394,498'}</strong> 个对象</>
                 )}
               </span>
+              <button
+                type="button"
+                className="search-footer-refresh-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void rebuildIndex();
+                }}
+                disabled={isRebuilding}
+                title="重新扫描全盘并更新索引与快照 (快捷键: F5 / Ctrl+R)"
+              >
+                <RefreshCw size={11} className={isRebuilding ? 'spin-animation' : ''} />
+              </button>
             </div>
-            <button
-              type="button"
-              className="search-footer-refresh-btn"
-              onClick={rebuildIndex}
-              disabled={isRebuilding}
-              title="重新扫描全盘并更新索引与快照 (快捷键: F5 / Ctrl+R)"
-            >
-              <RefreshCw size={11} className={isRebuilding ? 'spin-animation' : ''} />
-            </button>
 
             {/* 2. 当前匹配结果总大小 */}
             {sortedResults.length > 0 && totalResultSize > 0 && (
@@ -2517,13 +2520,77 @@ export default function SearchApp() {
           </div>
 
           <div className="search-footer-right">
-            <span className="search-hint"><kbd>Enter</kbd> {t('search.open', '打开')}</span>
-            <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder', '定位')}</span>
-            <span className="search-hint"><kbd>Ctrl+C</kbd> 复制</span>
-            <span className="search-hint"><kbd>Ctrl+E</kbd> 导出</span>
-            <span className="search-hint"><kbd>F5</kbd> 刷新</span>
-            <span className="search-hint"><kbd>F1</kbd> 语法</span>
-            <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>
+            {sortedResults.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="search-hint-btn"
+                  onClick={() => openResult(sortedResults[selectedIndex])}
+                  title="打开当前选中的文件 (Enter)"
+                >
+                  <kbd>Enter</kbd>
+                  <span>{t('search.open', '打开')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="search-hint-btn"
+                  onClick={() => openFolderResult(sortedResults[selectedIndex])}
+                  title="在资源管理器中定位并选中该文件 (Ctrl+Enter)"
+                >
+                  <kbd>Ctrl+Enter</kbd>
+                  <span>{t('search.openFolder', '定位')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="search-hint-btn"
+                  onClick={() => copyPathResult(sortedResults[selectedIndex])}
+                  title="复制当前文件完整路径 (Ctrl+C)"
+                >
+                  <kbd>Ctrl+C</kbd>
+                  <span>复制路径</span>
+                </button>
+                <button
+                  type="button"
+                  className="search-hint-btn"
+                  onClick={exportResultsToCsv}
+                  title="导出当前所有搜索结果为 CSV 报表 (Ctrl+E)"
+                >
+                  <kbd>Ctrl+E</kbd>
+                  <span>导出</span>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="search-hint-btn"
+              onClick={rebuildIndex}
+              disabled={isRebuilding}
+              title="重新扫描全盘索引并保存快照 (F5 / Ctrl+R)"
+            >
+              <kbd>F5</kbd>
+              <span>{isRebuilding ? '正在刷新...' : '刷新'}</span>
+            </button>
+            <button
+              type="button"
+              className="search-hint-btn"
+              onClick={() => {
+                setShowSyntaxHelp(prev => !prev);
+                setShowViewSettings(false);
+              }}
+              title="查看搜索高级语法与表达式示例 (F1)"
+            >
+              <kbd>F1</kbd>
+              <span>语法</span>
+            </button>
+            <button
+              type="button"
+              className="search-hint-btn"
+              onClick={hide}
+              title="关闭搜索浮窗 (Esc)"
+            >
+              <kbd>Esc</kbd>
+              <span>{t('search.close', '关闭')}</span>
+            </button>
           </div>
         </footer>
 
