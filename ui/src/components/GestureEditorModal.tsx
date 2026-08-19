@@ -38,19 +38,23 @@ interface Props {
   /** 编辑时传入原映射; 新增时传 null。组件按 key 条件挂载, 故无需 open prop。 */
   initial: GestureMapping | null;
   /** 现有的全部编码, 用于冲突检测 */
-  existingCodes: string[];
+  existingCodes?: string[];
+  /** 现有的全部映射完整列表, 用于精准定位冲突名称 */
+  existingMappings?: GestureMapping[];
   /** 从表格特性徽章或动作类型点击进入时的聚焦目标 */
   initialFocusTarget?: 'instant' | 'silent' | 'action_type' | 'action_detail' | 'hotkey' | 'lua' | 'builtin' | 'program' | null;
   onSave: (mapping: GestureMapping) => void;
   onClose: () => void;
 }
 
-export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialFocusTarget, onSave, onClose }) => {
+export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existingMappings, initialFocusTarget, onSave, onClose }) => {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<GestureMapping>(() =>
     initial ? structuredClone(initial) : emptyMapping());
 
   const isEdit = initial !== null;
+  const initialId = initial?.id ?? '';
+  const initialCode = initial?.gestureCode?.trim().toUpperCase() ?? '';
   const code = draft.gestureCode.trim().toUpperCase();
   const [advancedOpen, setAdvancedOpen] = useState(
     Boolean(initial?.instantExecute || initial?.silentToast || (initialFocusTarget === 'instant' || initialFocusTarget === 'silent'))
@@ -97,25 +101,49 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
     }
   };
 
-  // ── 校验 ──────────────────────────────────────────────────────────────────
+  // ── 校验与智能冲突识别 ──────────────────────────────────────────────────
   let codeError = '';
   if (!code) {
-    codeError = t('gestureEditor.gestureCodeRequired');
+    codeError = t('gestureEditor.gestureCodeRequired', '请在上方画板绘制手势或选择预设');
   } else if (!GESTURE_CODE_PATTERN.test(code)) {
-    codeError = t('gestureEditor.gestureCodeInvalid');
-  } else if (!isEdit || code !== initial!.gestureCode) {
-    if (existingCodes.includes(code)) codeError = t('gestureEditor.gestureCodeExists', { code: `「${codeToArrows(code)}」` });
+    codeError = t('gestureEditor.gestureCodeInvalid', '手势轨迹无效，请在画板上重新滑动绘制');
   }
 
+  // 检测是否与其它已有手势存在编码冲突
+  const conflictingMapping = (existingMappings ?? []).find(
+    (m) => m.gestureCode.trim().toUpperCase() === code &&
+           (m.id && initialId ? m.id !== initialId : m.gestureCode.trim().toUpperCase() !== initialCode)
+  );
+
+  const isDuplicateOfOther = Boolean(
+    conflictingMapping ||
+    ((existingCodes ?? []).map(c => c.trim().toUpperCase()).includes(code) && code !== initialCode)
+  );
+
+  // 冲突提示信息 (友好琥珀色提示，保存时将无缝覆盖原动作)
+  const conflictWarning = isDuplicateOfOther && !codeError
+    ? (conflictingMapping?.action?.name
+        ? t('gestureEditor.gestureConflictOverwriteNamed', {
+            name: conflictingMapping.action.name,
+            code: `「${codeToArrows(code)}」`,
+            defaultValue: `手势「${codeToArrows(code)}」当前已绑定到「${conflictingMapping.action.name}」，保存将自动替换原手势。`
+          })
+        : t('gestureEditor.gestureConflictOverwrite', {
+            code: `「${codeToArrows(code)}」`,
+            defaultValue: `手势「${codeToArrows(code)}」已存在，保存将自动替换原手势。`
+          }))
+    : '';
+
   // 前缀冲突 (非阻塞警告)
-  const prefixConflicts = code && !codeError
-    ? existingCodes.filter(
-        (c) => c !== (isEdit ? initial!.gestureCode : '') &&
-               (c.startsWith(code) || code.startsWith(c)) && c !== code,
-      )
+  const allOtherCodes = (existingMappings ? existingMappings.map(m => m.gestureCode) : (existingCodes ?? []))
+    .map(c => c.trim().toUpperCase())
+    .filter(c => c !== initialCode && c !== code);
+
+  const prefixConflicts = code && !codeError && !conflictWarning
+    ? allOtherCodes.filter((c) => (c.startsWith(code) || code.startsWith(c)) && c !== code)
     : [];
 
-  const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired');
+  const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired', '请填写动作名称');
   const canSave = !codeError && !nameError;
 
   const setAction = (patch: Partial<GestureMapping['action']>) =>
@@ -124,16 +152,16 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
   const handleSave = () => {
     if (!canSave) return;
     // 按类型裁剪掉无关字段, 避免向后端发送脏数据
-    const t = draft.action.type;
+    const tVal = draft.action.type;
     const action: GestureMapping['action'] = {
-      type: t,
+      type: tVal,
       name: draft.action.name.trim(),
       description: draft.action.description,
     };
-    if (t === 0) action.keyStroke = draft.action.keyStroke ?? '';
-    else if (t === 1) action.luaScript = draft.action.luaScript ?? '';
-    else if (t === 2) action.builtinCmd = draft.action.builtinCmd ?? 0;
-    else if (t === 3) {
+    if (tVal === 0) action.keyStroke = draft.action.keyStroke ?? '';
+    else if (tVal === 1) action.luaScript = draft.action.luaScript ?? '';
+    else if (tVal === 2) action.builtinCmd = draft.action.builtinCmd ?? 0;
+    else if (tVal === 3) {
       action.programPath = draft.action.programPath ?? '';
       action.programArgs = draft.action.programArgs ?? '';
     }
@@ -175,6 +203,12 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, initialF
             <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--primary)' }}>
               {codeToArrows(code)}
             </span>
+          </div>
+        )}
+        {conflictWarning && (
+          <div className="gesture-conflict-warning">
+            <Lightbulb size={14} className="gesture-conflict-icon" />
+            <span>{conflictWarning}</span>
           </div>
         )}
       </Field>

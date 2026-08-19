@@ -416,15 +416,21 @@ export const GesturePage: FC = () => {
 
   const handleSaveMapping = (saved: GestureMapping) => {
     const list = [...currentMappings];
-    const idx = list.findIndex((m) => m.gestureCode === (editingMapping?.gestureCode ?? saved.gestureCode));
-    if (editingMapping && idx >= 0) {
-      list[idx] = saved;
-    } else {
-      const dup = list.findIndex((m) => m.gestureCode === saved.gestureCode);
-      if (dup >= 0) list[dup] = saved;
-      else list.push(saved);
-    }
-    void persistMappings(list);
+    const editingId = editingMapping?.id;
+    const editingCode = editingMapping?.gestureCode?.trim().toUpperCase();
+    const savedCode = saved.gestureCode.trim().toUpperCase();
+
+    // 过滤掉原本正在编辑的项，以及与保存项编码冲突的旧项（实现自动替换覆盖）
+    const filtered = list.filter((m) => {
+      const mCode = m.gestureCode.trim().toUpperCase();
+      if (editingId && m.id && m.id === editingId) return false;
+      if (!editingId && editingCode && mCode === editingCode) return false;
+      if (mCode === savedCode) return false;
+      return true;
+    });
+
+    filtered.push(saved);
+    void persistMappings(filtered);
     setEditorOpen(false);
   };
 
@@ -1180,9 +1186,10 @@ export const GesturePage: FC = () => {
 
       {editorOpen && (
         <GestureEditorModal
-          key={editingMapping?.gestureCode ?? '__new__'}
+          key={editingMapping?.id ?? editingMapping?.gestureCode ?? '__new__'}
           initial={editingMapping}
           initialFocusTarget={editorFocusTarget}
+          existingMappings={currentMappings}
           existingCodes={currentMappings.map((m) => m.gestureCode)}
           onSave={handleSaveMapping}
           onClose={() => setEditorOpen(false)}

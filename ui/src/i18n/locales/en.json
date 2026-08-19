@@ -416,6 +416,8 @@
     "gestureDrawRequired": "Please draw or select a gesture on the canvas",
     "gestureCodeInvalid": "Invalid gesture track, please redraw on canvas",
     "gestureCodeExists": "This gesture already exists (conflict code: {{code}})",
+    "gestureConflictOverwriteNamed": "Gesture {{code}} is currently mapped to '{{name}}', saving will replace the existing binding.",
+    "gestureConflictOverwrite": "Gesture {{code}} already exists, saving will replace the existing binding.",
     "gestureCodeHint": "Hold left or right mouse button and swipe on the canvas",
     "gestureDrawHint": "Hold left or right mouse button and swipe on the canvas",
     "recognizedGesture": "Recognized Gesture",

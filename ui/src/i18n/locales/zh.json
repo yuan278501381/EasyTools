@@ -416,6 +416,8 @@
     "gestureDrawRequired": "请在画板中绘制或选择手势",
     "gestureCodeInvalid": "手势轨迹无效，请在画板上重新滑动绘制",
     "gestureCodeExists": "该手势已存在 (冲突编码: {{code}})",
+    "gestureConflictOverwriteNamed": "手势 {{code}} 当前已绑定到「{{name}}」，保存将自动替换原手势。",
+    "gestureConflictOverwrite": "手势 {{code}} 已存在，保存将自动替换原手势。",
     "gestureCodeHint": "按住鼠标左键或右键在画板上滑动即可自动捕获手势",
     "gestureDrawHint": "按住鼠标左键或右键在画板上滑动即可自动捕获手势",
     "recognizedGesture": "已识别手势",

@@ -176,3 +176,30 @@
   flex-shrink: 0;
   margin-top: 1px;
 }
+
+/* ── 手势智能冲突替换提示卡片 ────────────────────────────────────────────── */
+.gesture-conflict-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #d97706;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  animation: fadeIn 0.2s ease-out;
+}
+
+[data-theme='dark'] .gesture-conflict-warning {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.gesture-conflict-icon {
+  flex-shrink: 0;
+  color: #f59e0b;
+}
