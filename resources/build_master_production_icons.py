@@ -2,13 +2,20 @@ import os
 import sys
 import struct
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 
+def create_squircle_mask(size, radius_ratio=0.22):
+    w, h = size
+    scale = 4
+    sw, sh = w * scale, h * scale
+    mask = Image.new("L", (sw, sh), 0)
+    draw = ImageDraw.Draw(mask)
+    r = int(min(sw, sh) * radius_ratio)
+    draw.rounded_rectangle([(0, 0), (sw, sh)], radius=r, fill=255)
+    return mask.resize((w, h), Image.Resampling.LANCZOS)
+
 def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48, 64, 128, 256)):
-    """
-    生成符合 Windows 规范的未压缩 32 位 DIB 格式 ICO 文件，完全支持 High-DPI
-    """
     images_data = []
     header_size = 6 + len(sizes) * 16
     current_offset = header_size
@@ -50,7 +57,33 @@ def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48
             
     print(f"Master ICO Generated: {output_path} ({len(sizes)} sizes)")
 
+def extract_pure_tray_icon(jpg_path, crop_box, bg_threshold=55):
+    img = Image.open(jpg_path).convert("RGBA")
+    cropped = img.crop(crop_box)
+    
+    arr = np.array(cropped)
+    r, g, b = arr[:,:,0].astype(float), arr[:,:,1].astype(float), arr[:,:,2].astype(float)
+    brightness = 0.299 * r + 0.587 * g + 0.114 * b
+    
+    low_cut = bg_threshold
+    high_cut = bg_threshold + 45
+    alpha = np.clip((brightness - low_cut) / (high_cut - low_cut) * 255.0, 0, 255).astype(np.uint8)
+    
+    res = Image.new("RGBA", cropped.size, (255, 255, 255, 0))
+    res.putalpha(Image.fromarray(alpha, "L"))
+    
+    bbox = res.getbbox()
+    if bbox:
+        res_cropped = res.crop(bbox)
+        res_cropped.thumbnail((460, 460), Image.Resampling.LANCZOS)
+        final_img = Image.new("RGBA", (512, 512), (255, 255, 255, 0))
+        offset = ((512 - res_cropped.width) // 2, (512 - cropped.height) // 2)
+        final_img.paste(res_cropped, offset, res_cropped)
+        return final_img
+    return res
+
 def build_scheme(scheme_num: int):
+    artifact_dir = r"C:\Users\yuan2\.gemini\antigravity\brain\a4d8e3c0-7c1c-4d27-95cd-65baa13ee7a1"
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     resources_dir = os.path.join(repo_root, "resources")
     ui_components_dir = os.path.join(repo_root, "ui", "src", "components")
@@ -58,15 +91,27 @@ def build_scheme(scheme_num: int):
 
     if scheme_num == 1:
         print(">> 装配 方案 1: 超速滑翔光翼 E (100% 纯净无黑斑母版)...")
-        app_png = os.path.join(repo_root, "master_scheme1_app_512.png")
-        tray_png = os.path.join(repo_root, "master_scheme1_tray_isolated.png")
+        app_master_jpg = os.path.join(artifact_dir, "letter_e_aero_glide_1787155546091.jpg")
+        tray_master_jpg = os.path.join(artifact_dir, "master_tray_aero_glide_e_1787158355720.jpg")
+        
+        img_app = Image.open(app_master_jpg).convert("RGBA")
+        squircle = img_app.crop((120, 120, 904, 904)).resize((512, 512), Image.Resampling.LANCZOS)
+        mask = create_squircle_mask((512, 512), 0.22)
+        squircle.putalpha(mask)
+        
+        tray_img = extract_pure_tray_icon(tray_master_jpg, (280, 300, 720, 700), 55)
+
     else:
         print(">> 装配 方案 4: 莫比乌斯流体尾迹 e (100% 纯净无黑斑母版)...")
-        app_png = os.path.join(repo_root, "master_scheme4_app_512.png")
-        tray_png = os.path.join(repo_root, "master_scheme4_tray_isolated.png")
-
-    squircle = Image.open(app_png).convert("RGBA")
-    tray_img = Image.open(tray_png).convert("RGBA")
+        app_master_jpg = os.path.join(artifact_dir, "letter_e_sonic_loop_1787155667576.jpg")
+        tray_master_jpg = os.path.join(artifact_dir, "master_tray_sonic_loop_e_1787158373479.jpg")
+        
+        img_app = Image.open(app_master_jpg).convert("RGBA")
+        squircle = img_app.crop((156, 160, 868, 872)).resize((512, 512), Image.Resampling.LANCZOS)
+        mask = create_squircle_mask((512, 512), 0.22)
+        squircle.putalpha(mask)
+        
+        tray_img = extract_pure_tray_icon(tray_master_jpg, (330, 320, 830, 660), 55)
 
     # 1. 输出 ICO
     app_ico_path = os.path.join(resources_dir, "app.ico")

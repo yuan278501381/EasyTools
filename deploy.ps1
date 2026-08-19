@@ -426,10 +426,11 @@ if ($runningProcesses) {
     }
 }
 
-# 备份旧版并上线新版
 $BackupDir = Join-Path $ScriptDir "deploy_dist_backup"
+taskkill /F /T /IM EasyTools.exe 2>$null | Out-Null
+taskkill /F /T /IM EasyTools_Service.exe 2>$null | Out-Null
 Get-Process -Name "EasyTools*", "EasyTools_Service*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 600
 if (Test-Path $DeployDir) {
     if (Test-Path $BackupDir) {
         Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue

@@ -36,7 +36,7 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
 
-    // 优先加载适合 Windows 托盘的专属纯白疾速闪电图标 (ID 102)，保持托盘区域永远极致纯净、醒目
+    // 优先加载专属托盘图标 (ID 102)，保持托盘区域永远极致纯净、醒目
     if (!m_icon) {
         m_icon = (HICON)LoadImageW(
             GetModuleHandleW(nullptr),
@@ -44,7 +44,7 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
             IMAGE_ICON,
             GetSystemMetrics(SM_CXSMICON),
             GetSystemMetrics(SM_CYSMICON),
-            LR_DEFAULTCOLOR | LR_SHARED
+            LR_DEFAULTCOLOR
         );
         if (!m_icon) {
             m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(102));
@@ -56,7 +56,7 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
                 IMAGE_ICON,
                 GetSystemMetrics(SM_CXSMICON),
                 GetSystemMetrics(SM_CYSMICON),
-                LR_DEFAULTCOLOR | LR_SHARED
+                LR_DEFAULTCOLOR
             );
         }
         if (!m_icon) {
