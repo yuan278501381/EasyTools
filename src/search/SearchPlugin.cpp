@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <array>
@@ -305,6 +306,83 @@ public:
                 return {{"success", false}, {"error", (INT_PTR)result}};
             }
             return {{"success", true}};
+        });
+
+        mb.registerHandler("search.openFileAsAdmin", [](const nlohmann::json& params) -> nlohmann::json {
+            const std::string filepath = params.value("filepath", params.value("path", ""));
+            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
+            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
+            HINSTANCE result = ShellExecuteW(nullptr, L"runas", widePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return {{"success", (INT_PTR)result > 32}};
+        });
+
+        mb.registerHandler("search.showFileProperties", [](const nlohmann::json& params) -> nlohmann::json {
+            const std::string filepath = params.value("filepath", params.value("path", ""));
+            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
+            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
+            SHELLEXECUTEINFOW sei = { sizeof(sei) };
+            sei.fMask = SEE_MASK_INVOKEIDLIST;
+            sei.lpVerb = L"properties";
+            sei.lpFile = widePath.c_str();
+            sei.nShow = SW_SHOWNORMAL;
+            BOOL ok = ShellExecuteExW(&sei);
+            return {{"success", ok != FALSE}};
+        });
+
+        mb.registerHandler("search.showShellContextMenu", [](const nlohmann::json& params) -> nlohmann::json {
+            const std::string filepath = params.value("filepath", params.value("path", ""));
+            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
+            int screenX = params.value("x", 0);
+            int screenY = params.value("y", 0);
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (!hwnd) hwnd = GetForegroundWindow();
+            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
+
+            PIDLIST_ABSOLUTE pidl = nullptr;
+            HRESULT hr = SHParseDisplayName(widePath.c_str(), nullptr, &pidl, 0, nullptr);
+            if (FAILED(hr) || !pidl) return {{"success", false}};
+
+            IShellFolder* pParentFolder = nullptr;
+            PCUITEMID_CHILD pidlChild = nullptr;
+            hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
+            if (FAILED(hr) || !pParentFolder) {
+                CoTaskMemFree(pidl);
+                return {{"success", false}};
+            }
+
+            bool ok = false;
+            IContextMenu* pContextMenu = nullptr;
+            hr = pParentFolder->GetUIObjectOf(hwnd, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
+            if (SUCCEEDED(hr) && pContextMenu) {
+                HMENU hMenu = CreatePopupMenu();
+                if (hMenu) {
+                    pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
+                    POINT pt = { screenX, screenY };
+                    if (pt.x <= 0 && pt.y <= 0) {
+                        GetCursorPos(&pt);
+                    }
+                    if (hwnd && IsWindow(hwnd)) {
+                        SetForegroundWindow(hwnd);
+                    }
+                    UINT cmd = TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                                pt.x, pt.y, hwnd, nullptr);
+                    if (cmd >= 1) {
+                        CMINVOKECOMMANDINFOEX info = { sizeof(info) };
+                        info.fMask = CMIC_MASK_UNICODE;
+                        info.hwnd = hwnd;
+                        info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
+                        info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
+                        info.nShow = SW_SHOWNORMAL;
+                        pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
+                    }
+                    DestroyMenu(hMenu);
+                    ok = true;
+                }
+                pContextMenu->Release();
+            }
+            pParentFolder->Release();
+            CoTaskMemFree(pidl);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {

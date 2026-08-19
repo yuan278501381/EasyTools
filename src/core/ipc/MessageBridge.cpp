@@ -821,6 +821,81 @@ void MessageBridge::registerBuiltinHandlers() {
         CloseClipboard();
         return {{"success", true}};
     });
+    registerHandler("system.openFileAsAdmin", [](const json& params) -> json {
+        const std::string path = params.value("path", params.value("filepath", ""));
+        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
+        const auto wide = WinUtils::utf8ToWstring(path);
+        const auto result = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"runas", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+    });
+    registerHandler("system.showFileProperties", [](const json& params) -> json {
+        const std::string path = params.value("path", params.value("filepath", ""));
+        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
+        const auto wide = WinUtils::utf8ToWstring(path);
+        SHELLEXECUTEINFOW sei = { sizeof(sei) };
+        sei.fMask = SEE_MASK_INVOKEIDLIST;
+        sei.lpVerb = L"properties";
+        sei.lpFile = wide.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        BOOL ok = ShellExecuteExW(&sei);
+        return {{"success", ok != FALSE}};
+    });
+    registerHandler("system.showShellContextMenu", [](const json& params) -> json {
+        const std::string path = params.value("path", params.value("filepath", ""));
+        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
+        int screenX = params.value("x", 0);
+        int screenY = params.value("y", 0);
+        HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+        if (!hwnd) hwnd = GetForegroundWindow();
+        const auto wide = WinUtils::utf8ToWstring(path);
+
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        HRESULT hr = SHParseDisplayName(wide.c_str(), nullptr, &pidl, 0, nullptr);
+        if (FAILED(hr) || !pidl) return {{"success", false}};
+
+        IShellFolder* pParentFolder = nullptr;
+        PCUITEMID_CHILD pidlChild = nullptr;
+        hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
+        if (FAILED(hr) || !pParentFolder) {
+            CoTaskMemFree(pidl);
+            return {{"success", false}};
+        }
+
+        bool ok = false;
+        IContextMenu* pContextMenu = nullptr;
+        hr = pParentFolder->GetUIObjectOf(hwnd, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
+        if (SUCCEEDED(hr) && pContextMenu) {
+            HMENU hMenu = CreatePopupMenu();
+            if (hMenu) {
+                pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
+                POINT pt = { screenX, screenY };
+                if (pt.x <= 0 && pt.y <= 0) {
+                    GetCursorPos(&pt);
+                }
+                if (hwnd && IsWindow(hwnd)) {
+                    SetForegroundWindow(hwnd);
+                }
+                UINT cmd = TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                            pt.x, pt.y, hwnd, nullptr);
+                if (cmd >= 1) {
+                    CMINVOKECOMMANDINFOEX info = { sizeof(info) };
+                    info.fMask = CMIC_MASK_UNICODE;
+                    info.hwnd = hwnd;
+                    info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
+                    info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
+                    info.nShow = SW_SHOWNORMAL;
+                    pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
+                }
+                DestroyMenu(hMenu);
+                ok = true;
+            }
+            pContextMenu->Release();
+        }
+        pParentFolder->Release();
+        CoTaskMemFree(pidl);
+        return {{"success", ok}};
+    });
     registerHandler("app.checkForUpdates", [](const json&) -> json {
         const bool started = UpdateChecker::instance().checkAsync(true);
         return {{"success", true}, {"started", started}};

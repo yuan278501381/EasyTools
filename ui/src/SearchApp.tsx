@@ -34,7 +34,10 @@ import {
   Code2,
   Palette,
   Move,
-  Info
+  Info,
+  FolderOpen,
+  ShieldAlert,
+  Copy
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -447,6 +450,12 @@ export default function SearchApp() {
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [syntaxCat, setSyntaxCat] = useState<string>('all');
   const [showViewSettings, setShowViewSettings] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    result?: SearchResult;
+  }>({ visible: false, x: 0, y: 0 });
 
   const filteredSyntaxExamples = useMemo(() => {
     if (syntaxCat === 'all') return SYNTAX_EXAMPLES;
@@ -1036,6 +1045,15 @@ export default function SearchApp() {
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
 
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.search-context-menu')) {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+      }
+    };
+    window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('pointerdown', handleGlobalClick);
+
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -1045,6 +1063,8 @@ export default function SearchApp() {
       window.removeEventListener('focus', onFocusEvt);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('keydown', handleGlobalKeyDown);
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('pointerdown', handleGlobalClick);
     };
   }, [rebuildIndex]);
 
@@ -1349,6 +1369,71 @@ export default function SearchApp() {
     }
   }, [hide]);
 
+  const openResultAsAdmin = useCallback(async (result: SearchResult | undefined) => {
+    if (!result) return;
+    setActionError('');
+    try {
+      void bridgeRequest('search.recordRun', { path: result.path });
+      await bridgeRequest('search.openFileAsAdmin', { filepath: result.path, path: result.path });
+      hide();
+    } catch {
+      try {
+        await bridgeRequest('system.openFileAsAdmin', { path: result.path, filepath: result.path });
+        hide();
+      } catch {
+        setActionError('以管理员身份运行失败');
+      }
+    }
+  }, [hide]);
+
+  const showFileProperties = useCallback(async (result: SearchResult | undefined) => {
+    if (!result) return;
+    setActionError('');
+    try {
+      await bridgeRequest('search.showFileProperties', { filepath: result.path, path: result.path });
+    } catch {
+      try {
+        await bridgeRequest('system.showFileProperties', { path: result.path, filepath: result.path });
+      } catch {
+        setActionError('无法打开文件属性');
+      }
+    }
+  }, []);
+
+  const copyText = useCallback((text: string) => {
+    if (!text) return;
+    const doNative = async () => {
+      try {
+        await bridgeRequest('system.copyText', { text });
+        toast.success('已复制到剪贴板');
+      } catch {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          toast.success('已复制到剪贴板');
+        } catch {
+          toast.error('复制失败');
+        }
+      }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        toast.success('已复制到剪贴板');
+      }).catch(() => {
+        void doNative();
+      });
+    } else {
+      void doNative();
+    }
+  }, []);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'F5' || (event.ctrlKey && (event.key === 'r' || event.key === 'R'))) {
       event.preventDefault();
@@ -1388,7 +1473,9 @@ export default function SearchApp() {
 
     if (sortedResults.length === 0) {
       if (event.key === 'Escape') {
-        if (showSortMenu) {
+        if (contextMenu.visible) {
+          setContextMenu({ visible: false, x: 0, y: 0 });
+        } else if (showSortMenu) {
           setShowSortMenu(false);
         } else if (showSyntaxHelp) {
           setShowSyntaxHelp(false);
@@ -1422,14 +1509,33 @@ export default function SearchApp() {
     } else if (event.key === 'Enter') {
       event.preventDefault();
       const current = sortedResults[selectedIndex];
-      if (event.ctrlKey) {
+      if (event.altKey) {
+        void showFileProperties(current);
+      } else if (event.ctrlKey) {
         void openFolderResult(current);
       } else {
         void openResult(current);
       }
+    } else if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+      event.preventDefault();
+      const current = sortedResults[selectedIndex];
+      if (current) {
+        const itemEl = document.getElementById(`search-result-${selectedIndex}`);
+        const rect = itemEl?.getBoundingClientRect();
+        const x = rect ? rect.left + 120 : 120;
+        const y = rect ? rect.bottom + 4 : 120;
+        setContextMenu({
+          visible: true,
+          x: Math.min(x, window.innerWidth - 240),
+          y: Math.min(y, window.innerHeight - 320),
+          result: current
+        });
+      }
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      if (showSortMenu) {
+      if (contextMenu.visible) {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+      } else if (showSortMenu) {
         setShowSortMenu(false);
       } else if (showSyntaxHelp) {
         setShowSyntaxHelp(false);
@@ -2465,8 +2571,35 @@ export default function SearchApp() {
                 aria-selected={index === selectedIndex}
                 onMouseEnter={() => setSelectedIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setSelectedIndex(index)}
+                onClick={() => {
+                  setSelectedIndex(index);
+                  if (contextMenu.visible) setContextMenu({ visible: false, x: 0, y: 0 });
+                }}
                 onDoubleClick={() => void openResult(result)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelectedIndex(index);
+                  if (event.shiftKey) {
+                    void bridgeRequest('search.showShellContextMenu', {
+                      filepath: result.path,
+                      path: result.path,
+                      x: event.screenX,
+                      y: event.screenY,
+                    });
+                    return;
+                  }
+                  const menuWidth = 240;
+                  const menuHeight = 310;
+                  const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
+                  const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
+                  setContextMenu({
+                    visible: true,
+                    x: Math.max(10, x),
+                    y: Math.max(10, y),
+                    result,
+                  });
+                }}
               >
                 {renderFileIcon(result.name, result.isDirectory, density)}
                 <div className="file-info">
@@ -2719,6 +2852,171 @@ export default function SearchApp() {
             </button>
           </div>
         </footer>
+
+        {/* ── 现代世界级右键上下文菜单 ── */}
+        {contextMenu.visible && contextMenu.result && (
+          <div
+            className="search-context-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="search-context-menu-header">
+              <span className="search-context-menu-filename" title={contextMenu.result.path}>
+                {contextMenu.result.name}
+              </span>
+            </div>
+
+            <div className="search-context-menu-group">
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  void openResult(res);
+                }}
+              >
+                <FolderOpen size={14} className="menu-icon" />
+                <span className="menu-label">打开 {contextMenu.result.isDirectory ? '文件夹' : '文件'}</span>
+                <kbd className="menu-shortcut">Enter</kbd>
+              </button>
+
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  void openFolderResult(res);
+                }}
+              >
+                <HardDrive size={14} className="menu-icon" />
+                <span className="menu-label">打开所在文件夹 (定位)</span>
+                <kbd className="menu-shortcut">Ctrl+Enter</kbd>
+              </button>
+
+              {/* 图片独立贴图 */}
+              {!contextMenu.result.isDirectory && IMAGE_EXTENSIONS.test(contextMenu.result.name) && (
+                <button
+                  type="button"
+                  className="search-context-menu-item"
+                  onClick={() => {
+                    const res = contextMenu.result;
+                    setContextMenu({ visible: false, x: 0, y: 0 });
+                    void pinResult(res);
+                  }}
+                >
+                  <Sparkles size={14} className="menu-icon" />
+                  <span className="menu-label">独立贴图置顶</span>
+                  <kbd className="menu-shortcut">Ctrl+P</kbd>
+                </button>
+              )}
+
+              {/* 以管理员身份运行 */}
+              {!contextMenu.result.isDirectory && /\.(exe|bat|cmd|ps1|msi|vbs)$/i.test(contextMenu.result.name) && (
+                <button
+                  type="button"
+                  className="search-context-menu-item"
+                  onClick={() => {
+                    const res = contextMenu.result;
+                    setContextMenu({ visible: false, x: 0, y: 0 });
+                    void openResultAsAdmin(res);
+                  }}
+                >
+                  <ShieldAlert size={14} className="menu-icon" />
+                  <span className="menu-label">以管理员身份运行</span>
+                </button>
+              )}
+            </div>
+
+            <div className="search-context-menu-divider" />
+
+            <div className="search-context-menu-group">
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  copyPathResult(res);
+                }}
+              >
+                <Copy size={14} className="menu-icon" />
+                <span className="menu-label">复制完整路径</span>
+                <kbd className="menu-shortcut">Ctrl+C</kbd>
+              </button>
+
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  if (res) copyText(res.name);
+                }}
+              >
+                <FileText size={14} className="menu-icon" />
+                <span className="menu-label">复制文件名</span>
+              </button>
+
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  if (res) copyText(extractParentFolder(res.path));
+                }}
+              >
+                <Folder size={14} className="menu-icon" />
+                <span className="menu-label">复制所在目录路径</span>
+              </button>
+            </div>
+
+            <div className="search-context-menu-divider" />
+
+            <div className="search-context-menu-group">
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  const menuX = contextMenu.x;
+                  const menuY = contextMenu.y;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  if (res) {
+                    void bridgeRequest('search.showShellContextMenu', {
+                      filepath: res.path,
+                      path: res.path,
+                      x: menuX,
+                      y: menuY,
+                    });
+                  }
+                }}
+                title="呼出完整 Windows 资源管理器右键扩展菜单 (Shift+右键直接唤出)"
+              >
+                <AppWindow size={14} className="menu-icon" />
+                <span className="menu-label">更多 Windows 原生菜单...</span>
+                <kbd className="menu-shortcut">Shift+F10</kbd>
+              </button>
+
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                  if (res) void showFileProperties(res);
+                }}
+              >
+                <Info size={14} className="menu-icon" />
+                <span className="menu-label">文件属性</span>
+                <kbd className="menu-shortcut">Alt+Enter</kbd>
+              </button>
+            </div>
+          </div>
+        )}
 
         <div
           className="search-resize-handle"
