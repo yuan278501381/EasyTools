@@ -334,55 +334,121 @@ public:
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             int screenX = params.value("x", 0);
             int screenY = params.value("y", 0);
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (!hwnd) hwnd = GetForegroundWindow();
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
 
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            HRESULT hr = SHParseDisplayName(widePath.c_str(), nullptr, &pidl, 0, nullptr);
-            if (FAILED(hr) || !pidl) return {{"success", false}};
+            std::thread([widePath = std::move(widePath), screenX, screenY]() {
+                HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-            IShellFolder* pParentFolder = nullptr;
-            PCUITEMID_CHILD pidlChild = nullptr;
-            hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
-            if (FAILED(hr) || !pParentFolder) {
-                CoTaskMemFree(pidl);
-                return {{"success", false}};
-            }
-
-            bool ok = false;
-            IContextMenu* pContextMenu = nullptr;
-            hr = pParentFolder->GetUIObjectOf(hwnd, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
-            if (SUCCEEDED(hr) && pContextMenu) {
-                HMENU hMenu = CreatePopupMenu();
-                if (hMenu) {
-                    pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
-                    POINT pt = { screenX, screenY };
-                    if (pt.x <= 0 && pt.y <= 0) {
-                        GetCursorPos(&pt);
-                    }
-                    if (hwnd && IsWindow(hwnd)) {
-                        SetForegroundWindow(hwnd);
-                    }
-                    UINT cmd = TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
-                                                pt.x, pt.y, hwnd, nullptr);
-                    if (cmd >= 1) {
-                        CMINVOKECOMMANDINFOEX info = { sizeof(info) };
-                        info.fMask = CMIC_MASK_UNICODE;
-                        info.hwnd = hwnd;
-                        info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
-                        info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
-                        info.nShow = SW_SHOWNORMAL;
-                        pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
-                    }
-                    DestroyMenu(hMenu);
-                    ok = true;
+                PIDLIST_ABSOLUTE pidl = nullptr;
+                HRESULT hr = SHParseDisplayName(widePath.c_str(), nullptr, &pidl, 0, nullptr);
+                if (FAILED(hr) || !pidl) {
+                    if (SUCCEEDED(hrCom)) CoUninitialize();
+                    return;
                 }
-                pContextMenu->Release();
-            }
-            pParentFolder->Release();
-            CoTaskMemFree(pidl);
-            return {{"success", ok}};
+
+                IShellFolder* pParentFolder = nullptr;
+                PCUITEMID_CHILD pidlChild = nullptr;
+                hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
+                if (FAILED(hr) || !pParentFolder) {
+                    CoTaskMemFree(pidl);
+                    if (SUCCEEDED(hrCom)) CoUninitialize();
+                    return;
+                }
+
+                IContextMenu* pContextMenu = nullptr;
+                hr = pParentFolder->GetUIObjectOf(nullptr, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
+                if (SUCCEEDED(hr) && pContextMenu) {
+                    HMENU hMenu = CreatePopupMenu();
+                    if (hMenu) {
+                        pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
+                        POINT pt = { screenX, screenY };
+                        if (pt.x <= 0 && pt.y <= 0) {
+                            GetCursorPos(&pt);
+                        }
+
+                        static const wchar_t* CLASS_NAME = L"EasyTools_ShellMenuWnd_Plugin";
+                        static thread_local IContextMenu2* t_pcm2 = nullptr;
+                        static thread_local IContextMenu3* t_pcm3 = nullptr;
+
+                        pContextMenu->QueryInterface(IID_IContextMenu2, (void**)&t_pcm2);
+                        pContextMenu->QueryInterface(IID_IContextMenu3, (void**)&t_pcm3);
+
+                        WNDCLASSEXW wc{};
+                        wc.cbSize = sizeof(wc);
+                        wc.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) -> LRESULT {
+                            if (t_pcm3) {
+                                LRESULT lres = 0;
+                                if (SUCCEEDED(t_pcm3->HandleMenuMsg2(msg, wp, lp, &lres))) {
+                                    return lres;
+                                }
+                            }
+                            if (t_pcm2) {
+                                if (SUCCEEDED(t_pcm2->HandleMenuMsg(msg, wp, lp))) {
+                                    return 0;
+                                }
+                            }
+                            switch (msg) {
+                                case WM_INITMENUPOPUP:
+                                case WM_DRAWITEM:
+                                case WM_MEASUREITEM:
+                                case WM_MENUCHAR:
+                                    return 0;
+                                default:
+                                    return DefWindowProcW(hwnd, msg, wp, lp);
+                            }
+                        };
+                        wc.hInstance = GetModuleHandleW(nullptr);
+                        wc.lpszClassName = CLASS_NAME;
+                        RegisterClassExW(&wc);
+
+                        HWND helperWnd = CreateWindowExW(
+                            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                            CLASS_NAME, L"",
+                            WS_POPUP,
+                            pt.x, pt.y, 0, 0,
+                            nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
+                        );
+
+                        if (helperWnd) {
+                            SetForegroundWindow(helperWnd);
+                        }
+
+                        UINT cmd = TrackPopupMenuEx(
+                            hMenu,
+                            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+                            pt.x, pt.y,
+                            helperWnd ? helperWnd : GetForegroundWindow(),
+                            nullptr
+                        );
+
+                        if (cmd >= 1) {
+                            CMINVOKECOMMANDINFOEX info{};
+                            info.cbSize = sizeof(info);
+                            info.fMask = CMIC_MASK_UNICODE;
+                            info.hwnd = helperWnd;
+                            info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
+                            info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
+                            info.nShow = SW_SHOWNORMAL;
+                            pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
+                        }
+
+                        if (t_pcm3) { t_pcm3->Release(); t_pcm3 = nullptr; }
+                        if (t_pcm2) { t_pcm2->Release(); t_pcm2 = nullptr; }
+
+                        if (helperWnd && IsWindow(helperWnd)) {
+                            DestroyWindow(helperWnd);
+                        }
+                        DestroyMenu(hMenu);
+                    }
+                    pContextMenu->Release();
+                }
+
+                pParentFolder->Release();
+                CoTaskMemFree(pidl);
+                if (SUCCEEDED(hrCom)) CoUninitialize();
+            }).detach();
+
+            return {{"success", true}};
         });
 
         mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {
