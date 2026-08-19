@@ -55,30 +55,6 @@ function Write-Log ($Message, $Level = "INFO") {
 Write-Log "======================================================="
 Write-Log "启动 EasyTools 一键幂等部署流程"
 Write-Log "配置环境: $Configuration"
-
-$TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
-$LogDir = Join-Path $ScriptDir "deploy_logs"
-if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
-$LogFile = Join-Path $LogDir "deploy_$(Get-Date -Format 'yyyyMMdd').log"
-
-# 统一日志函数
-function Write-Log ($Message, $Level = "INFO") {
-    $TimeStamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $LogStr = "[$TimeStamp] [$TraceID] [$Level] $Message"
-    $Color = switch ($Level) {
-        "INFO" { "Cyan" }
-        "WARN" { "Yellow" }
-        "ERROR" { "Red" }
-        "SUCCESS" { "Green" }
-        default { "White" }
-    }
-    Write-Host "[$TimeStamp] [$Level] $Message" -ForegroundColor $Color
-    Add-Content -Path $LogFile -Value $LogStr -Encoding UTF8
-}
-
-Write-Log "======================================================="
-Write-Log "启动 EasyTools 一键幂等部署流程"
-Write-Log "配置环境: $Configuration"
 Write-Log "======================================================="
 
 # ------------------------------------------------------------------------------

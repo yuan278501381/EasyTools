@@ -272,7 +272,6 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
                 if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
                 m_visible.store(false, std::memory_order_relaxed);
                 releaseD2DResources();
-                easy::core::WinUtils::trimWorkingSet();
             } else {
                 float progress = std::clamp(static_cast<float>(elapsed) / static_cast<float>(m_style.fadeOutMs), 0.0f, 1.0f);
                 float ease = 1.0f - progress;
@@ -393,7 +392,6 @@ void GestureTrailOverlay::hide() {
     m_visible.store(false);
     m_fadeAlpha = 1.0f;
     releaseD2DResources();
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
+#include "core/events/MainThreadDispatcher.h"
 #include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewWindowStyle.h"
@@ -21,6 +22,13 @@ static constexpr const wchar_t* SEARCH_WINDOW_CLASS = L"EasyTools_SearchWindow";
 static constexpr UINT WM_SEARCH_VERIFY_DEACTIVATED = WM_APP + 42;
 
 namespace {
+
+// 索引服务按需启动，预热 WebView 时并不拉起它。窗口真正呼出才是"用户要搜索"
+// 的第一个可靠信号，此时把服务叫醒，启动耗时正好被用户的输入过程盖掉。
+void warmUpSearchService() {
+    easy::core::MessageBridge::instance().handleMessageAsync(
+        R"({"id":0,"method":"search.warmup","params":{}})", [](std::string) {});
+}
 
 }  // namespace
 
@@ -98,6 +106,7 @@ void SearchWindow::preload(HINSTANCE hInstance) {
 
 void SearchWindow::show(HINSTANCE hInstance) {
     m_showTimeTick = GetTickCount64();
+    warmUpSearchService();
     if (m_hwnd && IsWindow(m_hwnd)) {
         if (m_visible) {
             updatePlacement();
@@ -144,7 +153,6 @@ void SearchWindow::hide() {
     ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
     if (m_controller) m_controller->put_IsVisible(FALSE);
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 bool SearchWindow::isVisible() const {
@@ -358,18 +366,27 @@ void SearchWindow::initializeWebView2() {
 
                             m_webView->add_WebMessageReceived(
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                                    [this, generation](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                    [this, generation](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         try {
                                             if (generation != m_generation.load()) return S_OK;
                                             PWSTR messageRaw = nullptr;
                                             if (SUCCEEDED(args->TryGetWebMessageAsString(&messageRaw)) && messageRaw) {
                                                 const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
                                                 CoTaskMemFree(messageRaw);
-                                                const std::string response =
-                                                    easy::core::MessageBridge::instance().handleMessage(request);
-                                                const std::wstring wideResponse =
-                                                    easy::core::WinUtils::utf8ToWstring(response);
-                                                sender->PostWebMessageAsString(wideResponse.c_str());
+                                                // 搜索类请求要跨进程等待索引服务。同步执行会冻结 WebView2 的
+                                                // UI 线程，让搜索框在整个等待期间无法接收键盘输入，因此改为
+                                                // 在线程池中处理，完成后再回到 UI 线程投递响应。
+                                                easy::core::MessageBridge::instance().handleMessageAsync(
+                                                    request,
+                                                    [this, generation](std::string response) {
+                                                        easy::core::MainThreadDispatcher::instance().post(
+                                                            [this, generation, response = std::move(response)]() {
+                                                                if (generation != m_generation.load() || !m_webView) return;
+                                                                const std::wstring wideResponse =
+                                                                    easy::core::WinUtils::utf8ToWstring(response);
+                                                                m_webView->PostWebMessageAsString(wideResponse.c_str());
+                                                            });
+                                                    });
                                             }
                                         } catch (const std::exception& e) {
                                             LOG_ERROR("SearchWindow bridge error: {}", e.what());

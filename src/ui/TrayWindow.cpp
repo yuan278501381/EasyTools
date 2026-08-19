@@ -52,7 +52,15 @@ TrayWindow& TrayWindow::instance() {
 
 void TrayWindow::preload(HINSTANCE hInstance) {
     if (m_hwnd && IsWindow(m_hwnd)) return;
-    const POINT defaultAnchor{GetSystemMetrics(SM_CXSCREEN) - 100, GetSystemMetrics(SM_CYSCREEN) - 100};
+    POINT defaultAnchor{};
+    GetCursorPos(&defaultAnchor);
+    const RECT work = easy::core::dpi::workArea(
+        MonitorFromPoint(defaultAnchor, MONITOR_DEFAULTTONEAREST));
+    if (defaultAnchor.x < work.left || defaultAnchor.x > work.right ||
+        defaultAnchor.y < work.top || defaultAnchor.y > work.bottom) {
+        defaultAnchor.x = work.right - 100;
+        defaultAnchor.y = work.bottom - 100;
+    }
     m_anchor = defaultAnchor;
     if (!createWindow(hInstance, defaultAnchor.x, defaultAnchor.y)) {
         LOG_ERROR("TrayWindow: preload createWindow failed");
@@ -99,7 +107,6 @@ void TrayWindow::hide() {
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
         }
-        easy::core::WinUtils::trimWorkingSet();
     }
 }
 

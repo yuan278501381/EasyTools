@@ -13,6 +13,8 @@
 #ifndef EASYTOOLS_UI_SETTINGSWINDOW_H
 #define EASYTOOLS_UI_SETTINGSWINDOW_H
 
+#include "ui/WebViewWindowStyle.h"
+
 #include <windows.h>
 #include <string>
 #include <functional>
@@ -33,10 +35,11 @@ namespace easy::ui {
 
 /// 设置窗口配置
 struct SettingsWindowConfig {
-    int width  = 1260;             // 窗口宽度
-    int height = 880;              // 窗口高度
-    int posX = -1;                 // 指定屏幕 X 坐标 (-1 表示使用居中或默认值)
-    int posY = -1;                 // 指定屏幕 Y 坐标 (-1 表示使用居中或默认值)
+    int width  = SettingsWindowStyle::BaseWidth;
+    int height = SettingsWindowStyle::BaseHeight;
+    int posX = 0;
+    int posY = 0;
+    bool hasCustomPlacement = false; // 命令行或已持久化的物理像素位置（可为负，副屏）
     bool startCentered = true;      // 是否居中显示
     bool devToolsEnabled = true;    // 是否启用开发者工具（仅 Debug）
     std::string devServerUrl;       // 开发服务器 URL（空则使用本地文件）
@@ -89,6 +92,12 @@ private:
 
     /// 获取前端 UI 入口 URL
     std::string getUIEntryUrl() const;
+
+    /// 从配置恢复上次的窗口位置/尺寸（按保存时 DPI 缩放到当前显示器）
+    void applyPersistedPlacementIfAny();
+
+    /// 将当前窗口矩形持久化（物理像素 + DPI）
+    void persistGeometry();
 
     /// 窗口过程
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

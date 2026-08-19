@@ -610,8 +610,9 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 避免后台常驻 Chromium 进程和数十 MB 内存。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
-    // 预热托盘微型菜单与全局搜索窗口 WebView2 渲染宿主，确保首次 0 毫秒瞬间呼出，杜绝卡顿与初次落空
-    easy::ui::TrayWindow::instance().preload(GetModuleHandleW(nullptr));
+    // 预热全局搜索窗口的 WebView2 渲染宿主，确保热键首次呼出瞬间可用。
+    // 托盘微型菜单不预热：它每多驻留一个渲染进程就是三十多 MB，而它由鼠标点击
+    // 触发，本就存在几十毫秒的容忍度，不值得用常驻内存去换。
     easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
 
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
@@ -647,11 +648,8 @@ void showSettingsWindow() {
         config.posY = wy;
         config.width = ww;
         config.height = wh;
+        config.hasCustomPlacement = true;
         config.startCentered = false;
-    } else {
-        config.width = 1260;
-        config.height = 880;
-        config.startCentered = true;
     }
     config.devServerUrl = "http://localhost:5173";
     settingsWnd.setConfig(config);
@@ -667,11 +665,8 @@ void preloadSettingsWindow(HINSTANCE hInstance) {
         config.posY = wy;
         config.width = ww;
         config.height = wh;
+        config.hasCustomPlacement = true;
         config.startCentered = false;
-    } else {
-        config.width = 1260;
-        config.height = 880;
-        config.startCentered = true;
     }
     config.devServerUrl = "http://localhost:5173";
     settingsWnd.setConfig(config);

@@ -60,7 +60,8 @@ public:
         return dir;
     }
 
-    /// 主动释放进程未使用的物理内存并修剪工作集 (Working Set)
+    /// 进程级工作集修剪。仅允许在真正的冷路径调用（插件停用、长截图管线关闭、全部贴图关闭）。
+    /// 禁止在设置/搜索/托盘/预览/手势轨迹等可反复打开的 UI 路径调用，以免软缺页抵消预热。
     static void trimWorkingSet() {
         SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
     }

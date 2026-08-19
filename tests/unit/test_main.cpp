@@ -48,7 +48,10 @@
 #include "core/utils/ThemeUtils.h"
 #include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
+#include "search/ServiceLifetime.h"
 #include "service/PinyinEngine.h"
+#include "service/PipeProtocol.h"
+#include "service/SearchCancellation.h"
 #include "service/SearchExpression.h"
 #include "service/content/ContentSearchEngine.h"
 #include "service/content/PlainTextExtractor.h"
@@ -73,6 +76,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <initializer_list>
 #include <mutex>
 #include <string>
@@ -1484,6 +1488,22 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     EXPECT_EQ(scaleMetric(36, 1.5f), 54);
     EXPECT_EQ(scaleMetric(1, 0.0f), 1);
 
+    const RECT work{-1920, 0, 0, 1080};
+    const RECT offscreen{-4000, -100, -2800, 800};
+    const RECT clamped = clampWindowToWorkArea(offscreen, work);
+    EXPECT_EQ(clamped.left, -1920);
+    EXPECT_EQ(clamped.top, 0);
+    EXPECT_EQ(clamped.right, -720);
+    EXPECT_EQ(clamped.bottom, 900);
+
+    const RECT tooBig{100, 100, 5000, 4000};
+    const RECT primary{0, 0, 1920, 1080};
+    const RECT fitted = clampWindowToWorkArea(tooBig, primary);
+    EXPECT_EQ(fitted.left, 0);
+    EXPECT_EQ(fitted.top, 0);
+    EXPECT_EQ(fitted.right, 1920);
+    EXPECT_EQ(fitted.bottom, 1080);
+
     const SIZE toast100 = easy::ui::ToastStyle::windowSizeForDpi(96);
     const SIZE toast150 = easy::ui::ToastStyle::windowSizeForDpi(144);
     const SIZE toast200 = easy::ui::ToastStyle::windowSizeForDpi(192);
@@ -2232,9 +2252,9 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
 
     // 构造测试 MFT 卷与记录
     auto parser1 = std::make_unique<MftParser>();
-    std::vector<FileRecord> mockRecords;
+    std::vector<FileRecordInit> mockRecords;
     for (uint64_t i = 1; i <= 50; ++i) {
-        FileRecord r{};
+        FileRecordInit r{};
         r.fileReferenceNumber = i;
         r.parentFileReferenceNumber = 0;
         r.fileName = L"test_document_" + std::to_wstring(i) + L".docx";
@@ -2271,6 +2291,239 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
     EXPECT_EQ(searchResults[0].fileSize, 5120u);
 
     DeleteFileW(dbFile.c_str());
+}
+
+// -----------------------------------------------------------------------------
+// 36.1 搜索服务管道分帧协议
+//
+// 旧协议依赖 PIPE_TYPE_MESSAGE 与固定 256KB 缓冲，响应超出缓冲区时客户端会
+// 把 ERROR_MORE_DATA 当成失败并丢弃整份结果，残留数据还会拖垮后续连接。
+// 现在改为显式长度前缀，这些用例锁定编解码的边界行为。
+// -----------------------------------------------------------------------------
+TEST(PipeProtocolTest, HeaderRoundTripsPayloadSize) {
+    namespace frame = easy::service::pipe;
+    for (uint32_t size : {1u, 2u, 255u, 256u, 65535u, 65536u, 1048576u, frame::MaxFrameBytes}) {
+        const auto header = frame::encodeFrameHeader(size);
+        uint32_t decoded = 0;
+        EXPECT_TRUE(frame::decodeFrameHeader(header.data(), decoded)) << "size=" << size;
+        EXPECT_EQ(decoded, size);
+    }
+}
+
+TEST(PipeProtocolTest, HeaderIsLittleEndian) {
+    namespace frame = easy::service::pipe;
+    const auto header = frame::encodeFrameHeader(0x04030201u);
+    EXPECT_EQ(static_cast<unsigned char>(header[0]), 0x01u);
+    EXPECT_EQ(static_cast<unsigned char>(header[1]), 0x02u);
+    EXPECT_EQ(static_cast<unsigned char>(header[2]), 0x03u);
+    EXPECT_EQ(static_cast<unsigned char>(header[3]), 0x04u);
+}
+
+TEST(PipeProtocolTest, RejectsEmptyAndOversizedFrames) {
+    namespace frame = easy::service::pipe;
+    uint32_t decoded = 0;
+
+    const auto emptyHeader = frame::encodeFrameHeader(0);
+    EXPECT_FALSE(frame::decodeFrameHeader(emptyHeader.data(), decoded));
+
+    const auto oversized = frame::encodeFrameHeader(frame::MaxFrameBytes + 1);
+    EXPECT_FALSE(frame::decodeFrameHeader(oversized.data(), decoded));
+
+    EXPECT_FALSE(frame::decodeFrameHeader(nullptr, decoded));
+}
+
+TEST(PipeProtocolTest, RequestLimitIsTighterThanResponseLimit) {
+    namespace frame = easy::service::pipe;
+    uint32_t decoded = 0;
+
+    // 请求只承载一段查询 JSON，服务端用更小的上限拒绝畸形帧头。
+    const auto header = frame::encodeFrameHeader(frame::MaxRequestBytes + 1);
+    EXPECT_FALSE(frame::decodeFrameHeader(header.data(), decoded, frame::MaxRequestBytes));
+    EXPECT_TRUE(frame::decodeFrameHeader(header.data(), decoded));
+
+    EXPECT_TRUE(frame::fitsInFrame(frame::MaxRequestBytes, frame::MaxRequestBytes));
+    EXPECT_FALSE(frame::fitsInFrame(frame::MaxRequestBytes + 1, frame::MaxRequestBytes));
+    EXPECT_FALSE(frame::fitsInFrame(0));
+}
+
+// -----------------------------------------------------------------------------
+// 36.2 查询代际取消
+// -----------------------------------------------------------------------------
+TEST(QueryEpochTrackerTest, NewerQuerySupersedesOlderOnes) {
+    easy::service::query::QueryEpochTracker tracker;
+
+    EXPECT_TRUE(tracker.observe(100));
+    EXPECT_FALSE(tracker.isStale(100));
+
+    EXPECT_TRUE(tracker.observe(200));
+    EXPECT_TRUE(tracker.isStale(100));
+    EXPECT_FALSE(tracker.isStale(200));
+    EXPECT_EQ(tracker.latest(), 200u);
+}
+
+TEST(QueryEpochTrackerTest, LateArrivingOlderQueryIsRejectedImmediately) {
+    easy::service::query::QueryEpochTracker tracker;
+    EXPECT_TRUE(tracker.observe(500));
+
+    // 更旧的查询即使刚到达也已经过期，不必再跑一遍扫描。
+    EXPECT_FALSE(tracker.observe(400));
+    EXPECT_TRUE(tracker.isStale(400));
+    EXPECT_EQ(tracker.latest(), 500u);
+}
+
+TEST(QueryEpochTrackerTest, RepeatedObservationOfLatestStaysCurrent) {
+    easy::service::query::QueryEpochTracker tracker;
+    EXPECT_TRUE(tracker.observe(700));
+    EXPECT_TRUE(tracker.observe(700));
+    EXPECT_FALSE(tracker.isStale(700));
+}
+
+TEST(QueryEpochTrackerTest, UnnumberedCallersNeverParticipateInCancellation) {
+    easy::service::query::QueryEpochTracker tracker;
+    EXPECT_TRUE(tracker.observe(0));
+    EXPECT_FALSE(tracker.isStale(0));
+
+    EXPECT_TRUE(tracker.observe(900));
+    EXPECT_TRUE(tracker.observe(0));
+    EXPECT_FALSE(tracker.isStale(0));
+    EXPECT_EQ(tracker.latest(), 900u);
+}
+
+TEST(QueryEpochTrackerTest, ResetClearsGeneration) {
+    easy::service::query::QueryEpochTracker tracker;
+    EXPECT_TRUE(tracker.observe(1234));
+    tracker.reset();
+    EXPECT_EQ(tracker.latest(), 0u);
+    EXPECT_FALSE(tracker.isStale(1));
+}
+
+TEST(QueryEpochTrackerTest, ConcurrentObserversAgreeOnASingleWinner) {
+    easy::service::query::QueryEpochTracker tracker;
+    constexpr uint64_t highest = 512;
+
+    std::vector<std::thread> threads;
+    for (uint64_t id = 1; id <= highest; ++id) {
+        threads.emplace_back([&tracker, id]() { tracker.observe(id); });
+    }
+    for (auto& thread : threads) thread.join();
+
+    EXPECT_EQ(tracker.latest(), highest);
+    EXPECT_FALSE(tracker.isStale(highest));
+    EXPECT_TRUE(tracker.isStale(highest - 1));
+}
+
+// -----------------------------------------------------------------------------
+// 36.3 IPC 异步分发
+//
+// 搜索请求要跨进程等待索引服务，同步执行会冻结 WebView2 的 UI 线程。这里验证
+// 标记为异步的方法确实离开了调用线程，而未标记的方法仍然就地完成。
+// -----------------------------------------------------------------------------
+TEST(MessageBridgeAsyncTest, AsyncMethodLeavesTheCallingThread) {
+    auto& bridge = easy::core::MessageBridge::instance();
+    std::atomic<bool> handlerRan{false};
+    std::thread::id handlerThread{};
+
+    bridge.registerHandler("test.asyncEcho", [&](const nlohmann::json& params) -> nlohmann::json {
+        handlerThread = std::this_thread::get_id();
+        handlerRan.store(true);
+        return {{"echo", params.value("value", 0)}};
+    });
+    bridge.markMethodAsync("test.asyncEcho");
+
+    std::promise<std::string> promise;
+    auto future = promise.get_future();
+    bridge.handleMessageAsync(
+        R"({"id":42,"method":"test.asyncEcho","params":{"value":7}})",
+        [&promise](std::string response) { promise.set_value(std::move(response)); });
+
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    const auto parsed = nlohmann::json::parse(future.get());
+    EXPECT_EQ(parsed["id"].get<int>(), 42);
+    EXPECT_EQ(parsed["result"]["echo"].get<int>(), 7);
+    EXPECT_TRUE(handlerRan.load());
+    EXPECT_NE(handlerThread, std::this_thread::get_id());
+
+    bridge.unregisterHandler("test.asyncEcho");
+}
+
+TEST(MessageBridgeAsyncTest, UnmarkedMethodRespondsBeforeReturning) {
+    auto& bridge = easy::core::MessageBridge::instance();
+    bridge.registerHandler("test.syncEcho", [](const nlohmann::json& params) -> nlohmann::json {
+        return {{"echo", params.value("value", 0)}};
+    });
+
+    std::string response;
+    bool respondedInline = false;
+    bridge.handleMessageAsync(
+        R"({"id":11,"method":"test.syncEcho","params":{"value":3}})",
+        [&](std::string value) {
+            response = std::move(value);
+            respondedInline = true;
+        });
+
+    EXPECT_TRUE(respondedInline);
+    const auto parsed = nlohmann::json::parse(response);
+    EXPECT_EQ(parsed["result"]["echo"].get<int>(), 3);
+
+    bridge.unregisterHandler("test.syncEcho");
+}
+
+TEST(MessageBridgeAsyncTest, MalformedAndUnknownMessagesStillProduceAResponse) {
+    auto& bridge = easy::core::MessageBridge::instance();
+
+    std::string malformed;
+    bridge.handleMessageAsync("{ this is not json",
+                              [&](std::string value) { malformed = std::move(value); });
+    ASSERT_FALSE(malformed.empty());
+    EXPECT_TRUE(nlohmann::json::parse(malformed).contains("error"));
+
+    std::string unknown;
+    bridge.handleMessageAsync(R"({"id":9,"method":"test.doesNotExist","params":{}})",
+                              [&](std::string value) { unknown = std::move(value); });
+    ASSERT_FALSE(unknown.empty());
+    const auto parsed = nlohmann::json::parse(unknown);
+    EXPECT_EQ(parsed["id"].get<int>(), 9);
+    EXPECT_EQ(parsed["error"]["code"].get<int>(), -32601);
+}
+
+// -----------------------------------------------------------------------------
+// 36.4 索引服务的退出归属
+//
+// 索引常驻要几百 MB。主程序退出时该不该把它带走，取决于这个服务是谁的：自己
+// 拉起的子进程该收尾，用户装成 Windows 服务的不该动，别的实例拉起的也不该动。
+// -----------------------------------------------------------------------------
+TEST(ServiceLifetimeTest, StopsOnlyTheInstanceWeSpawned) {
+    using easy::search::ServiceOwnership;
+    using easy::search::shouldStopServiceOnExit;
+
+    EXPECT_TRUE(shouldStopServiceOnExit(ServiceOwnership{true, false, false}));
+
+    // 没拉起过就说明它属于别人，可能还有别的客户端在用。
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, false, false}));
+}
+
+TEST(ServiceLifetimeTest, LeavesScmManagedServiceAlone) {
+    using easy::search::ServiceOwnership;
+    using easy::search::shouldStopServiceOnExit;
+
+    // 用户显式安装成 Windows 服务，就该由 SCM 管生命周期，哪怕这次是我们启动的。
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, true, false}));
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, true, false}));
+}
+
+TEST(ServiceLifetimeTest, KeepRunningPreferenceOverridesCleanup) {
+    using easy::search::ServiceOwnership;
+    using easy::search::shouldStopServiceOnExit;
+
+    // 用户选择常驻，就换首次搜索秒开、退出后不释放内存。
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, false, true}));
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, true, true}));
+    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, false, true}));
+}
+
+TEST(ServiceLifetimeTest, DefaultConstructedOwnershipStopsNothing) {
+    // 任何事实都还没确定时不做处置，避免误杀别人的服务。
+    EXPECT_FALSE(easy::search::shouldStopServiceOnExit(easy::search::ServiceOwnership{}));
 }
 
 // -----------------------------------------------------------------------------

@@ -29,6 +29,7 @@
 #include <fstream>
 #include <dwmapi.h>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -131,6 +132,7 @@ void SettingsWindow::preload(HINSTANCE hInstance) {
 
 void SettingsWindow::hide() {
     if (m_hwnd) {
+        persistGeometry();
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
         
@@ -147,7 +149,6 @@ void SettingsWindow::hide() {
         }
         
         LOG_DEBUG("设置窗口已隐藏");
-        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
@@ -192,8 +193,16 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 
     RegisterClassExW(&wc);  // 重复注册会返回 0，忽略即可
 
-    // Per-Monitor DPI Awareness V2: 依据当前活动显示器工作区与 DPI 计算初始自适应布局
-    const HMONITOR monitor = easy::core::dpi::activeMonitor();
+    if (!m_config.hasCustomPlacement) {
+        applyPersistedPlacementIfAny();
+    }
+
+    // Per-Monitor DPI Awareness V2: 依据目标显示器工作区与 DPI 计算初始自适应布局
+    const POINT placementOrigin{m_config.hasCustomPlacement ? m_config.posX : 0,
+                                m_config.hasCustomPlacement ? m_config.posY : 0};
+    const HMONITOR monitor = m_config.hasCustomPlacement
+        ? MonitorFromPoint(placementOrigin, MONITOR_DEFAULTTONEAREST)
+        : easy::core::dpi::activeMonitor();
     const RECT work = easy::core::dpi::workArea(monitor);
     const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
     const float scale = easy::core::dpi::scaleForDpi(dpi);
@@ -204,14 +213,21 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         : SIZE{easy::core::dpi::scaleMetric(m_config.width, scale),
                easy::core::dpi::scaleMetric(m_config.height, scale)};
 
-    const bool customPos = (m_config.posX >= 0 && m_config.posY >= 0);
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;
-    if (customPos) {
-        x = m_config.posX;
-        y = m_config.posY;
+    if (m_config.hasCustomPlacement) {
         targetSize.cx = (std::max)(400, m_config.width);
         targetSize.cy = (std::max)(300, m_config.height);
+        const RECT proposed{
+            m_config.posX,
+            m_config.posY,
+            m_config.posX + targetSize.cx,
+            m_config.posY + targetSize.cy};
+        const RECT clamped = easy::core::dpi::clampWindowToWorkArea(proposed, work);
+        x = clamped.left;
+        y = clamped.top;
+        targetSize.cx = clamped.right - clamped.left;
+        targetSize.cy = clamped.bottom - clamped.top;
     } else {
         const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
         const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - margin * 2);
@@ -430,7 +446,6 @@ void SettingsWindow::onWebView2Ready() {
                         m_showRequestedAt = {};
                     }
                     LOG_INFO("WebView2 导航成功: {}", entryUrl);
-                    easy::core::WinUtils::trimWorkingSet();
                 } else {
                     COREWEBVIEW2_WEB_ERROR_STATUS status;
                     args->get_WebErrorStatus(&status);
@@ -476,6 +491,55 @@ std::string SettingsWindow::getUIEntryUrl() const {
     // 4. 终极降级: 使用开发服务器默认地址
     LOG_WARN("未找到本地 UI 文件及动态端口文件, 尝试连接默认开发服务器 http://localhost:5173");
     return "http://localhost:5173";
+}
+
+void SettingsWindow::applyPersistedPlacementIfAny() {
+    auto& cfg = easy::core::ConfigManager::instance();
+    if (!cfg.has("/ui/settingsWindow/width") || !cfg.has("/ui/settingsWindow/height")) {
+        return;
+    }
+
+    const int savedX = cfg.get<int>("/ui/settingsWindow/x", 0);
+    const int savedY = cfg.get<int>("/ui/settingsWindow/y", 0);
+    const int savedW = cfg.get<int>("/ui/settingsWindow/width", SettingsWindowStyle::BaseWidth);
+    const int savedH = cfg.get<int>("/ui/settingsWindow/height", SettingsWindowStyle::BaseHeight);
+    const int savedDpi = cfg.get<int>("/ui/settingsWindow/dpi", static_cast<int>(easy::core::dpi::DefaultDpi));
+
+    const POINT origin{savedX, savedY};
+    const unsigned targetDpi = easy::core::dpi::effectiveDpiForMonitor(
+        MonitorFromPoint(origin, MONITOR_DEFAULTTONEAREST));
+    const float ratio = easy::core::dpi::scaleForDpi(targetDpi) /
+                        easy::core::dpi::scaleForDpi(static_cast<unsigned>(
+                            (std::max)(1, savedDpi)));
+
+    m_config.posX = savedX;
+    m_config.posY = savedY;
+    m_config.width = (std::max)(400, static_cast<int>(std::lround(savedW * ratio)));
+    m_config.height = (std::max)(300, static_cast<int>(std::lround(savedH * ratio)));
+    m_config.hasCustomPlacement = true;
+    m_config.startCentered = false;
+}
+
+void SettingsWindow::persistGeometry() {
+    if (!m_hwnd || !IsWindow(m_hwnd) || IsIconic(m_hwnd)) return;
+
+    RECT rc{};
+    if (!GetWindowRect(m_hwnd, &rc)) return;
+    const int width = rc.right - rc.left;
+    const int height = rc.bottom - rc.top;
+    if (width <= 0 || height <= 0) return;
+
+    easy::core::ConfigManager::instance().mergePatch({
+        {"ui", {
+            {"settingsWindow", {
+                {"x", rc.left},
+                {"y", rc.top},
+                {"width", width},
+                {"height", height},
+                {"dpi", static_cast<int>(easy::core::dpi::effectiveDpiForWindow(m_hwnd))}
+            }}
+        }}
+    }, "/ui/settingsWindow");
 }
 
 void SettingsWindow::navigateTo(const std::string& path) {
@@ -527,11 +591,17 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
 
         case WM_CLOSE: {
+            if (self) self->persistGeometry();
             if (!easy::core::ConfigManager::instance().get<bool>(
                     "/general/minimizeToTray", true)) {
                 PostQuitMessage(0);
             } else if (self) self->hide();
             return 0;  // 不调用 DestroyWindow
+        }
+
+        case WM_EXITSIZEMOVE: {
+            if (self) self->persistGeometry();
+            return 0;
         }
 
         case WM_DPICHANGED: {
@@ -548,6 +618,7 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 GetClientRect(hwnd, &bounds);
                 self->m_controller->put_Bounds(bounds);
             }
+            if (self) self->persistGeometry();
             return 0;
         }
 

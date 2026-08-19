@@ -77,4 +77,22 @@ inline RECT workArea(HMONITOR monitor) noexcept {
     return RECT{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
 }
 
+/// 将窗口矩形钳制到工作区内，支持负坐标副屏；尺寸不会超出工作区。
+inline RECT clampWindowToWorkArea(RECT window, RECT work) noexcept {
+    int width = (std::max)(1, static_cast<int>(window.right - window.left));
+    int height = (std::max)(1, static_cast<int>(window.bottom - window.top));
+    const int workW = (std::max)(1, static_cast<int>(work.right - work.left));
+    const int workH = (std::max)(1, static_cast<int>(work.bottom - work.top));
+    width = (std::min)(width, workW);
+    height = (std::min)(height, workH);
+
+    int x = window.left;
+    int y = window.top;
+    if (x + width > work.right) x = work.right - width;
+    if (y + height > work.bottom) y = work.bottom - height;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+    return RECT{x, y, x + width, y + height};
+}
+
 }  // namespace easy::core::dpi

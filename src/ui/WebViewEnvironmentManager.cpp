@@ -54,9 +54,6 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
     auto options = Make<CoreWebView2EnvironmentOptions>();
     options->put_AdditionalBrowserArguments(
         L"--enable-features=OverlayScrollbar "
-        L"--renderer-process-limit=1 "
-        L"--disable-gpu-shader-disk-cache "
-        L"--js-flags=\"--max-old-space-size=64\" "
         L"--disable-background-networking "
         L"--disable-component-update");
 

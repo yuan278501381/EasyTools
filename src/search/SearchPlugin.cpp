@@ -4,20 +4,29 @@
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
+#include "search/ServiceLifetime.h"
+#include "service/PipeProtocol.h"
 #include <windows.h>
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <array>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <vector>
 
 namespace {
 
 constexpr const char* SearchPipe = "\\\\.\\pipe\\EasyToolsSearchPipe";
+
+// 本进程是否亲手拉起过索引服务。退出时据此决定要不要把它一并带走。
+static std::atomic<bool> g_serviceSpawnedByUs{false};
 
 static bool isServiceProcessRunning() {
     PROCESSENTRY32W pe32{};
@@ -53,7 +62,99 @@ bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
     return false;
 }
 
+/// 分块的重叠 I/O 收发器，复用同一个事件对象完成一整帧的传输。
+class PipeTransfer {
+public:
+    PipeTransfer() : m_event(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {}
+    ~PipeTransfer() { if (m_event) CloseHandle(m_event); }
+    PipeTransfer(const PipeTransfer&) = delete;
+    PipeTransfer& operator=(const PipeTransfer&) = delete;
+
+    bool valid() const { return m_event != nullptr; }
+
+    bool readExact(HANDLE pipe, char* buffer, size_t bytes, DWORD timeoutMs, DWORD& error) {
+        return transfer(pipe, buffer, bytes, timeoutMs, error, false);
+    }
+
+    bool writeExact(HANDLE pipe, const char* data, size_t bytes, DWORD timeoutMs, DWORD& error) {
+        return transfer(pipe, const_cast<char*>(data), bytes, timeoutMs, error, true);
+    }
+
+private:
+    static constexpr size_t ChunkBytes = 64 * 1024;
+
+    bool transfer(HANDLE pipe, char* buffer, size_t bytes, DWORD timeoutMs,
+                  DWORD& error, bool writing) {
+        const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+        size_t done = 0;
+        while (done < bytes) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) {
+                error = ERROR_TIMEOUT;
+                return false;
+            }
+            const DWORD remainMs = static_cast<DWORD>(deadline - now);
+            const DWORD want = static_cast<DWORD>((std::min)(bytes - done, ChunkBytes));
+
+            OVERLAPPED overlapped{};
+            ResetEvent(m_event);
+            overlapped.hEvent = m_event;
+
+            DWORD moved = 0;
+            const BOOL ok = writing
+                ? WriteFile(pipe, buffer + done, want, &moved, &overlapped)
+                : ReadFile(pipe, buffer + done, want, &moved, &overlapped);
+            if (!ok) {
+                error = GetLastError();
+                if (error != ERROR_IO_PENDING ||
+                    !finishOverlapped(pipe, overlapped, remainMs, moved, error)) {
+                    return false;
+                }
+            }
+            if (moved == 0) {
+                error = ERROR_NO_DATA;  // 对端已关闭
+                return false;
+            }
+            done += moved;
+        }
+        return true;
+    }
+
+    HANDLE m_event;
+};
+
+// 服务是否由 SCM 托管。这种情况下它是用户显式安装的常驻服务，主程序退出时
+// 无权把它关掉。
+static bool isServiceManagedByScm() {
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!scm) return false;
+
+    bool managed = false;
+    SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_QUERY_STATUS);
+    if (service) {
+        SERVICE_STATUS_PROCESS status{};
+        DWORD bytesNeeded = 0;
+        if (QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                                 reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+            managed = status.dwCurrentState == SERVICE_RUNNING ||
+                      status.dwCurrentState == SERVICE_START_PENDING;
+        }
+        CloseServiceHandle(service);
+    }
+    CloseServiceHandle(scm);
+    return managed;
+}
+
 static bool ensureSearchServiceRunning() {
+    if (WaitNamedPipeA(SearchPipe, 100)) {
+        return true;
+    }
+
+    // 查询走线程池并发执行，若不串行化，多个线程会在服务建好管道之前的空窗期里
+    // 各自拉起一个索引进程，每个都会建一份完整索引。
+    static std::mutex launchMutex;
+    std::lock_guard<std::mutex> launchGuard(launchMutex);
+
     if (WaitNamedPipeA(SearchPipe, 100)) {
         return true;
     }
@@ -98,6 +199,7 @@ static bool ensureSearchServiceRunning() {
         std::wstring cmd = L"\"" + serviceExe.wstring() + L"\"";
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
+            g_serviceSpawnedByUs.store(true);
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
         }
@@ -106,9 +208,17 @@ static bool ensureSearchServiceRunning() {
     return WaitNamedPipeA(SearchPipe, 3000) != FALSE;
 }
 
-std::optional<std::string> querySearchService(const std::string& query, DWORD& error) {
+// autoStart 为 false 时，服务没在跑就直接放弃本次调用。历史记录、数据库统计这类
+// 辅助数据会在搜索窗 WebView 预热完成的瞬间被前端拉一遍，若允许它们拉起服务，
+// 用户从没按过搜索热键也会在开机时凭空多出几百 MB 的索引进程。
+std::optional<std::string> querySearchService(const std::string& query, DWORD& error,
+                                              bool autoStart = true) {
     error = ERROR_SUCCESS;
-    if (!WaitNamedPipeA(SearchPipe, 1000)) {
+    if (!WaitNamedPipeA(SearchPipe, autoStart ? 1000 : 1)) {
+        if (!autoStart) {
+            error = ERROR_SERVICE_NOT_ACTIVE;
+            return std::nullopt;
+        }
         if (!ensureSearchServiceRunning()) {
             error = GetLastError();
             return std::nullopt;
@@ -132,60 +242,62 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
         ~PipeGuard() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
     } pipeGuard{pipe};
 
-    DWORD readMode = PIPE_READMODE_MESSAGE;
-    if (!SetNamedPipeHandleState(pipe, &readMode, nullptr, nullptr)) {
+    namespace frame = easy::service::pipe;
+
+    if (!frame::fitsInFrame(query.size(), frame::MaxRequestBytes)) {
+        error = ERROR_INVALID_PARAMETER;
+        return std::nullopt;
+    }
+
+    PipeTransfer transfer;
+    if (!transfer.valid()) {
         error = GetLastError();
         return std::nullopt;
     }
 
-    OVERLAPPED writeOverlapped{};
-    writeOverlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!writeOverlapped.hEvent) {
-        error = GetLastError();
-        return std::nullopt;
-    }
-    struct EventGuard {
-        HANDLE value;
-        ~EventGuard() { if (value) CloseHandle(value); }
-    } writeEvent{writeOverlapped.hEvent};
-
-    DWORD written = 0;
-    if (!WriteFile(pipe, query.data(), static_cast<DWORD>(query.size()), &written,
-                   &writeOverlapped)) {
-        error = GetLastError();
-        if (error != ERROR_IO_PENDING ||
-            !finishOverlapped(pipe, writeOverlapped, 1500, written, error)) {
-            return std::nullopt;
-        }
-    }
-    if (written != query.size()) {
-        error = ERROR_WRITE_FAULT;
+    const auto requestHeader = frame::encodeFrameHeader(static_cast<uint32_t>(query.size()));
+    if (!transfer.writeExact(pipe, requestHeader.data(), requestHeader.size(), 3000, error) ||
+        !transfer.writeExact(pipe, query.data(), query.size(), 3000, error)) {
         return std::nullopt;
     }
 
-    std::vector<char> response(256 * 1024);
-    OVERLAPPED readOverlapped{};
-    readOverlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!readOverlapped.hEvent) {
-        error = GetLastError();
+    // 帧头到达即表示服务端已完成计算，因此这一步承担查询本身的等待时间。
+    char responseHeader[frame::HeaderSize] = {};
+    if (!transfer.readExact(pipe, responseHeader, sizeof(responseHeader), 15000, error)) {
         return std::nullopt;
     }
-    EventGuard readEvent{readOverlapped.hEvent};
-    DWORD bytesRead = 0;
-    if (!ReadFile(pipe, response.data(), static_cast<DWORD>(response.size() - 1),
-                  &bytesRead, &readOverlapped)) {
-        error = GetLastError();
-        if (error != ERROR_IO_PENDING ||
-            !finishOverlapped(pipe, readOverlapped, 10000, bytesRead, error)) {
-            return std::nullopt;
-        }
-    }
-    if (bytesRead == 0) {
-        error = ERROR_NO_DATA;
+
+    uint32_t responseBytes = 0;
+    if (!frame::decodeFrameHeader(responseHeader, responseBytes)) {
+        error = ERROR_INVALID_DATA;
         return std::nullopt;
     }
-    response[bytesRead] = '\0';
-    return std::string(response.data(), bytesRead);
+
+    std::string response(responseBytes, '\0');
+    if (!transfer.readExact(pipe, response.data(), responseBytes, 15000, error)) {
+        return std::nullopt;
+    }
+    return response;
+}
+
+// 主程序退出时收尾。索引常驻要几百 MB，用户点了"退出 EasyTools"却留着它，
+// 直到重启才释放，这不符合退出的语义；想常驻的人可以在设置里开回来。
+static void stopSearchServiceIfOwned() {
+    const easy::search::ServiceOwnership ownership{
+        g_serviceSpawnedByUs.load(),
+        isServiceManagedByScm(),
+        easy::core::ConfigManager::instance().get<bool>("/search/keepServiceRunning", false),
+    };
+    if (!easy::search::shouldStopServiceOnExit(ownership)) return;
+
+    nlohmann::json req;
+    req["action"] = "shutdown";
+    DWORD error = ERROR_SUCCESS;
+    if (querySearchService(req.dump(), error, /*autoStart=*/false)) {
+        LOG_INFO("SearchPlugin: 已请求索引服务停机");
+    } else {
+        LOG_WARN("SearchPlugin: 索引服务停机请求失败, error={}", error);
+    }
 }
 
 }  // namespace
@@ -519,15 +631,19 @@ public:
             return {{"success", true}};
         });
 
+        // 只报告状态，不再顺手拉起服务：设置页一打开就会查一次状态，那不足以
+        // 说明用户要用搜索。需要拉起时走 search.warmup。
         mb.registerHandler("search.getServiceStatus", [](const nlohmann::json&) -> nlohmann::json {
-            bool available = (WaitNamedPipeA(SearchPipe, 0) != FALSE);
-            if (!available) {
-                available = ensureSearchServiceRunning();
-            }
             return {
-                {"available", available},
+                {"available", WaitNamedPipeA(SearchPipe, 1) != FALSE},
                 {"pipeName", SearchPipe}
             };
+        });
+
+        // 搜索窗真正呼出时才把索引服务拉起来。用户此刻正在打字，几秒的启动时间
+        // 被输入过程盖掉；而预热 WebView 时不触发，开机静默驻留就不必背这份内存。
+        mb.registerHandler("search.warmup", [](const nlohmann::json&) -> nlohmann::json {
+            return {{"available", ensureSearchServiceRunning()}};
         });
 
         mb.registerHandler("search.getSettings", [](const nlohmann::json&) -> nlohmann::json {
@@ -542,8 +658,10 @@ public:
             std::string excludePatterns = cfg.get<std::string>("/search/excludePatterns", "$Recycle.Bin,System Volume Information,node_modules,.git,__pycache__");
             bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
             bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
+            bool keepServiceRunning = cfg.get<bool>("/search/keepServiceRunning", false);
 
             return {
+                {"keepServiceRunning", keepServiceRunning},
                 {"hotkey", hotkey},
                 {"maxResults", maxResults},
                 {"defaultCategory", defaultCategory},
@@ -589,6 +707,9 @@ public:
             if (params.contains("excludeSystem") && params["excludeSystem"].is_boolean()) {
                 cfg.set("/search/excludeSystem", params["excludeSystem"].get<bool>());
             }
+            if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
+                cfg.set("/search/keepServiceRunning", params["keepServiceRunning"].get<bool>());
+            }
             return {{"success", true}};
         });
 
@@ -599,7 +720,7 @@ public:
             req["action"] = "recordRun";
             req["path"] = path;
             DWORD err = 0;
-            auto res = querySearchService(req.dump(), err);
+            auto res = querySearchService(req.dump(), err, /*autoStart=*/false);
             return {{"success", res.has_value()}};
         });
 
@@ -610,7 +731,7 @@ public:
             req["action"] = "recordSearch";
             req["query"] = query;
             DWORD err = 0;
-            auto res = querySearchService(req.dump(), err);
+            auto res = querySearchService(req.dump(), err, /*autoStart=*/false);
             return {{"success", res.has_value()}};
         });
 
@@ -619,7 +740,7 @@ public:
             req["action"] = "getSearchHistory";
             if (params.contains("limit")) req["limit"] = params["limit"];
             DWORD err = 0;
-            auto res = querySearchService(req.dump(), err);
+            auto res = querySearchService(req.dump(), err, /*autoStart=*/false);
             if (res && !res->empty()) {
                 try {
                     return nlohmann::json::parse(*res);
@@ -650,7 +771,7 @@ public:
             nlohmann::json req;
             req["action"] = "getDbStats";
             DWORD err = 0;
-            auto res = querySearchService(req.dump(), err);
+            auto res = querySearchService(req.dump(), err, /*autoStart=*/false);
             if (res && !res->empty()) {
                 try {
                     return nlohmann::json::parse(*res);
@@ -667,12 +788,29 @@ public:
             return {{"success", res.has_value()}};
         });
 
+        // 这些处理器全部要跨进程等待搜索服务，耗时由索引规模和磁盘决定。放在
+        // WebView2 的 UI 线程上同步执行会让搜索窗口在整个等待期间无法响应键盘
+        // 输入。窗口操作类处理器（startDrag/startResize/右键菜单等）有线程亲和
+        // 性，必须留在同步路径上。
+        for (const char* method : {
+                 "search.query",
+                 "search.sync",
+                 "search.rebuildIndex",
+                 "search.getSearchHistory",
+                 "search.getDbStats",
+                 "search.saveSnapshot",
+                 "search.warmup",
+             }) {
+            mb.markMethodAsync(method);
+        }
+
         return true;
     }
 
     void shutdown() override {
         LOG_INFO("SearchPlugin: 关闭");
         easy::core::MessageBridge::instance().unregisterHandlersByPrefix("search.");
+        stopSearchServiceIfOwned();
     }
 };
 

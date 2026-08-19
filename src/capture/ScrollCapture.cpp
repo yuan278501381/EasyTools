@@ -241,7 +241,6 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
     }
     m_segments.clear();
     m_lastFrame.release();
-    easy::core::WinUtils::trimWorkingSet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
