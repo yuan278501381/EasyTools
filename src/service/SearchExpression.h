@@ -12,13 +12,33 @@
 #include <cstdint>
 #include <functional>
 
+// A resolved, read-only view of one indexed file.
+//
+// The index keeps names in a StringArena rather than in per-record wstrings, so
+// this is a view over that storage: building one during a scan is pointer
+// arithmetic with no allocation. Callers outside the index (tests, ad-hoc
+// matching) can point the views at string literals or at strings they keep alive
+// themselves.
 struct FileRecord {
     uint64_t fileReferenceNumber = 0;
     uint64_t parentFileReferenceNumber = 0;
+    std::wstring_view fileName;
+    std::wstring_view normalizedName;
+    std::wstring_view pinyinInitials;
+    std::wstring_view pinyinFull;
+    bool isDirectory = false;
+    uint32_t fileAttributes = 0;
+    uint64_t fileSize = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastWriteTime = 0;
+};
+
+// The owning form used to feed records into the index. Normalized and pinyin
+// forms are derived on insert, so they are deliberately absent here.
+struct FileRecordInit {
+    uint64_t fileReferenceNumber = 0;
+    uint64_t parentFileReferenceNumber = 0;
     std::wstring fileName;
-    std::wstring normalizedName;
-    std::wstring pinyinInitials;
-    std::wstring pinyinFull;
     bool isDirectory = false;
     uint32_t fileAttributes = 0;
     uint64_t fileSize = 0;

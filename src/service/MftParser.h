@@ -1,10 +1,13 @@
 #pragma once
+#include "FileIndexStore.h"
+#include "FolderPathTable.h"
 #include "SearchExpression.h"
 #include <windows.h>
 #include <winioctl.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -43,8 +46,18 @@ public:
                                      const SearchExcludeOptions& excludeOpts = {});
 
     // 快照导出与载入接口
-    void exportSnapshot(std::vector<FileRecord>& outRecords, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const;
-    bool importSnapshot(std::vector<FileRecord>&& records, uint64_t lastUsn, uint32_t volumeSerial);
+    //
+    // 导出为流式访问：全盘索引有数百万条记录，物化成第二份 vector 会让保存快照
+    // 的瞬间内存翻倍，因此改由调用方逐条消费。
+    using SnapshotVisitor = std::function<void(const FileRecord&)>;
+    void exportSnapshot(const SnapshotVisitor& visit, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const;
+
+    // 导入同理走拉取式回调：填充 out 并返回 true 表示还有下一条。调用方可以复用
+    // 同一个 out，于是整个恢复过程只存在一份记录的临时字符串。
+    using SnapshotProducer = std::function<bool(FileRecordInit& out)>;
+    bool importSnapshot(const SnapshotProducer& next, size_t expectedRecords,
+                        uint64_t lastUsn, uint32_t volumeSerial);
+    bool importSnapshot(std::vector<FileRecordInit>&& records, uint64_t lastUsn, uint32_t volumeSerial);
     bool catchUpUsnJournal(uint64_t fromUsn);
 
     char getDriveLetter() const { return m_DriveLetter; }
@@ -52,6 +65,7 @@ public:
     uint64_t getCurrentUsn() const;
     uint32_t getVolumeSerialNumber() const;
     size_t getFileCount() const;
+    uint64_t getApproximateIndexBytes() const;
 
 private:
     char m_DriveLetter = 0;
@@ -65,8 +79,8 @@ private:
     void UsnListenerLoop();
     
     // Memory structures
-    std::shared_mutex m_MapMutex;
-    std::unordered_map<DWORDLONG, std::unique_ptr<FileRecord>> m_FileMap;
+    mutable std::shared_mutex m_MapMutex;
+    easy::service::FileIndexStore m_Store;
     std::atomic<uint64_t> m_IndexGeneration{0};
     std::mutex m_SearchCacheMutex;
     std::wstring m_CachedQuery;
@@ -78,7 +92,6 @@ private:
     std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
     void rebuildFolderPaths();
 
-    std::unordered_map<DWORDLONG, std::wstring> m_FolderPaths;
-    std::vector<const FileRecord*> m_FlatRecords;
+    easy::service::FolderPathTable m_FolderPaths;
     bool m_IsFallbackDirectoryWalk{false};
 };

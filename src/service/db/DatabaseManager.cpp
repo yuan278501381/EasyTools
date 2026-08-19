@@ -115,19 +115,14 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
     for (auto* parser : parsers) {
         if (!parser) continue;
 
-        std::vector<FileRecord> records;
-        uint64_t lastUsn = 0;
-        uint32_t volumeSerial = 0;
-        parser->exportSnapshot(records, lastUsn, volumeSerial);
-
-        totalRecordsAll += records.size();
-
-        // 构造字符串池与紧凑 Pod 数组
+        // 直接在遍历回调里构造字符串池与紧凑 Pod 数组：全盘索引有数百万条记录，
+        // 先物化成 std::vector<FileRecord> 会让保存快照的瞬间内存翻倍。
         std::vector<wchar_t> stringPool;
         std::vector<DbRecordPod> pods;
-        pods.reserve(records.size());
 
-        for (const auto& r : records) {
+        uint64_t lastUsn = 0;
+        uint32_t volumeSerial = 0;
+        parser->exportSnapshot([&](const FileRecord& r) {
             DbRecordPod pod{};
             pod.frn = r.fileReferenceNumber;
             pod.parentFrn = r.parentFileReferenceNumber;
@@ -142,7 +137,9 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
             stringPool.insert(stringPool.end(), r.fileName.begin(), r.fileName.end());
 
             pods.push_back(pod);
-        }
+        }, lastUsn, volumeSerial);
+
+        totalRecordsAll += pods.size();
 
         DbVolumeHeader volHeader{};
         volHeader.driveLetter = static_cast<wchar_t>(std::toupper(parser->getDriveLetter()));
@@ -256,15 +253,14 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
 
         if (!targetParser) continue;
 
-        // 解码构建 FileRecord 列表
-        std::vector<FileRecord> records;
-        records.reserve(pVol->recordCount);
-
+        // 直接把内存映射里的 Pod 逐条喂给索引：一次性解码成 vector<FileRecordInit>
+        // 会在恢复瞬间额外占用与整份索引同量级的临时字符串内存。
         const size_t totalWChars = stringPoolBytes / sizeof(wchar_t);
+        uint32_t podCursor = 0;
 
-        for (uint32_t i = 0; i < pVol->recordCount; ++i) {
-            const auto& pod = pPods[i];
-            FileRecord r{};
+        auto produce = [&](FileRecordInit& r) {
+            if (podCursor >= pVol->recordCount) return false;
+            const auto& pod = pPods[podCursor++];
             r.fileReferenceNumber = pod.frn;
             r.parentFileReferenceNumber = pod.parentFrn;
             r.fileAttributes = pod.attributes;
@@ -276,12 +272,11 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
             if (pod.nameOffset + pod.nameLen <= totalWChars) {
                 r.fileName.assign(pStrings + pod.nameOffset, pod.nameLen);
             }
-
-            records.push_back(std::move(r));
-        }
+            return true;
+        };
 
         // 导入并触发 USN 增量追赶
-        if (targetParser->importSnapshot(std::move(records), pVol->lastUsn, pVol->volumeSerial)) {
+        if (targetParser->importSnapshot(produce, pVol->recordCount, pVol->lastUsn, pVol->volumeSerial)) {
             targetParser->catchUpUsnJournal(pVol->lastUsn);
             anyVolumeLoaded = true;
         }

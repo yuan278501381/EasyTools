@@ -327,7 +327,8 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
 
         case SearchFilterType::Regex:
             if (clause.regexObj.has_value()) {
-                matched = std::regex_search(record.fileName, clause.regexObj.value());
+                matched = std::regex_search(record.fileName.begin(), record.fileName.end(),
+                                            clause.regexObj.value());
                 if (!matched && requiresFullPath) {
                     matched = std::regex_search(getPath(), clause.regexObj.value());
                 }

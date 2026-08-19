@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <chrono>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -18,6 +19,8 @@
 #include <cwctype>
 #include <nlohmann/json.hpp>
 #include "MftParser.h"
+#include "PipeProtocol.h"
+#include "SearchCancellation.h"
 #include "content/ContentSearchEngine.h"
 #include "db/RunHistoryManager.h"
 #include "db/SearchHistoryManager.h"
@@ -31,6 +34,33 @@ HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 std::atomic<bool>     g_IsRunning{false};
 
 std::vector<std::unique_ptr<MftParser>> g_MftParsers;
+
+constexpr const char* SearchPipeName = "\\\\.\\pipe\\EasyToolsSearchPipe";
+constexpr int NumPipeWorkers = 4;
+
+// 主程序退出时会通过管道请求停机。工作线程此刻大多阻塞在 ConnectNamedPipe 上，
+// 单靠清掉运行标志叫不醒它们，还得真的连上来几次。这件事必须交给另一个线程，
+// 否则正在处理停机请求的那个线程会连到自己身上。
+void RequestServiceShutdown() {
+    if (!g_IsRunning.exchange(false)) return;
+    if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) SetEvent(g_ServiceStopEvent);
+
+    std::thread([]() {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline) {
+            HANDLE poke = CreateFileA(SearchPipeName, GENERIC_READ | GENERIC_WRITE, 0,
+                                      nullptr, OPEN_EXISTING, 0, nullptr);
+            if (poke == INVALID_HANDLE_VALUE) {
+                // 管道实例全部消失，说明工作线程已经退干净了。
+                if (GetLastError() == ERROR_FILE_NOT_FOUND) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            CloseHandle(poke);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }).detach();
+}
 
 std::string WStringToString(const std::wstring& wstr) {
     if (wstr.empty()) return std::string();
@@ -85,6 +115,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     std::vector<char> enabledDrives;
     SearchExcludeOptions excludeOpts;
     size_t requestedLimit = 100;
+    uint64_t queryId = 0;
 
     std::string utf8Input = WStringToString(rawInput);
     if (!utf8Input.empty() && utf8Input.front() == '{') {
@@ -176,10 +207,20 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                     bool ok = easy::service::db::DatabaseManager::instance().saveSnapshot(allParsers);
                     return {{"success", ok}};
                 }
+                if (act == "shutdown") {
+                    // 快照不在这里落盘：写一份要几百 MB，而下次启动导入快照时本就会用
+                    // USN 日志补齐停机期间的变动，多花的磁盘代价换不来任何准确性。
+                    spdlog::info("Received shutdown request from client, stopping service.");
+                    RequestServiceShutdown();
+                    return {{"success", true}, {"stopping", true}};
+                }
             }
 
             if (reqJson.contains("query") && reqJson["query"].is_string()) {
                 wQuery = StringToWString(reqJson["query"].get<std::string>());
+            }
+            if (reqJson.contains("queryId") && reqJson["queryId"].is_number_unsigned()) {
+                queryId = reqJson["queryId"].get<uint64_t>();
             }
             if (reqJson.contains("searchMode") && reqJson["searchMode"].is_string()) {
                 searchMode = reqJson["searchMode"].get<std::string>();
@@ -233,6 +274,13 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         wQuery = rawInput;
     }
     const auto overallStartTime = std::chrono::steady_clock::now();
+
+    auto& epochTracker = easy::service::query::sharedEpochTracker();
+    if (!epochTracker.observe(queryId)) {
+        // 更新的查询已经先行到达，本次结果不会再被采用。
+        return {{"results", nlohmann::json::array()}, {"cancelled", true}, {"queryId", queryId}};
+    }
+    const auto isCancelled = [&epochTracker, queryId]() { return epochTracker.isStale(queryId); };
 
     auto isDriveEnabled = [&](char driveLetter) {
         if (enabledDrives.empty()) return true;
@@ -289,6 +337,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
+            if (isCancelled()) return std::vector<nlohmann::json>{};
             auto volumeResults = parser->Search(queryStr, 10000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
@@ -389,6 +438,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             workers.emplace_back([&]() {
                 while (matchCount.load() < maxCount) {
                     if (std::chrono::steady_clock::now() > deadline) break;
+                    // 用户已经继续打字，本次内容扫描的结果不会再被采用。
+                    if (isCancelled()) break;
                     size_t idx = nextIndex.fetch_add(1);
                     if (idx >= textCandidates.size()) break;
 
@@ -496,18 +547,50 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
     responseJson["totalIndexedFiles"] = totalIndexedFiles;
     responseJson["elapsedMs"] = elapsedMs;
+    responseJson["queryId"] = queryId;
+    responseJson["cancelled"] = isCancelled();
 
     return responseJson;
 }
 
+namespace {
+
+constexpr DWORD PipeChunkBytes = 64 * 1024;
+
+bool ReadExact(HANDLE pipe, char* buffer, size_t bytes) {
+    size_t total = 0;
+    while (total < bytes) {
+        const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - total, PipeChunkBytes));
+        DWORD got = 0;
+        if (!ReadFile(pipe, buffer + total, want, &got, nullptr) || got == 0) return false;
+        total += got;
+    }
+    return true;
+}
+
+bool WriteExact(HANDLE pipe, const char* data, size_t bytes) {
+    size_t total = 0;
+    while (total < bytes) {
+        const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - total, PipeChunkBytes));
+        DWORD sent = 0;
+        if (!WriteFile(pipe, data + total, want, &sent, nullptr) || sent == 0) return false;
+        total += sent;
+    }
+    return true;
+}
+
+}  // namespace
+
 void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* pipeSecurity) {
+    namespace frame = easy::service::pipe;
+
     while (g_IsRunning.load()) {
         HANDLE hPipe = CreateNamedPipeA(
-            "\\\\.\\pipe\\EasyToolsSearchPipe",
+            SearchPipeName,
             PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
-            256 * 1024, 4096, 0,
+            PipeChunkBytes, PipeChunkBytes, 0,
             pipeDescriptor ? pipeSecurity : nullptr
         );
 
@@ -518,32 +601,33 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
         BOOL connected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
         if (connected && g_IsRunning.load()) {
-            std::array<char, 4096> buffer{};
             while (g_IsRunning.load()) {
-                std::string request;
-                DWORD bytesRead = 0;
-                BOOL readOk = FALSE;
-                do {
-                    readOk = ReadFile(hPipe, buffer.data(), static_cast<DWORD>(buffer.size()),
-                                      &bytesRead, nullptr);
-                    if (bytesRead > 0 && request.size() < 4096) {
-                        request.append(buffer.data(), std::min<size_t>(bytesRead, 4096 - request.size()));
-                    }
-                } while (!readOk && GetLastError() == ERROR_MORE_DATA && request.size() < 4096);
-                if ((!readOk && GetLastError() != ERROR_MORE_DATA) || request.empty()) break;
+                char header[frame::HeaderSize] = {};
+                if (!ReadExact(hPipe, header, sizeof(header))) break;
 
-                std::wstring wQuery = StringToWString(request);
-                nlohmann::json responseJson = ProcessSearchQuery(wQuery);
-                const std::string response = responseJson.dump();
-
-                DWORD bytesWritten = 0;
-                if (!WriteFile(hPipe, response.c_str(), static_cast<DWORD>(response.size()),
-                               &bytesWritten, nullptr) ||
-                    bytesWritten != static_cast<DWORD>(response.size())) {
+                uint32_t requestBytes = 0;
+                if (!frame::decodeFrameHeader(header, requestBytes, frame::MaxRequestBytes)) {
+                    spdlog::warn("Pipe: 请求帧头非法, 断开该连接");
                     break;
                 }
+
+                std::string request(requestBytes, '\0');
+                if (!ReadExact(hPipe, request.data(), requestBytes)) break;
+
+                nlohmann::json responseJson = ProcessSearchQuery(StringToWString(request));
+                const std::string response = responseJson.dump();
+                if (!frame::fitsInFrame(response.size())) {
+                    spdlog::error("Pipe: 响应超出单帧上限 ({} 字节), 断开该连接", response.size());
+                    break;
+                }
+
+                const auto responseHeader =
+                    frame::encodeFrameHeader(static_cast<uint32_t>(response.size()));
+                if (!WriteExact(hPipe, responseHeader.data(), responseHeader.size())) break;
+                if (!WriteExact(hPipe, response.data(), response.size())) break;
             }
         }
+        FlushFileBuffers(hPipe);
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
     }
@@ -631,13 +715,12 @@ void IPCServerThread() {
         spdlog::error("Failed to create named pipe security descriptor: {}", GetLastError());
     }
 
-    constexpr int NUM_PIPE_WORKERS = 4;
     std::vector<std::thread> pipeWorkers;
-    pipeWorkers.reserve(NUM_PIPE_WORKERS);
-    for (int i = 0; i < NUM_PIPE_WORKERS; ++i) {
+    pipeWorkers.reserve(NumPipeWorkers);
+    for (int i = 0; i < NumPipeWorkers; ++i) {
         pipeWorkers.emplace_back(PipeWorkerThread, pipeDescriptor, &pipeSecurity);
     }
-    spdlog::info("Launched {} concurrent named pipe server worker(s)", NUM_PIPE_WORKERS);
+    spdlog::info("Launched {} concurrent named pipe server worker(s)", NumPipeWorkers);
 
     for (auto& w : pipeWorkers) {
         if (w.joinable()) w.join();
@@ -713,12 +796,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     // Wait for stop event
     WaitForSingleObject(g_ServiceStopEvent, INFINITE);
 
-    g_IsRunning = false;
-    
-    // Break the named pipe wait
-    HANDLE hPipe = CreateFileA("\\\\.\\pipe\\EasyToolsSearchPipe", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-    if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
-    
+    RequestServiceShutdown();
     if (ipcThread.joinable()) ipcThread.join();
 
     CloseHandle(g_ServiceStopEvent);
@@ -730,17 +808,28 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     spdlog::info("Service stopped successfully.");
 }
 
+// 索引占用数百 MB 内存并独占 USN 日志游标，多开除了浪费别无意义。互斥量在进程
+// 退出时由内核释放，因此崩溃留下的残留不会挡住下一次启动。
+static bool AcquireSingleInstanceLock() {
+    static HANDLE lock = CreateMutexW(nullptr, TRUE, L"Local\\EasyTools_SearchService_Singleton");
+    if (!lock) return true;  // 拿不到互斥量时宁可启动，也不要让搜索彻底不可用
+    return GetLastError() != ERROR_ALREADY_EXISTS;
+}
+
 int main(int argc, char** argv) {
     InitLogger();
+    if (!AcquireSingleInstanceLock()) {
+        spdlog::info("Another EasyTools_Service instance is already running, exiting.");
+        return 0;
+    }
+
     if (argc > 1 && std::string(argv[1]) == "--debug") {
         spdlog::info("Running in debug mode (Console).");
         g_IsRunning = true;
         std::thread ipcThread(IPCServerThread);
         std::cout << "Press ENTER to stop..." << std::endl;
         std::cin.get();
-        g_IsRunning = false;
-        HANDLE hPipe = CreateFileA("\\\\.\\pipe\\EasyToolsSearchPipe", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-        if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
+        RequestServiceShutdown();
         if (ipcThread.joinable()) ipcThread.join();
         return 0;
     }

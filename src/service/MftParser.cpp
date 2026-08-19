@@ -9,7 +9,7 @@
 
 namespace {
 
-std::wstring normalize(std::wstring value) {
+std::wstring normalize(std::wstring_view value) {
     return SearchExpression::normalize(value);
 }
 
@@ -26,8 +26,13 @@ MftParser::~MftParser() {
 }
 
 size_t MftParser::getFileCount() const {
-    std::shared_lock lock(const_cast<std::shared_mutex&>(m_MapMutex));
-    return m_FileMap.size();
+    std::shared_lock lock(m_MapMutex);
+    return m_Store.size();
+}
+
+uint64_t MftParser::getApproximateIndexBytes() const {
+    std::shared_lock lock(m_MapMutex);
+    return m_Store.approximateBytes() + m_FolderPaths.approximateBytes();
 }
 
 void MftParser::UsnListenerLoop() {
@@ -63,27 +68,25 @@ void MftParser::UsnListenerLoop() {
                    pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
                    pRecord->RecordLength <= dwRetBytes) {
                 if (pRecord->Reason & USN_REASON_FILE_CREATE || pRecord->Reason & USN_REASON_RENAME_NEW_NAME) {
-                    std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
-                    record->fileReferenceNumber = pRecord->FileReferenceNumber;
-                    record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
-                    record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                    FileRecordInit record;
+                    record.fileReferenceNumber = pRecord->FileReferenceNumber;
+                    record.parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
+                    record.isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     int nameLen = pRecord->FileNameLength / 2;
-                    record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
-                    record->normalizedName = normalize(record->fileName);
-                    record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
-                    record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
-                    
-                    m_FileMap[record->fileReferenceNumber] = std::move(record);
+                    record.fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
+
+                    m_Store.upsert(record);
                     changed = true;
                 } 
                 else if (pRecord->Reason & USN_REASON_FILE_DELETE) {
-                    changed = m_FileMap.erase(pRecord->FileReferenceNumber) > 0 || changed;
+                    changed = m_Store.erase(pRecord->FileReferenceNumber) || changed;
                 }
 
                 dwRetBytes -= pRecord->RecordLength;
                 pRecord = (PUSN_RECORD_V2)((PBYTE)pRecord + pRecord->RecordLength);
             }
             if (changed) {
+                m_Store.compactIfSparse();
                 rebuildFolderPaths();
                 m_IndexGeneration.fetch_add(1, std::memory_order_release);
             }
@@ -182,14 +185,14 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
     dirsToScan.push_back({rootPath, 0});
 
     int count = 0;
-    std::vector<std::pair<DWORDLONG, std::unique_ptr<FileRecord>>> batch;
+    std::vector<FileRecordInit> batch;
     batch.reserve(2048);
 
     auto flushBatch = [&]() {
         if (batch.empty()) return;
         std::unique_lock lock(m_MapMutex);
-        for (auto& item : batch) {
-            m_FileMap[item.first] = std::move(item.second);
+        for (const auto& item : batch) {
+            m_Store.upsert(item);
         }
         batch.clear();
         m_IndexGeneration.fetch_add(1, std::memory_order_release);
@@ -229,18 +232,15 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
             const bool isDir = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             const uint64_t fileId = nextId++;
 
-            auto record = std::make_unique<FileRecord>();
-            record->fileReferenceNumber = fileId;
-            record->parentFileReferenceNumber = parentId;
-            record->isDirectory = isDir;
-            record->fileAttributes = findData.dwFileAttributes;
-            record->fileSize = isDir ? 0 : ((static_cast<uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow);
-            record->creationTime = (static_cast<uint64_t>(findData.ftCreationTime.dwHighDateTime) << 32) | findData.ftCreationTime.dwLowDateTime;
-            record->lastWriteTime = (static_cast<uint64_t>(findData.ftLastWriteTime.dwHighDateTime) << 32) | findData.ftLastWriteTime.dwLowDateTime;
-            record->fileName = findData.cFileName;
-            record->normalizedName = normalize(record->fileName);
-            record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
-            record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+            FileRecordInit record;
+            record.fileReferenceNumber = fileId;
+            record.parentFileReferenceNumber = parentId;
+            record.isDirectory = isDir;
+            record.fileAttributes = findData.dwFileAttributes;
+            record.fileSize = isDir ? 0 : ((static_cast<uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow);
+            record.creationTime = (static_cast<uint64_t>(findData.ftCreationTime.dwHighDateTime) << 32) | findData.ftCreationTime.dwLowDateTime;
+            record.lastWriteTime = (static_cast<uint64_t>(findData.ftLastWriteTime.dwHighDateTime) << 32) | findData.ftLastWriteTime.dwLowDateTime;
+            record.fileName = findData.cFileName;
 
             if (isDir) {
                 std::wstring subDir = currentDir;
@@ -249,7 +249,7 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
                 dirsToScan.push_back({std::move(subDir), fileId});
             }
 
-            batch.push_back({fileId, std::move(record)});
+            batch.push_back(std::move(record));
             count++;
 
             if (batch.size() >= 2048) {
@@ -294,20 +294,17 @@ void MftParser::EnumerateFiles() {
         while (dwRetBytes >= sizeof(USN_RECORD_V2) &&
                pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
                pRecord->RecordLength <= dwRetBytes) {
-            std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
-            record->fileReferenceNumber = pRecord->FileReferenceNumber;
-            record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
-            record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            record->fileAttributes = pRecord->FileAttributes;
-            record->lastWriteTime = static_cast<uint64_t>(pRecord->TimeStamp.QuadPart);
+            FileRecordInit record;
+            record.fileReferenceNumber = pRecord->FileReferenceNumber;
+            record.parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
+            record.isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            record.fileAttributes = pRecord->FileAttributes;
+            record.lastWriteTime = static_cast<uint64_t>(pRecord->TimeStamp.QuadPart);
             
             int nameLen = pRecord->FileNameLength / 2;
-            record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
-            record->normalizedName = normalize(record->fileName);
-            record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
-            record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+            record.fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
 
-            m_FileMap[record->fileReferenceNumber] = std::move(record);
+            m_Store.upsert(record);
             count++;
 
             dwRetBytes -= pRecord->RecordLength;
@@ -317,6 +314,10 @@ void MftParser::EnumerateFiles() {
     }
     {
         std::unique_lock lock(m_MapMutex);
+        // Names repeat heavily across a volume, so interning pays for itself
+        // during enumeration; afterwards only a trickle of USN updates arrives
+        // and the lookup table is no longer worth its footprint.
+        m_Store.releaseBuildScratch();
         rebuildFolderPaths();
     }
     m_IndexGeneration.fetch_add(1, std::memory_order_release);
@@ -324,20 +325,17 @@ void MftParser::EnumerateFiles() {
 }
 
 void MftParser::rebuildFolderPaths() {
-    std::unordered_map<DWORDLONG, std::wstring> folderPaths;
-    folderPaths.reserve(std::min<size_t>(m_FileMap.size() / 4, 65536));
+    m_FolderPaths.reset();
 
-    auto getFolderFullPath = [&](auto& self, DWORDLONG ref) -> const std::wstring& {
-        auto it = folderPaths.find(ref);
-        if (it != folderPaths.end()) return it->second;
+    // Returns a view into the folder table's arena, which stays valid because
+    // the table is only ever appended to between resets.
+    auto getFolderFullPath = [&](auto& self, DWORDLONG ref) -> std::wstring_view {
+        if (m_FolderPaths.contains(ref)) return m_FolderPaths.find(ref);
 
-        auto fileIt = m_FileMap.find(ref);
-        if (fileIt == m_FileMap.end()) {
-            static const std::wstring emptyPath;
-            return emptyPath;
-        }
+        const auto* stored = m_Store.find(ref);
+        if (!stored) return {};
 
-        const auto& rec = *fileIt->second;
+        const FileRecord rec = m_Store.view(*stored);
         if (rec.parentFileReferenceNumber == ref || rec.parentFileReferenceNumber == 0) {
             std::wstring rootPath;
             rootPath += static_cast<wchar_t>(m_DriveLetter);
@@ -346,10 +344,11 @@ void MftParser::rebuildFolderPaths() {
                 rootPath += L"\\";
                 rootPath += rec.fileName;
             }
-            return folderPaths[ref] = std::move(rootPath);
+            m_FolderPaths.set(ref, rootPath);
+            return m_FolderPaths.find(ref);
         }
 
-        const std::wstring& parentPath = self(self, rec.parentFileReferenceNumber);
+        const std::wstring parentPath{self(self, rec.parentFileReferenceNumber)};
         std::wstring curPath;
         if (parentPath.empty()) {
             curPath += static_cast<wchar_t>(m_DriveLetter);
@@ -360,25 +359,22 @@ void MftParser::rebuildFolderPaths() {
             if (!curPath.empty() && curPath.back() != L'\\') curPath += L'\\';
             curPath += rec.fileName;
         }
-        return folderPaths[ref] = std::move(curPath);
+        m_FolderPaths.set(ref, curPath);
+        return m_FolderPaths.find(ref);
     };
 
-    for (const auto& [id, record] : m_FileMap) {
-        if (record->isDirectory) {
-            getFolderFullPath(getFolderFullPath, id);
+    m_Store.forEach([&](const easy::service::StoredFileRecord& record) {
+        if (record.isDirectory()) {
+            getFolderFullPath(getFolderFullPath, record.frn);
         }
-    }
+    });
 
-    m_FolderPaths = std::move(folderPaths);
-
-    m_FlatRecords.clear();
-    m_FlatRecords.reserve(m_FileMap.size());
-    for (const auto& [_, rec] : m_FileMap) {
-        if (rec) m_FlatRecords.push_back(rec.get());
-    }
-
-    spdlog::info("Pre-computed {} folder paths and {} flat records for drive {}:",
-                 m_FolderPaths.size(), m_FlatRecords.size(), m_DriveLetter);
+    const uint64_t folderBytes = m_FolderPaths.approximateBytes();
+    const uint64_t storeBytes = m_Store.approximateBytes();
+    spdlog::info("Drive {}: indexed {} records, {} folder paths ({} MB records+names, {} MB paths, {} B/file)",
+                 m_DriveLetter, m_Store.size(), m_FolderPaths.size(),
+                 storeBytes / (1024 * 1024), folderBytes / (1024 * 1024),
+                 m_Store.size() ? (storeBytes + folderBytes) / m_Store.size() : 0);
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit,
@@ -439,9 +435,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     }
 
     auto calculateFolderPriority = [this](DWORDLONG parentRef) -> int {
-        auto it = m_FolderPaths.find(parentRef);
-        if (it != m_FolderPaths.end()) {
-            std::wstring p = normalize(it->second);
+        const std::wstring_view folderPath = m_FolderPaths.find(parentRef);
+        if (!folderPath.empty()) {
+            std::wstring p = normalize(folderPath);
             if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
@@ -486,9 +482,11 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         return 200;
     };
 
+    // FileRecord is a view over the arena, so copying one is a handful of
+    // pointers and never allocates.
     struct RankedCandidate {
         DWORDLONG id;
-        const FileRecord* record;
+        FileRecord record;
         int rank;
         int folderPriority;
     };
@@ -500,18 +498,18 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         filtered.reserve(std::min<size_t>(candidates.size(), 65536));
         ranked.reserve(std::min<size_t>(candidates.size(), 65536));
         for (const auto id : candidates) {
-            const auto it = m_FileMap.find(id);
-            if (it == m_FileMap.end()) continue;
-            const auto& record = *it->second;
+            const auto* stored = m_Store.find(id);
+            if (!stored) continue;
+            const FileRecord record = m_Store.view(*stored);
             if (testCandidate(id, record)) {
                 filtered.push_back(id);
                 int fPriority = isContentSearch ? calculateFolderPriority(record.parentFileReferenceNumber) : 0;
-                ranked.push_back({id, &record, expr.calculateRank(record), fPriority});
+                ranked.push_back({id, record, expr.calculateRank(record), fPriority});
             }
         }
         candidates = std::move(filtered);
     } else {
-        const size_t totalRecords = m_FlatRecords.size();
+        const size_t totalRecords = m_Store.slotCount();
         unsigned int numThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
         if (totalRecords < 10000) numThreads = 1;
 
@@ -534,13 +532,14 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
                 localRank.reserve(std::min<size_t>((endIdx - startIdx) / 16 + 64, 8192));
 
                 for (size_t i = startIdx; i < endIdx; ++i) {
-                    const auto* record = m_FlatRecords[i];
-                    if (!record) continue;
-                    DWORDLONG id = record->fileReferenceNumber;
-                    if (testCandidate(id, *record)) {
+                    const auto* stored = m_Store.at(i);
+                    if (!stored) continue;
+                    const FileRecord record = m_Store.view(*stored);
+                    DWORDLONG id = record.fileReferenceNumber;
+                    if (testCandidate(id, record)) {
                         localCand.push_back(id);
-                        int fPriority = isContentSearch ? calculateFolderPriority(record->parentFileReferenceNumber) : 0;
-                        localRank.push_back({id, record, expr.calculateRank(*record), fPriority});
+                        int fPriority = isContentSearch ? calculateFolderPriority(record.parentFileReferenceNumber) : 0;
+                        localRank.push_back({id, record, expr.calculateRank(record), fPriority});
                     }
                 }
             });
@@ -570,11 +569,11 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         if (a.rank != b.rank) return a.rank < b.rank;
         if (expr.hasContentFilter()) {
             if (a.folderPriority != b.folderPriority) return a.folderPriority > b.folderPriority;
-            return a.record->lastWriteTime > b.record->lastWriteTime;
+            return a.record.lastWriteTime > b.record.lastWriteTime;
         }
-        if (a.record->normalizedName.size() != b.record->normalizedName.size())
-            return a.record->normalizedName.size() < b.record->normalizedName.size();
-        return a.record->normalizedName < b.record->normalizedName;
+        if (a.record.normalizedName.size() != b.record.normalizedName.size())
+            return a.record.normalizedName.size() < b.record.normalizedName.size();
+        return a.record.normalizedName < b.record.normalizedName;
     };
     const size_t resultCount = std::min(ranked.size(), static_cast<size_t>(limit));
     if (resultCount < ranked.size()) {
@@ -591,41 +590,41 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     for (size_t i = 0; i < resultCount; ++i) {
         const auto& candidate = ranked[i];
         results.push_back({
-            candidate.record->fileName,
+            std::wstring(candidate.record.fileName),
             buildFullPath(candidate.id),
-            candidate.record->isDirectory,
-            candidate.record->fileSize,
-            candidate.record->creationTime,
-            candidate.record->lastWriteTime
+            candidate.record.isDirectory,
+            candidate.record.fileSize,
+            candidate.record.creationTime,
+            candidate.record.lastWriteTime
         });
     }
     return results;
 }
 
 std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
-    const auto it = m_FileMap.find(fileReferenceNumber);
-    if (it == m_FileMap.end()) return L"";
-    const auto& record = *it->second;
+    const auto* stored = m_Store.find(fileReferenceNumber);
+    if (!stored) return L"";
+    const FileRecord record = m_Store.view(*stored);
     if (record.isDirectory) {
-        auto folderIt = m_FolderPaths.find(fileReferenceNumber);
-        if (folderIt != m_FolderPaths.end()) return folderIt->second;
+        const std::wstring_view folderPath = m_FolderPaths.find(fileReferenceNumber);
+        if (!folderPath.empty()) return std::wstring(folderPath);
     } else {
-        auto folderIt = m_FolderPaths.find(record.parentFileReferenceNumber);
-        if (folderIt != m_FolderPaths.end()) {
-            std::wstring full = folderIt->second;
-            if (!full.empty() && full.back() != L'\\') full += L'\\';
+        const std::wstring_view folderPath = m_FolderPaths.find(record.parentFileReferenceNumber);
+        if (!folderPath.empty()) {
+            std::wstring full(folderPath);
+            if (full.back() != L'\\') full += L'\\';
             full += record.fileName;
             return full;
         }
     }
 
     // 备用全链路递归构建
-    std::vector<std::wstring> parts;
+    std::vector<std::wstring_view> parts;
     DWORDLONG current = fileReferenceNumber;
     for (size_t depth = 0; depth < 512; ++depth) {
-        const auto fit = m_FileMap.find(current);
-        if (fit == m_FileMap.end()) break;
-        const auto& rec = *fit->second;
+        const auto* node = m_Store.find(current);
+        if (!node) break;
+        const FileRecord rec = m_Store.view(*node);
         if (!rec.fileName.empty() && rec.fileName != L".") {
             parts.push_back(rec.fileName);
         }
@@ -656,36 +655,58 @@ uint32_t MftParser::getVolumeSerialNumber() const {
     return serial;
 }
 
-void MftParser::exportSnapshot(std::vector<FileRecord>& outRecords, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const {
-    std::shared_lock lock(const_cast<std::shared_mutex&>(m_MapMutex));
-    outRecords.clear();
-    outRecords.reserve(m_FileMap.size());
-    for (const auto& [_, rec] : m_FileMap) {
-        if (rec) {
-            outRecords.push_back(*rec);
-        }
+void MftParser::exportSnapshot(const SnapshotVisitor& visit, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const {
+    std::shared_lock lock(m_MapMutex);
+    if (visit) {
+        m_Store.forEach([&](const easy::service::StoredFileRecord& record) {
+            visit(m_Store.view(record));
+        });
     }
     outLastUsn = m_UsnJournalData.NextUsn;
     outVolumeSerial = getVolumeSerialNumber();
 }
 
-bool MftParser::importSnapshot(std::vector<FileRecord>&& records, uint64_t lastUsn, uint32_t volumeSerial) {
-    std::unique_lock lock(m_MapMutex);
-    m_FileMap.clear();
-    m_FolderPaths.clear();
+bool MftParser::importSnapshot(const SnapshotProducer& next, size_t expectedRecords,
+                               uint64_t lastUsn, uint32_t volumeSerial) {
+    (void)volumeSerial;
+    if (!next) return false;
 
-    for (auto& r : records) {
-        auto record = std::make_unique<FileRecord>(std::move(r));
-        record->normalizedName = normalize(record->fileName);
-        record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
-        record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
-        m_FileMap[record->fileReferenceNumber] = std::move(record);
+    std::unique_lock lock(m_MapMutex);
+    m_Store.clear();
+    m_FolderPaths.reset();
+    m_Store.reserve(expectedRecords);
+
+    FileRecordInit scratch;
+    while (true) {
+        scratch.fileName.clear();
+        scratch.fileReferenceNumber = 0;
+        scratch.parentFileReferenceNumber = 0;
+        scratch.isDirectory = false;
+        scratch.fileAttributes = 0;
+        scratch.fileSize = 0;
+        scratch.creationTime = 0;
+        scratch.lastWriteTime = 0;
+        if (!next(scratch)) break;
+        m_Store.upsert(scratch);
     }
+    m_Store.releaseBuildScratch();
 
     m_UsnJournalData.NextUsn = lastUsn;
     rebuildFolderPaths();
     m_IndexGeneration++;
     return true;
+}
+
+bool MftParser::importSnapshot(std::vector<FileRecordInit>&& records, uint64_t lastUsn, uint32_t volumeSerial) {
+    size_t cursor = 0;
+    const size_t total = records.size();
+    return importSnapshot(
+        [&](FileRecordInit& out) {
+            if (cursor >= total) return false;
+            out = std::move(records[cursor++]);
+            return true;
+        },
+        total, lastUsn, volumeSerial);
 }
 
 bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
@@ -697,10 +718,12 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
         return false;
     }
 
-    if (fromUsn == 0 || fromUsn < m_UsnJournalData.LowestValidUsn || fromUsn > m_UsnJournalData.NextUsn) {
-        spdlog::warn("USN journal on drive {} is out of range (fromUsn: {}, lowest: {}, next: {}), skipping catchup",
+    const auto startUsn = static_cast<USN>(fromUsn);
+    if (fromUsn == 0 || startUsn < m_UsnJournalData.LowestValidUsn || startUsn > m_UsnJournalData.NextUsn) {
+        spdlog::warn("USN journal on drive {} is out of range (fromUsn: {}, lowest: {}, next: {}), triggering full rebuild",
                      m_DriveLetter, fromUsn, m_UsnJournalData.LowestValidUsn, m_UsnJournalData.NextUsn);
-        return false;
+        ParseMft();
+        return true;
     }
 
     READ_USN_JOURNAL_DATA_V0 rujd = {0};
@@ -730,21 +753,18 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
                    pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
                    pRecord->RecordLength <= dwRetBytes) {
                 if (pRecord->Reason & USN_REASON_FILE_CREATE || pRecord->Reason & USN_REASON_RENAME_NEW_NAME) {
-                    std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
-                    record->fileReferenceNumber = pRecord->FileReferenceNumber;
-                    record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
-                    record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                    record->fileAttributes = pRecord->FileAttributes;
+                    FileRecordInit record;
+                    record.fileReferenceNumber = pRecord->FileReferenceNumber;
+                    record.parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
+                    record.isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                    record.fileAttributes = pRecord->FileAttributes;
                     int nameLen = pRecord->FileNameLength / 2;
-                    record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
-                    record->normalizedName = normalize(record->fileName);
-                    record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
-                    record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+                    record.fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
 
-                    m_FileMap[record->fileReferenceNumber] = std::move(record);
+                    m_Store.upsert(record);
                     anyChanged = true;
                 } else if (pRecord->Reason & USN_REASON_FILE_DELETE) {
-                    anyChanged = m_FileMap.erase(pRecord->FileReferenceNumber) > 0 || anyChanged;
+                    anyChanged = m_Store.erase(pRecord->FileReferenceNumber) || anyChanged;
                 }
 
                 dwRetBytes -= pRecord->RecordLength;
@@ -757,6 +777,7 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
 
     if (anyChanged) {
         std::unique_lock lock(m_MapMutex);
+        m_Store.compactIfSparse();
         rebuildFolderPaths();
         m_IndexGeneration++;
     }

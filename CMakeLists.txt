@@ -259,6 +259,7 @@ if(BUILD_TESTING)
         src/gesture/HotCornerEngine.cpp
         src/service/PinyinEngine.cpp
         src/service/SearchExpression.cpp
+        src/service/FileIndexStore.cpp
         src/service/MftParser.cpp
         src/service/db/RunHistoryManager.cpp
         src/service/db/SearchHistoryManager.cpp
