@@ -3,6 +3,7 @@ import {
   File, 
   Folder, 
   Search, 
+  SearchX,
   ServerOff, 
   FileImage, 
   FileCode, 
@@ -2305,10 +2306,13 @@ export default function SearchApp() {
 
         {serviceAvailable && query.trim() && !loading && sortedResults.length === 0 && (
           <div className="search-empty-container" role="status">
-            <div className="search-empty-text">
+            <div className="search-empty-icon-wrap">
+              <SearchX size={34} className="search-empty-icon" />
+            </div>
+            <div className="search-empty-title">
               {query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')
-                ? t('search.noContentResults', '未在文件内容中找到匹配文本')
-                : t('search.noResults', '未找到匹配的同名文件')}
+                ? t('search.noContentResults', '未在文档或代码内容中找到匹配文本')
+                : `未找到名称包含「${query.trim()}」的文件`}
             </div>
             {!query.trim().toLowerCase().startsWith('content:') &&
              !(query.trim().toLowerCase().startsWith('c:') && !query.trim().toLowerCase().startsWith('c:\\') && !query.trim().toLowerCase().startsWith('c:/')) &&
@@ -2320,11 +2324,41 @@ export default function SearchApp() {
                   selectCategory(contentCat);
                 }}
                 type="button"
+                title="穿透文档、代码、表格、PDF 进行全文检索 (Enter)"
               >
                 <FileText size={15} />
-                <span>立即穿透搜索文档与代码内容：「{query.trim()}」</span>
+                <span>立即穿透搜索文档与代码全文内容：「{query.trim()}」</span>
               </button>
             )}
+            <div className="search-empty-hint">
+              💡 提示：按 <strong>Enter</strong> 尝试穿透全文内容搜索，或使用 <strong>F1</strong> 查看高级通配符语法
+            </div>
+          </div>
+        )}
+
+        {serviceAvailable && !query.trim() && sortedResults.length === 0 && searchHistory.length === 0 && (
+          <div className="search-empty-container search-empty-container--initial" role="status">
+            <div className="search-empty-icon-wrap search-empty-icon-wrap--initial">
+              <Search size={32} className="search-empty-icon" />
+            </div>
+            <div className="search-empty-title">毫秒级极速全盘索引已就绪</div>
+            <div className="search-empty-desc">输入关键词、拼音首字母或扩展名 (如 *.pdf, ext:docx) 开启极速检索</div>
+            <div className="search-empty-quick-tags">
+              {['*.docx', 'ext:png', 'size:>100mb', 'content:会议'].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="search-empty-quick-tag"
+                  onClick={() => {
+                    updateQuery(tag);
+                    inputRef.current?.focus();
+                  }}
+                  title={`点击快速填入 ${tag}`}
+                >
+                  <code>{tag}</code>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
