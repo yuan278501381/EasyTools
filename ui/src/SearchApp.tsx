@@ -38,7 +38,8 @@ import {
   FolderOpen,
   ShieldAlert,
   Copy,
-  Pencil
+  Pencil,
+  Lightbulb
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -194,10 +195,10 @@ export interface SyntaxExampleItem {
 
 const SYNTAX_CATEGORIES = [
   { id: 'all', label: '全部语法' },
-  { id: 'content', label: '📄 全文检索' },
-  { id: 'path', label: '📁 路径盘符' },
-  { id: 'ext', label: '⚡ 通配扩展' },
-  { id: 'logic', label: '🔀 逻辑正则' },
+  { id: 'content', label: '全文检索' },
+  { id: 'path', label: '路径盘符' },
+  { id: 'ext', label: '通配扩展' },
+  { id: 'logic', label: '逻辑正则' },
 ];
 
 const SYNTAX_EXAMPLES: SyntaxExampleItem[] = [
@@ -238,25 +239,48 @@ const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
     id: 'code',
     nameKey: 'search.catCode',
     iconName: 'code',
-    extensions: ['cpp', 'c', 'h', 'hpp', 'cs', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'svelte', 'rs', 'go', 'swift', 'kt', 'dart', 'lua', 'sql', 'sh', 'bat', 'ps1', 'php', 'rb', 'asm', 'glsl', 'hlsl']
+    extensions: [
+      'cpp', 'c', 'h', 'hpp', 'hxx', 'inl', 'cs',
+      'rs', 'go', 'zig', 'v', 'nim', 'odin', 'd',
+      'java', 'kt', 'kts', 'scala', 'groovy', 'dart', 'swift', 'm', 'mm',
+      'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro',
+      'html', 'htm', 'css', 'scss', 'sass', 'less',
+      'py', 'pyw', 'rb', 'php', 'pl', 'pm', 'lua',
+      'sh', 'bash', 'zsh', 'ps1', 'psm1', 'bat', 'cmd', 'vbs', 'ahk', 'au3',
+      'sql', 'prc', 'fnc', 'trg', 'pks', 'pkb', 'pls', 'ch', 'pld',
+      'asm', 's', 'glsl', 'hlsl', 'vert', 'frag', 'geom', 'comp', 'shader', 'wgsl'
+    ]
   },
   {
     id: 'docs',
     nameKey: 'search.catDocs',
     iconName: 'doc',
-    extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'wps', 'et', 'dps', 'tex', 'diff', 'patch']
+    extensions: [
+      'docx', 'docm', 'dotx', 'wps', 'wpt', 'rtf',
+      'xlsx', 'xlsm', 'xltx', 'et', 'ett', 'csv', 'tsv',
+      'pptx', 'pptm', 'potx', 'dps', 'dpt',
+      'pdf', 'txt', 'md', 'markdown', 'log', 'tex', 'bib', 'rst', 'adoc', 'epub',
+      'diff', 'patch', 'org'
+    ]
   },
   {
     id: 'config',
     nameKey: 'search.catConfig',
     iconName: 'config',
-    extensions: ['json', 'jsonc', 'json5', 'yaml', 'yml', 'xml', 'toml', 'ini', 'cfg', 'conf', 'config', 'env', 'reg', 'properties']
+    extensions: [
+      'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'xml', 'xaml',
+      'ini', 'cfg', 'conf', 'config', 'env', 'reg', 'properties',
+      'proto', 'graphql', 'gql', 'thrift', 'prisma', 'schema', 'avsc', 'dbml',
+      'lock', 'plist', 'prefs'
+    ]
   },
   {
     id: 'design',
     nameKey: 'search.catDesign',
     iconName: 'design',
-    extensions: ['dxf', 'psd', 'ai', 'cdr', 'xmind']
+    extensions: [
+      'dxf', 'dwg', 'psd', 'ai', 'cdr', 'xmind', 'svg'
+    ]
   }
 ];
 
@@ -1564,6 +1588,12 @@ export default function SearchApp() {
     }
 
     if (sortedResults.length === 0) {
+      if (event.key === 'Enter' && query.trim() && activeCategory === 'all') {
+        event.preventDefault();
+        const contentCat = CATEGORIES.find(c => c.id === 'content') || CATEGORIES[1];
+        selectCategory(contentCat);
+        return;
+      }
       if (event.key === 'Escape') {
         if (contextMenu.visible) {
           setContextMenu({ visible: false, x: 0, y: 0 });
@@ -2474,7 +2504,8 @@ export default function SearchApp() {
                       </button>
                     </div>
                     <div className="popover-format-add-tip">
-                      💡 支持使用中英文逗号、顿号或空格同时输入多个后缀 (如 <code>ps1, ch, vb</code> 或 <code>.log2, .proto</code>)，按 Enter 键快速批量添加
+                      <Lightbulb size={12} className="popover-format-add-tip-icon" />
+                      <span>支持使用中英文逗号、顿号或空格同时输入多个后缀 (如 <code>ps1, ch, vb</code> 或 <code>.log2, .proto</code>)，按 Enter 键快速批量添加</span>
                     </div>
                   </div>
                 </div>
@@ -2627,7 +2658,8 @@ export default function SearchApp() {
               </button>
             )}
             <div className="search-empty-hint">
-              💡 提示：按 <strong>Enter</strong> 尝试穿透全文内容搜索，或使用 <strong>F1</strong> 查看高级通配符语法
+              <Lightbulb size={12} className="search-empty-hint-icon" />
+              <span>提示：按 <strong>Enter</strong> 尝试穿透全文内容搜索，或使用 <strong>F1</strong> 查看高级通配符语法</span>
             </div>
           </div>
         )}

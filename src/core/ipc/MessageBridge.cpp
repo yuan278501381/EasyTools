@@ -991,7 +991,15 @@ void MessageBridge::registerBuiltinHandlers() {
 
             pParentFolder->Release();
             CoTaskMemFree(pidl);
-            if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
+
+            if (hwndSearch && IsWindow(hwndSearch)) {
+                SetForegroundWindow(hwndSearch);
+                SetFocus(hwndSearch);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            if (hwndSearch && IsWindow(hwndSearch)) {
+                RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
+            }
             if (SUCCEEDED(hrCom)) CoUninitialize();
         }).detach();
 

@@ -287,25 +287,29 @@ void formatAndAddSnippet(
 
 PlainTextExtractor::PlainTextExtractor() {
     const wchar_t* exts[] = {
-        // C/C++
-        L"c", L"cpp", L"cc", L"cxx", L"h", L"hpp", L"hxx", L"inl", L"rc", L"def",
-        // C#/Java/Kotlin/Rust/Go/Swift/Scala
-        L"cs", L"java", L"kt", L"kts", L"rs", L"go", L"swift", L"scala", L"dart",
-        // Web/Script
-        L"js", L"jsx", L"mjs", L"cjs", L"ts", L"tsx", L"vue", L"svelte",
+        // C/C++/C#
+        L"c", L"cpp", L"cc", L"cxx", L"h", L"hpp", L"hxx", L"inl", L"rc", L"def", L"cs",
+        // Modern Systems & Compilers
+        L"rs", L"go", L"zig", L"v", L"nim", L"odin", L"d",
+        // JVM & Mobile
+        L"java", L"kt", L"kts", L"scala", L"groovy", L"dart", L"swift", L"m", L"mm",
+        // Web / Fullstack / Modern Frameworks
+        L"js", L"jsx", L"mjs", L"cjs", L"ts", L"tsx", L"vue", L"svelte", L"astro",
         L"html", L"htm", L"css", L"scss", L"sass", L"less",
+        // Schema & IDL / Data Definitions
+        L"proto", L"graphql", L"gql", L"thrift", L"prisma", L"schema", L"avsc", L"dbml",
         // Data & Config
         L"json", L"jsonc", L"json5", L"xml", L"xaml", L"yaml", L"yml", L"toml",
-        L"ini", L"cfg", L"conf", L"config", L"properties", L"env", L"reg",
-        // Python/Ruby/PHP/Lua/Shell/PS
+        L"ini", L"cfg", L"conf", L"config", L"properties", L"env", L"reg", L"lock", L"plist", L"prefs",
+        // Python/Ruby/PHP/Lua/Shell/PowerShell/Automation
         L"py", L"pyw", L"rb", L"php", L"pl", L"pm", L"lua", L"sh", L"bash", L"zsh",
-        L"ps1", L"psm1", L"psd1", L"bat", L"cmd", L"vbs",
-        // SQL & Database
-        L"sql", L"prc", L"fnc", L"trg", L"pks", L"pkb", L"pls",
-        // Plain text & Docs
-        L"txt", L"md", L"markdown", L"log", L"csv", L"tsv", L"tex", L"bib", L"diff", L"patch",
+        L"ps1", L"psm1", L"psd1", L"bat", L"cmd", L"vbs", L"ahk", L"au3",
+        // SQL & Enterprise
+        L"sql", L"prc", L"fnc", L"trg", L"pks", L"pkb", L"pls", L"ch", L"pld",
+        // Plain text & Docs & Markup
+        L"txt", L"md", L"markdown", L"log", L"csv", L"tsv", L"tex", L"bib", L"rst", L"adoc", L"rtf", L"diff", L"patch", L"org",
         // Assembly & Shaders
-        L"asm", L"s", L"glsl", L"hlsl", L"vert", L"frag", L"geom", L"comp", L"shader"
+        L"asm", L"s", L"glsl", L"hlsl", L"vert", L"frag", L"geom", L"comp", L"shader", L"wgsl"
     };
 
     for (const auto* ext : exts) {

@@ -25,10 +25,20 @@ public:
     void setWindowSize(int baseWidth, int baseHeight, bool forceCenter = false);
     std::pair<int, int> getWindowSize() const;
     HWND getHwnd() const { return m_hwnd; }
-    void setMenuActive(bool active) { m_menuActive.store(active); }
+    void setMenuActive(bool active) {
+        m_menuActive.store(active);
+        if (!active) {
+            m_lastMenuCloseTick.store(GetTickCount64());
+        }
+    }
     bool isMenuActive() const {
         if (m_menuActive.load()) return true;
         if (m_hwnd && GetPropW(m_hwnd, L"EasyTools_ShellMenuActive")) return true;
+        const uint64_t now = GetTickCount64();
+        const uint64_t closeTick = m_lastMenuCloseTick.load();
+        if (closeTick > 0 && now >= closeTick && (now - closeTick) < 600) {
+            return true;
+        }
         return false;
     }
 
@@ -52,6 +62,7 @@ private:
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
     std::atomic<bool> m_menuActive{false};
+    std::atomic<uint64_t> m_lastMenuCloseTick{0};
     bool m_updatingPlacement = false;
     uint64_t m_showTimeTick{0};
     std::atomic<uint64_t> m_generation{0};
