@@ -165,6 +165,24 @@ void TrayWindow::updatePlacement() {
     m_updatingPlacement = false;
 }
 
+void TrayWindow::setContentSize(int width, int height) {
+    if (!m_hwnd || !IsWindow(m_hwnd) || width <= 0 || height <= 0) return;
+    const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    const int scaledW = std::max(120, static_cast<int>(width * scale));
+    const int scaledH = std::max(80, static_cast<int>(height * scale));
+
+    m_updatingPlacement = true;
+    const POINT origin = trayWindowOrigin(m_anchor.x, m_anchor.y, scaledW, scaledH);
+    SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, scaledW, scaledH,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (m_controller) {
+        RECT bounds{0, 0, scaledW, scaledH};
+        m_controller->put_Bounds(bounds);
+    }
+    m_updatingPlacement = false;
+}
+
 void TrayWindow::initializeWebView2() {
     const uint64_t generation = ++m_generation;
     WebViewEnvironmentManager::instance().acquire(

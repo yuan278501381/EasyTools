@@ -24,6 +24,9 @@ public:
     /// 显示托盘菜单，并将其定位到指定的坐标附近 (通常是鼠标点击系统托盘的位置)
     void show(HINSTANCE hInstance, int x, int y);
 
+    /// 动态设置托盘菜单内容实际尺寸
+    void setContentSize(int width, int height);
+
     /// 隐藏
     void hide();
 

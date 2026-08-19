@@ -519,6 +519,21 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    easy::core::MessageBridge::instance().registerHandler("tray.resize", [](const nlohmann::json& params) -> nlohmann::json {
+        int width = params.value("width", 0);
+        int height = params.value("height", 0);
+        if (width > 0 && height > 0) {
+            easy::ui::TrayWindow::instance().setContentSize(width, height);
+            return {{"success", true}};
+        }
+        return {{"success", false}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("tray.hide", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::TrayWindow::instance().hide();
+        return {{"success", true}};
+    });
+
     // 5. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
     easy::core::KeyboardHook::instance().install();
     easy::core::KeyboardHook::instance().setKeyInterceptor([](DWORD vkCode, WPARAM wParam) -> bool {

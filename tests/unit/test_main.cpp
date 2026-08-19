@@ -1513,9 +1513,9 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     const SIZE tray100 = easy::ui::TrayWindowStyle::windowSizeForDpi(96);
     const SIZE tray150 = easy::ui::TrayWindowStyle::windowSizeForDpi(144);
     const SIZE tray200 = easy::ui::TrayWindowStyle::windowSizeForDpi(192);
-    EXPECT_TRUE(tray100.cx == 200 && tray100.cy == 265);
-    EXPECT_TRUE(tray150.cx == 300 && tray150.cy == 398);
-    EXPECT_TRUE(tray200.cx == 400 && tray200.cy == 530);
+    EXPECT_TRUE(tray100.cx == 190 && tray100.cy == 232);
+    EXPECT_TRUE(tray150.cx == 285 && tray150.cy == 348);
+    EXPECT_TRUE(tray200.cx == 380 && tray200.cy == 464);
 
     const SIZE settings100 = easy::ui::SettingsWindowStyle::windowSizeForDpi(96);
     const SIZE settings150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
