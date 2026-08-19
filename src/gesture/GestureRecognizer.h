@@ -154,8 +154,10 @@ private:
     /// 计算两点之间的距离
     static double calculateDistance(int x1, int y1, int x2, int y2);
 
-    /// 检查点是否在当前方向上继续推进
-    static bool isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) noexcept;
+    /// 检查从拐点到当前点是否仍落在当前方向的扇区内。
+    /// 不能只用单轴是否继续增大：自然的「下再右」横扫时 Y 往往还在慢慢增加，
+    /// 旧判定会把整笔锁死在 D 上。
+    bool isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) const noexcept;
 
     /// 处理累积的点，提取方向段
     void processPoints();

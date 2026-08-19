@@ -703,8 +703,8 @@ void GestureEngine::loadFromConfig() {
 
     // 加载识别器参数
     RecognizerConfig recognizerConfig;
-    recognizerConfig.minSegmentDistance = config.get<int>("/gesture/recognizer/minSegmentDistance", 30);
-    recognizerConfig.samplingInterval = config.get<int>("/gesture/recognizer/samplingInterval", 5);
+    recognizerConfig.minSegmentDistance = config.get<int>("/gesture/recognizer/minSegmentDistance", 14);
+    recognizerConfig.samplingInterval = config.get<int>("/gesture/recognizer/samplingInterval", 2);
     recognizerConfig.angleToleranceDeg = config.get<double>("/gesture/recognizer/angleTolerance", 22.5);
     m_recognizer.setConfig(recognizerConfig);
 }

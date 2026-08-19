@@ -3,9 +3,10 @@
 #
 # 规范:
 #   1. app.ico (用于任务栏、任务管理器、Alt+Tab、桌面快捷方式、安装包)
-#      • 原版经典蓝底 RGB(35, 116, 225) + 大号加粗纯白闪电 (占 86% 面积，极高辨识度)
+#      • 活力亲民的天空蓝到蓝紫渐变 Squircle 底座 (#4378F0 -> #7C3AED)
+#      • 居中纯白极速破空平顶闪电 (带 3D 柔和微投影，大号饱满，极高辨识度)
 #   2. tray.ico (用于 Windows 系统托盘区 Notification Area)
-#      • 纯透明底色 + 大号饱满纯白闪电 (占满 96% 面积，粗壮清晰，与系统图标同等量感)
+#      • 纯透明底色 + 纯白大号平顶极速闪电 (占满 94% 视区，线条饱满，与系统托盘图标完全协调)
 #   3. 输出未压缩 32 位 DIB 多分辨率 (16, 20, 24, 32, 40, 48, 64, 128, 256)，100% 兼容 rc.exe / High-DPI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -23,25 +24,37 @@ function Build-IcoFile {
     $currentOffset = $headerSize
 
     foreach ($sz in $Sizes) {
-        $bmp = New-Object System.Drawing.Bitmap($sz, $sz, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $g = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $scale = 4
+        $canvasSz = $sz * $scale
+        $bmpHi = New-Object System.Drawing.Bitmap($canvasSz, $canvasSz, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $g = [System.Drawing.Graphics]::FromImage($bmpHi)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
         $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
         $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
         $g.Clear([System.Drawing.Color]::Transparent)
 
-        & $RenderCallback $g $sz
+        & $RenderCallback $g $canvasSz
 
         $g.Dispose()
 
+        # 4x 超采样下采样回目标尺寸
+        $finalBmp = New-Object System.Drawing.Bitmap($sz, $sz, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gFinal = [System.Drawing.Graphics]::FromImage($finalBmp)
+        $gFinal.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $gFinal.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $gFinal.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $gFinal.DrawImage($bmpHi, (New-Object System.Drawing.Rectangle(0, 0, $sz, $sz)), 0, 0, $canvasSz, $canvasSz, [System.Drawing.GraphicsUnit]::Pixel)
+        $gFinal.Dispose()
+        $bmpHi.Dispose()
+
         # 提取 32 位 BGRA 像素
         $rect = New-Object System.Drawing.Rectangle(0, 0, $sz, $sz)
-        $data = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $data = $finalBmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $stride = $data.Stride
         $pixels = New-Object byte[] ($stride * $sz)
         [System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $pixels, 0, $pixels.Length)
-        $bmp.UnlockBits($data)
-        $bmp.Dispose()
+        $finalBmp.UnlockBits($data)
+        $finalBmp.Dispose()
 
         $andRowBytes = [int][Math]::Floor((($sz + 31) / 32)) * 4
         $xorBytes = $sz * $sz * 4
@@ -125,49 +138,104 @@ function Build-IcoFile {
     Write-Output "Generated: $OutputPath ($($Sizes.Length) sizes: $($Sizes -join ', ') px)"
 }
 
-# 绘制加粗饱满的大号经典闪电点阵
-function Get-BoldClassicLightningPoints {
+# 绘制圆角矩形辅助函数
+function Add-RoundedRectPath {
+    param ($path, $rect, $radius)
+    $diameter = $radius * 2
+    $arc = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $diameter, $diameter)
+    
+    $path.AddArc($arc, 180, 90)
+    $arc.X = $rect.Right - $diameter
+    $path.AddArc($arc, 270, 90)
+    $arc.Y = $rect.Bottom - $diameter
+    $path.AddArc($arc, 0, 90)
+    $arc.X = $rect.X
+    $path.AddArc($arc, 90, 90)
+    $path.CloseFigure()
+}
+
+# 绘制平顶极速破空闪电多边形
+function Get-FlatSpeedLightningPoints {
     param ([float]$w, [float]$h, [float]$padX = 0, [float]$padY = 0)
     $bw = $w - ($padX * 2)
     $bh = $h - ($padY * 2)
 
     return @(
-        (New-Object System.Drawing.PointF ($padX + $bw * 0.58), ($padY + $bh * 0.00)),  # 顶尖
-        (New-Object System.Drawing.PointF ($padX + $bw * 0.00), ($padY + $bh * 0.58)),  # 左尖
-        (New-Object System.Drawing.PointF ($padX + $bw * 0.48), ($padY + $bh * 0.58)),  # 腰左内折
-        (New-Object System.Drawing.PointF ($padX + $bw * 0.42), ($padY + $bh * 1.00)),  # 底尖
-        (New-Object System.Drawing.PointF ($padX + $bw * 1.00), ($padY + $bh * 0.42)),  # 右尖
-        (New-Object System.Drawing.PointF ($padX + $bw * 0.52), ($padY + $bh * 0.42))   # 腰右内折
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.44), ($padY + $bh * 0.04)), # 顶平左
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.72), ($padY + $bh * 0.04)), # 顶平右
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.54), ($padY + $bh * 0.44)), # 右腰内折
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.82), ($padY + $bh * 0.44)), # 右侧突尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.33), ($padY + $bh * 1.00)), # 底部刺针尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.48), ($padY + $bh * 0.62)), # 左腰内折
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.20), ($padY + $bh * 0.62))  # 左侧突尖
     )
 }
 
-# ── 1. 生成 app.ico (原版蓝底 RGB(35, 116, 225) + 大号饱满纯白闪电) ────────
+# ── 1. 生成 app.ico (天空蓝到蓝紫渐变底座 + 纯白大号平顶闪电) ────────
 $appIcoPath = Join-Path $PSScriptRoot "app.ico"
 Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     param ($g, $sz)
 
-    # 原版纯正经典蓝底色 RGB(35, 116, 225)
-    $g.Clear([System.Drawing.Color]::FromArgb(255, 35, 116, 225))
+    $margin = [float]($sz * 0.035)
+    $rect = New-Object System.Drawing.RectangleF($margin, $margin, ($sz - $margin * 2), ($sz - $margin * 2))
+    $radius = [float]($sz * 0.22)
 
-    # 居中加粗大号纯白闪电 (占 86% 面积，即使在 16px 列表缩略图下也极度清晰)
-    $padX = [float]($sz * 0.08)
-    $padY = [float]($sz * 0.06)
-    $pts = Get-BoldClassicLightningPoints $sz $sz $padX $padY
+    $bgPath = New-Object System.Drawing.Drawing2D.GraphicsPath
+    Add-RoundedRectPath $bgPath $rect $radius
 
+    # 活力亲民渐变 (#4378F0 -> #7C3AED)
+    $bgBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (
+        (New-Object System.Drawing.PointF $rect.Left, $rect.Top),
+        (New-Object System.Drawing.PointF $rect.Right, $rect.Bottom),
+        [System.Drawing.Color]::FromArgb(255, 67, 120, 240),  # #4378F0
+        [System.Drawing.Color]::FromArgb(255, 124, 58, 237)   # #7C3AED
+    )
+    $g.FillPath($bgBrush, $bgPath)
+    $bgBrush.Dispose()
+
+    # 细微高光内描边
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(60, 255, 255, 255), [float]($sz * 0.015))
+    $g.DrawPath($pen, $bgPath)
+    $pen.Dispose()
+    $bgPath.Dispose()
+
+    # 闪电在底座中占 84% 高度
+    $padX = [float]($sz * 0.14)
+    $padY = [float]($sz * 0.08)
+    $bw = $sz - ($padX * 2)
+    $bh = $sz - ($padY * 2)
+
+    # 柔和微投影
+    $shadowOffset = [float]($sz * 0.015)
+    $shadowPts = @(
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.44), ($padY + $bh * 0.04 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.72), ($padY + $bh * 0.04 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.54), ($padY + $bh * 0.44 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.82), ($padY + $bh * 0.44 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.33), ($padY + $bh * 1.00 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.48), ($padY + $bh * 0.62 + $shadowOffset)),
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.20), ($padY + $bh * 0.62 + $shadowOffset))
+    )
+    $sBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(45, 0, 0, 0))
+    $g.FillPolygon($sBrush, $shadowPts)
+    $sBrush.Dispose()
+
+    # 纯白闪电本体
+    $pts = Get-FlatSpeedLightningPoints $sz $sz $padX $padY
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
     $whiteBrush.Dispose()
 }
 
-# ── 2. 生成 tray.ico (纯透明底色 + 大号饱满纯白闪电) ─────────────────
+# ── 2. 生成 tray.ico (纯透明底色 + 纯白大号平顶闪电) ─────────────────
 $trayIcoPath = Join-Path $PSScriptRoot "tray.ico"
 Build-IcoFile -OutputPath $trayIcoPath -RenderCallback {
     param ($g, $sz)
 
-    # 托盘专属：透明底，闪电占满 96% 区域，加粗饱满，与系统其他托盘图标具备同等量感
-    $padX = [float]($sz * 0.02)
-    $padY = [float]($sz * 0.02)
-    $pts = Get-BoldClassicLightningPoints $sz $sz $padX $padY
+    # 托盘专属：透明底，闪电占满 94% 区域，浑厚饱满，锋利清晰
+    $padX = [float]($sz * 0.03)
+    $padY = [float]($sz * 0.03)
+    $pts = Get-FlatSpeedLightningPoints $sz $sz $padX $padY
     
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)

@@ -147,9 +147,37 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Down})), "D");
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight, Direction::Right})), "R");
 
-    // 真正对角手势保留
+    // 真正对角手势保留（整笔就是一条斜线）
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight})), "DR");
-    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "DR-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::UpLeft})), "UL");
+
+    // 未走完的转角圆角：对角段补成直角第二段
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight})), "D-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownRight, Direction::Right})), "D-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownLeft})), "D-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::DownLeft, Direction::Left})), "D-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpRight})), "U-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::UpRight, Direction::Right})), "U-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::UpLeft})), "U-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::UpLeft, Direction::Left})), "U-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::DownRight})), "R-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::DownLeft})), "L-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight})), "R-U");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::UpLeft})), "L-U");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::DownRight})), "U-DR");
+
+    // 自然「下再右」：横扫时手腕仍会略微下沉，不能把整笔锁死成 D
+    {
+        std::vector<TrackPoint> naturalDownRight;
+        for (int y = 0; y <= 80; y += 4) naturalDownRight.push_back({0, y});
+        for (int x = 4; x <= 80; x += 4) naturalDownRight.push_back({x, 80 + x / 8});
+        GestureRecognizer natural;
+        natural.reset();
+        for (const auto& p : naturalDownRight) natural.addPoint(p.x, p.y);
+        auto naturalRes = natural.finalize();
+        ASSERT_TRUE(naturalRes.has_value());
+        EXPECT_EQ(naturalRes->code, "D-R");
+    }
 
     // 乱晃反悔与原地打圈自动取消判定
     GestureRecognizer scribbleRecognizer;

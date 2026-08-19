@@ -5,8 +5,10 @@
 #include "gesture/GestureRecognizer.h"
 #include "core/logger/Logger.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <optional>
 
 namespace easy::gesture {
 
@@ -46,20 +48,42 @@ inline bool isJitterRebound(Direction a, Direction b, Direction c) noexcept {
     return false;
 }
 
+inline std::optional<Direction> completeIncompleteFillet(Direction known, Direction diagonal) noexcept {
+    if (diagonal == Direction::DownRight) {
+        if (known == Direction::Down) return Direction::Right;
+        if (known == Direction::Right) return Direction::Down;
+    } else if (diagonal == Direction::DownLeft) {
+        if (known == Direction::Down) return Direction::Left;
+        if (known == Direction::Left) return Direction::Down;
+    } else if (diagonal == Direction::UpRight) {
+        if (known == Direction::Up) return Direction::Right;
+        if (known == Direction::Right) return Direction::Up;
+    } else if (diagonal == Direction::UpLeft) {
+        if (known == Direction::Up) return Direction::Left;
+        if (known == Direction::Left) return Direction::Up;
+    }
+    return std::nullopt;
+}
+
+void compressRepeats(std::vector<Direction>& dirs) {
+    std::vector<Direction> compressed;
+    for (auto d : dirs) {
+        if (d != Direction::None && (compressed.empty() || compressed.back() != d)) {
+            compressed.push_back(d);
+        }
+    }
+    dirs = std::move(compressed);
+}
+
 } // namespace
 
-bool GestureRecognizer::isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) noexcept {
-    switch (dir) {
-        case Direction::Right:     return current.x > peak.x;
-        case Direction::Left:      return current.x < peak.x;
-        case Direction::Up:        return current.y < peak.y;
-        case Direction::Down:      return current.y > peak.y;
-        case Direction::UpRight:   return (current.x - current.y) > (peak.x - peak.y);
-        case Direction::DownRight: return (current.x + current.y) > (peak.x + peak.y);
-        case Direction::UpLeft:    return (-current.x - current.y) > (-peak.x - peak.y);
-        case Direction::DownLeft:  return (-current.x + current.y) > (-peak.x + peak.y);
-        default:                   return false;
+bool GestureRecognizer::isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) const noexcept {
+    const double dist = calculateDistance(peak.x, peak.y, current.x, current.y);
+    if (dist < static_cast<double>((std::max)(m_config.samplingInterval, 2)) * 2.0) {
+        return true;
     }
+    const double angle = calculateAngle(peak.x, peak.y, current.x, current.y);
+    return angleToDirection(angle) == dir;
 }
 
 GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
@@ -184,13 +208,24 @@ std::vector<Direction> GestureRecognizer::simplifyDirections(const std::vector<D
             ++i;
         }
 
-        // 重新压缩连续重复
-        current.clear();
-        for (auto d : next) {
-            if (d != Direction::None && (current.empty() || current.back() != d)) {
-                current.push_back(d);
+        compressRepeats(current);
+    }
+
+    // 步骤 3: 未走完的转角圆角。自然「下再右」常在对角上松手，得到 D-DR 而不是 D-R。
+    bool filletModified = true;
+    while (filletModified && current.size() >= 2) {
+        filletModified = false;
+        if (auto completed = completeIncompleteFillet(current[current.size() - 2], current.back())) {
+            current.back() = *completed;
+            filletModified = true;
+        }
+        if (current.size() >= 2) {
+            if (auto completed = completeIncompleteFillet(current[1], current[0])) {
+                current[0] = *completed;
+                filletModified = true;
             }
         }
+        compressRepeats(current);
     }
 
     return current;
