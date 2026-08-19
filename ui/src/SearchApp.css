@@ -770,6 +770,17 @@ html[data-surface="search"] #root {
     color: var(--search-text-main);
     border-bottom: 1px solid var(--search-item-border);
     transition: background 0.1s ease, color 0.1s ease;
+
+    /* 让渲染引擎跳过视口外结果行的布局与绘制。相比手写虚拟列表，这条原生
+       能力保留了真实滚动条、键盘导航和无障碍树，代价只有一个尺寸估算值。
+       contain-intrinsic-size 的第二个值按各密度在下方覆盖。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
+}
+
+/* 内容片段行数不固定，交给浏览器测量后记住真实高度，避免滚动条跳动。 */
+.search-result-item:has(.file-snippets-container) {
+    contain-intrinsic-size: auto none;
 }
 
 .search-result-item:hover {
@@ -940,6 +951,7 @@ html[data-surface="search"] #root {
     padding: 6px 12px;
     border-radius: 6px;
     gap: 10px;
+    contain-intrinsic-size: auto 32px;
 }
 .search-results.density-compact .file-icon {
     margin-right: 2px;
@@ -999,6 +1011,7 @@ html[data-surface="search"] #root {
 .search-results.density-comfortable .search-result-item {
     padding: 12px 16px;
     border-radius: 10px;
+    contain-intrinsic-size: auto 64px;
 }
 .search-results.density-comfortable .file-icon {
     margin-right: 16px;

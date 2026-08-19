@@ -30,6 +30,7 @@ interface SearchSettings {
   caseSensitive: boolean;
   matchPath: boolean;
   pinyinEnabled: boolean;
+  keepServiceRunning: boolean;
 }
 
 interface ServiceStatus {
@@ -48,6 +49,7 @@ export const SearchPage: FC = () => {
     caseSensitive: false,
     matchPath: false,
     pinyinEnabled: true,
+    keepServiceRunning: false,
   });
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     available: false,
@@ -209,6 +211,17 @@ export const SearchPage: FC = () => {
                   id="search-case-toggle"
                   checked={settings.caseSensitive}
                   onChange={v => saveSetting('caseSensitive', v)}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('searchPage.keepServiceTitle', '退出后保持索引常驻')}
+                description={t('searchPage.keepServiceDesc', '索引常驻约占数百 MB 内存。默认随主程序一起退出并释放，代价是下次首搜需等待几秒重建；开启后始终秒开')}
+              >
+                <Toggle
+                  id="search-keep-service-toggle"
+                  checked={settings.keepServiceRunning}
+                  onChange={v => saveSetting('keepServiceRunning', v)}
                 />
               </SettingRow>
             </Card>

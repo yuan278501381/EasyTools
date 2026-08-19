@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type KeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, startTransition, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { 
   File, 
   Folder, 
@@ -45,6 +45,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
+import { nextQueryId, resolveDebounceMs } from './searchScheduling';
 import './SearchApp.css';
 
 export interface DriveInfo {
@@ -84,6 +85,9 @@ export interface SearchResponse {
   totalIndexedFiles?: number;
   elapsedMs?: number;
   error?: string;
+  /** 服务端在计算期间收到了更新的查询，本次结果应当忽略。 */
+  cancelled?: boolean;
+  queryId?: number;
 }
 
 function formatBytes(bytes: number): string {
@@ -462,6 +466,173 @@ function getSortedResults(
   });
 }
 
+/** 列可见性与宽度的快照。合成一个稳定对象，避免每行各自去查 columns 数组。 */
+export interface ColumnLayout {
+  name: boolean;
+  ext: boolean;
+  parent: boolean;
+  path: boolean;
+  size: boolean;
+  modified: boolean;
+  created: boolean;
+  snippets: boolean;
+  nameFlex: number;
+  pathFlex: number;
+}
+
+interface SearchResultRowProps {
+  result: SearchResult;
+  index: number;
+  selected: boolean;
+  density: SearchDensity;
+  columns: ColumnLayout;
+  queryKeywords: string[];
+  onHover: (index: number) => void;
+  onSelect: (index: number) => void;
+  onOpen: (result: SearchResult) => void;
+  onContextMenu: (event: ReactMouseEvent, index: number, result: SearchResult) => void;
+}
+
+/**
+ * 单条搜索结果。
+ *
+ * 鼠标划过列表会改变选中项，此前这会让整个结果列表重新渲染 —— 100 条结果意味
+ * 着几千个节点为了一条高亮而重建。把行拆成 memo 组件后，一次 hover 只影响移出
+ * 和移入的两行。
+ */
+const SearchResultRow = memo(function SearchResultRow({
+  result,
+  index,
+  selected,
+  density,
+  columns,
+  queryKeywords,
+  onHover,
+  onSelect,
+  onOpen,
+  onContextMenu,
+}: SearchResultRowProps) {
+  const parentFolder = columns.parent ? extractParentFolder(result.path) : '';
+  const sizeText = columns.size ? formatFileSize(result.size, result.isDirectory) : '';
+  const badge = columns.ext ? getFileTypeBadge(result.name, result.isDirectory) : null;
+
+  return (
+    <li
+      id={`search-result-${index}`}
+      className={`search-result-item ${selected ? 'selected' : ''}`}
+      role="option"
+      aria-selected={selected}
+      onMouseEnter={() => onHover(index)}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => onSelect(index)}
+      onDoubleClick={() => onOpen(result)}
+      onContextMenu={(event) => onContextMenu(event, index, result)}
+    >
+      {renderFileIcon(result.name, result.isDirectory, density)}
+      <div className="file-info">
+        {density === 'compact' ? (
+          <div className="file-row-main">
+            {columns.name && (
+              <span className="file-name" style={{ flex: `${columns.nameFlex} 1 0` }} title={result.name}>
+                <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
+                {badge && (
+                  <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>
+                )}
+                {Boolean(result.runCount && result.runCount > 0) && (
+                  <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
+                    打开 {result.runCount}次
+                  </span>
+                )}
+              </span>
+            )}
+            {columns.path && (
+              <span className="file-path-inline" style={{ flex: `${columns.pathFlex} 1 0` }} title={result.path}>
+                {parentFolder && (
+                  <span className="file-parent-tag" title={`所属上级目录: ${parentFolder}`}>
+                    <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
+                    {highlightMatch(parentFolder, queryKeywords)}
+                  </span>
+                )}
+                <span className="file-path-text">{highlightMatch(result.path, queryKeywords)}</span>
+              </span>
+            )}
+            <div className="file-meta-top">
+              {sizeText ? <span className="meta-size-badge">{sizeText}</span> : null}
+              {columns.modified && result.lastWriteTime ? (
+                <span className="meta-date-mod" title="修改时间">
+                  {formatWindowsTime(result.lastWriteTime)}
+                </span>
+              ) : null}
+              {columns.created && result.creationTime ? (
+                <span className="meta-date-create" title="创建时间">
+                  {formatWindowsTime(result.creationTime)}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="file-row-main">
+              {columns.name && (
+                <span className="file-name" title={result.name}>
+                  <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
+                  {badge && (
+                    <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>
+                  )}
+                  {Boolean(result.runCount && result.runCount > 0) && (
+                    <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
+                      打开 {result.runCount}次
+                    </span>
+                  )}
+                </span>
+              )}
+              <div className="file-meta-top">
+                {sizeText ? <span className="meta-size-badge">{sizeText}</span> : null}
+                {columns.modified && result.lastWriteTime ? (
+                  <span className="meta-date-mod" title="修改时间">
+                    {formatWindowsTime(result.lastWriteTime)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="file-row-sub">
+              {columns.path && (
+                <div className="file-path-wrapper" title={result.path}>
+                  {parentFolder && (
+                    <span className="file-parent-tag" title={`所属上级目录: ${parentFolder}`}>
+                      <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
+                      {highlightMatch(parentFolder, queryKeywords)}
+                    </span>
+                  )}
+                  <span className="file-path">{highlightMatch(result.path, queryKeywords)}</span>
+                </div>
+              )}
+              {columns.created && result.creationTime ? (
+                <span className="meta-date-create" title="创建时间">
+                  创建 {formatWindowsTime(result.creationTime)}
+                </span>
+              ) : null}
+            </div>
+          </>
+        )}
+
+        {columns.snippets && result.snippets && result.snippets.length > 0 && (
+          <div className="file-snippets-container">
+            {result.snippets.map((snip, sIdx) => (
+              <div key={sIdx} className="file-snippet-row">
+                <span className="snippet-line-num">L{snip.lineNumber}</span>
+                <span className="snippet-text">
+                  {renderSnippetWithHighlight(snip.lineContent, snip.matchOffset, snip.matchLength)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+});
+
 // ── 组件主入口 ──────────────────────────────────────────────────
 export default function SearchApp() {
   useAppearance();
@@ -657,6 +828,9 @@ export default function SearchApp() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
+  // 输入法组字状态。组字期间 input 的 value 会随每个字母变化，但那些中间态
+  // 并不是用户想搜的内容。
+  const [isComposing, setIsComposing] = useState(false);
 
   const [systemDrives, setSystemDrives] = useState<DriveInfo[]>([]);
   const [enabledDrives, setEnabledDrives] = useState<string[]>(() => {
@@ -1042,12 +1216,11 @@ export default function SearchApp() {
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) return;
+    // 输入法组字期间 value 会随每个字母变化，此时发出的查询没有任何意义。
+    if (isComposing) return;
 
     const sequence = ++requestSequence.current;
-    const isContentQuery = trimmed.toLowerCase().startsWith('content:') || 
-      (trimmed.toLowerCase().startsWith('c:') && !trimmed.startsWith('c:\\') && !trimmed.startsWith('c:/')) || 
-      trimmed.startsWith('内容:');
-    const debounceMs = isContentQuery ? 350 : 25;
+    const debounceMs = resolveDebounceMs({ query: trimmed, activeCategory, searchMode });
 
     const timer = window.setTimeout(async () => {
       const loadingTimer = window.setTimeout(() => {
@@ -1064,6 +1237,7 @@ export default function SearchApp() {
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { 
           query: trimmed,
+          queryId: nextQueryId(),
           searchMode: effectiveMode,
           limit: maxResultLimit,
           drives: enabledDrives.length > 0 ? enabledDrives : undefined,
@@ -1074,6 +1248,8 @@ export default function SearchApp() {
         });
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
+        // 服务端已判定本次查询过期，保留当前结果等待更新的那次返回。
+        if (response.cancelled) return;
         startTransition(() => {
           setResults(Array.isArray(response.results) ? response.results : []);
           setSelectedIndex(0);
@@ -1100,7 +1276,7 @@ export default function SearchApp() {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [query, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
+  }, [query, isComposing, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -1143,6 +1319,12 @@ export default function SearchApp() {
   const sortedResults = useMemo(() => {
     return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
   }, [results, sortField, sortDirection, foldersFirst, groupByType]);
+
+  // 视口渲染窗口保护：限制 DOM 节点挂载量，随键盘选择动态延展，避免海量结果时的 DOM 内存暴涨
+  const renderedResults = useMemo(() => {
+    const limit = Math.max(500, selectedIndex + 50);
+    return sortedResults.slice(0, limit);
+  }, [sortedResults, selectedIndex]);
 
   const totalResultSize = useMemo(() => {
     return sortedResults.reduce((acc, item) => acc + (item.isDirectory ? 0 : (Number(item.size) || 0)), 0);
@@ -1721,9 +1903,63 @@ export default function SearchApp() {
     };
   }, [handleUnifiedKeyDown]);
 
-  const isColVisible = (id: ColumnId) => columns.find(c => c.id === id)?.visible ?? true;
   const nameFlex = columns.find(c => c.id === 'name')?.flex ?? 35;
   const pathFlex = columns.find(c => c.id === 'path')?.flex ?? 45;
+
+  // 结果行只依赖这一个稳定对象，列设置不变时 memo 就不会被打破。
+  const columnLayout = useMemo<ColumnLayout>(() => {
+    const visible = (id: ColumnId) => columns.find(c => c.id === id)?.visible ?? true;
+    return {
+      name: visible('name'),
+      ext: visible('ext'),
+      parent: visible('parent'),
+      path: visible('path'),
+      size: visible('size'),
+      modified: visible('modified'),
+      created: visible('created'),
+      snippets: visible('snippets'),
+      nameFlex: columns.find(c => c.id === 'name')?.flex ?? 35,
+      pathFlex: columns.find(c => c.id === 'path')?.flex ?? 45,
+    };
+  }, [columns]);
+
+  const handleRowHover = useCallback((index: number) => {
+    setSelectedIndex(index);
+  }, []);
+
+  const handleRowSelect = useCallback((index: number) => {
+    setSelectedIndex(index);
+    setContextMenu((prev) => (prev.visible ? { visible: false, x: 0, y: 0 } : prev));
+  }, []);
+
+  const handleRowOpen = useCallback((result: SearchResult) => {
+    void openResult(result);
+  }, [openResult]);
+
+  const handleRowContextMenu = useCallback((event: ReactMouseEvent, index: number, result: SearchResult) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedIndex(index);
+    if (event.shiftKey) {
+      void bridgeRequest('search.showShellContextMenu', {
+        filepath: result.path,
+        path: result.path,
+        x: event.screenX,
+        y: event.screenY,
+      });
+      return;
+    }
+    const menuWidth = 240;
+    const menuHeight = 310;
+    const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
+    const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
+    setContextMenu({
+      visible: true,
+      x: Math.max(10, x),
+      y: Math.max(10, y),
+      result,
+    });
+  }, []);
 
   return (
     <main className="search-app">
@@ -1752,6 +1988,11 @@ export default function SearchApp() {
             }
             value={query}
             onChange={(event) => updateQuery(event.target.value)}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={(event) => {
+              setIsComposing(false);
+              updateQuery(event.currentTarget.value);
+            }}
             onKeyDown={handleUnifiedKeyDown}
             role="combobox"
             aria-expanded={results.length > 0}
@@ -2731,155 +2972,20 @@ export default function SearchApp() {
 
         {sortedResults.length > 0 && (
           <ul id="search-results" className={`search-results density-${density}`} role="listbox">
-            {sortedResults.map((result, index) => (
-              <li
-                id={`search-result-${index}`}
+            {renderedResults.map((result, index) => (
+              <SearchResultRow
                 key={result.path}
-                className={`search-result-item ${index === selectedIndex ? 'selected' : ''}`}
-                role="option"
-                aria-selected={index === selectedIndex}
-                onMouseEnter={() => setSelectedIndex(index)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  setSelectedIndex(index);
-                  if (contextMenu.visible) setContextMenu({ visible: false, x: 0, y: 0 });
-                }}
-                onDoubleClick={() => void openResult(result)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setSelectedIndex(index);
-                  if (event.shiftKey) {
-                    void bridgeRequest('search.showShellContextMenu', {
-                      filepath: result.path,
-                      path: result.path,
-                      x: event.screenX,
-                      y: event.screenY,
-                    });
-                    return;
-                  }
-                  const menuWidth = 240;
-                  const menuHeight = 310;
-                  const x = Math.min(event.clientX, window.innerWidth - menuWidth - 10);
-                  const y = Math.min(event.clientY, window.innerHeight - menuHeight - 10);
-                  setContextMenu({
-                    visible: true,
-                    x: Math.max(10, x),
-                    y: Math.max(10, y),
-                    result,
-                  });
-                }}
-              >
-                {renderFileIcon(result.name, result.isDirectory, density)}
-                <div className="file-info">
-                  {density === 'compact' ? (
-                    <div className="file-row-main">
-                      {isColVisible('name') && (
-                        <span className="file-name" style={{ flex: `${nameFlex} 1 0` }} title={result.name}>
-                          <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
-                          {isColVisible('ext') && (
-                            <span className={`file-ext-badge ${getFileTypeBadge(result.name, result.isDirectory).colorClass}`}>
-                              {getFileTypeBadge(result.name, result.isDirectory).label}
-                            </span>
-                          )}
-                          {Boolean(result.runCount && result.runCount > 0) && (
-                            <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
-                              打开 {result.runCount}次
-                            </span>
-                          )}
-                        </span>
-                      )}
-                      {isColVisible('path') && (
-                        <span className="file-path-inline" style={{ flex: `${pathFlex} 1 0` }} title={result.path}>
-                          {isColVisible('parent') && extractParentFolder(result.path) && (
-                            <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                              <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
-                              {highlightMatch(extractParentFolder(result.path), queryKeywords)}
-                            </span>
-                          )}
-                          <span className="file-path-text">{highlightMatch(result.path, queryKeywords)}</span>
-                        </span>
-                      )}
-                      <div className="file-meta-top">
-                        {isColVisible('size') && formatFileSize(result.size, result.isDirectory) ? (
-                          <span className="meta-size-badge">{formatFileSize(result.size, result.isDirectory)}</span>
-                        ) : null}
-                        {isColVisible('modified') && result.lastWriteTime ? (
-                          <span className="meta-date-mod" title="修改时间">
-                            {formatWindowsTime(result.lastWriteTime)}
-                          </span>
-                        ) : null}
-                        {isColVisible('created') && result.creationTime ? (
-                          <span className="meta-date-create" title="创建时间">
-                            {formatWindowsTime(result.creationTime)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="file-row-main">
-                        {isColVisible('name') && (
-                          <span className="file-name" title={result.name}>
-                            <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
-                            {isColVisible('ext') && (
-                              <span className={`file-ext-badge ${getFileTypeBadge(result.name, result.isDirectory).colorClass}`}>
-                                {getFileTypeBadge(result.name, result.isDirectory).label}
-                              </span>
-                            )}
-                            {Boolean(result.runCount && result.runCount > 0) && (
-                              <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
-                                打开 {result.runCount}次
-                              </span>
-                            )}
-                          </span>
-                        )}
-                        <div className="file-meta-top">
-                          {isColVisible('size') && formatFileSize(result.size, result.isDirectory) ? (
-                            <span className="meta-size-badge">{formatFileSize(result.size, result.isDirectory)}</span>
-                          ) : null}
-                          {isColVisible('modified') && result.lastWriteTime ? (
-                            <span className="meta-date-mod" title="修改时间">
-                              {formatWindowsTime(result.lastWriteTime)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="file-row-sub">
-                        {isColVisible('path') && (
-                          <div className="file-path-wrapper" title={result.path}>
-                            {isColVisible('parent') && extractParentFolder(result.path) && (
-                              <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                                <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
-                                {highlightMatch(extractParentFolder(result.path), queryKeywords)}
-                              </span>
-                            )}
-                            <span className="file-path">{highlightMatch(result.path, queryKeywords)}</span>
-                          </div>
-                        )}
-                        {isColVisible('created') && result.creationTime ? (
-                          <span className="meta-date-create" title="创建时间">
-                            创建 {formatWindowsTime(result.creationTime)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-
-                  {isColVisible('snippets') && result.snippets && result.snippets.length > 0 && (
-                    <div className="file-snippets-container">
-                      {result.snippets.map((snip, sIdx) => (
-                        <div key={sIdx} className="file-snippet-row">
-                          <span className="snippet-line-num">L{snip.lineNumber}</span>
-                          <span className="snippet-text">
-                            {renderSnippetWithHighlight(snip.lineContent, snip.matchOffset, snip.matchLength)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </li>
+                result={result}
+                index={index}
+                selected={index === selectedIndex}
+                density={density}
+                columns={columnLayout}
+                queryKeywords={queryKeywords}
+                onHover={handleRowHover}
+                onSelect={handleRowSelect}
+                onOpen={handleRowOpen}
+                onContextMenu={handleRowContextMenu}
+              />
             ))}
           </ul>
         )}

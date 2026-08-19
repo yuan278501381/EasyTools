@@ -688,6 +688,8 @@
     "matchPathDesc": "开启后搜索词将在文件绝对路径中检索，而非仅文件名",
     "caseTitle": "区分大小写",
     "caseDesc": "默认不区分大小写；可随时在搜索词中使用 case: 前缀临时开启",
+    "keepServiceTitle": "退出后保持索引常驻",
+    "keepServiceDesc": "索引常驻约占数百 MB 内存。默认随主程序一起退出并释放，代价是下次首搜需等待几秒重建；开启后始终秒开",
     "maxResultsTitle": "最大返回结果数",
     "maxResultsDesc": "限制单次查询返回条目数以保证极致流畅度",
     "saved": "搜索设置已保存",

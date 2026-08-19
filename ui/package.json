@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "node scripts/check-css-variables.js && tsc -b && vite build && node scripts/check-production-html.js",
     "lint": "eslint . && node scripts/check-css-variables.js",
+    "test": "vitest run",
     "preview": "vite preview",
     "i18n-check": "node scripts/check-i18n.js",
     "css-check": "node scripts/check-css-variables.js"
@@ -35,6 +36,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
-    "vite-plugin-singlefile": "^2.3.3"
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.11"
   }
 }
