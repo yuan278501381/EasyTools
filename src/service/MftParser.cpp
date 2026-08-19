@@ -722,7 +722,7 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
     if (fromUsn == 0 || startUsn < m_UsnJournalData.LowestValidUsn || startUsn > m_UsnJournalData.NextUsn) {
         spdlog::warn("USN journal on drive {} is out of range (fromUsn: {}, lowest: {}, next: {}), triggering full rebuild",
                      m_DriveLetter, fromUsn, m_UsnJournalData.LowestValidUsn, m_UsnJournalData.NextUsn);
-        ParseMft();
+        EnumerateFiles();
         return true;
     }
 
