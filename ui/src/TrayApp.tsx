@@ -3,7 +3,6 @@ import { Settings, Camera, Video, Search, Pause, Play, LogOut } from 'lucide-rea
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
-import { EasyToolsLogo } from './components/EasyToolsLogo';
 import './TrayApp.css';
 
 export default function TrayApp() {
@@ -104,11 +103,6 @@ export default function TrayApp() {
 
   return (
     <div ref={menuRef} className="tray-menu" role="menu">
-      <div className="tray-menu__header">
-        <EasyToolsLogo size={14} />
-        <span className="tray-menu__brand">EasyTools</span>
-      </div>
-      <div className="tray-menu__divider" />
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('openSettings')}>
         <Settings size={15} className="tray-menu__icon" />
         <span className="tray-menu__label">{t('tray.settings', 'Settings')}</span>

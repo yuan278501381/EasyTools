@@ -1,8 +1,7 @@
 import { useState, useEffect, type FC } from 'react';
 import { Card, SettingGroup, Badge, Toggle, Button } from '../components/UIKit';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, Info, Layers, Cpu, RefreshCw, User, ShieldCheck } from 'lucide-react';
-import { EasyToolsLogo } from '../components/EasyToolsLogo';
+import { ExternalLink, Info, Zap, Layers, Cpu, RefreshCw, User, ShieldCheck } from 'lucide-react';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import './AboutPage.css';
@@ -160,7 +159,7 @@ export const AboutPage: FC = () => {
           <div className="about-hero">
             <div className="about-hero__brand">
               <div className="about-hero__logo-box">
-                <EasyToolsLogo size={30} />
+                <Zap size={24} fill="var(--primary)" stroke="var(--primary)" />
               </div>
               <div className="about-hero__info">
                 <div className="about-hero__title-row">

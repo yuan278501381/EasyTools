@@ -3,9 +3,9 @@
 #
 # 规范:
 #   1. app.ico (用于任务栏、任务管理器、Alt+Tab、桌面快捷方式、安装包)
-#      • 现代 Windows 11 Fluent 科技极速蓝紫渐变圆角底座 (Squircle) + 饱满纯白疾速闪电
+#      • 经典原版蓝底 RGB(35, 116, 225) + 经典纯白闪电 (替代原字母 "E")
 #   2. tray.ico (用于 Windows 系统托盘区 Notification Area)
-#      • 纯透明底色 + 永远纯白疾速闪电 (Pure White Speed Lightning)，占满视区，饱满粗壮，极高辨识度
+#      • 纯透明底色 + 经典纯白闪电 (Pure White Lightning)，保持与原版视觉一致且托盘纯白
 #   3. 输出未压缩 32 位 DIB 多分辨率 (16, 20, 24, 32, 40, 48, 64, 128, 256)，100% 兼容 rc.exe / High-DPI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -125,86 +125,49 @@ function Build-IcoFile {
     Write-Output "Generated: $OutputPath ($($Sizes.Length) sizes: $($Sizes -join ', ') px)"
 }
 
-# 绘制圆角矩形辅助函数
-function Add-RoundedRectPath {
-    param ($path, $rect, $radius)
-    $diameter = $radius * 2
-    $arc = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $diameter, $diameter)
-    
-    $path.AddArc($arc, 180, 90)
-    $arc.X = $rect.Right - $diameter
-    $path.AddArc($arc, 270, 90)
-    $arc.Y = $rect.Bottom - $diameter
-    $path.AddArc($arc, 0, 90)
-    $arc.X = $rect.X
-    $path.AddArc($arc, 90, 90)
-    $path.CloseFigure()
-}
-
-# 绘制经典 6 点极速闪电矢量坐标 (饱满锋利无缺角)
-function Get-LightningPoints {
+# 绘制经典闪电点阵
+function Get-ClassicLightningPoints {
     param ([float]$w, [float]$h, [float]$padX = 0, [float]$padY = 0)
-    $availW = $w - ($padX * 2)
-    $availH = $h - ($padY * 2)
+    $bw = $w - ($padX * 2)
+    $bh = $h - ($padY * 2)
 
     return @(
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.60), ($padY + $availH * 0.00)), # 顶部尖峰
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.12), ($padY + $availH * 0.54)), # 左外折角
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.46), ($padY + $availH * 0.54)), # 中腰内折
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.40), ($padY + $availH * 1.00)), # 底部尖峰
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.88), ($padY + $availH * 0.46)), # 右外折角
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.54), ($padY + $availH * 0.46))  # 中腰内折
+        (New-Object System.Drawing.PointF ($padX + $bw * (13.0 / 24.0)), ($padY + $bh * (2.0 / 24.0))),
+        (New-Object System.Drawing.PointF ($padX + $bw * (3.0 / 24.0)),  ($padY + $bh * (14.0 / 24.0))),
+        (New-Object System.Drawing.PointF ($padX + $bw * (12.0 / 24.0)), ($padY + $bh * (14.0 / 24.0))),
+        (New-Object System.Drawing.PointF ($padX + $bw * (11.0 / 24.0)), ($padY + $bh * (22.0 / 24.0))),
+        (New-Object System.Drawing.PointF ($padX + $bw * (21.0 / 24.0)), ($padY + $bh * (10.0 / 24.0))),
+        (New-Object System.Drawing.PointF ($padX + $bw * (12.0 / 24.0)), ($padY + $bh * (10.0 / 24.0)))
     )
 }
 
-# ── 1. 生成 app.ico (Fluent 蓝紫渐变底座 + 纯白疾速闪电) ────────────
+# ── 1. 生成 app.ico (原版蓝底 RGB(35, 116, 225) + 纯白经典闪电) ────────────
 $appIcoPath = Join-Path $PSScriptRoot "app.ico"
 Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     param ($g, $sz)
 
-    $margin = [float]($sz * 0.04)
-    $rect = New-Object System.Drawing.RectangleF($margin, $margin, ($sz - $margin * 2), ($sz - $margin * 2))
-    $radius = [float]($sz * 0.22)
+    # 原版纯正经典蓝底色 RGB(35, 116, 225)
+    $g.Clear([System.Drawing.Color]::FromArgb(255, 35, 116, 225))
 
-    $bgPath = New-Object System.Drawing.Drawing2D.GraphicsPath
-    Add-RoundedRectPath $bgPath $rect $radius
-
-    # 极速科技蓝紫渐变底座
-    $bgBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (
-        (New-Object System.Drawing.PointF $rect.Left, $rect.Top),
-        (New-Object System.Drawing.PointF $rect.Right, $rect.Bottom),
-        [System.Drawing.Color]::FromArgb(255, 37, 99, 235),    # Royal Blue #2563eb
-        [System.Drawing.Color]::FromArgb(255, 79, 70, 229)     # Hyper Indigo #4f46e5
-    )
-    $g.FillPath($bgBrush, $bgPath)
-    $bgBrush.Dispose()
-
-    # 细微高光边框
-    if ($sz -ge 32) {
-        $strokePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(80, 255, 255, 255), 1.0)
-        $g.DrawPath($strokePen, $bgPath)
-        $strokePen.Dispose()
-    }
-    $bgPath.Dispose()
-
-    # 居中纯白疾速闪电 (饱满且居中，占 76% 高度)
-    $padX = [float]($sz * 0.16)
+    # 居中纯白闪电 (替代原本的 "E")
+    $padX = [float]($sz * 0.15)
     $padY = [float]($sz * 0.12)
-    $pts = Get-LightningPoints $sz $sz $padX $padY
+    $pts = Get-ClassicLightningPoints $sz $sz $padX $padY
+
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
     $whiteBrush.Dispose()
 }
 
-# ── 2. 生成 tray.ico (纯透明底色 + 永远纯白疾速闪电) ─────────────────
+# ── 2. 生成 tray.ico (纯透明底色 + 永远纯白经典闪电) ─────────────────
 $trayIcoPath = Join-Path $PSScriptRoot "tray.ico"
 Build-IcoFile -OutputPath $trayIcoPath -RenderCallback {
     param ($g, $sz)
 
-    # 托盘专属：无厚重底座，纯白极简前冲闪电，占满 92% 高度与宽度
+    # 托盘专属：无背景色，纯透明底，纯白经典闪电
     $padX = [float]($sz * 0.08)
-    $padY = [float]($sz * 0.04)
-    $pts = Get-LightningPoints $sz $sz $padX $padY
+    $padY = [float]($sz * 0.06)
+    $pts = Get-ClassicLightningPoints $sz $sz $padX $padY
     
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
