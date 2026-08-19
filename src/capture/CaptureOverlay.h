@@ -18,6 +18,9 @@ public:
     bool initialize(HINSTANCE hInstance);
     void shutdown();
     void startSelection(const CaptureOptions& options, OverlayMode mode = OverlayMode::Screenshot);
+    /// 启动已有贴图的二次标注编辑
+    void startEditPinned(const cv::Mat& image, const CaptureRegion& region,
+                         std::function<void(const cv::Mat& newImage)> onFinished);
     void cancel();
 
     void setCallback(SelectionCallback callback) { m_state.callback = std::move(callback); }

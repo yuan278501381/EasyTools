@@ -46,6 +46,12 @@ public:
     /// 翻转贴图（horizontal: true 水平翻转, false 垂直翻转）
     void flip(bool horizontal);
 
+    /// 重新进入标注编辑模式
+    void editMarkup();
+
+    /// 更新贴图图像内容
+    void updateImage(const cv::Mat& newImage);
+
     /// 设置鼠标穿透（点透）。开启后窗口忽略所有鼠标事件，透传到下层窗口。
     void setClickThrough(bool enable);
 
@@ -53,6 +59,9 @@ public:
     /// 穿透窗口收不到右键，必须靠快捷键切回；且 WS_EX_TRANSPARENT 会被 WindowFromPoint 跳过，
     /// 故此处用窗口矩形包含判断定位光标下的贴图。
     static bool toggleClickThroughUnderCursor();
+
+    /// 计算磁性吸附对齐坐标（吸附到屏幕边缘或相邻贴图边缘）
+    static POINT calculateMagneticSnap(HWND currentHwnd, POINT targetPos, int curW, int curH);
 
     /// 是否存活
     bool isAlive() const { return m_hwnd != nullptr; }
@@ -100,8 +109,12 @@ private:
     float m_hoverAlpha = 0.0f;
     uint64_t m_hoverTime = 0;
     D2D1_RECT_F m_toolbarRect = {};
+    D2D1_RECT_F m_btnEditRect = {};
+    D2D1_RECT_F m_btnCopyRect = {};
     D2D1_RECT_F m_btnSaveRect = {};
     D2D1_RECT_F m_btnCloseRect = {};
+    bool m_hoverEdit = false;
+    bool m_hoverCopy = false;
     bool m_hoverSave = false;
     bool m_hoverClose = false;
     

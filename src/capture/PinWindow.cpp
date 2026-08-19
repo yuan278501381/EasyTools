@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/PinWindow.h"
+#include "capture/CaptureOverlay.h"
 #include "core/events/EventBus.h"
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
@@ -202,19 +203,22 @@ void PinWindow::drawHoverToolbar() {
 
     const float dpiScale = easy::core::dpi::scaleForWindow(m_hwnd);
 
-    // Position toolbar at top right
-    float tbWidth = 80.0f * dpiScale;
+    // 悬浮工具栏：编辑、复制、保存、关闭 4 个按钮
+    float btnW = 26.0f * dpiScale;
+    float btnH = 24.0f * dpiScale;
+    float btnPad = 4.0f * dpiScale;
+    float tbWidth = btnW * 4.0f + btnPad * 5.0f;
     float tbHeight = 32.0f * dpiScale;
     float tbPadding = 8.0f * dpiScale;
     float tx = size.width - tbWidth - tbPadding;
     float ty = tbPadding;
     
-    // If window is too small, put it top left
+    // 如果窗口太小，放在左上角
     if (tx < 0) tx = tbPadding;
     
     m_toolbarRect = D2D1::RectF(tx, ty, tx + tbWidth, ty + tbHeight);
     
-    // Draw Glass background
+    // 绘制磨砂玻璃背景
     ComPtr<ID2D1SolidColorBrush> bgBrush, borderBrush;
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.75f * m_hoverAlpha), bgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f * m_hoverAlpha), borderBrush.GetAddressOf());
@@ -223,39 +227,59 @@ void PinWindow::drawHoverToolbar() {
     if (bgBrush) m_renderTarget->FillRoundedRectangle(&rrect, bgBrush.Get());
     if (borderBrush) m_renderTarget->DrawRoundedRectangle(&rrect, borderBrush.Get(), 1.0f * dpiScale);
     
-    // Layout buttons
-    float btnW = 32.0f * dpiScale;
-    float btnH = 24.0f * dpiScale;
-    float btnPad = 4.0f * dpiScale;
+    // 布局按钮
     float by = ty + (tbHeight - btnH) / 2.0f;
+    float curX = tx + btnPad;
     
-    m_btnSaveRect = D2D1::RectF(tx + btnPad, by, tx + btnPad + btnW, by + btnH);
-    m_btnCloseRect = D2D1::RectF(tx + tbWidth - btnPad - btnW, by, tx + tbWidth - btnPad, by + btnH);
+    m_btnEditRect = D2D1::RectF(curX, by, curX + btnW, by + btnH); curX += btnW + btnPad;
+    m_btnCopyRect = D2D1::RectF(curX, by, curX + btnW, by + btnH); curX += btnW + btnPad;
+    m_btnSaveRect = D2D1::RectF(curX, by, curX + btnW, by + btnH); curX += btnW + btnPad;
+    m_btnCloseRect = D2D1::RectF(curX, by, curX + btnW, by + btnH);
     
     ComPtr<ID2D1SolidColorBrush> btnHoverBrush, textBrush;
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.2f * m_hoverAlpha), btnHoverBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.9f * m_hoverAlpha), textBrush.GetAddressOf());
     
+    if (m_hoverEdit && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnEditRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
+    if (m_hoverCopy && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCopyRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     if (m_hoverSave && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnSaveRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     if (m_hoverClose && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCloseRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     
-    // Save icon (down arrow + line)
-    float sx = m_btnSaveRect.left + btnW / 2.0f;
-    float sy = m_btnSaveRect.top + btnH / 2.0f;
-    const float stroke = 1.5f * dpiScale;
+    const float stroke = 1.3f * dpiScale;
+
+    // 1. Edit 图标 (铅笔斜画)
     if (textBrush) {
-        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5.0f * dpiScale), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 3.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5.0f * dpiScale, sy + 6.0f * dpiScale), D2D1::Point2F(sx + 5.0f * dpiScale, sy + 6.0f * dpiScale), textBrush.Get(), stroke);
+        float ex = m_btnEditRect.left + btnW / 2.0f;
+        float ey = m_btnEditRect.top + btnH / 2.0f;
+        m_renderTarget->DrawLine(D2D1::Point2F(ex - 4.0f * dpiScale, ey + 4.0f * dpiScale), D2D1::Point2F(ex + 4.0f * dpiScale, ey - 4.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(ex - 5.0f * dpiScale, ey + 5.0f * dpiScale), D2D1::Point2F(ex - 4.0f * dpiScale, ey + 4.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(ex + 3.0f * dpiScale, ey - 5.0f * dpiScale), D2D1::Point2F(ex + 5.0f * dpiScale, ey - 3.0f * dpiScale), textBrush.Get(), stroke);
+    }
+
+    // 2. Copy 图标 (两个重叠矩形)
+    if (textBrush) {
+        float cx = m_btnCopyRect.left + btnW / 2.0f;
+        float cy = m_btnCopyRect.top + btnH / 2.0f;
+        m_renderTarget->DrawRectangle(D2D1::RectF(cx - 4.0f * dpiScale, cy - 2.0f * dpiScale, cx + 2.0f * dpiScale, cy + 5.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawRectangle(D2D1::RectF(cx - 1.0f * dpiScale, cy - 5.0f * dpiScale, cx + 5.0f * dpiScale, cy + 2.0f * dpiScale), textBrush.Get(), stroke);
     }
     
-    // Close icon (X)
-    float cx = m_btnCloseRect.left + btnW / 2.0f;
-    float cy = m_btnCloseRect.top + btnH / 2.0f;
+    // 3. Save 图标 (下箭头 + 底线)
     if (textBrush) {
-        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * dpiScale, cy - 4.0f * dpiScale), D2D1::Point2F(cx + 4.0f * dpiScale, cy + 4.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * dpiScale, cy + 4.0f * dpiScale), D2D1::Point2F(cx + 4.0f * dpiScale, cy - 4.0f * dpiScale), textBrush.Get(), stroke);
+        float sx = m_btnSaveRect.left + btnW / 2.0f;
+        float sy = m_btnSaveRect.top + btnH / 2.0f;
+        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5.0f * dpiScale), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5.0f * dpiScale, sy + 5.0f * dpiScale), D2D1::Point2F(sx + 5.0f * dpiScale, sy + 5.0f * dpiScale), textBrush.Get(), stroke);
+    }
+    
+    // 4. Close 图标 (X)
+    if (textBrush) {
+        float clx = m_btnCloseRect.left + btnW / 2.0f;
+        float cly = m_btnCloseRect.top + btnH / 2.0f;
+        m_renderTarget->DrawLine(D2D1::Point2F(clx - 4.0f * dpiScale, cly - 4.0f * dpiScale), D2D1::Point2F(clx + 4.0f * dpiScale, cly + 4.0f * dpiScale), textBrush.Get(), stroke);
+        m_renderTarget->DrawLine(D2D1::Point2F(clx - 4.0f * dpiScale, cly + 4.0f * dpiScale), D2D1::Point2F(clx + 4.0f * dpiScale, cly - 4.0f * dpiScale), textBrush.Get(), stroke);
     }
 }
 
@@ -461,6 +485,85 @@ void PinWindow::flip(bool horizontal) {
     cv::flip(m_sourceImage, m_sourceImage, horizontal ? 1 : 0);
     createRenderResources(m_sourceImage);
     render();
+}
+
+void PinWindow::editMarkup() {
+    if (!m_hwnd || m_sourceImage.empty()) return;
+    
+    RECT rc{};
+    GetWindowRect(m_hwnd, &rc);
+    CaptureRegion reg{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top };
+
+    ShowWindow(m_hwnd, SW_HIDE);
+    std::weak_ptr<PinWindow> weakSelf = shared_from_this();
+    CaptureOverlay::instance().startEditPinned(m_sourceImage, reg, [weakSelf](const cv::Mat& newImage) {
+        if (auto self = weakSelf.lock()) {
+            self->updateImage(newImage);
+            ShowWindow(self->m_hwnd, SW_SHOW);
+        }
+    });
+}
+
+void PinWindow::updateImage(const cv::Mat& newImage) {
+    if (newImage.empty() || !m_hwnd) return;
+    m_sourceImage = newImage.clone();
+    m_origWidth = newImage.cols;
+    m_origHeight = newImage.rows;
+
+    const int newW = std::max(1, static_cast<int>(m_origWidth * m_scale));
+    const int newH = std::max(1, static_cast<int>(m_origHeight * m_scale));
+    SetWindowPos(m_hwnd, nullptr, 0, 0, newW, newH, SWP_NOMOVE | SWP_NOZORDER);
+
+    createRenderResources(m_sourceImage);
+    render();
+}
+
+POINT PinWindow::calculateMagneticSnap(HWND currentHwnd, POINT targetPos, int curW, int curH) {
+    POINT res = targetPos;
+    const HMONITOR monitor = MonitorFromPoint(targetPos, MONITOR_DEFAULTTONEAREST);
+    const RECT work = easy::core::dpi::workArea(monitor);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    const int snapDist = easy::core::dpi::scaleMetric(12, scale);
+
+    // 1. 吸附到当前显示器工作区四边
+    if (std::abs(res.x - work.left) <= snapDist) res.x = work.left;
+    else if (std::abs(res.x + curW - work.right) <= snapDist) res.x = work.right - curW;
+
+    if (std::abs(res.y - work.top) <= snapDist) res.y = work.top;
+    else if (std::abs(res.y + curH - work.bottom) <= snapDist) res.y = work.bottom - curH;
+
+    // 2. 吸附到其他贴图窗口边缘
+    for (const auto& pin : s_instances) {
+        if (!pin || !pin->isAlive() || pin->m_hwnd == currentHwnd) continue;
+        if (!IsWindowVisible(pin->m_hwnd)) continue;
+
+        RECT otherRc{};
+        GetWindowRect(pin->m_hwnd, &otherRc);
+
+        // X 轴吸附：左对齐、右对齐、左贴右、右贴左
+        if (std::abs(res.x - otherRc.left) <= snapDist) {
+            res.x = otherRc.left;
+        } else if (std::abs(res.x + curW - otherRc.right) <= snapDist) {
+            res.x = otherRc.right - curW;
+        } else if (std::abs(res.x - otherRc.right) <= snapDist) {
+            res.x = otherRc.right;
+        } else if (std::abs(res.x + curW - otherRc.left) <= snapDist) {
+            res.x = otherRc.left - curW;
+        }
+
+        // Y 轴吸附：顶对齐、底对齐、顶贴底、底贴顶
+        if (std::abs(res.y - otherRc.top) <= snapDist) {
+            res.y = otherRc.top;
+        } else if (std::abs(res.y + curH - otherRc.bottom) <= snapDist) {
+            res.y = otherRc.bottom - curH;
+        } else if (std::abs(res.y - otherRc.bottom) <= snapDist) {
+            res.y = otherRc.bottom;
+        } else if (std::abs(res.y + curH - otherRc.top) <= snapDist) {
+            res.y = otherRc.top - curH;
+        }
+    }
+
+    return res;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -751,6 +854,16 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         case WM_LBUTTONDOWN: {
             if (!self) break;
             if (self->m_hoverAlpha > 0.0f) {
+                if (self->m_hoverEdit) {
+                    self->editMarkup();
+                    return 0;
+                }
+                if (self->m_hoverCopy) {
+                    copyImageToClipboard(self->m_sourceImage);
+                    easy::core::EventBus::instance().publish(
+                        easy::core::ShowToastEvent{L"已复制贴图到剪贴板"});
+                    return 0;
+                }
                 if (self->m_hoverSave) {
                     savePinnedImage(hwnd, self->m_sourceImage);
                     return 0;
@@ -785,6 +898,21 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             // Esc / Ctrl+W: 优雅关闭当前贴图
             if (wParam == VK_ESCAPE || (ctrl && wParam == 'W')) {
                 self->close();
+                return 0;
+            }
+            // E: 重新进入标注编辑模式
+            if (wParam == 'E' && !ctrl) {
+                self->editMarkup();
+                return 0;
+            }
+            // T: 切换鼠标穿透
+            if (wParam == 'T' && !ctrl) {
+                self->setClickThrough(!self->m_clickThrough);
+                return 0;
+            }
+            // 1~9: 快速设置透明度 10%~90%
+            if (wParam >= '1' && wParam <= '9' && !ctrl) {
+                self->setOpacity(static_cast<float>(wParam - '0') / 10.0f);
                 return 0;
             }
             // R / Shift+R: 顺时针 / 逆时针旋转 90 度
@@ -851,12 +979,19 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             
             int x = LOWORD(lParam);
             int y = HIWORD(lParam);
+            bool hoverEdit = (x >= self->m_btnEditRect.left && x <= self->m_btnEditRect.right &&
+                              y >= self->m_btnEditRect.top && y <= self->m_btnEditRect.bottom);
+            bool hoverCopy = (x >= self->m_btnCopyRect.left && x <= self->m_btnCopyRect.right &&
+                              y >= self->m_btnCopyRect.top && y <= self->m_btnCopyRect.bottom);
             bool hoverSave = (x >= self->m_btnSaveRect.left && x <= self->m_btnSaveRect.right &&
                               y >= self->m_btnSaveRect.top && y <= self->m_btnSaveRect.bottom);
             bool hoverClose = (x >= self->m_btnCloseRect.left && x <= self->m_btnCloseRect.right &&
                                y >= self->m_btnCloseRect.top && y <= self->m_btnCloseRect.bottom);
             
-            if (hoverSave != self->m_hoverSave || hoverClose != self->m_hoverClose) {
+            if (hoverEdit != self->m_hoverEdit || hoverCopy != self->m_hoverCopy ||
+                hoverSave != self->m_hoverSave || hoverClose != self->m_hoverClose) {
+                self->m_hoverEdit = hoverEdit;
+                self->m_hoverCopy = hoverCopy;
                 self->m_hoverSave = hoverSave;
                 self->m_hoverClose = hoverClose;
                 self->render();
@@ -865,9 +1000,13 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             if (self->m_isDragging) {
                 POINT cursor;
                 GetCursorPos(&cursor);
+                int curW = static_cast<int>(self->m_origWidth * self->m_scale);
+                int curH = static_cast<int>(self->m_origHeight * self->m_scale);
+                POINT targetPos = { cursor.x - self->m_dragOffset.x, cursor.y - self->m_dragOffset.y };
+                targetPos = calculateMagneticSnap(hwnd, targetPos, curW, curH);
                 SetWindowPos(hwnd, nullptr,
-                             cursor.x - self->m_dragOffset.x,
-                             cursor.y - self->m_dragOffset.y,
+                             targetPos.x,
+                             targetPos.y,
                              0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
             return 0;
@@ -877,6 +1016,8 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             if (!self) break;
             self->m_isHovering = false;
             self->m_hoverTime = GetTickCount64();
+            self->m_hoverEdit = false;
+            self->m_hoverCopy = false;
             self->m_hoverSave = false;
             self->m_hoverClose = false;
             SetTimer(hwnd, 1, 16, nullptr);
@@ -899,8 +1040,10 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
 
         case WM_LBUTTONDBLCLK: {
-            // 双击关闭
-            if (self) self->close();
+            // 双击默认进入标注编辑模式，若已在编辑或不可编辑则关闭
+            if (self) {
+                self->editMarkup();
+            }
             return 0;
         }
 
@@ -959,6 +1102,8 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             if (!self) break;
             HMENU menu = CreatePopupMenu();
             bool isZh = easy::core::WinUtils::isSystemLanguageChinese();
+            AppendMenuW(menu, MF_STRING, 16, isZh ? L"编辑 / 二次标注  (E / 双击)" : L"Edit / Annotate  (E / Double Click)");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 1, isZh ? L"复制到剪贴板  (Ctrl+C)" : L"Copy to Clipboard  (Ctrl+C)");
             AppendMenuW(menu, MF_STRING, 10, isZh ? L"保存图片...  (Ctrl+S)" : L"Save Image...  (Ctrl+S)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -968,18 +1113,18 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             AppendMenuW(menu, MF_STRING, 13, isZh ? L"水平翻转  (H)" : L"Flip Horizontal  (H)");
             AppendMenuW(menu, MF_STRING, 14, isZh ? L"垂直翻转  (V)" : L"Flip Vertical  (V)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%  (Ctrl+滚轮微调)" : L"Opacity 100%  (Ctrl+Wheel)");
-            AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%" : L"Opacity 75%");
-            AppendMenuW(menu, MF_STRING, 4, isZh ? L"透明度 50%" : L"Opacity 50%");
+            AppendMenuW(menu, MF_STRING, 2, isZh ? L"透明度 100%  (数字 0 或 Ctrl+滚轮)" : L"Opacity 100%  (Key 0 or Ctrl+Wheel)");
+            AppendMenuW(menu, MF_STRING, 3, isZh ? L"透明度 75%  (数字 7)" : L"Opacity 75%  (Key 7)");
+            AppendMenuW(menu, MF_STRING, 4, isZh ? L"透明度 50%  (数字 5)" : L"Opacity 50%  (Key 5)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 7, isZh ? L"鼠标穿透  (Ctrl+Alt+Shift+X 切回)"
-                                               : L"Click-through  (Ctrl+Alt+Shift+X toggles)");
+            AppendMenuW(menu, MF_STRING, 7, isZh ? L"鼠标穿透  (T 或 Ctrl+Alt+Shift+X 切回)"
+                                               : L"Click-through  (T or Ctrl+Alt+Shift+X toggles)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 9, isZh ? L"整理全部贴图" : L"Arrange All Pins");
             AppendMenuW(menu, MF_STRING, 8, isZh ? L"隐藏全部贴图  (Ctrl+Alt+Shift+H 显示)"
                                                : L"Hide All Pins  (Ctrl+Alt+Shift+H shows)");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, 5, isZh ? L"关闭  (Esc / 双击)" : L"Close  (Esc / Double Click)");
+            AppendMenuW(menu, MF_STRING, 5, isZh ? L"关闭  (Esc / Ctrl+W)" : L"Close  (Esc / Ctrl+W)");
             AppendMenuW(menu, MF_STRING, 6, isZh ? L"关闭全部贴图" : L"Close All Pins");
 
             POINT pt;
@@ -988,6 +1133,7 @@ LRESULT CALLBACK PinWindow::pinWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             DestroyMenu(menu);
 
             switch (cmd) {
+                case 16: self->editMarkup(); break;
                 case 1: copyImageToClipboard(self->m_sourceImage); break;
                 case 10: savePinnedImage(hwnd, self->m_sourceImage); break;
                 case 15: self->setScale(1.0f); break;

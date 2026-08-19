@@ -182,6 +182,92 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
         "screenshot", elapsedMilliseconds(totalStarted));
 }
 
+void CaptureOverlay::startEditPinned(const cv::Mat& image, const CaptureRegion& region,
+                                     std::function<void(const cv::Mat& newImage)> onFinished) {
+    if (image.empty() || region.width <= 0 || region.height <= 0) return;
+
+    POINT cursorScreen{};
+    GetCursorPos(&cursorScreen);
+    m_state.options = {};
+    m_state.mode = OverlayMode::Screenshot;
+    m_state.dpiScale = dpiScaleAt(cursorScreen);
+    m_state.currentCursor = {
+        cursorScreen.x - GetSystemMetrics(SM_XVIRTUALSCREEN),
+        cursorScreen.y - GetSystemMetrics(SM_YVIRTUALSCREEN)};
+
+    if (!m_hwnd && (!m_hInstance || !createOverlayWindow(m_hInstance))) {
+        LOG_ERROR("无法启动贴图编辑: 覆盖层窗口初始化失败");
+        return;
+    }
+
+    m_state.state = OverlayState::Selected;
+    m_state.dragging = false;
+    m_state.isMarking = false;
+    m_state.markupBaseReady = false;
+    m_state.activeElement = nullptr;
+    m_state.dragHandle = HitArea::None;
+    m_state.isManipulating = false;
+    m_state.toolbarButtons.clear();
+    m_state.toolbarLayoutValid = false;
+    m_state.markup.clearAll();
+    m_state.loupeToastUntil = 0;
+    m_state.showTimestamp = GetTickCount();
+    m_state.isFadingOut = false;
+    m_state.fadeOutStart = 0;
+
+    const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    m_state.dragStart = { region.x - vx, region.y - vy };
+    m_state.dragEnd = { m_state.dragStart.x + region.width, m_state.dragStart.y + region.height };
+
+    if (!freezeScreen()) {
+        LOG_ERROR("无法捕获屏幕底图用于贴图编辑");
+        realCancel();
+        return;
+    }
+
+    // 将贴图原图覆盖至对应选区区域
+    cv::Rect roi(m_state.dragStart.x, m_state.dragStart.y, region.width, region.height);
+    roi &= cv::Rect(0, 0, m_state.frozenScreen.cols, m_state.frozenScreen.rows);
+    if (roi.width == image.cols && roi.height == image.rows) {
+        cv::Mat bgrImage = image;
+        if (image.channels() == 4) {
+            cv::cvtColor(image, bgrImage, cv::COLOR_BGRA2BGR);
+        }
+        bgrImage.copyTo(m_state.frozenScreen(roi));
+    }
+
+    if (!m_renderer.updateScreenBitmap(m_state.frozenScreen)) {
+        LOG_ERROR("贴图编辑底图上传失败");
+        realCancel();
+        return;
+    }
+
+    // 设置回调
+    m_state.callback = [onFinished](const CaptureRegion&, const cv::Mat& markedImage, const CaptureCompletion&) {
+        if (onFinished && !markedImage.empty()) {
+            onFinished(markedImage);
+        }
+    };
+
+    m_renderer.invalidate();
+
+    SetWindowPos(m_hwnd, HWND_TOPMOST,
+                 GetSystemMetrics(SM_XVIRTUALSCREEN),
+                 GetSystemMetrics(SM_YVIRTUALSCREEN),
+                 GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                 GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                 SWP_SHOWWINDOW);
+
+    SetLayeredWindowAttributes(m_hwnd, 0, 255, LWA_ALPHA);
+    RedrawWindow(m_hwnd, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    SetCapture(m_hwnd);
+    SetFocus(m_hwnd);
+
+    ShortcutHintOverlay::instance().show(ShortcutHintContext::CaptureSelected);
+}
+
 bool CaptureOverlay::freezeScreen() {
     releaseFrozenSurface();
     int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
