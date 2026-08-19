@@ -83,7 +83,10 @@ void MftParser::UsnListenerLoop() {
                 dwRetBytes -= pRecord->RecordLength;
                 pRecord = (PUSN_RECORD_V2)((PBYTE)pRecord + pRecord->RecordLength);
             }
-            if (changed) m_IndexGeneration.fetch_add(1, std::memory_order_release);
+            if (changed) {
+                rebuildFolderPaths();
+                m_IndexGeneration.fetch_add(1, std::memory_order_release);
+            }
         }
         rujd.StartUsn = *pUsn;
         Sleep(50); // Prevent 100% CPU on fast changes

@@ -105,6 +105,16 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                     }
                     return {{"success", true}, {"rebuilding", true}};
                 }
+                if (act == "catchup" || act == "sync") {
+                    bool anyUpdated = false;
+                    for (auto& parser : g_MftParsers) {
+                        uint64_t lastUsn = parser->getCurrentUsn();
+                        if (parser->catchUpUsnJournal(lastUsn)) {
+                            anyUpdated = true;
+                        }
+                    }
+                    return {{"success", true}, {"synced", true}, {"updated", anyUpdated}};
+                }
                 if (act == "recordRun") {
                     if (reqJson.contains("path") && reqJson["path"].is_string()) {
                         std::wstring path = StringToWString(reqJson["path"].get<std::string>());

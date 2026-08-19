@@ -252,6 +252,19 @@ public:
             return {{"success", false}};
         });
 
+        mb.registerHandler("search.sync", [](const nlohmann::json&) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "catchup";
+            DWORD pipeError = ERROR_SUCCESS;
+            auto resp = querySearchService(req.dump(), pipeError);
+            if (resp) {
+                try {
+                    return nlohmann::json::parse(*resp);
+                } catch (...) {}
+            }
+            return {{"success", false}};
+        });
+
         mb.registerHandler("search.getDrives", [](const nlohmann::json&) -> nlohmann::json {
             auto drives = easy::core::WinUtils::getSystemDrives();
             nlohmann::json arr = nlohmann::json::array();

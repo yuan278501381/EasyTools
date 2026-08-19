@@ -766,7 +766,7 @@ export default function SearchApp() {
     toast.success('已恢复文档内容检索默认格式配置');
   };
 
-  const rebuildIndex = async () => {
+  const rebuildIndex = useCallback(async () => {
     setIsRebuilding(true);
     toast.loading('正在全盘重新扫描 NTFS 索引并保存快照...', { id: 'rebuild-idx' });
     try {
@@ -779,7 +779,7 @@ export default function SearchApp() {
     } finally {
       setTimeout(() => setIsRebuilding(false), 1500);
     }
-  };
+  }, [refreshDbStats, refreshHistory]);
 
   const queryKeywords = useMemo(() => {
     const trimmed = query.trim();
@@ -971,15 +971,26 @@ export default function SearchApp() {
     const t3 = setTimeout(doFocus, 250);
     const t4 = setTimeout(doFocus, 500);
 
-    const onFocusEvt = () => doFocus();
+    const onFocusEvt = () => {
+      doFocus();
+      void bridgeRequest('search.sync');
+    };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
     window.addEventListener('focus', onFocusEvt);
     const onVisibilityChange = () => {
-      if (!document.hidden) doFocus();
+      if (!document.hidden) {
+        doFocus();
+        void bridgeRequest('search.sync');
+      }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+        e.preventDefault();
+        void rebuildIndex();
+        return;
+      }
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
@@ -1000,7 +1011,7 @@ export default function SearchApp() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, []);
+  }, [rebuildIndex]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -1268,6 +1279,12 @@ export default function SearchApp() {
   }, [hide]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'F5' || (event.ctrlKey && (event.key === 'r' || event.key === 'R'))) {
+      event.preventDefault();
+      void rebuildIndex();
+      return;
+    }
+
     if (event.key === 'F1') {
       event.preventDefault();
       setShowSyntaxHelp(prev => !prev);
@@ -1741,7 +1758,27 @@ export default function SearchApp() {
             </div>
 
             <div className="popover-body">
-              {/* 0. 默认搜索范围与模式 */}
+              {/* 顶部一键全盘重新扫描与快照固化 */}
+              <div className="popover-top-rebuild-card">
+                <div className="popover-top-rebuild-info">
+                  <div className="popover-top-rebuild-title">全盘文件索引与快照维护</div>
+                  <div className="popover-top-rebuild-desc">
+                    重新扫描所有分区 NTFS MFT 变更，并自动同步写入 EasyTools.db 快照 (支持快捷键 F5 / Ctrl+R)
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={`popover-rebuild-btn popover-rebuild-btn--top ${isRebuilding ? 'popover-rebuild-btn--loading' : ''}`}
+                  onClick={rebuildIndex}
+                  disabled={isRebuilding}
+                  title="重新扫描全盘所有已选磁盘的 NTFS MFT 分区，并自动将最新全量索引固化写入 EasyTools.db 磁盘快照 (快捷键: F5 / Ctrl+R)"
+                >
+                  <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
+                  <span>{isRebuilding ? '正在重新扫描并更新快照...' : '立即重新扫描并更新索引与快照 (F5)'}</span>
+                </button>
+              </div>
+
+              {/* 1. 默认搜索范围与模式 */}
               <div className="popover-section">
                 <div className="popover-section-title">
                   <span>默认搜索模式</span>
@@ -2030,16 +2067,6 @@ export default function SearchApp() {
                     <span>排除系统隐藏文件与受保护文件</span>
                   </label>
                 </div>
-                <button
-                  type="button"
-                  className={`popover-rebuild-btn ${isRebuilding ? 'popover-rebuild-btn--loading' : ''}`}
-                  onClick={rebuildIndex}
-                  disabled={isRebuilding}
-                  title="重新扫描全盘所有已选磁盘的 NTFS MFT 分区，并自动将最新全量索引固化写入 EasyTools.db 磁盘快照"
-                >
-                  <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
-                  <span>{isRebuilding ? '正在全盘重新扫描并更新快照...' : '立即重新扫描并更新索引与快照'}</span>
-                </button>
               </div>
 
               {/* 7. 文档内容检索格式定制 (Content Search Formats & Exts) */}
@@ -2431,7 +2458,7 @@ export default function SearchApp() {
 
         <footer className="search-footer">
           <div className="search-footer-left">
-            {/* 1. 总对象数显示 (Everything 级核心状态) */}
+            {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
             <div className="search-footer-stat-item" title="当前匹配到的文件与文件夹对象总数">
               <span>
                 {sortedResults.length > 0 ? (
@@ -2441,6 +2468,15 @@ export default function SearchApp() {
                 )}
               </span>
             </div>
+            <button
+              type="button"
+              className="search-footer-refresh-btn"
+              onClick={rebuildIndex}
+              disabled={isRebuilding}
+              title="重新扫描全盘并更新索引与快照 (快捷键: F5 / Ctrl+R)"
+            >
+              <RefreshCw size={11} className={isRebuilding ? 'spin-animation' : ''} />
+            </button>
 
             {/* 2. 当前匹配结果总大小 */}
             {sortedResults.length > 0 && totalResultSize > 0 && (
@@ -2485,6 +2521,7 @@ export default function SearchApp() {
             <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder', '定位')}</span>
             <span className="search-hint"><kbd>Ctrl+C</kbd> 复制</span>
             <span className="search-hint"><kbd>Ctrl+E</kbd> 导出</span>
+            <span className="search-hint"><kbd>F5</kbd> 刷新</span>
             <span className="search-hint"><kbd>F1</kbd> 语法</span>
             <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>
           </div>
