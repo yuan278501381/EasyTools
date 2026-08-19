@@ -458,6 +458,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             return 0;
         case WM_SEARCH_VERIFY_DEACTIVATED: {
             if (!inst.m_visible.load()) break;
+            if (inst.isMenuActive()) break;
             const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
             if (elapsed < 350) {
                 // 窗口刚打开 350ms 内不因初始焦点抖动或创建子窗口而意外关闭

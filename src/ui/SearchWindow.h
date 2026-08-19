@@ -25,6 +25,12 @@ public:
     void setWindowSize(int baseWidth, int baseHeight, bool forceCenter = false);
     std::pair<int, int> getWindowSize() const;
     HWND getHwnd() const { return m_hwnd; }
+    void setMenuActive(bool active) { m_menuActive.store(active); }
+    bool isMenuActive() const {
+        if (m_menuActive.load()) return true;
+        if (m_hwnd && GetPropW(m_hwnd, L"EasyTools_ShellMenuActive")) return true;
+        return false;
+    }
 
 private:
     SearchWindow() = default;
@@ -45,6 +51,7 @@ private:
 
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
+    std::atomic<bool> m_menuActive{false};
     bool m_updatingPlacement = false;
     uint64_t m_showTimeTick{0};
     std::atomic<uint64_t> m_generation{0};

@@ -2530,3 +2530,147 @@ html[data-surface="search"] #root {
     border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* ── 重命名模态对话框 ────────────────────────────────────────────── */
+.search-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.search-rename-card {
+    width: 380px;
+    background: var(--bg-elevated, #242730);
+    border: 1px solid var(--search-item-border, rgba(255, 255, 255, 0.15));
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: contextMenuPop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.search-rename-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--search-item-border);
+}
+
+.search-rename-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--search-text-main);
+}
+
+.search-rename-icon {
+    color: var(--primary);
+}
+
+.search-rename-close {
+    background: transparent;
+    border: none;
+    color: var(--search-text-muted);
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s ease;
+}
+
+.search-rename-close:hover {
+    background: var(--search-hover-bg);
+    color: var(--search-text-main);
+}
+
+.search-rename-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.search-rename-path-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--search-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-rename-input-wrap {
+    display: flex;
+}
+
+.search-rename-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+    background: var(--search-surface-pill, rgba(0, 0, 0, 0.2));
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    color: var(--search-text-main);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-dim);
+}
+
+.search-rename-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px 14px;
+    border-top: 1px solid var(--search-item-border);
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.search-rename-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.search-rename-btn--cancel {
+    background: transparent;
+    border: 1px solid var(--search-item-border);
+    color: var(--search-text-muted);
+}
+
+.search-rename-btn--cancel:hover {
+    background: var(--search-hover-bg);
+    color: var(--search-text-main);
+}
+
+.search-rename-btn--confirm {
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    color: #ffffff;
+}
+
+.search-rename-btn--confirm:hover:not(:disabled) {
+    opacity: 0.9;
+    box-shadow: 0 2px 8px var(--primary-dim);
+}
+
+.search-rename-btn--confirm:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+

@@ -37,7 +37,8 @@ import {
   Info,
   FolderOpen,
   ShieldAlert,
-  Copy
+  Copy,
+  Pencil
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -456,6 +457,12 @@ export default function SearchApp() {
     y: number;
     result?: SearchResult;
   }>({ visible: false, x: 0, y: 0 });
+  const [renameTarget, setRenameTarget] = useState<{
+    visible: boolean;
+    result?: SearchResult;
+    newName: string;
+  }>({ visible: false, newName: '' });
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredSyntaxExamples = useMemo(() => {
     if (syntaxCat === 'all') return SYNTAX_EXAMPLES;
@@ -1434,6 +1441,91 @@ export default function SearchApp() {
     }
   }, []);
 
+  const openWithNotepad = useCallback(async (result: SearchResult | undefined) => {
+    if (!result) return;
+    setActionError('');
+    try {
+      void bridgeRequest('search.recordRun', { path: result.path });
+      await bridgeRequest('search.openWithNotepad', { filepath: result.path, path: result.path });
+      hide();
+    } catch {
+      try {
+        await bridgeRequest('system.openWithNotepad', { path: result.path, filepath: result.path });
+        hide();
+      } catch {
+        setActionError('无法使用记事本打开文件');
+      }
+    }
+  }, [hide]);
+
+  const startRename = useCallback((result: SearchResult | undefined) => {
+    if (!result) return;
+    setContextMenu({ visible: false, x: 0, y: 0 });
+    setRenameTarget({
+      visible: true,
+      result,
+      newName: result.name
+    });
+    setTimeout(() => {
+      if (renameInputRef.current) {
+        renameInputRef.current.focus();
+        const dotIdx = result.isDirectory ? -1 : result.name.lastIndexOf('.');
+        if (dotIdx > 0) {
+          renameInputRef.current.setSelectionRange(0, dotIdx);
+        } else {
+          renameInputRef.current.select();
+        }
+      }
+    }, 50);
+  }, []);
+
+  const confirmRename = useCallback(async () => {
+    if (!renameTarget.result || !renameTarget.newName.trim()) return;
+    const oldName = renameTarget.result.name;
+    const newName = renameTarget.newName.trim();
+    if (newName === oldName) {
+      setRenameTarget({ visible: false, newName: '' });
+      return;
+    }
+    if (/[\\/:*?"<>|]/.test(newName)) {
+      toast.error('文件名不能包含 \\ / : * ? " < > | 等字符');
+      return;
+    }
+    try {
+      const res = await bridgeRequest<{ success: boolean; newPath?: string; error?: string }>('search.renamePath', {
+        oldPath: renameTarget.result.path,
+        path: renameTarget.result.path,
+        newName
+      });
+      if (res?.success && res.newPath) {
+        const newP = res.newPath;
+        setResults(prev => prev.map(item => item.path === renameTarget.result?.path ? { ...item, name: newName, path: newP } : item));
+        toast.success(`已重命名为 "${newName}"`);
+        setRenameTarget({ visible: false, newName: '' });
+      } else {
+        toast.error(res?.error || '重命名失败');
+      }
+    } catch {
+      try {
+        const res = await bridgeRequest<{ success: boolean; newPath?: string; error?: string }>('system.renamePath', {
+          oldPath: renameTarget.result.path,
+          path: renameTarget.result.path,
+          newName
+        });
+        if (res?.success && res.newPath) {
+          const newP = res.newPath;
+          setResults(prev => prev.map(item => item.path === renameTarget.result?.path ? { ...item, name: newName, path: newP } : item));
+          toast.success(`已重命名为 "${newName}"`);
+          setRenameTarget({ visible: false, newName: '' });
+        } else {
+          toast.error(res?.error || '重命名失败');
+        }
+      } catch {
+        toast.error('重命名失败，请检查文件是否被占用');
+      }
+    }
+  }, [renameTarget]);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'F5' || (event.ctrlKey && (event.key === 'r' || event.key === 'R'))) {
       event.preventDefault();
@@ -1531,9 +1623,15 @@ export default function SearchApp() {
           result: current
         });
       }
+    } else if (event.key === 'F2') {
+      event.preventDefault();
+      const current = sortedResults[selectedIndex];
+      if (current) startRename(current);
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      if (contextMenu.visible) {
+      if (renameTarget.visible) {
+        setRenameTarget({ visible: false, newName: '' });
+      } else if (contextMenu.visible) {
         setContextMenu({ visible: false, x: 0, y: 0 });
       } else if (showSortMenu) {
         setShowSortMenu(false);
@@ -2896,6 +2994,38 @@ export default function SearchApp() {
                 <kbd className="menu-shortcut">Ctrl+Enter</kbd>
               </button>
 
+              {/* 在记事本中编辑 */}
+              {!contextMenu.result.isDirectory && (
+                <button
+                  type="button"
+                  className="search-context-menu-item"
+                  onClick={() => {
+                    const res = contextMenu.result;
+                    setContextMenu({ visible: false, x: 0, y: 0 });
+                    void openWithNotepad(res);
+                  }}
+                  title="使用 Windows 记事本快速查看或编辑该文件"
+                >
+                  <FileCode size={14} className="menu-icon" />
+                  <span className="menu-label">在记事本中编辑</span>
+                </button>
+              )}
+
+              {/* 重命名 */}
+              <button
+                type="button"
+                className="search-context-menu-item"
+                onClick={() => {
+                  const res = contextMenu.result;
+                  startRename(res);
+                }}
+                title="重命名文件或文件夹 (F2)"
+              >
+                <Pencil size={14} className="menu-icon" />
+                <span className="menu-label">重命名</span>
+                <kbd className="menu-shortcut">F2</kbd>
+              </button>
+
               {/* 图片独立贴图 */}
               {!contextMenu.result.isDirectory && IMAGE_EXTENSIONS.test(contextMenu.result.name) && (
                 <button
@@ -2982,15 +3112,11 @@ export default function SearchApp() {
                 className="search-context-menu-item"
                 onClick={() => {
                   const res = contextMenu.result;
-                  const menuX = contextMenu.x;
-                  const menuY = contextMenu.y;
                   setContextMenu({ visible: false, x: 0, y: 0 });
                   if (res) {
                     void bridgeRequest('search.showShellContextMenu', {
                       filepath: res.path,
                       path: res.path,
-                      x: menuX,
-                      y: menuY,
                     });
                   }
                 }}
@@ -3014,6 +3140,76 @@ export default function SearchApp() {
                 <span className="menu-label">文件属性</span>
                 <kbd className="menu-shortcut">Alt+Enter</kbd>
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── 智能文件重命名对话框 ── */}
+        {renameTarget.visible && renameTarget.result && (
+          <div className="search-modal-overlay" onClick={() => setRenameTarget({ visible: false, newName: '' })}>
+            <div
+              className="search-rename-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="search-rename-header">
+                <div className="search-rename-title">
+                  <Pencil size={15} className="search-rename-icon" />
+                  <span>重命名{renameTarget.result.isDirectory ? '文件夹' : '文件'}</span>
+                </div>
+                <button
+                  type="button"
+                  className="search-rename-close"
+                  onClick={() => setRenameTarget({ visible: false, newName: '' })}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="search-rename-body">
+                <div className="search-rename-path-hint" title={renameTarget.result.path}>
+                  <Folder size={12} />
+                  <span>{extractParentFolder(renameTarget.result.path) || renameTarget.result.path}</span>
+                </div>
+
+                <div className="search-rename-input-wrap">
+                  <input
+                    ref={renameInputRef}
+                    type="text"
+                    className="search-rename-input"
+                    value={renameTarget.newName}
+                    onChange={(e) => setRenameTarget(prev => ({ ...prev, newName: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void confirmRename();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setRenameTarget({ visible: false, newName: '' });
+                      }
+                    }}
+                    placeholder="输入新文件名..."
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+
+              <div className="search-rename-footer">
+                <button
+                  type="button"
+                  className="search-rename-btn search-rename-btn--cancel"
+                  onClick={() => setRenameTarget({ visible: false, newName: '' })}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="search-rename-btn search-rename-btn--confirm"
+                  onClick={() => void confirmRename()}
+                  disabled={!renameTarget.newName.trim() || renameTarget.newName.trim() === renameTarget.result.name}
+                >
+                  确定重命名
+                </button>
+              </div>
             </div>
           </div>
         )}

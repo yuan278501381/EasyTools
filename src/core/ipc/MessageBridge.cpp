@@ -841,19 +841,54 @@ void MessageBridge::registerBuiltinHandlers() {
         BOOL ok = ShellExecuteExW(&sei);
         return {{"success", ok != FALSE}};
     });
+    registerHandler("system.openWithNotepad", [](const json& params) -> json {
+        const std::string path = params.value("path", params.value("filepath", ""));
+        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
+        const auto wide = WinUtils::utf8ToWstring(path);
+        const auto result = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"open", L"notepad.exe", wide.c_str(), nullptr, SW_SHOWNORMAL));
+        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+    });
+    registerHandler("system.renamePath", [](const json& params) -> json {
+        const std::string oldPath = params.value("oldPath", params.value("path", ""));
+        const std::string newName = params.value("newName", params.value("name", ""));
+        if (oldPath.empty() || newName.empty()) return {{"success", false}, {"error", "invalid parameters"}};
+        
+        const auto wideOld = WinUtils::utf8ToWstring(oldPath);
+        std::filesystem::path oldP(wideOld);
+        std::error_code ec;
+        if (!std::filesystem::exists(oldP, ec)) {
+            return {{"success", false}, {"error", "源文件或目录不存在"}};
+        }
+        std::filesystem::path newP = oldP.parent_path() / WinUtils::utf8ToWstring(newName);
+        if (std::filesystem::exists(newP, ec)) {
+            return {{"success", false}, {"error", "目标同名文件或目录已存在"}};
+        }
+        std::filesystem::rename(oldP, newP, ec);
+        if (ec) {
+            return {{"success", false}, {"error", ec.message()}};
+        }
+        return {
+            {"success", true},
+            {"newPath", WinUtils::wstringToUtf8(newP.wstring())},
+            {"newName", newName}
+        };
+    });
     registerHandler("system.showShellContextMenu", [](const json& params) -> json {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        int screenX = params.value("x", 0);
-        int screenY = params.value("y", 0);
         const auto wide = WinUtils::utf8ToWstring(path);
 
-        std::thread([wide = std::move(wide), screenX, screenY]() {
+        std::thread([wide = std::move(wide)]() {
+            HWND hwndSearch = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (hwndSearch) SetPropW(hwndSearch, L"EasyTools_ShellMenuActive", (HANDLE)1);
+
             HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
             PIDLIST_ABSOLUTE pidl = nullptr;
             HRESULT hr = SHParseDisplayName(wide.c_str(), nullptr, &pidl, 0, nullptr);
             if (FAILED(hr) || !pidl) {
+                if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
                 if (SUCCEEDED(hrCom)) CoUninitialize();
                 return;
             }
@@ -863,6 +898,7 @@ void MessageBridge::registerBuiltinHandlers() {
             hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
             if (FAILED(hr) || !pParentFolder) {
                 CoTaskMemFree(pidl);
+                if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
                 if (SUCCEEDED(hrCom)) CoUninitialize();
                 return;
             }
@@ -873,10 +909,8 @@ void MessageBridge::registerBuiltinHandlers() {
                 HMENU hMenu = CreatePopupMenu();
                 if (hMenu) {
                     pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
-                    POINT pt = { screenX, screenY };
-                    if (pt.x <= 0 && pt.y <= 0) {
-                        GetCursorPos(&pt);
-                    }
+                    POINT pt = { 0, 0 };
+                    GetCursorPos(&pt);
 
                     static const wchar_t* CLASS_NAME = L"EasyTools_ShellMenuWnd";
                     static thread_local IContextMenu2* t_pcm2 = nullptr;
@@ -957,6 +991,7 @@ void MessageBridge::registerBuiltinHandlers() {
 
             pParentFolder->Release();
             CoTaskMemFree(pidl);
+            if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
             if (SUCCEEDED(hrCom)) CoUninitialize();
         }).detach();
 
