@@ -196,9 +196,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败！退出码: $LASTEXITCODE"
 }
 
-# 自动生成全套多分辨率 Windows 图标与托盘图标，并清理旧版 .res 确保资源强制重新链接
-Write-Log "生成全套 Windows 品牌图标与托盘图标 (resources/generate_icon.ps1)..."
-& pwsh -NoProfile -ExecutionPolicy Bypass -File "$ScriptDir\resources\generate_icon.ps1"
+# 确保全套多分辨率 Windows 图标与托盘图标存在，并清理旧版 .res 确保资源强制重新链接
+if (-not (Test-Path "$ScriptDir\resources\app.ico") -or -not (Test-Path "$ScriptDir\resources\tray.ico")) {
+    Write-Log "检测到图标未初始化，调用母版管道生成 (resources/build_master_production_icons.py)..."
+    python "$ScriptDir\resources\build_master_production_icons.py" 1
+}
 Get-ChildItem -Path $BuildDir -Filter "*EasyTools*.res" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $CpuCount = [Environment]::ProcessorCount

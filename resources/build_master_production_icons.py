@@ -57,7 +57,7 @@ def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48
             
     print(f"Master ICO Generated: {output_path} ({len(sizes)} sizes)")
 
-def extract_pure_tray_icon(jpg_path, crop_box, bg_threshold=55):
+def extract_large_pure_tray_icon(jpg_path, crop_box, bg_threshold=50):
     img = Image.open(jpg_path).convert("RGBA")
     cropped = img.crop(crop_box)
     
@@ -66,7 +66,7 @@ def extract_pure_tray_icon(jpg_path, crop_box, bg_threshold=55):
     brightness = 0.299 * r + 0.587 * g + 0.114 * b
     
     low_cut = bg_threshold
-    high_cut = bg_threshold + 45
+    high_cut = bg_threshold + 40
     alpha = np.clip((brightness - low_cut) / (high_cut - low_cut) * 255.0, 0, 255).astype(np.uint8)
     
     res = Image.new("RGBA", cropped.size, (255, 255, 255, 0))
@@ -75,9 +75,11 @@ def extract_pure_tray_icon(jpg_path, crop_box, bg_threshold=55):
     bbox = res.getbbox()
     if bbox:
         res_cropped = res.crop(bbox)
-        res_cropped.thumbnail((460, 460), Image.Resampling.LANCZOS)
+        # 大号托盘图标：填满 98% 的画布 (留出极小 1% 边距，达到最大视觉冲击力与清晰度)
+        target_size = 502
+        res_cropped.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
         final_img = Image.new("RGBA", (512, 512), (255, 255, 255, 0))
-        offset = ((512 - res_cropped.width) // 2, (512 - cropped.height) // 2)
+        offset = ((512 - res_cropped.width) // 2, (512 - res_cropped.height) // 2)
         final_img.paste(res_cropped, offset, res_cropped)
         return final_img
     return res
@@ -90,7 +92,7 @@ def build_scheme(scheme_num: int):
     ui_public_dir = os.path.join(repo_root, "ui", "public")
 
     if scheme_num == 1:
-        print(">> 装配 方案 1: 超速滑翔光翼 E (100% 纯净无黑斑母版)...")
+        print(">> 装配 方案 1: 超速滑翔光翼 E (大号纯白托盘 + 高清母版)...")
         app_master_jpg = os.path.join(artifact_dir, "letter_e_aero_glide_1787155546091.jpg")
         tray_master_jpg = os.path.join(artifact_dir, "master_tray_aero_glide_e_1787158355720.jpg")
         
@@ -99,10 +101,10 @@ def build_scheme(scheme_num: int):
         mask = create_squircle_mask((512, 512), 0.22)
         squircle.putalpha(mask)
         
-        tray_img = extract_pure_tray_icon(tray_master_jpg, (280, 300, 720, 700), 55)
+        tray_img = extract_large_pure_tray_icon(tray_master_jpg, (270, 290, 730, 710), 50)
 
     else:
-        print(">> 装配 方案 4: 莫比乌斯流体尾迹 e (100% 纯净无黑斑母版)...")
+        print(">> 装配 方案 4: 莫比乌斯流体尾迹 e (大号纯白托盘 + 高清母版)...")
         app_master_jpg = os.path.join(artifact_dir, "letter_e_sonic_loop_1787155667576.jpg")
         tray_master_jpg = os.path.join(artifact_dir, "master_tray_sonic_loop_e_1787158373479.jpg")
         
@@ -111,9 +113,9 @@ def build_scheme(scheme_num: int):
         mask = create_squircle_mask((512, 512), 0.22)
         squircle.putalpha(mask)
         
-        tray_img = extract_pure_tray_icon(tray_master_jpg, (330, 320, 830, 660), 55)
+        tray_img = extract_large_pure_tray_icon(tray_master_jpg, (320, 310, 840, 670), 50)
 
-    # 1. 输出 ICO
+    # 1. 输出 resources/app.ico 与 resources/tray.ico
     app_ico_path = os.path.join(resources_dir, "app.ico")
     tray_ico_path = os.path.join(resources_dir, "tray.ico")
     save_ico(squircle, app_ico_path)
@@ -164,7 +166,7 @@ export const EasyToolsBolt: React.FC<EasyToolsBoltProps> = ({{
     with open(os.path.join(ui_components_dir, "EasyToolsBolt.tsx"), "w", encoding="utf-8") as f:
         f.write(bolt_component_code)
 
-    print(f"Scheme {scheme_num} 100% 高保真母版全链路资产已成功同步！")
+    print(f"Scheme {scheme_num} 大号托盘与高保真母版资产全部就绪！")
 
 if __name__ == "__main__":
     scheme = int(sys.argv[1]) if len(sys.argv) > 1 else 1
