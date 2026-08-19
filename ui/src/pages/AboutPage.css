@@ -26,21 +26,23 @@
 }
 
 .about-hero__logo-box {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  background: var(--primary-dim);
-  border: 1px solid var(--primary-glow);
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(99, 102, 241, 0.16) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 16px var(--primary-glow);
-  transition: transform var(--transition-fast);
+  box-shadow: 0 4px 20px rgba(56, 189, 248, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
 .about-hero__logo-box:hover {
-  transform: scale(1.05);
+  transform: scale(1.08) translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 6px 28px rgba(56, 189, 248, 0.45), 0 0 20px rgba(124, 58, 237, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
 }
 
 .about-hero__info {

@@ -22,7 +22,6 @@ import {
   Palette,
   Check,
   ChevronUp,
-  Zap,
   MonitorUp,
   History,
   Boxes,
@@ -32,6 +31,7 @@ import {
   ClipboardList,
   FileCode2,
 } from 'lucide-react';
+import { EasyToolsLogo } from './EasyToolsLogo';
 import './Sidebar.css';
 
 export type NavId =
@@ -144,7 +144,7 @@ export const Sidebar: FC<SidebarProps> = ({
       {/* ── Logo ──────────────────────────────────────────────────── */}
       <div className="sidebar__logo">
         <span className="sidebar__logo-icon">
-          <Zap size={24} fill="var(--primary)" stroke="var(--primary)" strokeWidth={1} />
+          <EasyToolsLogo size={28} />
         </span>
         <span className="sidebar__logo-text">EasyTools</span>
       </div>
