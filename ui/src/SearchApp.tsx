@@ -522,17 +522,6 @@ export default function SearchApp() {
     void refreshHistory();
   };
 
-  const handleSaveSnapshot = async () => {
-    toast.loading('正在将全盘索引写入 EasyTools.db 快照...', { id: 'db-save' });
-    const res = await bridgeRequest<{ success: boolean }>('search.saveSnapshot');
-    if (res && res.success) {
-      toast.success('EasyTools.db 磁盘快照已持久化保存！冷启动耗时 <30ms', { id: 'db-save' });
-      void refreshDbStats();
-    } else {
-      toast.error('保存快照失败', { id: 'db-save' });
-    }
-  };
-
   const [sortField, setSortField] = useState<SortField>(() => {
     const saved = localStorage.getItem('easytools_search_sort_field');
     if (saved === 'modified' || saved === 'name' || saved === 'size' || saved === 'created') {
@@ -779,14 +768,16 @@ export default function SearchApp() {
 
   const rebuildIndex = async () => {
     setIsRebuilding(true);
-    toast.info('正在后台重新扫描全盘索引...');
+    toast.loading('正在全盘重新扫描 NTFS 索引并保存快照...', { id: 'rebuild-idx' });
     try {
       await bridgeRequest('search.rebuildIndex');
-      toast.success('全盘索引已发起后台重建，稍后完成！');
+      toast.success('全盘索引已重新扫描并同步保存至 EasyTools.db 快照！', { id: 'rebuild-idx' });
+      void refreshDbStats();
+      void refreshHistory();
     } catch {
-      toast.error('索引重建请求失败');
+      toast.error('索引重建与快照保存失败', { id: 'rebuild-idx' });
     } finally {
-      setTimeout(() => setIsRebuilding(false), 2000);
+      setTimeout(() => setIsRebuilding(false), 1500);
     }
   };
 
@@ -2044,9 +2035,10 @@ export default function SearchApp() {
                   className={`popover-rebuild-btn ${isRebuilding ? 'popover-rebuild-btn--loading' : ''}`}
                   onClick={rebuildIndex}
                   disabled={isRebuilding}
+                  title="重新扫描全盘所有已选磁盘的 NTFS MFT 分区，并自动将最新全量索引固化写入 EasyTools.db 磁盘快照"
                 >
                   <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
-                  <span>{isRebuilding ? '正在重新扫描并重建索引...' : '立即强制重新扫描并刷新全盘索引'}</span>
+                  <span>{isRebuilding ? '正在全盘重新扫描并更新快照...' : '立即重新扫描并更新索引与快照'}</span>
                 </button>
               </div>
 
@@ -2191,15 +2183,6 @@ export default function SearchApp() {
                     <span>磁盘快照与数据库</span>
                     <span className="popover-title-badge">EasyTools.db</span>
                   </div>
-                  <button
-                    type="button"
-                    className="popover-quick-action"
-                    onClick={handleSaveSnapshot}
-                    title="立即将全盘内存索引持久化写入磁盘快照"
-                  >
-                    <Zap size={11} />
-                    <span>保存快照</span>
-                  </button>
                 </div>
                 
                 <div className="popover-db-card">
@@ -2228,19 +2211,12 @@ export default function SearchApp() {
                   <div className="popover-db-actions">
                     <button
                       type="button"
-                      className="popover-db-btn"
-                      onClick={handleSaveSnapshot}
-                    >
-                      <Zap size={12} />
-                      <span>写入快照 (冷启动&lt;30ms)</span>
-                    </button>
-                    <button
-                      type="button"
                       className="popover-db-btn popover-db-btn--danger"
                       onClick={clearAllHistory}
+                      style={{ width: '100%' }}
                     >
                       <Trash2 size={12} />
-                      <span>清空历史</span>
+                      <span>清空搜索与运行历史</span>
                     </button>
                   </div>
                 </div>
