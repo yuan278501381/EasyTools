@@ -36,16 +36,29 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
 
-    // 优先加载适合托盘尺寸的标准小图标并进行持久缓存
+    // 优先加载适合 Windows 托盘的专属纯白疾速闪电图标 (ID 102)，保持托盘区域永远极致纯净、醒目
     if (!m_icon) {
         m_icon = (HICON)LoadImageW(
             GetModuleHandleW(nullptr),
-            MAKEINTRESOURCEW(101),
+            MAKEINTRESOURCEW(102),
             IMAGE_ICON,
             GetSystemMetrics(SM_CXSMICON),
             GetSystemMetrics(SM_CYSMICON),
             LR_DEFAULTCOLOR | LR_SHARED
         );
+        if (!m_icon) {
+            m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(102));
+        }
+        if (!m_icon) {
+            m_icon = (HICON)LoadImageW(
+                GetModuleHandleW(nullptr),
+                MAKEINTRESOURCEW(101),
+                IMAGE_ICON,
+                GetSystemMetrics(SM_CXSMICON),
+                GetSystemMetrics(SM_CYSMICON),
+                LR_DEFAULTCOLOR | LR_SHARED
+            );
+        }
         if (!m_icon) {
             m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
         }
