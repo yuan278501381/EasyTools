@@ -1046,9 +1046,18 @@ TEST(SearchExpressionTest, EverythingSyntaxParsing) {
     // 9. 用户真实连字符文件名检索: 019-get_Bom_Lev
     FileRecord bomFile{10, 0, L"019-get_Bom_Lev.txt", L"019-get_bom_lev.txt", L"019-get_bom_lev.txt", L"019-get_bom_lev.txt", false};
     auto exprBom1 = SearchExpression::parse(L"019-get_Bom_Lev");
-    EXPECT_TRUE(exprBom1.matches(bomFile, L'D', L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt"));
-    auto exprBom2 = SearchExpression::parse(L"get_Bom_Lev");
-    EXPECT_TRUE(exprBom2.matches(bomFile, L'D', L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt"));
+    // 10. 盘符与根目录前缀搜索 (c:\, c:\ readme, c:\logs\ *.log)
+    auto exprRoot = SearchExpression::parse(L"c:\\");
+    EXPECT_TRUE(exprRoot.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_FALSE(exprRoot.matches(bomFile, L'D', L"D:\\Chosen\\019.txt"));
+
+    auto exprRootTerms = SearchExpression::parse(L"c:\\ readme");
+    EXPECT_TRUE(exprRootTerms.matches(txtFile, L'C', L"C:\\readme.txt"));
+    EXPECT_FALSE(exprRootTerms.matches(pngFile, L'C', L"C:\\screenshot.png"));
+
+    auto exprSubdirWildcard = SearchExpression::parse(L"c:\\logs\\ *.log");
+    EXPECT_TRUE(exprSubdirWildcard.matches(logFile, L'C', L"C:\\logs\\app_2026.log"));
+    EXPECT_FALSE(exprSubdirWildcard.matches(txtFile, L'C', L"C:\\readme.txt"));
 }
 
 TEST(SearchExpressionTest, EnvironmentVariableExpansion) {

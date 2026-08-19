@@ -181,21 +181,45 @@ const CATEGORIES: CategoryFilter[] = [
   { id: 'folder', label: '文件夹', prefix: 'folder: ' },
 ];
 
-const SYNTAX_EXAMPLES = [
-  { syntax: 'content:SELECT', desc: '全文搜索代码、文档、设计稿与 CAD 内文本' },
-  { syntax: 'ext:docx;sql content:订单', desc: '在指定扩展名类型文件中穿透搜索内容' },
-  { syntax: '*.txt', desc: '通配符匹配所有 txt 后缀文件' },
-  { syntax: 'ext:jpg;png', desc: '多扩展名筛选' },
-  { syntax: 'file: *.pdf', desc: '仅搜文件，排除文件夹' },
-  { syntax: 'folder: project', desc: '仅搜文件夹目录' },
-  { syntax: 'report !draft', desc: '包含 report 但排除包含 draft 的项' },
-  { syntax: 'ext:jpg | ext:png', desc: '逻辑或 OR' },
-  { syntax: '"Program Files"', desc: '双引号短语精确匹配' },
-  { syntax: 'path:windows', desc: '在完整路径中搜索' },
-  { syntax: 'c: *.dll', desc: '限定在 C盘检索' },
-  { syntax: 'regex:^app_\\d+\\.log$', desc: '正则表达式检索' },
-  { syntax: 'case:EasyTools', desc: '区分大小写搜索' },
-  { syntax: 'pinyin:wx', desc: '显式拼音首字母/全拼检索' },
+export interface SyntaxExampleItem {
+  category: 'content' | 'path' | 'ext' | 'logic';
+  syntax: string;
+  desc: string;
+  highlight?: boolean;
+}
+
+const SYNTAX_CATEGORIES = [
+  { id: 'all', label: '全部语法' },
+  { id: 'content', label: '📄 全文检索' },
+  { id: 'path', label: '📁 路径盘符' },
+  { id: 'ext', label: '⚡ 通配扩展' },
+  { id: 'logic', label: '🔀 逻辑正则' },
+];
+
+const SYNTAX_EXAMPLES: SyntaxExampleItem[] = [
+  // 1. 全文穿透检索
+  { category: 'content', syntax: 'content:SELECT', desc: '全文穿透代码、文档、设计稿与 CAD 内文本', highlight: true },
+  { category: 'content', syntax: 'ext:docx;sql content:订单', desc: '在指定扩展名类型文件中穿透搜索内容' },
+  { category: 'content', syntax: 'c:\\ content:财务报表', desc: '限定在指定目录路径下穿透检索全文' },
+
+  // 2. 路径与盘符过滤
+  { category: 'path', syntax: 'c:\\', desc: '限定在 C 盘根目录及路径范围检索' },
+  { category: 'path', syntax: 'c:\\repo\\ *.ts', desc: '在指定子目录下检索特定类型文件' },
+  { category: 'path', syntax: 'path:windows', desc: '在文件完整路径中匹配关键词' },
+  { category: 'path', syntax: 'folder: project', desc: '仅搜索文件夹/目录，排除文件' },
+
+  // 3. 通配符与扩展名
+  { category: 'ext', syntax: '*.txt', desc: '通配符匹配所有 txt 后缀文件' },
+  { category: 'ext', syntax: 'ext:jpg;png;webp', desc: '多扩展名同时筛选 (分号分隔)' },
+  { category: 'ext', syntax: 'file: *.pdf', desc: '仅搜索文件，排除文件夹' },
+  { category: 'ext', syntax: '"Program Files"', desc: '双引号短语精确匹配 (含空格路径)' },
+
+  // 4. 逻辑组合与正则
+  { category: 'logic', syntax: 'report !draft', desc: '包含 report 但排除包含 draft 的项 (NOT)' },
+  { category: 'logic', syntax: 'ext:jpg | ext:png', desc: '逻辑或 OR 条件组合检索' },
+  { category: 'logic', syntax: 'regex:^app_\\d+\\.log$', desc: '正则表达式检索 (以 app_数字 开头)' },
+  { category: 'logic', syntax: 'case:EasyTools', desc: '区分大小写精确匹配' },
+  { category: 'logic', syntax: 'pinyin:wx', desc: '显式拼音首字母/全拼检索 (如 wx 搜微信)' },
 ];
 
 interface FormatCategory {
@@ -421,7 +445,14 @@ export default function SearchApp() {
   const [serviceAvailable, setServiceAvailable] = useState(true);
   const [actionError, setActionError] = useState('');
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
+  const [syntaxCat, setSyntaxCat] = useState<string>('all');
   const [showViewSettings, setShowViewSettings] = useState(false);
+
+  const filteredSyntaxExamples = useMemo(() => {
+    if (syntaxCat === 'all') return SYNTAX_EXAMPLES;
+    return SYNTAX_EXAMPLES.filter(item => item.category === syntaxCat);
+  }, [syntaxCat]);
+
   const [maxResultLimit, setMaxResultLimit] = useState<number>(() => {
     const saved = localStorage.getItem('easytools_search_max_results');
     return saved !== null ? parseInt(saved, 10) : 100;
@@ -2267,27 +2298,46 @@ export default function SearchApp() {
         {showSyntaxHelp && (
           <div className="search-syntax-drawer">
             <div className="syntax-drawer-header">
-              <div className="syntax-drawer-title">
-                <Sparkles size={16} />
-                <span>Everything 级高级搜索语法速查</span>
+              <div className="syntax-drawer-header-left">
+                <div className="syntax-drawer-title">
+                  <Sparkles size={16} className="syntax-drawer-title-icon" />
+                  <span>高级搜索语法速查</span>
+                  <span className="syntax-drawer-kbd"><kbd>F1</kbd></span>
+                </div>
+                <div className="syntax-drawer-tabs">
+                  {SYNTAX_CATEGORIES.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={`syntax-drawer-tab ${syntaxCat === cat.id ? 'active' : ''}`}
+                      onClick={() => setSyntaxCat(cat.id)}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button
                 className="syntax-drawer-close"
                 onClick={() => setShowSyntaxHelp(false)}
                 type="button"
+                title="关闭语法速查 (Esc / F1)"
               >
                 <X size={16} />
               </button>
             </div>
             <div className="syntax-drawer-list">
-              {SYNTAX_EXAMPLES.map((item, idx) => (
+              {filteredSyntaxExamples.map((item, idx) => (
                 <div
                   key={idx}
-                  className="syntax-example-item"
+                  className={`syntax-example-item ${item.highlight ? 'syntax-example-item--highlight' : ''}`}
                   onClick={() => applySyntaxExample(item.syntax)}
                   title="点击直接填入搜索框"
                 >
-                  <code className="syntax-code">{item.syntax}</code>
+                  <div className="syntax-example-item-top">
+                    <code className="syntax-code">{item.syntax}</code>
+                    <span className="syntax-example-action-hint">填入 ↵</span>
+                  </div>
                   <span className="syntax-desc">{item.desc}</span>
                 </div>
               ))}
