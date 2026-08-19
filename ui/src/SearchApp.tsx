@@ -2038,10 +2038,10 @@ export default function SearchApp() {
                 </div>
               )}
 
-              {/* 6. 排除规则与索引维护 */}
+              {/* 6. 排除规则 */}
               <div className="popover-section">
                 <div className="popover-section-title">
-                  <span>排除规则与索引维护</span>
+                  <span>排除规则</span>
                 </div>
                 <div className="popover-exclude-options">
                   <label className="popover-col-checkbox-label">
