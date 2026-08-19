@@ -757,7 +757,10 @@ export default function SearchApp() {
   };
 
   const addCustomContentFormat = (rawInput: string) => {
-    const parts = rawInput.split(/[,;\s]+/).map(p => p.toLowerCase().replace(/^\./, '').trim()).filter(Boolean);
+    const parts = rawInput
+      .split(/[,;\s，；、|]+/)
+      .map(p => p.toLowerCase().replace(/^\./, '').trim())
+      .filter(Boolean);
     if (parts.length === 0) return;
     setCustomContentFormats(prev => {
       const next = [...prev];
@@ -773,7 +776,7 @@ export default function SearchApp() {
       return next;
     });
     setNewFormatInput('');
-    toast.success(`已添加 ${parts.join(', ')} 到文档内容搜索支持列表`);
+    toast.success(`已添加 ${parts.map(p => '.' + p).join(', ')} 到文档内容搜索支持列表`);
   };
 
   const removeCustomContentFormat = (ext: string) => {
@@ -2209,7 +2212,7 @@ export default function SearchApp() {
                       <input
                         type="text"
                         className="popover-format-add-input"
-                        placeholder="添加自定义后缀 (如 .log2, .proto, .prisma)... 回车添加"
+                        placeholder="支持逗号/空格批量输入 (如 ps1, ch, vb / .log2, .proto)..."
                         value={newFormatInput}
                         onChange={(e) => setNewFormatInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -2224,11 +2227,14 @@ export default function SearchApp() {
                         type="button"
                         className="popover-format-add-btn"
                         onClick={() => addCustomContentFormat(newFormatInput)}
-                        title="添加自定义格式"
+                        title="添加自定义格式 (支持逗号、空格批量添加)"
                       >
                         <Plus size={13} />
                         <span>添加</span>
                       </button>
+                    </div>
+                    <div className="popover-format-add-tip">
+                      💡 支持使用中英文逗号、顿号或空格同时输入多个后缀 (如 <code>ps1, ch, vb</code> 或 <code>.log2, .proto</code>)，按 Enter 键快速批量添加
                     </div>
                   </div>
                 </div>

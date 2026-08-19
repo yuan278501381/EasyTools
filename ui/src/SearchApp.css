@@ -2198,6 +2198,24 @@ html[data-surface="search"] #root {
     color: #ffffff;
 }
 
+.popover-format-add-tip {
+    margin-top: 6px;
+    font-size: 10.5px;
+    color: var(--search-text-muted);
+    line-height: 1.4;
+    user-select: none;
+}
+
+.popover-format-add-tip code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 10px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    padding: 0.5px 3.5px;
+    border-radius: 3px;
+    color: var(--primary);
+}
+
 /* ── 搜索历史记录气泡容器 ────────────────────────────────────────── */
 .search-history-container {
     padding: 10px 16px;
