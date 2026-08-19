@@ -875,50 +875,6 @@ export default function SearchApp() {
     return keywords;
   }, [query]);
 
-  const exportResultsToCsv = () => {
-    if (sortedResults.length === 0) {
-      toast.error('当前无搜索结果可导出');
-      return;
-    }
-
-    const headers = ['文件名', '完整路径', '类型', '大小(字节)', '大小(易读)', '修改时间', '创建时间'];
-    const rows = sortedResults.map((item) => {
-      const isDir = item.isDirectory;
-      const typeStr = isDir ? '文件夹' : (item.name.includes('.') ? item.name.split('.').pop()?.toUpperCase() || '文件' : '文件');
-      const sizeBytes = item.size ?? 0;
-      const sizeFormatted = isDir ? '-' : formatFileSize(sizeBytes, isDir);
-      const modTime = item.lastWriteTime ? formatWindowsTime(item.lastWriteTime) : '-';
-      const createTime = item.creationTime ? formatWindowsTime(item.creationTime) : '-';
-
-      const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
-
-      return [
-        escapeCsv(item.name),
-        escapeCsv(item.path),
-        escapeCsv(typeStr),
-        sizeBytes,
-        escapeCsv(sizeFormatted),
-        escapeCsv(modTime),
-        escapeCsv(createTime)
-      ].join(',');
-    });
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    const nowStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const queryTag = query.trim() ? `_${query.trim().slice(0, 20).replace(/[/\\:*?"<>|]/g, '_')}` : '';
-    link.setAttribute('download', `EasyTools_Search_Export${queryTag}_${nowStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    toast.success(`已成功导出 ${sortedResults.length} 条搜索结果为 CSV 文件`);
-  };
-
   useEffect(() => {
     void bridgeRequest<{ width?: number; height?: number }>('search.getWindowSize')
       .then((res) => {
@@ -1052,6 +1008,7 @@ export default function SearchApp() {
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
     window.addEventListener('focus', onFocusEvt);
+    
     const onVisibilityChange = () => {
       if (!document.hidden) {
         doFocus();
@@ -1059,22 +1016,6 @@ export default function SearchApp() {
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
-
-    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
-        e.preventDefault();
-        void rebuildIndex();
-        return;
-      }
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
-      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown);
 
     const handleGlobalClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1093,11 +1034,10 @@ export default function SearchApp() {
       window.removeEventListener('easytools:focusSearch', onFocusEvt);
       window.removeEventListener('focus', onFocusEvt);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('keydown', handleGlobalKeyDown);
       window.removeEventListener('click', handleGlobalClick);
       window.removeEventListener('pointerdown', handleGlobalClick);
     };
-  }, [rebuildIndex]);
+  }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -1200,7 +1140,6 @@ export default function SearchApp() {
   }, [showSortMenu, showViewSettings]);
 
   // 高性能多级组合排序管道 (Multi-level Pipeline Sorting)
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const sortedResults = useMemo(() => {
     return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
   }, [results, sortField, sortDirection, foldersFirst, groupByType]);
@@ -1208,6 +1147,50 @@ export default function SearchApp() {
   const totalResultSize = useMemo(() => {
     return sortedResults.reduce((acc, item) => acc + (item.isDirectory ? 0 : (Number(item.size) || 0)), 0);
   }, [sortedResults]);
+
+  const exportResultsToCsv = useCallback(() => {
+    if (sortedResults.length === 0) {
+      toast.error('当前无搜索结果可导出');
+      return;
+    }
+
+    const headers = ['文件名', '完整路径', '类型', '大小(字节)', '大小(易读)', '修改时间', '创建时间'];
+    const rows = sortedResults.map((item) => {
+      const isDir = item.isDirectory;
+      const typeStr = isDir ? '文件夹' : (item.name.includes('.') ? item.name.split('.').pop()?.toUpperCase() || '文件' : '文件');
+      const sizeBytes = item.size ?? 0;
+      const sizeFormatted = isDir ? '-' : formatFileSize(sizeBytes, isDir);
+      const modTime = item.lastWriteTime ? formatWindowsTime(item.lastWriteTime) : '-';
+      const createTime = item.creationTime ? formatWindowsTime(item.creationTime) : '-';
+
+      const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
+
+      return [
+        escapeCsv(item.name),
+        escapeCsv(item.path),
+        escapeCsv(typeStr),
+        sizeBytes,
+        escapeCsv(sizeFormatted),
+        escapeCsv(modTime),
+        escapeCsv(createTime)
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const nowStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const queryTag = query.trim() ? `_${query.trim().slice(0, 20).replace(/[/\\:*?"<>|]/g, '_')}` : '';
+    link.setAttribute('download', `EasyTools_Search_Export${queryTag}_${nowStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success(`已成功导出 ${sortedResults.length} 条搜索结果为 CSV 文件`);
+  }, [sortedResults, query]);
 
   const handleSetSortDirect = (field: SortField, dir: SortDirection) => {
     setSortField(field);
@@ -1235,7 +1218,7 @@ export default function SearchApp() {
     inputRef.current?.focus();
   };
 
-  const handleSelectSort = (field: SortField) => {
+  const handleSelectSort = useCallback((field: SortField) => {
     if (field === 'relevance') {
       setSortField('relevance');
       localStorage.setItem('easytools_search_sort_field', 'relevance');
@@ -1253,9 +1236,9 @@ export default function SearchApp() {
     setSelectedIndex(0);
     setShowSortMenu(false);
     inputRef.current?.focus();
-  };
+  }, [sortField, sortDirection]);
 
-  const updateQuery = (next: string) => {
+  const updateQuery = useCallback((next: string) => {
     setQuery(next);
     setActionError('');
 
@@ -1284,9 +1267,9 @@ export default function SearchApp() {
       setSelectedIndex(0);
       setLoading(false);
     }
-  };
+  }, []);
 
-  const selectCategory = (cat: CategoryFilter) => {
+  const selectCategory = useCallback((cat: CategoryFilter) => {
     if (!cat.prefix) {
       let cleaned = query;
       CATEGORIES.forEach(c => {
@@ -1305,7 +1288,7 @@ export default function SearchApp() {
       updateQuery(cat.prefix + cleaned.trimStart());
     }
     inputRef.current?.focus();
-  };
+  }, [query, updateQuery]);
 
   const applySyntaxExample = (syntax: string) => {
     updateQuery(syntax);
@@ -1550,87 +1533,125 @@ export default function SearchApp() {
     }
   }, [renameTarget]);
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleUnifiedKeyDown = useCallback((event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    const isSearchInput = target === inputRef.current;
+    const isOtherInput = target && target !== inputRef.current && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+    // 1. Escape 拥有最高全局优先级（逐层退出浮层 -> 最终退出搜索窗口）
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (renameTarget.visible) {
+        setRenameTarget({ visible: false, newName: '' });
+        inputRef.current?.focus();
+      } else if (contextMenu.visible) {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+        inputRef.current?.focus();
+      } else if (showSortMenu) {
+        setShowSortMenu(false);
+        inputRef.current?.focus();
+      } else if (showSyntaxHelp) {
+        setShowSyntaxHelp(false);
+        inputRef.current?.focus();
+      } else if (showViewSettings) {
+        setShowViewSettings(false);
+        inputRef.current?.focus();
+      } else {
+        hide();
+      }
+      return;
+    }
+
+    // 2. F5 / Ctrl+R 全局重新构建全盘索引
     if (event.key === 'F5' || (event.ctrlKey && (event.key === 'r' || event.key === 'R'))) {
       event.preventDefault();
       void rebuildIndex();
       return;
     }
 
+    // 3. F1 全局语法帮助
     if (event.key === 'F1') {
       event.preventDefault();
       setShowSyntaxHelp(prev => !prev);
       return;
     }
 
-    if (event.ctrlKey && event.shiftKey) {
-      const k = event.key.toLowerCase();
-      if (k === 'd') {
-        event.preventDefault();
-        handleSelectSort('modified');
-        return;
-      }
-      if (k === 'n') {
-        event.preventDefault();
-        handleSelectSort('name');
-        return;
-      }
-      if (k === 's') {
-        event.preventDefault();
-        handleSelectSort('size');
-        return;
-      }
-      if (k === 'r') {
-        event.preventDefault();
-        handleSelectSort('relevance');
-        return;
-      }
-    }
-
-    if (sortedResults.length === 0) {
-      if (event.key === 'Enter' && query.trim() && activeCategory === 'all') {
-        event.preventDefault();
-        const contentCat = CATEGORIES.find(c => c.id === 'content') || CATEGORIES[1];
-        selectCategory(contentCat);
-        return;
-      }
-      if (event.key === 'Escape') {
-        if (contextMenu.visible) {
-          setContextMenu({ visible: false, x: 0, y: 0 });
-        } else if (showSortMenu) {
-          setShowSortMenu(false);
-        } else if (showSyntaxHelp) {
-          setShowSyntaxHelp(false);
-        } else if (showViewSettings) {
-          setShowViewSettings(false);
-        } else {
-          hide();
-        }
-      }
+    // 若当前焦点在重命名输入框或自定义格式输入框中，允许其独立输入与光标移动
+    if (isOtherInput) {
       return;
     }
 
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % sortedResults.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + sortedResults.length) % sortedResults.length);
-    } else if (event.key === 'PageDown') {
-      event.preventDefault();
-      setSelectedIndex((prev) => Math.min(prev + 8, sortedResults.length - 1));
-    } else if (event.key === 'PageUp') {
-      event.preventDefault();
-      setSelectedIndex((prev) => Math.max(prev - 8, 0));
-    } else if (event.key === 'Home') {
-      event.preventDefault();
-      setSelectedIndex(0);
-    } else if (event.key === 'End') {
-      event.preventDefault();
-      setSelectedIndex(sortedResults.length - 1);
-    } else if (event.key === 'Enter') {
+    // 4. F2 全局重命名当前选中项
+    if (event.key === 'F2') {
       event.preventDefault();
       const current = sortedResults[selectedIndex];
+      if (current) startRename(current);
+      return;
+    }
+
+    // 5. Ctrl+Shift+... 排序快捷键
+    if (event.ctrlKey && event.shiftKey) {
+      const k = event.key.toLowerCase();
+      if (k === 'd') { event.preventDefault(); handleSelectSort('modified'); return; }
+      if (k === 'n') { event.preventDefault(); handleSelectSort('name'); return; }
+      if (k === 's') { event.preventDefault(); handleSelectSort('size'); return; }
+      if (k === 'r') { event.preventDefault(); handleSelectSort('relevance'); return; }
+    }
+
+    // 6. 结果列表上下导航 (无论是焦点在搜索框还是在浮窗任意位置)
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (sortedResults.length > 0) {
+        setSelectedIndex((prev) => (prev + 1) % sortedResults.length);
+      }
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (sortedResults.length > 0) {
+        setSelectedIndex((prev) => (prev - 1 + sortedResults.length) % sortedResults.length);
+      }
+      return;
+    }
+    if (event.key === 'PageDown') {
+      event.preventDefault();
+      if (sortedResults.length > 0) {
+        setSelectedIndex((prev) => Math.min(prev + 8, sortedResults.length - 1));
+      }
+      return;
+    }
+    if (event.key === 'PageUp') {
+      event.preventDefault();
+      if (sortedResults.length > 0) {
+        setSelectedIndex((prev) => Math.max(prev - 8, 0));
+      }
+      return;
+    }
+    if (event.key === 'Home' && !isSearchInput) {
+      event.preventDefault();
+      if (sortedResults.length > 0) setSelectedIndex(0);
+      return;
+    }
+    if (event.key === 'End' && !isSearchInput) {
+      event.preventDefault();
+      if (sortedResults.length > 0) setSelectedIndex(sortedResults.length - 1);
+      return;
+    }
+
+    // 7. 回车执行 (Enter / Alt+Enter / Ctrl+Enter)
+    if (event.key === 'Enter') {
+      if (sortedResults.length === 0) {
+        if (query.trim() && activeCategory === 'all') {
+          event.preventDefault();
+          const contentCat = CATEGORIES.find(c => c.id === 'content') || CATEGORIES[1];
+          selectCategory(contentCat);
+        }
+        return;
+      }
+      event.preventDefault();
+      const current = sortedResults[selectedIndex];
+      if (!current) return;
       if (event.altKey) {
         void showFileProperties(current);
       } else if (event.ctrlKey) {
@@ -1638,7 +1659,11 @@ export default function SearchApp() {
       } else {
         void openResult(current);
       }
-    } else if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+      return;
+    }
+
+    // 8. 菜单 Shift+F10 / ContextMenu
+    if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
       event.preventDefault();
       const current = sortedResults[selectedIndex];
       if (current) {
@@ -1653,38 +1678,48 @@ export default function SearchApp() {
           result: current
         });
       }
-    } else if (event.key === 'F2') {
-      event.preventDefault();
-      const current = sortedResults[selectedIndex];
-      if (current) startRename(current);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      if (renameTarget.visible) {
-        setRenameTarget({ visible: false, newName: '' });
-      } else if (contextMenu.visible) {
-        setContextMenu({ visible: false, x: 0, y: 0 });
-      } else if (showSortMenu) {
-        setShowSortMenu(false);
-      } else if (showSyntaxHelp) {
-        setShowSyntaxHelp(false);
-      } else if (showViewSettings) {
-        setShowViewSettings(false);
-      } else {
-        hide();
-      }
-    } else if (event.key.toLowerCase() === 'c' && event.ctrlKey) {
+      return;
+    }
+
+    // 9. 快捷复制与导出
+    if (event.key.toLowerCase() === 'c' && event.ctrlKey && !isSearchInput) {
       if (sortedResults.length > 0 && selectedIndex >= 0 && selectedIndex < sortedResults.length) {
         event.preventDefault();
         copyPathResult(sortedResults[selectedIndex]);
+        return;
       }
-    } else if (event.key.toLowerCase() === 'e' && event.ctrlKey) {
+    }
+    if (event.key.toLowerCase() === 'e' && event.ctrlKey) {
       event.preventDefault();
       exportResultsToCsv();
-    } else if (event.key.toLowerCase() === 'p' && event.ctrlKey) {
+      return;
+    }
+    if (event.key.toLowerCase() === 'p' && event.ctrlKey) {
       event.preventDefault();
       void pinResult(sortedResults[selectedIndex]);
+      return;
     }
-  };
+
+    // 10. 用户在浮窗空白处或列表处按下了普通输入字符，自动归位聚焦搜索输入框
+    if (!isSearchInput && event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      inputRef.current?.focus();
+    }
+  }, [
+    hide, rebuildIndex, sortedResults, selectedIndex, query, activeCategory,
+    renameTarget.visible, contextMenu.visible, showSortMenu, showSyntaxHelp, showViewSettings,
+    startRename, openResult, openFolderResult, showFileProperties, pinResult, copyPathResult, exportResultsToCsv,
+    handleSelectSort, selectCategory
+  ]);
+
+  useEffect(() => {
+    const handleGlobal = (e: globalThis.KeyboardEvent) => {
+      handleUnifiedKeyDown(e);
+    };
+    window.addEventListener('keydown', handleGlobal, true);
+    return () => {
+      window.removeEventListener('keydown', handleGlobal, true);
+    };
+  }, [handleUnifiedKeyDown]);
 
   const isColVisible = (id: ColumnId) => columns.find(c => c.id === id)?.visible ?? true;
   const nameFlex = columns.find(c => c.id === 'name')?.flex ?? 35;
@@ -1717,7 +1752,7 @@ export default function SearchApp() {
             }
             value={query}
             onChange={(event) => updateQuery(event.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleUnifiedKeyDown}
             role="combobox"
             aria-expanded={results.length > 0}
             aria-controls="search-results"
@@ -2639,6 +2674,10 @@ export default function SearchApp() {
             <div className="search-empty-title">
               {query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')
                 ? t('search.noContentResults', '未在文档或代码内容中找到匹配文本')
+                : (activeCategory !== 'all' && activeCategory !== 'content')
+                ? `未在当前分类中找到符合条件的 ${CATEGORIES.find(c => c.id === activeCategory)?.label || ''} 文件`
+                : (query.trim().startsWith('ext:') || query.trim().startsWith('path:') || query.trim().startsWith('folder:') || query.trim().startsWith('dir:') || query.trim().startsWith('file:'))
+                ? `未找到符合过滤条件「${query.trim()}」的文件`
                 : `未找到名称包含「${query.trim()}」的文件`}
             </div>
             {!query.trim().toLowerCase().startsWith('content:') &&

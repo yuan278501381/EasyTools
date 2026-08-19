@@ -790,18 +790,15 @@ void MessageBridge::registerBuiltinHandlers() {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        const auto result = reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+        bool ok = WinUtils::openFile(wide);
+        return {{"success", ok}};
     });
     registerHandler("system.openFolder", [](const json& params) -> json {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        const std::wstring args = L"/select,\"" + wide + L"\"";
-        const auto result = reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
-        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+        bool ok = WinUtils::openFolderAndSelectItem(wide);
+        return {{"success", ok}};
     });
     registerHandler("system.copyText", [](const json& params) -> json {
         const std::string text = params.value("text", "");
@@ -825,29 +822,22 @@ void MessageBridge::registerBuiltinHandlers() {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        const auto result = reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"runas", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+        bool ok = WinUtils::openFileAsAdmin(wide);
+        return {{"success", ok}};
     });
     registerHandler("system.showFileProperties", [](const json& params) -> json {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        SHELLEXECUTEINFOW sei = { sizeof(sei) };
-        sei.fMask = SEE_MASK_INVOKEIDLIST;
-        sei.lpVerb = L"properties";
-        sei.lpFile = wide.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-        BOOL ok = ShellExecuteExW(&sei);
-        return {{"success", ok != FALSE}};
+        bool ok = WinUtils::showFileProperties(wide);
+        return {{"success", ok}};
     });
     registerHandler("system.openWithNotepad", [](const json& params) -> json {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        const auto result = reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"open", L"notepad.exe", wide.c_str(), nullptr, SW_SHOWNORMAL));
-        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+        bool ok = WinUtils::openWithNotepad(wide);
+        return {{"success", ok}};
     });
     registerHandler("system.renamePath", [](const json& params) -> json {
         const std::string oldPath = params.value("oldPath", params.value("path", ""));

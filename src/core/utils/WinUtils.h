@@ -9,6 +9,7 @@
 #include "core/utils/Export.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <wincrypt.h>
 #include <shlobj.h>
 #include <shldisp.h>
@@ -21,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <vector>
+#include <thread>
 
 namespace easy::core {
 
@@ -530,6 +532,87 @@ public:
             drives.push_back(std::move(info));
         }
         return drives;
+    }
+
+    /// 在 Windows 资源管理器中非阻塞地定位并高亮选中文件或目录
+    static bool openFolderAndSelectItem(const std::wstring& filePath) {
+        if (filePath.empty()) return false;
+        std::thread([filePath]() {
+            HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(filePath.c_str());
+            if (pidl) {
+                HRESULT hr = SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
+                ILFree(pidl);
+                if (SUCCEEDED(hr)) {
+                    if (SUCCEEDED(hrCo)) CoUninitialize();
+                    return;
+                }
+            }
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+
+            std::wstring cmd = L"explorer.exe /select,\"" + filePath + L"\"";
+            STARTUPINFOW si = { sizeof(si) };
+            PROCESS_INFORMATION pi = { 0 };
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+            } else {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + filePath + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+            }
+        }).detach();
+        return true;
+    }
+
+    /// 非阻塞启动/打开指定文件或应用程序
+    static bool openFile(const std::wstring& filePath) {
+        if (filePath.empty()) return false;
+        std::thread([filePath]() {
+            ShellExecuteW(nullptr, L"open", filePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }).detach();
+        return true;
+    }
+
+    /// 非阻塞在记事本中打开指定文件
+    static bool openWithNotepad(const std::wstring& filePath) {
+        if (filePath.empty()) return false;
+        std::thread([filePath]() {
+            std::wstring cmd = L"notepad.exe \"" + filePath + L"\"";
+            STARTUPINFOW si = { sizeof(si) };
+            PROCESS_INFORMATION pi = { 0 };
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+            } else {
+                ShellExecuteW(nullptr, L"open", L"notepad.exe", (L"\"" + filePath + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+            }
+        }).detach();
+        return true;
+    }
+
+    /// 非阻塞以管理员身份启动程序
+    static bool openFileAsAdmin(const std::wstring& filePath) {
+        if (filePath.empty()) return false;
+        std::thread([filePath]() {
+            ShellExecuteW(nullptr, L"runas", filePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }).detach();
+        return true;
+    }
+
+    /// 非阻塞弹出 Windows 原生文件属性对话框
+    static bool showFileProperties(const std::wstring& filePath) {
+        if (filePath.empty()) return false;
+        std::thread([filePath]() {
+            HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            SHELLEXECUTEINFOW sei{};
+            sei.cbSize = sizeof(sei);
+            sei.fMask = SEE_MASK_INVOKEIDLIST;
+            sei.lpVerb = L"properties";
+            sei.lpFile = filePath.c_str();
+            sei.nShow = SW_SHOWNORMAL;
+            ShellExecuteExW(&sei);
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+        }).detach();
+        return true;
     }
 };
 

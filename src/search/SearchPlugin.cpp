@@ -287,58 +287,40 @@ public:
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            HINSTANCE result = ShellExecuteW(nullptr, L"open", widePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            if ((INT_PTR)result <= 32) {
-                LOG_ERROR("SearchPlugin: 无法打开文件 {}, error={}", filepath, (INT_PTR)result);
-                return {{"success", false}, {"error", (INT_PTR)result}};
-            }
-            return {{"success", true}};
+            bool ok = easy::core::WinUtils::openFile(widePath);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.openFolder", [](const nlohmann::json& params) -> nlohmann::json {
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            const std::wstring args = L"/select,\"" + widePath + L"\"";
-            HINSTANCE result = ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
-            if ((INT_PTR)result <= 32) {
-                LOG_ERROR("SearchPlugin: 无法在资源管理器中定位文件 {}, error={}", filepath, (INT_PTR)result);
-                return {{"success", false}, {"error", (INT_PTR)result}};
-            }
-            return {{"success", true}};
+            bool ok = easy::core::WinUtils::openFolderAndSelectItem(widePath);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.openFileAsAdmin", [](const nlohmann::json& params) -> nlohmann::json {
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            HINSTANCE result = ShellExecuteW(nullptr, L"runas", widePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return {{"success", (INT_PTR)result > 32}};
+            bool ok = easy::core::WinUtils::openFileAsAdmin(widePath);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.showFileProperties", [](const nlohmann::json& params) -> nlohmann::json {
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            SHELLEXECUTEINFOW sei = { sizeof(sei) };
-            sei.fMask = SEE_MASK_INVOKEIDLIST;
-            sei.lpVerb = L"properties";
-            sei.lpFile = widePath.c_str();
-            sei.nShow = SW_SHOWNORMAL;
-            BOOL ok = ShellExecuteExW(&sei);
-            return {{"success", ok != FALSE}};
+            bool ok = easy::core::WinUtils::showFileProperties(widePath);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.openWithNotepad", [](const nlohmann::json& params) -> nlohmann::json {
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            HINSTANCE result = ShellExecuteW(nullptr, L"open", L"notepad.exe", widePath.c_str(), nullptr, SW_SHOWNORMAL);
-            if ((INT_PTR)result <= 32) {
-                LOG_ERROR("SearchPlugin: 无法使用记事本打开文件 {}, error={}", filepath, (INT_PTR)result);
-                return {{"success", false}, {"error", (INT_PTR)result}};
-            }
-            return {{"success", true}};
+            bool ok = easy::core::WinUtils::openWithNotepad(widePath);
+            return {{"success", ok}};
         });
 
         mb.registerHandler("search.renamePath", [](const nlohmann::json& params) -> nlohmann::json {
