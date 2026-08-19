@@ -3,10 +3,10 @@
 #
 # 规范:
 #   1. app.ico (用于任务栏、任务管理器、Alt+Tab、桌面快捷方式、安装包)
-#      • 现代 Windows 11 Fluent 科技极速蓝紫渐变圆角底座 (Squircle) + 纯白疾速闪电 + 3D 棱面高光
+#      • 现代 Windows 11 Fluent 科技极速蓝紫渐变圆角底座 (Squircle) + 饱满纯白疾速闪电
 #   2. tray.ico (用于 Windows 系统托盘区 Notification Area)
-#      • 纯透明底色 + 永远纯白疾速闪电 (Pure White Speed Lightning)，极简、轻量、高辨识度
-#   3. 输出未压缩 32 位 DIB 多分辨率 (16, 24, 32, 48, 64, 128, 256)，100% 兼容 rc.exe / High-DPI
+#      • 纯透明底色 + 永远纯白疾速闪电 (Pure White Speed Lightning)，占满视区，饱满粗壮，极高辨识度
+#   3. 输出未压缩 32 位 DIB 多分辨率 (16, 20, 24, 32, 40, 48, 64, 128, 256)，100% 兼容 rc.exe / High-DPI
 # ─────────────────────────────────────────────────────────────────────────────
 
 Add-Type -AssemblyName System.Drawing
@@ -15,7 +15,7 @@ function Build-IcoFile {
     param (
         [string]$OutputPath,
         [scriptblock]$RenderCallback,
-        [int[]]$Sizes = @(16, 24, 32, 48, 64, 128, 256)
+        [int[]]$Sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
     )
 
     $imagesData = @()
@@ -141,30 +141,28 @@ function Add-RoundedRectPath {
     $path.CloseFigure()
 }
 
-# 绘制疾速闪电矢量路径
+# 绘制经典 6 点极速闪电矢量坐标 (饱满锋利无缺角)
 function Get-LightningPoints {
     param ([float]$w, [float]$h, [float]$padX = 0, [float]$padY = 0)
     $availW = $w - ($padX * 2)
     $availH = $h - ($padY * 2)
 
-    # 45° 动力面前倾尖锐折角矢量点
     return @(
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.58), ($padY + $availH * 0.06)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.22), ($padY + $availH * 0.50)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.46), ($padY + $availH * 0.50)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.32), ($padY + $availH * 0.94)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.78), ($padY + $availH * 0.44)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.54), ($padY + $availH * 0.44)),
-        (New-Object System.Drawing.PointF ($padX + $availW * 0.65), ($padY + $availH * 0.06))
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.60), ($padY + $availH * 0.00)), # 顶部尖峰
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.12), ($padY + $availH * 0.54)), # 左外折角
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.46), ($padY + $availH * 0.54)), # 中腰内折
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.40), ($padY + $availH * 1.00)), # 底部尖峰
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.88), ($padY + $availH * 0.46)), # 右外折角
+        (New-Object System.Drawing.PointF ($padX + $availW * 0.54), ($padY + $availH * 0.46))  # 中腰内折
     )
 }
 
-# ── 1. 生成 app.ico (Fluent 蓝紫渐变底座 + 纯白疾速立体闪电) ────────────
+# ── 1. 生成 app.ico (Fluent 蓝紫渐变底座 + 纯白疾速闪电) ────────────
 $appIcoPath = Join-Path $PSScriptRoot "app.ico"
 Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     param ($g, $sz)
 
-    $margin = [float]($sz * 0.06)
+    $margin = [float]($sz * 0.04)
     $rect = New-Object System.Drawing.RectangleF($margin, $margin, ($sz - $margin * 2), ($sz - $margin * 2))
     $radius = [float]($sz * 0.22)
 
@@ -175,44 +173,27 @@ Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     $bgBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (
         (New-Object System.Drawing.PointF $rect.Left, $rect.Top),
         (New-Object System.Drawing.PointF $rect.Right, $rect.Bottom),
-        [System.Drawing.Color]::FromArgb(255, 14, 165, 233),   # Electric Sky Blue (#0ea5e9)
-        [System.Drawing.Color]::FromArgb(255, 79, 70, 229)     # Hyper Indigo (#4f46e5)
+        [System.Drawing.Color]::FromArgb(255, 37, 99, 235),    # Royal Blue #2563eb
+        [System.Drawing.Color]::FromArgb(255, 79, 70, 229)     # Hyper Indigo #4f46e5
     )
     $g.FillPath($bgBrush, $bgPath)
     $bgBrush.Dispose()
 
-    # 顶层细微内高光边框 (Fluent Micro-border)
+    # 细微高光边框
     if ($sz -ge 32) {
-        $strokePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(100, 255, 255, 255), 1.0)
+        $strokePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(80, 255, 255, 255), 1.0)
         $g.DrawPath($strokePen, $bgPath)
         $strokePen.Dispose()
     }
     $bgPath.Dispose()
 
-    # 居中纯白疾速闪电
-    $pad = [float]($sz * 0.18)
-    $pts = Get-LightningPoints $sz $sz $pad $pad
+    # 居中纯白疾速闪电 (饱满且居中，占 76% 高度)
+    $padX = [float]($sz * 0.16)
+    $padY = [float]($sz * 0.12)
+    $pts = Get-LightningPoints $sz $sz $padX $padY
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
     $whiteBrush.Dispose()
-
-    # 右侧 3D 棱面高光切角 (大尺寸提供微质感)
-    if ($sz -ge 48) {
-        $availW = $sz - ($pad * 2)
-        $availH = $sz - ($pad * 2)
-        $facetPts = @(
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.58), ($pad + $availH * 0.06)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.65), ($pad + $availH * 0.06)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.54), ($pad + $availH * 0.44)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.78), ($pad + $availH * 0.44)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.45), ($pad + $availH * 0.78)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.48), ($pad + $availH * 0.50)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.28), ($pad + $availH * 0.50))
-        )
-        $facetBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(55, 255, 255, 255))
-        $g.FillPolygon($facetBrush, $facetPts)
-        $facetBrush.Dispose()
-    }
 }
 
 # ── 2. 生成 tray.ico (纯透明底色 + 永远纯白疾速闪电) ─────────────────
@@ -220,30 +201,12 @@ $trayIcoPath = Join-Path $PSScriptRoot "tray.ico"
 Build-IcoFile -OutputPath $trayIcoPath -RenderCallback {
     param ($g, $sz)
 
-    # 托盘专属：无厚重底座，纯白极简前冲闪电
-    $pad = [float]($sz * 0.08)
-    $pts = Get-LightningPoints $sz $sz $pad $pad
+    # 托盘专属：无厚重底座，纯白极简前冲闪电，占满 92% 高度与宽度
+    $padX = [float]($sz * 0.08)
+    $padY = [float]($sz * 0.04)
+    $pts = Get-LightningPoints $sz $sz $padX $padY
     
-    # 纯白闪电本体
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
     $whiteBrush.Dispose()
-
-    # 右侧半透明折光面
-    if ($sz -ge 32) {
-        $availW = $sz - ($pad * 2)
-        $availH = $sz - ($pad * 2)
-        $facetPts = @(
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.58), ($pad + $availH * 0.06)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.65), ($pad + $availH * 0.06)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.54), ($pad + $availH * 0.44)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.78), ($pad + $availH * 0.44)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.45), ($pad + $availH * 0.78)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.48), ($pad + $availH * 0.50)),
-            (New-Object System.Drawing.PointF ($pad + $availW * 0.28), ($pad + $availH * 0.50))
-        )
-        $facetBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(70, 255, 255, 255))
-        $g.FillPolygon($facetBrush, $facetPts)
-        $facetBrush.Dispose()
-    }
 }

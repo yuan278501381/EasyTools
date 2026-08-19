@@ -196,6 +196,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败！退出码: $LASTEXITCODE"
 }
 
+# 自动生成全套多分辨率 Windows 图标与托盘图标，并清理旧版 .res 确保资源强制重新链接
+Write-Log "生成全套 Windows 品牌图标与托盘图标 (resources/generate_icon.ps1)..."
+& pwsh -NoProfile -ExecutionPolicy Bypass -File "$ScriptDir\resources\generate_icon.ps1"
+Get-ChildItem -Path $BuildDir -Filter "*EasyTools*.res" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
 $CpuCount = [Environment]::ProcessorCount
 Write-Log "执行 CMake Build ($Configuration, 并发核心数: $CpuCount)..."
 cmake --build build --config $Configuration --parallel $CpuCount

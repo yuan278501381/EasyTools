@@ -189,9 +189,11 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = CreateSolidBrush(RGB(20, 20, 30)); // 默认暗色背景，防止 Mica 失效时白屏
     wc.lpszClassName = SETTINGS_WINDOW_CLASS;
-    wc.hIcon = LoadIconW(hInstance, IDI_APPLICATION);
+    wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+    if (!wc.hIcon) wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
+    wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
 
-    RegisterClassExW(&wc);  // 重复注册会返回 0，忽略即可
+    RegisterClassExW(&wc);
 
     if (!m_config.hasCustomPlacement) {
         applyPersistedPlacementIfAny();
@@ -264,6 +266,13 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     DwmSetWindowAttribute(m_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
+    if (wc.hIcon) {
+        SendMessageW(m_hwnd, WM_SETICON, ICON_BIG, (LPARAM)wc.hIcon);
+    }
+    if (wc.hIconSm) {
+        SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)wc.hIconSm);
+    }
 
     LOG_DEBUG("Win32 设置窗口已创建, size={}x{} on DPI {}", targetSize.cx, targetSize.cy, dpi);
     return true;
