@@ -105,6 +105,9 @@ private:
     std::atomic<MouseEventType> m_configuredTriggerDown{MouseEventType::RightDown};
     std::atomic<MouseEventType> m_activeTriggerDown{MouseEventType::RightDown};
 
+    HWND m_cachedForegroundWindow = nullptr;
+    uint8_t m_cachedModifiers = 0;
+
     // ── 防御性编程：超时熔断自愈 (Circuit Breaker) ──
     std::atomic<bool> m_circuitBreakerTripped{false};
     std::chrono::steady_clock::time_point m_circuitBreakerTime;

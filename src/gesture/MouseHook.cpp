@@ -159,6 +159,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         (mode == TriggerMode::RightOnly || mode == TriggerMode::Both)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        self.m_cachedForegroundWindow = GetForegroundWindow();
+                        uint8_t mods = 0;
+                        if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+                        if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+                        if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+                        self.m_cachedModifiers = mods;
                         shouldCapture = true;
                     }
                     easy::core::StatsManager::instance().recordRightClick();
@@ -179,6 +185,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         (mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        self.m_cachedForegroundWindow = GetForegroundWindow();
+                        uint8_t mods = 0;
+                        if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+                        if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+                        if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+                        self.m_cachedModifiers = mods;
                         shouldCapture = true;
                     }
                     break;
@@ -195,6 +207,8 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
                         // 左键按下时立即复位手势触发状态并通知引擎取消，绝对不吞掉左键点击
                         self.m_triggerButtonDown.store(false, std::memory_order_release);
+                        event.foregroundWindow = self.m_cachedForegroundWindow;
+                        event.modifiers = self.m_cachedModifiers;
                         self.processEvent(event);
                     }
                     easy::core::StatsManager::instance().recordLeftClick();
@@ -219,12 +233,8 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             }
 
             if (shouldCapture) {
-                event.foregroundWindow = GetForegroundWindow();
-                uint8_t mods = 0;
-                if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
-                if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
-                if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
-                event.modifiers = mods;
+                event.foregroundWindow = self.m_cachedForegroundWindow;
+                event.modifiers = self.m_cachedModifiers;
                 if (self.processEvent(event)) {
                     return 1; // 拦截事件，不传递给系统和其他应用
                 }

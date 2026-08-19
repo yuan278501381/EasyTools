@@ -335,7 +335,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
   }, [pluginId, onUninstall, t]);
 
   const handleCopyDemoCode = useCallback(() => {
-    navigator.clipboard.writeText('```typescript\nimport { easyTools } from "@easytools/sdk";\n\n// ⚡ 极速唤起 Markdown 渲染引擎\nconst preview = easyTools.preview("README.md");\n```');
+    navigator.clipboard.writeText('```typescript\nimport { easyTools } from "@easytools/sdk";\n\n// 极速唤起 Markdown 渲染引擎\nconst preview = easyTools.preview("README.md");\n```');
     setDemoCopied(true);
     toast.success(t('extension.copySuccess'));
     setTimeout(() => setDemoCopied(false), 2000);
@@ -554,7 +554,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
                     <span className="playground-md-dot dot-red" />
                     <span className="playground-md-dot dot-yellow" />
                     <span className="playground-md-dot dot-green" />
-                    <span className="playground-md-title">📄 README.md - {isZh ? '按空格键极速预览示例' : 'Spacebar QuickLook Demo'}</span>
+                    <span className="playground-md-title">README.md - {isZh ? '按空格键极速预览示例' : 'Spacebar QuickLook Demo'}</span>
                     <button
                       type="button"
                       className="playground-copy-btn"
@@ -565,7 +565,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
                     </button>
                   </div>
                   <div className="playground-md-content">
-                    <h1>⚡ EasyTools 效率工具箱</h1>
+                    <h1>EasyTools 效率工具箱</h1>
                     <p>
                       {isZh
                         ? '这是一个通过「空格键」唤起 Markdown 极速速览的真实渲染示例。支持语法高亮与数学公式：'
@@ -584,12 +584,12 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
                       </pre>
                     </div>
                     <div className="playground-math-box">
-                      <span>📐 <strong>{isZh ? 'LaTeX 公式渲染：' : 'LaTeX Formula:'}</strong></span>
+                      <span><strong>{isZh ? 'LaTeX 公式渲染：' : 'LaTeX Formula:'}</strong></span>
                       <code>{'$$ E = mc^2 \\quad \\& \\quad f(x) = \\int_{-\\infty}^\\infty \\hat f(\\xi)\\,e^{2 \\pi i \\xi x}\\,d\\xi $$'}</code>
                     </div>
                     <div className="playground-tips-callout">
                       <HelpCircle size={15} />
-                      <span>{isZh ? '💡 在资源管理器中单选任意 .md 文件并按下 Space 即可触发此效果！' : '💡 Select any .md file in Explorer and press Space to trigger this!'}</span>
+                      <span>{isZh ? '在资源管理器中单选任意 .md 文件并按下 Space 即可触发此效果！' : 'Select any .md file in Explorer and press Space to trigger this!'}</span>
                     </div>
                   </div>
                 </div>
@@ -598,7 +598,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
               {pluginId === 'color_picker' && (
                 <div className="playground-color-box">
                   <div className="playground-color-picker-header">
-                    <h4>🎨 {isZh ? '屏幕拾色器模拟盘 (按下 Alt+C 唤出)' : 'Color Picker Simulation (Press Alt+C)'}</h4>
+                    <h4>{isZh ? '屏幕拾色器模拟盘 (按下 Alt+C 唤出)' : 'Color Picker Simulation (Press Alt+C)'}</h4>
                   </div>
                   <div className="playground-color-preview-row">
                     <div className="playground-color-swatch" style={{ background: '#7c3aed' }} />
@@ -629,7 +629,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
               {pluginId === 'clipboard_manager' && (
                 <div className="playground-clip-box">
                   <div className="playground-clip-header">
-                    <h4>📋 {isZh ? '剪贴板历史流转 (按下 Alt+V 唤出)' : 'Clipboard History (Press Alt+V)'}</h4>
+                    <h4>{isZh ? '剪贴板历史流转 (按下 Alt+V 唤出)' : 'Clipboard History (Press Alt+V)'}</h4>
                   </div>
                   <div className="playground-clip-list">
                     <div className="playground-clip-item">
@@ -644,7 +644,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
                     </div>
                     <div className="playground-clip-item">
                       <span className="playground-clip-index">3</span>
-                      <span className="playground-clip-text">EasyTools: 世界级 Windows 极客效率神器</span>
+                      <span className="playground-clip-text">EasyTools: 现代化 Windows 桌面效率全家桶</span>
                       <Badge text={isZh ? '文本' : 'Text'} variant="success" />
                     </div>
                   </div>

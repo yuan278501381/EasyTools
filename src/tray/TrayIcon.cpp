@@ -199,16 +199,16 @@ void TrayIcon::showNativeContextMenu(POINT pt) {
     if (!hMenu) return;
 
     bool isEn = isEnglishLocale();
-    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::OpenSettings), isEn ? L"⚙️ Settings" : L"⚙️ 设置");
+    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::OpenSettings), isEn ? L"Settings" : L"设置");
     InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Screenshot), isEn ? L"📷 Capture" : L"📷 截图");
-    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Recording), isEn ? L"🎥 Recording" : L"🎥 录屏");
-    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Search), isEn ? L"🔍 File Search" : L"🔍 文件搜索");
+    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Screenshot), isEn ? L"Capture" : L"截图");
+    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Recording), isEn ? L"Recording" : L"录屏");
+    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Search), isEn ? L"File Search" : L"文件搜索");
     InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
     InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::PauseGesture),
-                m_gesturePaused ? (isEn ? L"▶️ Resume Gesture" : L"▶️ 恢复手势") : (isEn ? L"⏸️ Pause Gesture" : L"⏸️ 暂停手势"));
+                m_gesturePaused ? (isEn ? L"Resume Gesture" : L"恢复手势") : (isEn ? L"Pause Gesture" : L"暂停手势"));
     InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"❌ Exit EasyTools" : L"❌ 退出 EasyTools");
+    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"Exit EasyTools" : L"退出 EasyTools");
 
     SetForegroundWindow(m_hwnd);
     UINT selected = TrackPopupMenuEx(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, m_hwnd, nullptr);

@@ -194,10 +194,26 @@ DetectedEncoding detectEncoding(const uint8_t* data, size_t length, size_t& outB
     return DetectedEncoding::UnknownBinary;
 }
 
+static UINT getGbkCodePage() {
+    static UINT s_cp = IsValidCodePage(936) ? 936 : (IsValidCodePage(54936) ? 54936 : CP_ACP);
+    return s_cp;
+}
+
 std::wstring decodeLine(const char* data, size_t length, UINT codePage) {
     if (length == 0) return {};
 
-    // 1. 优先尝试严格 UTF-8 解码 (即使文件全局被判定为 GBK，对于 UTF-8 行也能完美还原，彻底杜绝 "琛ㄥご" 乱码)
+    const UINT actualCp = (codePage == 936) ? getGbkCodePage() : codePage;
+
+    if (actualCp != CP_UTF8) {
+        int wideLen = MultiByteToWideChar(actualCp, 0, data, static_cast<int>(length), nullptr, 0);
+        if (wideLen > 0) {
+            std::wstring result(wideLen, L'\0');
+            MultiByteToWideChar(actualCp, 0, data, static_cast<int>(length), result.data(), wideLen);
+            return result;
+        }
+    }
+
+    // 默认或 UTF-8: 优先尝试 UTF-8，失败时回退到 GBK/ACP
     int wideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, static_cast<int>(length), nullptr, 0);
     if (wideLen > 0) {
         std::wstring result(wideLen, L'\0');
@@ -206,11 +222,12 @@ std::wstring decodeLine(const char* data, size_t length, UINT codePage) {
         }
     }
 
-    // 2. 如果 UTF-8 解码失败，按传入的 codePage (如 GBK/CP936) 进行解码
-    wideLen = MultiByteToWideChar(codePage, 0, data, static_cast<int>(length), nullptr, 0);
+    // UTF-8 失败时回退到 GBK/ACP
+    const UINT fallbackCp = getGbkCodePage();
+    wideLen = MultiByteToWideChar(fallbackCp, 0, data, static_cast<int>(length), nullptr, 0);
     if (wideLen <= 0) return {};
     std::wstring result(wideLen, L'\0');
-    MultiByteToWideChar(codePage, 0, data, static_cast<int>(length), result.data(), wideLen);
+    MultiByteToWideChar(fallbackCp, 0, data, static_cast<int>(length), result.data(), wideLen);
     return result;
 }
 
@@ -385,27 +402,28 @@ static bool fastBytePreFilter(
         // 1. 生成 UTF-8 字节串比对
         int utf8Len = WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
         if (utf8Len > 0) {
-            std::string utf8Pat(utf8Len, '\0');
-            WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), utf8Pat.data(), utf8Len, nullptr, nullptr);
+            std::vector<uint8_t> utf8Pat(utf8Len);
+            WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(utf8Pat.data()), utf8Len, nullptr, nullptr);
             if (std::search(data, data + len, utf8Pat.begin(), utf8Pat.end()) != data + len) {
                 return true;
             }
         }
-        // 2. 生成 GBK (936) 字节串比对
-        int gbkLen = WideCharToMultiByte(936, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
+        // 2. 生成 GBK (936) / ACP 字节串比对
+        const UINT gbkCp = getGbkCodePage();
+        int gbkLen = WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
         if (gbkLen > 0) {
-            std::string gbkPat(gbkLen, '\0');
-            WideCharToMultiByte(936, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), gbkPat.data(), gbkLen, nullptr, nullptr);
+            std::vector<uint8_t> gbkPat(gbkLen);
+            WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(gbkPat.data()), gbkLen, nullptr, nullptr);
             if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) {
                 return true;
             }
         }
-        // 3. 生成 CP_ACP 字节串比对
-        if (GetACP() != 936) {
+        // 3. 生成 CP_ACP 字节串比对 (若非 936)
+        if (GetACP() != gbkCp && GetACP() != CP_UTF8) {
             int acpLen = WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
             if (acpLen > 0) {
-                std::string acpPat(acpLen, '\0');
-                WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), acpPat.data(), acpLen, nullptr, nullptr);
+                std::vector<uint8_t> acpPat(acpLen);
+                WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(acpPat.data()), acpLen, nullptr, nullptr);
                 if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) {
                     return true;
                 }

@@ -1,0 +1,300 @@
+#include "SearchHistoryManager.h"
+#include "RunHistoryManager.h"
+#include <shlobj.h>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <cwctype>
+
+namespace easy::service::db {
+
+namespace {
+
+std::wstring getDefaultAppDataFolder() {
+    wchar_t appData[MAX_PATH]{};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appData))) {
+        std::wstring dir = std::wstring(appData) + L"\\EasyTools";
+        CreateDirectoryW(dir.c_str(), NULL);
+        return dir;
+    }
+    return L".";
+}
+
+std::wstring trim(const std::wstring& str) {
+    size_t first = str.find_first_not_of(L" \t\r\n");
+    if (first == std::wstring::npos) return L"";
+    size_t last = str.find_last_not_of(L" \t\r\n");
+    return str.substr(first, (last - first + 1));
+}
+
+} // namespace
+
+SearchHistoryManager& SearchHistoryManager::instance() {
+    static SearchHistoryManager s_mgr;
+    return s_mgr;
+}
+
+SearchHistoryManager::SearchHistoryManager() {
+    init();
+}
+
+SearchHistoryManager::~SearchHistoryManager() {
+    if (m_isDirty) {
+        save();
+    }
+}
+
+std::wstring SearchHistoryManager::getNormalizedKey(const std::wstring& search) const {
+    std::wstring key = trim(search);
+    for (auto& ch : key) {
+        ch = std::towlower(ch);
+    }
+    return key;
+}
+
+void SearchHistoryManager::init(const std::wstring& customCsvPath) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!customCsvPath.empty()) {
+        m_csvPath = customCsvPath;
+    } else if (m_csvPath.empty()) {
+        m_csvPath = getDefaultAppDataFolder() + L"\\Search History.csv";
+    }
+    load();
+}
+
+void SearchHistoryManager::recordSearch(const std::wstring& search) {
+    std::wstring trimmed = trim(search);
+    if (trimmed.empty()) return;
+
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::wstring key = getNormalizedKey(trimmed);
+    uint64_t nowFt = RunHistoryManager::getCurrentFileTime();
+
+    auto it = m_records.find(key);
+    if (it != m_records.end()) {
+        it->second.searchCount++;
+        it->second.lastSearchDate = nowFt;
+        it->second.search = trimmed; // 更新保留最新大小写
+    } else {
+        m_records[key] = SearchHistoryItem{
+            .search = trimmed,
+            .searchCount = 1,
+            .lastSearchDate = nowFt
+        };
+    }
+    m_isDirty = true;
+    save();
+}
+
+std::vector<SearchHistoryItem> SearchHistoryManager::getRecentSearches(size_t limit) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::vector<SearchHistoryItem> result;
+    result.reserve(m_records.size());
+    for (const auto& [_, rec] : m_records) {
+        result.push_back(rec);
+    }
+
+    std::sort(result.begin(), result.end(), [](const SearchHistoryItem& a, const SearchHistoryItem& b) {
+        if (a.lastSearchDate != b.lastSearchDate) return a.lastSearchDate > b.lastSearchDate;
+        return a.searchCount > b.searchCount;
+    });
+
+    if (result.size() > limit) {
+        result.resize(limit);
+    }
+    return result;
+}
+
+bool SearchHistoryManager::removeSearch(const std::wstring& search) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::wstring key = getNormalizedKey(search);
+    if (m_records.erase(key) > 0) {
+        m_isDirty = true;
+        save();
+        return true;
+    }
+    return false;
+}
+
+bool SearchHistoryManager::load() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (m_csvPath.empty()) return false;
+
+    HANDLE hFile = CreateFileW(
+        m_csvPath.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    std::string buffer(static_cast<size_t>(size.QuadPart), '\0');
+    DWORD bytesRead = 0;
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    CloseHandle(hFile);
+
+    // UTF-8 BOM 剥离
+    size_t offset = 0;
+    if (buffer.size() >= 3 && static_cast<uint8_t>(buffer[0]) == 0xEF &&
+        static_cast<uint8_t>(buffer[1]) == 0xBB && static_cast<uint8_t>(buffer[2]) == 0xBF) {
+        offset = 3;
+    }
+
+    std::string_view content(buffer.data() + offset, buffer.size() - offset);
+    std::istringstream stream((std::string(content)));
+    std::string line;
+
+    // 跳过首行表头: Search,Search Count,Last Search Date
+    if (std::getline(stream, line)) {
+        // header checked
+    }
+
+    m_records.clear();
+
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+
+        // 解析 CSV 行: "Search",Search Count,Last Search Date
+        size_t firstQuote = line.find('"');
+        size_t secondQuote = (firstQuote != std::string::npos) ? line.find('"', firstQuote + 1) : std::string::npos;
+
+        std::string searchUtf8;
+        std::string rest;
+
+        if (firstQuote != std::string::npos && secondQuote != std::string::npos) {
+            searchUtf8 = line.substr(firstQuote + 1, secondQuote - firstQuote - 1);
+            if (secondQuote + 1 < line.size()) {
+                rest = line.substr(secondQuote + 1);
+            }
+        } else {
+            size_t comma = line.find(',');
+            if (comma != std::string::npos) {
+                searchUtf8 = line.substr(0, comma);
+                rest = line.substr(comma);
+            } else {
+                continue;
+            }
+        }
+
+        uint32_t searchCount = 0;
+        uint64_t lastSearchDate = 0;
+
+        if (!rest.empty()) {
+            if (rest.front() == ',') rest = rest.substr(1);
+            size_t comma = rest.find(',');
+            if (comma != std::string::npos) {
+                try {
+                    searchCount = static_cast<uint32_t>(std::stoul(rest.substr(0, comma)));
+                    lastSearchDate = std::stoull(rest.substr(comma + 1));
+                } catch (...) {}
+            } else {
+                try {
+                    searchCount = static_cast<uint32_t>(std::stoul(rest));
+                } catch (...) {}
+            }
+        }
+
+        if (!searchUtf8.empty()) {
+            int wideLen = MultiByteToWideChar(CP_UTF8, 0, searchUtf8.data(), static_cast<int>(searchUtf8.size()), nullptr, 0);
+            if (wideLen > 0) {
+                std::wstring wSearch(wideLen, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, searchUtf8.data(), static_cast<int>(searchUtf8.size()), wSearch.data(), wideLen);
+
+                std::wstring key = getNormalizedKey(wSearch);
+                m_records[key] = SearchHistoryItem{
+                    .search = std::move(wSearch),
+                    .searchCount = searchCount,
+                    .lastSearchDate = lastSearchDate
+                };
+            }
+        }
+    }
+
+    m_isDirty = false;
+    return true;
+}
+
+bool SearchHistoryManager::save() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (m_csvPath.empty()) return false;
+
+    std::wstring tmpPath = m_csvPath + L".tmp";
+    HANDLE hFile = CreateFileW(
+        tmpPath.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    std::string csvData = "Search,Search Count,Last Search Date\r\n";
+
+    std::vector<SearchHistoryItem> list;
+    list.reserve(m_records.size());
+    for (const auto& [_, rec] : m_records) {
+        list.push_back(rec);
+    }
+
+    std::sort(list.begin(), list.end(), [](const SearchHistoryItem& a, const SearchHistoryItem& b) {
+        if (a.lastSearchDate != b.lastSearchDate) return a.lastSearchDate > b.lastSearchDate;
+        return a.searchCount > b.searchCount;
+    });
+
+    for (const auto& item : list) {
+        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, item.search.data(), static_cast<int>(item.search.size()), nullptr, 0, nullptr, nullptr);
+        std::string searchUtf8(utf8Len, '\0');
+        if (utf8Len > 0) {
+            WideCharToMultiByte(CP_UTF8, 0, item.search.data(), static_cast<int>(item.search.size()), searchUtf8.data(), utf8Len, nullptr, nullptr);
+        }
+
+        csvData += "\"" + searchUtf8 + "\"," + std::to_string(item.searchCount) + "," + std::to_string(item.lastSearchDate) + "\r\n";
+    }
+
+    DWORD bytesWritten = 0;
+    WriteFile(hFile, csvData.data(), static_cast<DWORD>(csvData.size()), &bytesWritten, nullptr);
+    CloseHandle(hFile);
+
+    MoveFileExW(tmpPath.c_str(), m_csvPath.c_str(), MOVEFILE_REPLACE_EXISTING);
+    m_isDirty = false;
+    return true;
+}
+
+void SearchHistoryManager::clear() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_records.clear();
+    m_isDirty = true;
+    save();
+}
+
+size_t SearchHistoryManager::size() const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    return m_records.size();
+}
+
+std::wstring SearchHistoryManager::getFilePath() const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    return m_csvPath;
+}
+
+} // namespace easy::service::db

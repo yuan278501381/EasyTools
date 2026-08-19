@@ -41,8 +41,9 @@
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 /* 顶部布局切换控制栏 */
@@ -102,33 +103,41 @@
   box-shadow: 0 1px 3px var(--primary-glow);
 }
 
-/* 机械键盘精工盘体框架 (自适应防挤压，极小窗口支持平滑横滑) */
+/* 机械键盘精工盘体框架 (完全自适应父级容器，无任何溢出滚动条) */
 .keyboard-chassis {
   display: flex;
   flex-direction: row;
-  gap: 14px;
-  padding: 16px 16px;
+  gap: clamp(6px, 1.2vw, 14px);
+  padding: clamp(10px, 1.5vw, 16px);
   background: var(--key-frame-bg);
   border: 1px solid var(--key-frame-border);
   border-radius: var(--radius-lg);
   user-select: none;
   width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--key-frame-inset), 0 8px 24px rgba(0, 0, 0, 0.1);
+  overflow: visible;
+  transition: max-width 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.2s ease;
 }
 
 .keyboard-chassis--104 {
-  min-width: 600px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .keyboard-chassis--87 {
-  min-width: 480px;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
 }
 
 .keyboard-chassis--60 {
-  min-width: 360px;
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto;
 }
 
 /* 键盘三大区域 Cluster 拓扑 */
@@ -152,20 +161,20 @@
 
 /* 机械键盘 F 区与主打字区之间的标准下沉留白 */
 .keyboard-section-gap {
-  height: 8px;
+  height: clamp(5px, 0.8vw, 8px);
   flex-shrink: 0;
 }
 
 /* 方向键与编辑键之间的垂直弹性填充 */
 .keyboard-arrow-divider {
   flex: 1 1 0%;
-  min-height: 8px;
+  min-height: clamp(5px, 0.8vw, 8px);
 }
 
 /* 键盘行容器 */
 .keyboard-row {
   display: flex;
-  gap: 4px;
+  gap: clamp(2px, 0.35vw, 4px);
   width: 100%;
   align-items: stretch;
 }
@@ -175,12 +184,12 @@
 .keyboard-arrow-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: clamp(2px, 0.35vw, 4px);
 }
 
 .keyboard-gap {
   min-width: 0;
-  height: 32px;
+  height: clamp(22px, 2.8vw, 32px);
   visibility: hidden;
   pointer-events: none;
 }
@@ -189,8 +198,8 @@
 .keyboard-numpad-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(5, 36px);
-  gap: 4px;
+  grid-template-rows: repeat(5, clamp(24px, 3.4vw, 36px));
+  gap: clamp(2px, 0.35vw, 4px);
   width: 100%;
 }
 
@@ -199,7 +208,7 @@
   display: flex;
   align-items: center;
   justify-content: space-around;
-  height: 32px;
+  height: clamp(22px, 2.8vw, 32px);
   padding: 0 4px;
   background: rgba(0, 0, 0, 0.15);
   border: 1px solid var(--key-frame-border);
@@ -246,27 +255,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 36px;
+  height: clamp(24px, 3.4vw, 36px);
   flex: 1 1 0%;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: clamp(4px, 0.5vw, 6px);
   border-width: 1px;
   border-style: solid;
   font-family: 'JetBrains Mono', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-size: clamp(0.70rem, 0.85vw, 0.82rem);
+  font-size: clamp(0.60rem, 0.8vw, 0.82rem);
   font-weight: 600;
   transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.14s ease, border-color 0.14s ease;
   cursor: pointer;
   overflow: visible;
-  padding: 2px 2px;
+  padding: 2px clamp(1px, 0.25vw, 2px);
   box-sizing: border-box;
   user-select: none;
 }
 
 .keycap--f-row {
-  height: 32px;
-  font-size: 0.70rem;
-  border-radius: 5px;
+  height: clamp(22px, 2.8vw, 32px);
+  font-size: clamp(0.55rem, 0.68vw, 0.70rem);
+  border-radius: clamp(3px, 0.4vw, 5px);
 }
 
 .keycap--nav-sys {
@@ -274,18 +283,18 @@
 }
 
 .keycap--nav-sys .keyboard-keycap__label {
-  font-size: 0.58rem !important;
+  font-size: clamp(0.48rem, 0.58vw, 0.58rem) !important;
   letter-spacing: -0.04em !important;
   font-weight: 700;
 }
 
 .keycap--nav-edit .keyboard-keycap__label {
-  font-size: 0.68rem;
+  font-size: clamp(0.55rem, 0.68vw, 0.68rem);
   letter-spacing: -0.02em;
 }
 
 .keycap--arrow {
-  font-size: 0.86rem;
+  font-size: clamp(0.68rem, 0.85vw, 0.86rem);
 }
 
 .keycap--numpad {
@@ -304,9 +313,9 @@
 
 .keyboard-keycap__count-pill {
   position: absolute;
-  right: 3px;
-  bottom: 2px;
-  font-size: 8px;
+  right: 2px;
+  bottom: 1.5px;
+  font-size: clamp(6.5px, 0.75vw, 8px);
   font-weight: 700;
   font-family: ui-monospace, 'Consolas', monospace;
   opacity: 0.9;

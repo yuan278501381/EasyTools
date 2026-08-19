@@ -356,7 +356,7 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
             {formatMicroCount(count)}
           </span>
         )}
-        {isPeak && <span className="keyboard-keycap__crown">🔥</span>}
+        {isPeak && <span className="keyboard-keycap__crown"><Flame size={10} color="#f97316" /></span>}
 
         {/* 浮动智能自适应轻量提示卡片 (顶部两行向下翻转，彻底杜绝顶部裁切与遮挡) */}
         <div className={`keyboard-heatmap__tooltip keyboard-heatmap__tooltip--${tooltipPlacement}`}>

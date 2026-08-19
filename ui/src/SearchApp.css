@@ -233,6 +233,44 @@ html[data-surface="search"] #root {
     flex-shrink: 0;
 }
 
+.search-drag-btn {
+    cursor: grab;
+}
+
+.search-drag-btn:active {
+    cursor: grabbing;
+}
+
+.search-stats-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    color: var(--search-text-sub);
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.search-stats-pill strong {
+    color: var(--search-text-main);
+    font-weight: 600;
+}
+
+.search-stats-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    flex-shrink: 0;
+}
+
 /* ── 极客排序双区域分裂微胶囊 (Split Pill) ───────────────────── */
 .search-sort-wrapper {
     position: relative;
@@ -902,16 +940,64 @@ html[data-surface="search"] #root {
     box-shadow: 0 4px 12px var(--primary-glow);
 }
 
-/* ── 底部快捷键状态栏 ──────────────────────────────────────── */
+/* ── 底部双区域状态与统计栏 ────────────────────────────────── */
 .search-footer {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 14px;
-    padding: 8px 16px;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 14px;
     background: var(--search-footer-bg);
     border-top: 1px solid var(--search-footer-border);
     color: var(--search-text-sub);
+    user-select: none;
+    font-size: 11.5px;
+    min-height: 32px;
+    box-sizing: border-box;
+}
+
+.search-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.search-footer-stat-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--search-text-main);
+    font-size: 11.5px;
+    white-space: nowrap;
+}
+
+.search-footer-stat-item strong {
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.search-footer-stat-sub {
+    color: var(--search-text-muted);
+    font-size: 11px;
+}
+
+.search-footer-stat-divider {
+    display: inline-block;
+    width: 1px;
+    height: 12px;
+    background: var(--search-border);
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.search-footer-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
     flex-wrap: wrap;
 }
 
@@ -920,16 +1006,16 @@ html[data-surface="search"] #root {
     color: var(--search-text-sub);
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
 }
 
 .search-hint kbd {
     background: var(--search-kbd-bg);
     border: 1px solid var(--search-kbd-border);
     border-radius: 4px;
-    padding: 2px 5px;
+    padding: 1.5px 4.5px;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--search-kbd-text);
     box-shadow: 0 1px 1px rgba(0,0,0,0.06);
 }
@@ -1122,6 +1208,86 @@ html[data-surface="search"] #root {
     color: #ffffff !important;
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.popover-search-modes-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.popover-search-mode-card {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.popover-search-mode-card:hover {
+    background: var(--search-surface-pill-hover);
+    border-color: var(--card-border);
+}
+
+.popover-search-mode-card--active {
+    background: var(--primary-dim) !important;
+    border-color: var(--primary) !important;
+}
+
+.search-mode-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.search-mode-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.search-mode-icon-name {
+    color: #eab308;
+}
+
+.search-mode-icon-both {
+    color: #a855f7;
+}
+
+.search-mode-icon-content {
+    color: #3b82f6;
+}
+
+.search-mode-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--search-text-main);
+}
+
+.search-mode-check {
+    color: var(--primary);
+}
+
+.search-mode-desc {
+    font-size: 10.5px;
+    color: var(--search-text-muted);
+    line-height: 1.35;
+    padding-left: 20px;
+}
+
+.popover-section-hint {
+    font-size: 10.5px;
+    color: var(--search-text-muted);
+    line-height: 1.4;
+    padding: 6px 8px;
+    background: var(--search-surface-pill);
+    border-radius: 6px;
+    border: 1px solid var(--search-surface-pill-border);
+    margin-top: 4px;
 }
 
 .popover-presets-grid {
@@ -1526,23 +1692,11 @@ html[data-surface="search"] #root {
     color: #818cf8;
 }
 
-.popover-format-cat-title-col {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-}
-
 .popover-format-cat-name {
     font-size: 12px;
     font-weight: 600;
     color: var(--search-text-main);
     letter-spacing: -0.01em;
-}
-
-.popover-format-cat-sub {
-    font-size: 10.5px;
-    font-weight: 400;
-    color: var(--search-text-muted);
 }
 
 .popover-format-badge-count {
@@ -1570,6 +1724,34 @@ html[data-surface="search"] #root {
 
 .popover-cat-toggle-btn:hover {
     background: var(--primary-dim);
+}
+
+.popover-quick-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    color: var(--search-text-sub);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+    line-height: 1;
+}
+
+.popover-quick-action:hover {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateY(-0.5px);
+}
+
+.popover-quick-action:active {
+    transform: translateY(0.5px);
 }
 
 .popover-format-chips {
@@ -1689,3 +1871,203 @@ html[data-surface="search"] #root {
     background: var(--primary);
     color: #ffffff;
 }
+
+/* ── 搜索历史记录气泡容器 ────────────────────────────────────────── */
+.search-history-container {
+    padding: 10px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--search-item-border);
+    animation: fadeIn 0.15s ease-out;
+}
+
+.search-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.search-history-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--search-text-sub);
+}
+
+.search-history-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    font-size: 11px;
+    color: var(--search-text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.search-history-clear-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger, #ef4444);
+}
+
+.search-history-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 90px;
+    overflow-y: auto;
+}
+
+.search-history-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px 3px 10px;
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-border);
+    border-radius: 14px;
+    font-size: 11.5px;
+    color: var(--search-text-main);
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+}
+
+.search-history-chip:hover {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateY(-1px);
+}
+
+.search-history-chip-icon {
+    opacity: 0.6;
+}
+
+.search-history-chip-count {
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.12);
+    padding: 0 4px;
+    border-radius: 8px;
+    color: inherit;
+}
+
+.search-history-chip-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--search-text-muted);
+    cursor: pointer;
+    margin-left: 2px;
+    transition: all 0.12s ease;
+    padding: 0;
+}
+
+.search-history-chip-del:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+/* ── 运行频次微标签 ────────────────────────────────────────── */
+.file-run-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    background: rgba(249, 115, 22, 0.12);
+    color: #f97316;
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+/* ── 视图设置面板中的数据库快照卡片 ────────────────────────── */
+.popover-db-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    background: var(--search-snippet-bg);
+    border: 1px solid var(--search-snippet-border);
+    border-radius: 8px;
+    margin-top: 6px;
+}
+
+.popover-db-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+}
+
+.popover-db-label {
+    color: var(--search-text-sub);
+}
+
+.popover-db-val {
+    font-weight: 500;
+    color: var(--search-text-main);
+}
+
+.popover-db-status--ok {
+    color: var(--success, #10b981);
+    font-weight: 600;
+}
+
+.popover-db-status--empty {
+    color: var(--search-text-muted);
+}
+
+.popover-db-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.popover-db-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--primary-dim);
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    color: var(--primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.popover-db-btn:hover {
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.popover-db-btn--danger {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.popover-db-btn--danger:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+

@@ -381,7 +381,8 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
                 if (params.contains("width") && params.contains("height")) {
                     int w = params["width"].get<int>();
                     int h = params["height"].get<int>();
-                    easy::ui::SearchWindow::instance().setWindowSize(w, h);
+                    bool center = params.value("center", false);
+                    easy::ui::SearchWindow::instance().setWindowSize(w, h, center);
                     return {{"success", true}, {"width", w}, {"height", h}};
                 }
                 return {{"success", false}, {"error", "missing width or height"}};

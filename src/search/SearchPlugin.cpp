@@ -96,7 +96,7 @@ static bool ensureSearchServiceRunning() {
         PROCESS_INFORMATION pi{};
         std::wstring cmd = L"\"" + serviceExe.wstring() + L"\"";
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
-                           CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
+                           CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
         }
@@ -210,19 +210,8 @@ public:
             if (query.size() > 1024) query.resize(1024);
 
             std::string payload;
-            if ((params.contains("drives") && params["drives"].is_array() && !params["drives"].empty()) ||
-                (params.contains("excludes") && params["excludes"].is_array()) ||
-                params.contains("excludeHidden") || params.contains("excludeSystem") ||
-                params.contains("contentCustomExts") || params.contains("contentDisabledExts")) {
-                nlohmann::json req;
-                req["query"] = query;
-                if (params.contains("drives")) req["drives"] = params["drives"];
-                if (params.contains("excludes")) req["excludes"] = params["excludes"];
-                if (params.contains("excludeHidden")) req["excludeHidden"] = params["excludeHidden"];
-                if (params.contains("excludeSystem")) req["excludeSystem"] = params["excludeSystem"];
-                if (params.contains("contentCustomExts")) req["contentCustomExts"] = params["contentCustomExts"];
-                if (params.contains("contentDisabledExts")) req["contentDisabledExts"] = params["contentDisabledExts"];
-                payload = req.dump();
+            if (params.is_object()) {
+                payload = params.dump();
             } else {
                 payload = query;
             }
@@ -311,6 +300,43 @@ public:
             return {{"success", false}};
         });
 
+        mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (hwnd && IsWindow(hwnd)) {
+                ReleaseCapture();
+                SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            }
+            return {{"success", true}};
+        });
+
+        mb.registerHandler("search.startResize", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string dir = params.value("direction", "se");
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (hwnd && IsWindow(hwnd)) {
+                WPARAM hitTest = HTBOTTOMRIGHT;
+                if (dir == "se") hitTest = HTBOTTOMRIGHT;
+                else if (dir == "e") hitTest = HTRIGHT;
+                else if (dir == "s") hitTest = HTBOTTOM;
+                else if (dir == "w") hitTest = HTLEFT;
+                else if (dir == "sw") hitTest = HTBOTTOMLEFT;
+                ReleaseCapture();
+                SendMessageW(hwnd, WM_NCLBUTTONDOWN, hitTest, 0);
+            }
+            return {{"success", true}};
+        });
+
+        mb.registerHandler("search.resetPlacement", [](const nlohmann::json&) -> nlohmann::json {
+            easy::core::ConfigManager::instance().set<int>("/search/windowWidth", 760);
+            easy::core::ConfigManager::instance().set<int>("/search/windowHeight", 520);
+            easy::core::ConfigManager::instance().set<int>("/search/windowX", -99999);
+            easy::core::ConfigManager::instance().set<int>("/search/windowY", -99999);
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (hwnd && IsWindow(hwnd)) {
+                PostMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0);
+            }
+            return {{"success", true}};
+        });
+
         mb.registerHandler("search.getServiceStatus", [](const nlohmann::json&) -> nlohmann::json {
             bool available = (WaitNamedPipeA(SearchPipe, 0) != FALSE);
             if (!available) {
@@ -382,6 +408,81 @@ public:
                 cfg.set("/search/excludeSystem", params["excludeSystem"].get<bool>());
             }
             return {{"success", true}};
+        });
+
+        mb.registerHandler("search.recordRun", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string path = params.value("path", "");
+            if (path.empty()) return {{"success", false}};
+            nlohmann::json req;
+            req["action"] = "recordRun";
+            req["path"] = path;
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            return {{"success", res.has_value()}};
+        });
+
+        mb.registerHandler("search.recordSearch", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string query = params.value("query", "");
+            if (query.empty()) return {{"success", false}};
+            nlohmann::json req;
+            req["action"] = "recordSearch";
+            req["query"] = query;
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            return {{"success", res.has_value()}};
+        });
+
+        mb.registerHandler("search.getSearchHistory", [](const nlohmann::json& params) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "getSearchHistory";
+            if (params.contains("limit")) req["limit"] = params["limit"];
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            if (res && !res->empty()) {
+                try {
+                    return nlohmann::json::parse(*res);
+                } catch (...) {}
+            }
+            return {{"success", false}, {"history", nlohmann::json::array()}};
+        });
+
+        mb.registerHandler("search.removeSearchHistory", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string search = params.value("search", "");
+            nlohmann::json req;
+            req["action"] = "removeSearchHistory";
+            req["search"] = search;
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            return {{"success", res.has_value()}};
+        });
+
+        mb.registerHandler("search.clearSearchHistory", [](const nlohmann::json&) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "clearSearchHistory";
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            return {{"success", res.has_value()}};
+        });
+
+        mb.registerHandler("search.getDbStats", [](const nlohmann::json&) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "getDbStats";
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            if (res && !res->empty()) {
+                try {
+                    return nlohmann::json::parse(*res);
+                } catch (...) {}
+            }
+            return {{"success", false}};
+        });
+
+        mb.registerHandler("search.saveSnapshot", [](const nlohmann::json&) -> nlohmann::json {
+            nlohmann::json req;
+            req["action"] = "saveSnapshot";
+            DWORD err = 0;
+            auto res = querySearchService(req.dump(), err);
+            return {{"success", res.has_value()}};
         });
 
         return true;

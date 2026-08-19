@@ -29,7 +29,7 @@ SearchWindow& SearchWindow::instance() {
     return inst;
 }
 
-void SearchWindow::setWindowSize(int baseWidth, int baseHeight) {
+void SearchWindow::setWindowSize(int baseWidth, int baseHeight, bool forceCenter) {
     baseWidth = (std::clamp)(baseWidth, 500, 2400);
     baseHeight = (std::clamp)(baseHeight, 400, 1600);
     easy::core::ConfigManager::instance().set("/search/windowWidth", baseWidth);
@@ -47,8 +47,32 @@ void SearchWindow::setWindowSize(int baseWidth, int baseHeight) {
     scaledWidth = (std::min)(scaledWidth, static_cast<int>(workArea.right - workArea.left - margin * 2));
     scaledHeight = (std::min)(scaledHeight, static_cast<int>(workArea.bottom - workArea.top - margin * 2));
 
-    const int x = workArea.left + (workArea.right - workArea.left - scaledWidth) / 2;
-    const int y = workArea.top + (workArea.bottom - workArea.top - scaledHeight) / 2;
+    int x = workArea.left + (workArea.right - workArea.left - scaledWidth) / 2;
+    int y = workArea.top + (workArea.bottom - workArea.top - scaledHeight) / 2;
+
+    if (!forceCenter) {
+        RECT curRect{};
+        if (GetWindowRect(m_hwnd, &curRect)) {
+            // 保持当前窗口左上角 (x, y) 锚定固定，仅向右下方扩展
+            int curX = curRect.left;
+            int curY = curRect.top;
+
+            // 检查当前坐标是否有效且在屏幕可视范围内
+            if (curX >= workArea.left - 100 && curX < workArea.right - 100 &&
+                curY >= workArea.top - 50 && curY < workArea.bottom - 100) {
+                x = curX;
+                y = curY;
+
+                // 边界智能防溢出：如果向右下拉伸超出屏幕右侧或底部，自动向内微调
+                if (x + scaledWidth > workArea.right - margin) {
+                    x = (std::max)(static_cast<int>(workArea.left + margin), static_cast<int>(workArea.right - margin - scaledWidth));
+                }
+                if (y + scaledHeight > workArea.bottom - margin) {
+                    y = (std::max)(static_cast<int>(workArea.top + margin), static_cast<int>(workArea.bottom - margin - scaledHeight));
+                }
+            }
+        }
+    }
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, scaledWidth, scaledHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (m_controller) {
@@ -157,14 +181,24 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
 
     const int baseW = easy::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
     const int baseH = easy::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
+    const int customX = easy::core::ConfigManager::instance().get<int>("/search/windowX", -99999);
+    const int customY = easy::core::ConfigManager::instance().get<int>("/search/windowY", -99999);
     SIZE size{easy::core::dpi::scaleMetric(baseW, scale), easy::core::dpi::scaleMetric(baseH, scale)};
 
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
     size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
     size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
-    const int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
-    const int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
+    int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
+    int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
+
+    if (customX != -99999 && customY != -99999) {
+        if (customX >= workArea.left - 100 && customX + size.cx <= workArea.right + 100 &&
+            customY >= workArea.top - 20 && customY + size.cy <= workArea.bottom + 100) {
+            x = customX;
+            y = customY;
+        }
+    }
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
@@ -193,14 +227,25 @@ void SearchWindow::updatePlacement() {
 
     const int baseW = easy::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
     const int baseH = easy::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
+    const int customX = easy::core::ConfigManager::instance().get<int>("/search/windowX", -99999);
+    const int customY = easy::core::ConfigManager::instance().get<int>("/search/windowY", -99999);
     SIZE size{easy::core::dpi::scaleMetric(baseW, scale), easy::core::dpi::scaleMetric(baseH, scale)};
 
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
     size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
     size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
-    const int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
-    const int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
+    int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
+    int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
+
+    if (customX != -99999 && customY != -99999) {
+        if (customX >= workArea.left - 100 && customX + size.cx <= workArea.right + 100 &&
+            customY >= workArea.top - 20 && customY + size.cy <= workArea.bottom + 100) {
+            x = customX;
+            y = customY;
+        }
+    }
+
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, size.cx, size.cy,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (m_controller) {
@@ -359,6 +404,23 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 }
             }
             break;
+        case WM_EXITSIZEMOVE: {
+            RECT rc;
+            if (GetWindowRect(hwnd, &rc)) {
+                const HMONITOR monitor = easy::core::dpi::activeMonitor();
+                const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+                const float scale = easy::core::dpi::scaleForDpi(dpi);
+                int baseW = static_cast<int>((rc.right - rc.left) / scale);
+                int baseH = static_cast<int>((rc.bottom - rc.top) / scale);
+                if (baseW >= 400 && baseH >= 250) {
+                    easy::core::ConfigManager::instance().set<int>("/search/windowWidth", baseW);
+                    easy::core::ConfigManager::instance().set<int>("/search/windowHeight", baseH);
+                    easy::core::ConfigManager::instance().set<int>("/search/windowX", rc.left);
+                    easy::core::ConfigManager::instance().set<int>("/search/windowY", rc.top);
+                }
+            }
+            break;
+        }
         case WM_DPICHANGED: {
             if (!inst.m_updatingPlacement && lParam) {
                 const RECT* suggested = reinterpret_cast<const RECT*>(lParam);

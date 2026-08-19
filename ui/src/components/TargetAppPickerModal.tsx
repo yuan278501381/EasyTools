@@ -211,7 +211,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
     setCountdown(3);
     setJustPicked(false);
     setPickedName(null);
-    toast.loading('⏱ 3 秒窗口识别已启动，请立即切换/点击目标窗口...', {
+    toast.loading('3 秒窗口识别已启动，请立即切换/点击目标窗口...', {
       id: 'window-picker-toast',
       duration: 3500,
     });
@@ -244,7 +244,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
         setJustPicked(true);
         setPickedName(finalName);
 
-        toast.success(`🎯 已成功识别目标窗口：${finalName}`, {
+        toast.success(`已成功识别目标窗口：${finalName}`, {
           id: 'window-picker-toast',
           duration: 4000,
           description: `进程: ${res.processName} | 类名: ${res.windowClass || '无'}`,
@@ -311,9 +311,9 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
           )}
           <span>
             {countdown !== null
-              ? `⏱ 请在 ${countdown} 秒内切换至目标窗口...`
+              ? `请在 ${countdown} 秒内切换至目标窗口...`
               : justPicked
-              ? `🎯 识别成功：${pickedName || name}`
+              ? `识别成功：${pickedName || name}`
               : '不知道进程或窗口名？一键直接拾取'}
           </span>
         </div>

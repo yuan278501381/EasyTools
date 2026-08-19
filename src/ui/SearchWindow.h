@@ -22,8 +22,9 @@ public:
     void hide();
     bool isVisible() const;
     void destroy();
-    void setWindowSize(int baseWidth, int baseHeight);
+    void setWindowSize(int baseWidth, int baseHeight, bool forceCenter = false);
     std::pair<int, int> getWindowSize() const;
+    HWND getHwnd() const { return m_hwnd; }
 
 private:
     SearchWindow() = default;

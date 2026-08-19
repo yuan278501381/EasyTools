@@ -55,6 +55,10 @@
 #include "service/content/ZipXmlExtractor.h"
 #include "service/content/PsdAiExtractor.h"
 #include "service/content/DxfExtractor.h"
+#include "service/MftParser.h"
+#include "service/db/RunHistoryManager.h"
+#include "service/db/SearchHistoryManager.h"
+#include "service/db/DatabaseManager.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -83,7 +87,7 @@ using namespace easy::gesture;
 
 // 喂入一串轨迹点, 返回识别出的方向编码 (无效手势返回空串)。
 static std::string recognize(std::initializer_list<TrackPoint> pts) {
-    GestureRecognizer r;  // 默认配置: minSegmentDistance=30, samplingInterval=5
+    GestureRecognizer r;  // 默认配置: minSegmentDistance=14, samplingInterval=2
     r.reset();
     for (const auto& p : pts) r.addPoint(p.x, p.y);
     auto res = r.finalize();
@@ -104,9 +108,15 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(recognize({{0, 100}, {100, 0}}), "UR"); // ↗
     EXPECT_EQ(recognize({{0, 0}, {100, 100}}), "DR"); // ↘
 
-    // 多段 (L 形)
+    // 多段 (L 形及连续拐弯，基于拐点检测)
     EXPECT_EQ(recognize({{0, 100}, {100, 100}, {100, 0}}), "R-U"); // → 然后 ↑
     EXPECT_EQ(recognize({{100, 0}, {0, 0}, {0, 100}}), "L-D");     // ← 然后 ↓
+    EXPECT_EQ(recognize({{0, 0}, {0, 50}, {50, 50}}), "D-R");      // ↓ 然后 →
+    EXPECT_EQ(recognize({{0, 0}, {50, 0}, {50, 50}}), "R-D");      // → 然后 ↓
+    EXPECT_EQ(recognize({{0, 0}, {0, 50}, {-50, 50}}), "D-L");     // ↓ 然后 ←
+    EXPECT_EQ(recognize({{0, 0}, {0, -50}, {50, -50}}), "U-R");    // ↑ 然后 →
+    EXPECT_EQ(recognize({{0, 0}, {0, -50}, {-50, -50}}), "U-L");   // ↑ 然后 ←
+    EXPECT_EQ(recognize({{0, 0}, {0, 50}, {50, 50}, {50, 100}}), "D-R-D"); // ↓ → ↓
 
     // 方向序列与箭头转换辅助函数
     std::vector<Direction> dirs = {Direction::Left, Direction::Down};
@@ -117,8 +127,8 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(directionsToCode(singleDir), "U");
     EXPECT_EQ(directionsToArrowString(singleDir), "↑");
 
-    // 防抖: 位移小于最小段距离 → 无效手势
-    EXPECT_EQ(recognize({{0, 0}, {20, 0}}), "");
+    // 防抖: 微位移小于最小段距离 (如 < 14px) → 视为普通点击/无效手势
+    EXPECT_EQ(recognize({{0, 0}, {8, 0}}), "");
 
     // 智能转弯圆角平滑消抖 (Corner Fillet Folding)
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Down, Direction::DownRight, Direction::Right})), "D-R");
@@ -1032,6 +1042,13 @@ TEST(SearchExpressionTest, EverythingSyntaxParsing) {
     // 拼音与目录联合匹配: 中源 zhmm
     auto exprPinyinDir = SearchExpression::parse(L"中源 zhmm");
     EXPECT_TRUE(exprPinyinDir.matches(nestedPassFile, L'D', nestedPassPath));
+
+    // 9. 用户真实连字符文件名检索: 019-get_Bom_Lev
+    FileRecord bomFile{10, 0, L"019-get_Bom_Lev.txt", L"019-get_bom_lev.txt", L"019-get_bom_lev.txt", L"019-get_bom_lev.txt", false};
+    auto exprBom1 = SearchExpression::parse(L"019-get_Bom_Lev");
+    EXPECT_TRUE(exprBom1.matches(bomFile, L'D', L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt"));
+    auto exprBom2 = SearchExpression::parse(L"get_Bom_Lev");
+    EXPECT_TRUE(exprBom2.matches(bomFile, L'D', L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt"));
 }
 
 TEST(SearchExpressionTest, EnvironmentVariableExpansion) {
@@ -1885,6 +1902,35 @@ TEST(ContentSearchTest, ExtractorEngines) {
 
     DeleteFileW(testCppFile.c_str());
 
+    // 3.1 SQL 文件与 OITT 关键字检索测试
+    std::wstring testSqlFile = std::wstring(tempPath) + L"easytools_test_bom.sql";
+    {
+        std::ofstream ofs(testSqlFile, std::ios::binary);
+        ofs << "/* SAP B1 BOM 物料清单控制 */\n";
+        ofs << "SELECT T0.ItemCode, T0.ItemName FROM OITT T0 WHERE T0.TreeType = 'A';\n";
+    }
+
+    snippets.clear();
+    bool sqlFound = engine.searchFile(testSqlFile, L"oitt", false, snippets);
+    EXPECT_TRUE(sqlFound);
+    EXPECT_FALSE(snippets.empty());
+    if (!snippets.empty()) {
+        EXPECT_EQ(snippets[0].lineNumber, 2);
+        EXPECT_NE(snippets[0].lineContent.find(L"OITT"), std::wstring::npos);
+    }
+    DeleteFileW(testSqlFile.c_str());
+
+    // 3.2 针对用户真实磁盘文件 019-get_Bom_Lev.txt 进行全文检索断言
+    std::wstring realTargetFile = L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt";
+    if (GetFileAttributesW(realTargetFile.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        snippets.clear();
+        bool realFileFound = engine.searchFile(realTargetFile, L"oitt", false, snippets);
+        EXPECT_TRUE(realFileFound);
+        EXPECT_GE(snippets.size(), 2u);
+        std::cout << "[LiveTest-Success] Extracted " << snippets.size() << " 'oitt' snippets from real file: " 
+                  << easy::core::WinUtils::wstringToUtf8(realTargetFile) << std::endl;
+    }
+
     // 4. DxfExtractor 实际文件扫描测试 (创建临时测试 DXF)
     std::wstring testDxfFile = std::wstring(tempPath) + L"easytools_test_drawing.dxf";
     {
@@ -1930,10 +1976,11 @@ TEST(ContentSearchTest, ExtractorEngines) {
         std::ofstream ofs(testGbkFile, std::ios::binary);
         // GBK 编码的中文字符串："北京中源技术中心：开发账号密码"
         std::wstring wText = L"北京中源技术中心：开发账号密码";
-        int len = WideCharToMultiByte(936, 0, wText.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        std::string gbkText(len > 0 ? len - 1 : 0, '\0');
-        if (len > 1) {
-            WideCharToMultiByte(936, 0, wText.c_str(), -1, gbkText.data(), len, nullptr, nullptr);
+        UINT cp = IsValidCodePage(936) ? 936 : (IsValidCodePage(54936) ? 54936 : CP_ACP);
+        int len = WideCharToMultiByte(cp, 0, wText.c_str(), static_cast<int>(wText.size()), nullptr, 0, nullptr, nullptr);
+        std::string gbkText(len, '\0');
+        if (len > 0) {
+            WideCharToMultiByte(cp, 0, wText.c_str(), static_cast<int>(wText.size()), gbkText.data(), len, nullptr, nullptr);
         }
         ofs << "Line 1: Header\r\n";
         ofs << gbkText << "\r\n";
@@ -2077,7 +2124,148 @@ TEST(StatsManagerTest, RecordingAndHistory) {
 }
 
 // -----------------------------------------------------------------------------
-// 34. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
+// 34. 运行历史 (Run History) 与 Frecency 权重计算测试套件
+// -----------------------------------------------------------------------------
+TEST(RunHistoryTest, PersistenceAndFrecencyCalculation) {
+    wchar_t tempPath[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring csvFile = std::wstring(tempPath) + L"EasyTools_RunHistory_Test.csv";
+    DeleteFileW(csvFile.c_str());
+
+    auto& runMgr = easy::service::db::RunHistoryManager::instance();
+    runMgr.init(csvFile);
+    runMgr.clear();
+    EXPECT_EQ(runMgr.size(), 0u);
+
+    const std::wstring testFile1 = L"D:\\Chosen\\216-北京中源\\账号密码.txt";
+    const std::wstring testFile2 = L"D:\\Chosen\\999-SQL\\SAP_RW.txt";
+
+    runMgr.recordRun(testFile1);
+    EXPECT_EQ(runMgr.getRunCount(testFile1), 1u);
+    EXPECT_GT(runMgr.getLastRunDate(testFile1), 0ULL);
+
+    // 重复运行累加
+    runMgr.recordRun(testFile1);
+    EXPECT_EQ(runMgr.getRunCount(testFile1), 2u);
+
+    runMgr.recordRun(testFile2);
+    EXPECT_EQ(runMgr.getRunCount(testFile2), 1u);
+
+    // Frecency 智能权重打分计算
+    double score1 = runMgr.calculateFrecencyScore(testFile1);
+    double score2 = runMgr.calculateFrecencyScore(testFile2);
+    EXPECT_GT(score1, score2); // 运行 2 次的得分显著高于运行 1 次
+
+    auto topRuns = runMgr.getTopRuns(10);
+    ASSERT_GE(topRuns.size(), 2u);
+    EXPECT_EQ(topRuns[0].filename, testFile1);
+
+    // 持久化保存并从磁盘重载
+    EXPECT_TRUE(runMgr.save());
+    runMgr.init(csvFile);
+    EXPECT_EQ(runMgr.getRunCount(testFile1), 2u);
+    EXPECT_EQ(runMgr.getRunCount(testFile2), 1u);
+
+    DeleteFileW(csvFile.c_str());
+}
+
+// -----------------------------------------------------------------------------
+// 35. 搜索历史 (Search History) 与去重推荐测试套件
+// -----------------------------------------------------------------------------
+TEST(SearchHistoryTest, PersistenceAndDeduplication) {
+    wchar_t tempPath[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring csvFile = std::wstring(tempPath) + L"EasyTools_SearchHistory_Test.csv";
+    DeleteFileW(csvFile.c_str());
+
+    auto& searchMgr = easy::service::db::SearchHistoryManager::instance();
+    searchMgr.init(csvFile);
+    searchMgr.clear();
+    EXPECT_EQ(searchMgr.size(), 0u);
+
+    const std::wstring q1 = L"*中源*账号密码*";
+    const std::wstring q2 = L"ext:docx 订单";
+
+    searchMgr.recordSearch(q1);
+    searchMgr.recordSearch(q2);
+    searchMgr.recordSearch(q1); // 重复记录
+
+    EXPECT_EQ(searchMgr.size(), 2u);
+    auto recents = searchMgr.getRecentSearches(10);
+    ASSERT_EQ(recents.size(), 2u);
+    EXPECT_EQ(recents[0].search, q1);
+    EXPECT_EQ(recents[0].searchCount, 2u);
+
+    // 移除单个搜索项
+    EXPECT_TRUE(searchMgr.removeSearch(q2));
+    EXPECT_EQ(searchMgr.size(), 1u);
+
+    // 存盘与重载
+    EXPECT_TRUE(searchMgr.save());
+    searchMgr.init(csvFile);
+    EXPECT_EQ(searchMgr.size(), 1u);
+    EXPECT_EQ(searchMgr.getRecentSearches(10)[0].search, q1);
+
+    DeleteFileW(csvFile.c_str());
+}
+
+// -----------------------------------------------------------------------------
+// 36. 数据库快照 (EasyTools.db) 二进制存储与秒级内存映射测试套件
+// -----------------------------------------------------------------------------
+TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
+    wchar_t tempPath[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring dbFile = std::wstring(tempPath) + L"EasyTools_Test.db";
+    DeleteFileW(dbFile.c_str());
+
+    auto& dbMgr = easy::service::db::DatabaseManager::instance();
+    dbMgr.init(dbFile);
+
+    // 构造测试 MFT 卷与记录
+    auto parser1 = std::make_unique<MftParser>();
+    std::vector<FileRecord> mockRecords;
+    for (uint64_t i = 1; i <= 50; ++i) {
+        FileRecord r{};
+        r.fileReferenceNumber = i;
+        r.parentFileReferenceNumber = 0;
+        r.fileName = L"test_document_" + std::to_wstring(i) + L".docx";
+        r.fileSize = 1024 * i;
+        r.creationTime = 134000000000000000ULL + i;
+        r.lastWriteTime = 134000000000000000ULL + i * 2;
+        r.isDirectory = (i % 10 == 0);
+        mockRecords.push_back(std::move(r));
+    }
+
+    EXPECT_TRUE(parser1->importSnapshot(std::move(mockRecords), 12345678ULL, 0xABCDEF01));
+    EXPECT_EQ(parser1->getFileCount(), 50u);
+
+    std::vector<MftParser*> parsers = { parser1.get() };
+
+    // 保存快照至 EasyTools.db
+    EXPECT_TRUE(dbMgr.saveSnapshot(parsers));
+
+    auto stats = dbMgr.getStats();
+    EXPECT_TRUE(stats.exists);
+    EXPECT_GT(stats.fileSize, 0ULL);
+    EXPECT_EQ(stats.totalRecords, 50ULL);
+
+    // 构造空解析器并从 EasyTools.db 内存映射瞬时恢复
+    auto parser2 = std::make_unique<MftParser>();
+    std::vector<MftParser*> restoreParsers = { parser2.get() };
+    EXPECT_TRUE(dbMgr.loadSnapshot(restoreParsers));
+    EXPECT_EQ(parser2->getFileCount(), 50u);
+
+    // 验证搜索命中与路径结构
+    auto searchResults = parser2->Search(L"test_document_5.docx");
+    ASSERT_EQ(searchResults.size(), 1u);
+    EXPECT_EQ(searchResults[0].fileName, L"test_document_5.docx");
+    EXPECT_EQ(searchResults[0].fileSize, 5120u);
+
+    DeleteFileW(dbFile.c_str());
+}
+
+// -----------------------------------------------------------------------------
+// 37. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
 // -----------------------------------------------------------------------------
 TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     std::array<wchar_t, 32768> executablePath{};

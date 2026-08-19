@@ -252,7 +252,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
         })}
         {appRules.length === 0 && (
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', padding: '2px 8px' }}>
-            点击 ➕ 添加自定义应用
+            点击右上角加号添加自定义应用
           </div>
         )}
       </div>

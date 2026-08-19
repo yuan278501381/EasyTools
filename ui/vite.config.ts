@@ -17,7 +17,7 @@ function writeDevServerUrl(): Plugin {
           const outPath = path.resolve(__dirname, '.dev-server-url')
           fs.writeFileSync(outPath, url, 'utf-8')
           
-          console.log(`\n✨ EasyTools 动态端口就绪。按住 Ctrl 点击下方链接可在浏览器中打开调试：`)
+          console.log(`\nEasyTools 动态端口就绪。按住 Ctrl 点击下方链接可在浏览器中打开调试：`)
         }
       })
     }

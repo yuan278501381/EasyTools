@@ -25,6 +25,11 @@ MftParser::~MftParser() {
     }
 }
 
+size_t MftParser::getFileCount() const {
+    std::shared_lock lock(const_cast<std::shared_mutex&>(m_MapMutex));
+    return m_FileMap.size();
+}
+
 void MftParser::UsnListenerLoop() {
     READ_USN_JOURNAL_DATA_V0 rujd = {0};
     rujd.StartUsn = m_UsnJournalData.NextUsn;
@@ -362,7 +367,15 @@ void MftParser::rebuildFolderPaths() {
     }
 
     m_FolderPaths = std::move(folderPaths);
-    spdlog::info("Pre-computed {} folder paths for drive {}:", m_FolderPaths.size(), m_DriveLetter);
+
+    m_FlatRecords.clear();
+    m_FlatRecords.reserve(m_FileMap.size());
+    for (const auto& [_, rec] : m_FileMap) {
+        if (rec) m_FlatRecords.push_back(rec.get());
+    }
+
+    spdlog::info("Pre-computed {} folder paths and {} flat records for drive {}:",
+                 m_FolderPaths.size(), m_FlatRecords.size(), m_DriveLetter);
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit,
@@ -422,12 +435,62 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         }
     }
 
+    auto calculateFolderPriority = [this](DWORDLONG parentRef) -> int {
+        auto it = m_FolderPaths.find(parentRef);
+        if (it != m_FolderPaths.end()) {
+            std::wstring p = normalize(it->second);
+            if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
+                p.find(L"\\.gradle") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\temp") != std::wstring::npos ||
+                p.find(L"\\windows") != std::wstring::npos ||
+                p.find(L"\\$recycle.bin") != std::wstring::npos ||
+                p.find(L"\\node_modules") != std::wstring::npos ||
+                p.find(L"\\.git") != std::wstring::npos ||
+                p.find(L"\\虚拟机共享文件夹") != std::wstring::npos ||
+                p.find(L"\\baidunetdiskdownload") != std::wstring::npos ||
+                p.find(L"\\wxwork") != std::wstring::npos ||
+                p.find(L"\\xwechat_files") != std::wstring::npos ||
+                p.find(L"\\wechat files") != std::wstring::npos ||
+                p.find(L"\\cefcache") != std::wstring::npos ||
+                p.find(L"\\crashpad") != std::wstring::npos ||
+                p.find(L"\\coverage_report") != std::wstring::npos ||
+                p.find(L"\\extensions") != std::wstring::npos) {
+                return 1;
+            }
+            if (p.find(L"\\appdata") != std::wstring::npos ||
+                p.find(L"\\program files") != std::wstring::npos ||
+                p.find(L"\\programdata") != std::wstring::npos) {
+                return 20;
+            }
+            if (p.find(L"\\chosen") != std::wstring::npos ||
+                p.find(L"\\repo") != std::wstring::npos ||
+                p.find(L"\\sap_b1") != std::wstring::npos ||
+                p.find(L"\\workspace") != std::wstring::npos ||
+                p.find(L"\\projects") != std::wstring::npos ||
+                p.find(L"\\source") != std::wstring::npos ||
+                p.find(L"\\src") != std::wstring::npos) {
+                return 2000;
+            }
+            if (p.find(L"\\desktop") != std::wstring::npos ||
+                p.find(L"\\documents") != std::wstring::npos ||
+                p.find(L"\\downloads") != std::wstring::npos) {
+                return 1000;
+            }
+        }
+        if (m_DriveLetter != 'C' && m_DriveLetter != 'c') return 500;
+        return 200;
+    };
+
     struct RankedCandidate {
         DWORDLONG id;
         const FileRecord* record;
         int rank;
+        int folderPriority;
     };
     std::vector<RankedCandidate> ranked;
+    const bool isContentSearch = expr.hasContentFilter();
 
     if (canNarrow) {
         std::vector<DWORDLONG> filtered;
@@ -439,51 +502,71 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             const auto& record = *it->second;
             if (testCandidate(id, record)) {
                 filtered.push_back(id);
-                ranked.push_back({id, &record, expr.calculateRank(record)});
+                int fPriority = isContentSearch ? calculateFolderPriority(record.parentFileReferenceNumber) : 0;
+                ranked.push_back({id, &record, expr.calculateRank(record), fPriority});
             }
         }
         candidates = std::move(filtered);
     } else {
-        candidates.reserve(std::min<size_t>(m_FileMap.size(), 65536));
-        ranked.reserve(std::min<size_t>(m_FileMap.size(), 65536));
-        for (const auto& [id, record] : m_FileMap) {
-            if (testCandidate(id, *record)) {
-                candidates.push_back(id);
-                ranked.push_back({id, record.get(), expr.calculateRank(*record)});
-            }
-        }
-    }
-    const auto compareRank = [&expr, this](const auto& a, const auto& b) {
-        if (a.rank != b.rank) return a.rank < b.rank;
-        if (expr.hasContentFilter()) {
-            auto getFolderPriority = [this](const FileRecord* r) -> int {
-                auto it = m_FolderPaths.find(r->parentFileReferenceNumber);
-                if (it != m_FolderPaths.end()) {
-                    const std::wstring& p = it->second;
-                    if (p.find(L"\\AppData\\") != std::wstring::npos ||
-                        p.find(L"\\Program Files") != std::wstring::npos ||
-                        p.find(L"\\ProgramData\\") != std::wstring::npos ||
-                        p.find(L"\\Windows\\") != std::wstring::npos ||
-                        p.find(L"\\Temp\\") != std::wstring::npos) {
-                        return 10;
-                    }
-                    if (p.find(L"\\Desktop") != std::wstring::npos ||
-                        p.find(L"\\Documents") != std::wstring::npos ||
-                        p.find(L"\\Downloads") != std::wstring::npos ||
-                        p.find(L"\\repo") != std::wstring::npos ||
-                        p.find(L"\\workspace") != std::wstring::npos ||
-                        p.find(L"\\Projects") != std::wstring::npos ||
-                        p.find(L"\\Chosen") != std::wstring::npos) {
-                        return 90;
+        const size_t totalRecords = m_FlatRecords.size();
+        unsigned int numThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
+        if (totalRecords < 10000) numThreads = 1;
+
+        std::vector<std::vector<DWORDLONG>> threadCandidates(numThreads);
+        std::vector<std::vector<RankedCandidate>> threadRanked(numThreads);
+
+        size_t chunkSize = (totalRecords + numThreads - 1) / numThreads;
+        std::vector<std::thread> workers;
+        workers.reserve(numThreads);
+
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            size_t startIdx = t * chunkSize;
+            size_t endIdx = std::min(startIdx + chunkSize, totalRecords);
+            if (startIdx >= endIdx) break;
+
+            workers.emplace_back([&, t, startIdx, endIdx]() {
+                auto& localCand = threadCandidates[t];
+                auto& localRank = threadRanked[t];
+                localCand.reserve(std::min<size_t>((endIdx - startIdx) / 16 + 64, 8192));
+                localRank.reserve(std::min<size_t>((endIdx - startIdx) / 16 + 64, 8192));
+
+                for (size_t i = startIdx; i < endIdx; ++i) {
+                    const auto* record = m_FlatRecords[i];
+                    if (!record) continue;
+                    DWORDLONG id = record->fileReferenceNumber;
+                    if (testCandidate(id, *record)) {
+                        localCand.push_back(id);
+                        int fPriority = isContentSearch ? calculateFolderPriority(record->parentFileReferenceNumber) : 0;
+                        localRank.push_back({id, record, expr.calculateRank(*record), fPriority});
                     }
                 }
-                // 非系统盘根目录及用户工作目录
-                if (m_DriveLetter != 'C' && m_DriveLetter != 'c') return 100;
-                return 50;
-            };
-            int pA = getFolderPriority(a.record);
-            int pB = getFolderPriority(b.record);
-            if (pA != pB) return pA > pB;
+            });
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) w.join();
+        }
+
+        size_t totalFound = 0;
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            totalFound += threadCandidates[t].size();
+        }
+
+        candidates.reserve(totalFound);
+        ranked.reserve(totalFound);
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            candidates.insert(candidates.end(),
+                              std::make_move_iterator(threadCandidates[t].begin()),
+                              std::make_move_iterator(threadCandidates[t].end()));
+            ranked.insert(ranked.end(),
+                          std::make_move_iterator(threadRanked[t].begin()),
+                          std::make_move_iterator(threadRanked[t].end()));
+        }
+    }
+    const auto compareRank = [&expr](const auto& a, const auto& b) {
+        if (a.rank != b.rank) return a.rank < b.rank;
+        if (expr.hasContentFilter()) {
+            if (a.folderPriority != b.folderPriority) return a.folderPriority > b.folderPriority;
             return a.record->lastWriteTime > b.record->lastWriteTime;
         }
         if (a.record->normalizedName.size() != b.record->normalizedName.size())
@@ -556,3 +639,125 @@ std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
     }
     return path;
 }
+
+uint64_t MftParser::getCurrentUsn() const {
+    return m_UsnJournalData.NextUsn;
+}
+
+uint32_t MftParser::getVolumeSerialNumber() const {
+    std::wstring root;
+    root += static_cast<wchar_t>(m_DriveLetter);
+    root += L":\\";
+    DWORD serial = 0;
+    GetVolumeInformationW(root.c_str(), nullptr, 0, &serial, nullptr, nullptr, nullptr, 0);
+    return serial;
+}
+
+void MftParser::exportSnapshot(std::vector<FileRecord>& outRecords, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const {
+    std::shared_lock lock(const_cast<std::shared_mutex&>(m_MapMutex));
+    outRecords.clear();
+    outRecords.reserve(m_FileMap.size());
+    for (const auto& [_, rec] : m_FileMap) {
+        if (rec) {
+            outRecords.push_back(*rec);
+        }
+    }
+    outLastUsn = m_UsnJournalData.NextUsn;
+    outVolumeSerial = getVolumeSerialNumber();
+}
+
+bool MftParser::importSnapshot(std::vector<FileRecord>&& records, uint64_t lastUsn, uint32_t volumeSerial) {
+    std::unique_lock lock(m_MapMutex);
+    m_FileMap.clear();
+    m_FolderPaths.clear();
+
+    for (auto& r : records) {
+        auto record = std::make_unique<FileRecord>(std::move(r));
+        record->normalizedName = normalize(record->fileName);
+        record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
+        record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+        m_FileMap[record->fileReferenceNumber] = std::move(record);
+    }
+
+    m_UsnJournalData.NextUsn = lastUsn;
+    rebuildFolderPaths();
+    m_IndexGeneration++;
+    return true;
+}
+
+bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
+    if (m_hVolume == INVALID_HANDLE_VALUE || m_IsFallbackDirectoryWalk) {
+        return false;
+    }
+
+    if (!QueryUsnJournal()) {
+        return false;
+    }
+
+    if (fromUsn == 0 || fromUsn < m_UsnJournalData.LowestValidUsn || fromUsn > m_UsnJournalData.NextUsn) {
+        spdlog::warn("USN journal on drive {} is out of range (fromUsn: {}, lowest: {}, next: {}), skipping catchup",
+                     m_DriveLetter, fromUsn, m_UsnJournalData.LowestValidUsn, m_UsnJournalData.NextUsn);
+        return false;
+    }
+
+    READ_USN_JOURNAL_DATA_V0 rujd = {0};
+    rujd.StartUsn = fromUsn;
+    rujd.ReasonMask = 0xFFFFFFFF;
+    rujd.ReturnOnlyOnClose = FALSE;
+    rujd.Timeout = 0;
+    rujd.BytesToWaitFor = 0;
+    rujd.UsnJournalID = m_UsnJournalData.UsnJournalID;
+
+    BYTE buffer[BUF_LEN];
+    DWORD bytesReturned = 0;
+    bool anyChanged = false;
+
+    while (DeviceIoControl(m_hVolume, FSCTL_READ_USN_JOURNAL, &rujd, sizeof(rujd), buffer, BUF_LEN, &bytesReturned, NULL)) {
+        if (bytesReturned <= sizeof(USN)) break;
+
+        DWORD dwRetBytes = bytesReturned - sizeof(USN);
+        USN* pNextUsn = (USN*)buffer;
+        rujd.StartUsn = *pNextUsn;
+
+        PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
+
+        if (dwRetBytes > 0) {
+            std::unique_lock lock(m_MapMutex);
+            while (dwRetBytes >= sizeof(USN_RECORD_V2) &&
+                   pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
+                   pRecord->RecordLength <= dwRetBytes) {
+                if (pRecord->Reason & USN_REASON_FILE_CREATE || pRecord->Reason & USN_REASON_RENAME_NEW_NAME) {
+                    std::unique_ptr<FileRecord> record = std::make_unique<FileRecord>();
+                    record->fileReferenceNumber = pRecord->FileReferenceNumber;
+                    record->parentFileReferenceNumber = pRecord->ParentFileReferenceNumber;
+                    record->isDirectory = (pRecord->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                    record->fileAttributes = pRecord->FileAttributes;
+                    int nameLen = pRecord->FileNameLength / 2;
+                    record->fileName.assign((wchar_t*)((PBYTE)pRecord + pRecord->FileNameOffset), nameLen);
+                    record->normalizedName = normalize(record->fileName);
+                    record->pinyinInitials = normalize(PinyinEngine::GetInitials(record->fileName));
+                    record->pinyinFull = normalize(PinyinEngine::GetFullPinyin(record->fileName));
+
+                    m_FileMap[record->fileReferenceNumber] = std::move(record);
+                    anyChanged = true;
+                } else if (pRecord->Reason & USN_REASON_FILE_DELETE) {
+                    anyChanged = m_FileMap.erase(pRecord->FileReferenceNumber) > 0 || anyChanged;
+                }
+
+                dwRetBytes -= pRecord->RecordLength;
+                pRecord = (PUSN_RECORD_V2)((PBYTE)pRecord + pRecord->RecordLength);
+            }
+        }
+
+        if (*pNextUsn >= m_UsnJournalData.NextUsn) break;
+    }
+
+    if (anyChanged) {
+        std::unique_lock lock(m_MapMutex);
+        rebuildFolderPaths();
+        m_IndexGeneration++;
+    }
+
+    return true;
+}
+

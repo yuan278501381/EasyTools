@@ -327,6 +327,7 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_gestureStartWindow = hwndUnderCursor ? hwndUnderCursor : event.foregroundWindow;
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
+    m_fallbackProfile = getProfile("default");
     m_lastRecognizedDirections.clear();
     m_state = GestureState::Tracking;
 
@@ -378,18 +379,14 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
                     if (m_activeProfile) {
                         if (!modPrefix.empty()) {
                             action = m_activeProfile->findAction(fullCode);
-                            if (!action && m_activeProfile->name() != "default") {
-                                if (const auto fallback = getProfile("default")) {
-                                    action = fallback->findAction(fullCode);
-                                }
+                            if (!action && m_activeProfile->name() != "default" && m_fallbackProfile) {
+                                action = m_fallbackProfile->findAction(fullCode);
                             }
                         }
                         if (!action) {
                             action = m_activeProfile->findAction(bareCode);
-                            if (!action && m_activeProfile->name() != "default") {
-                                if (const auto fallback = getProfile("default")) {
-                                    action = fallback->findAction(bareCode);
-                                }
+                            if (!action && m_activeProfile->name() != "default" && m_fallbackProfile) {
+                                action = m_fallbackProfile->findAction(bareCode);
                             }
                         }
                     }
@@ -426,6 +423,7 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
 void GestureEngine::endTracking(const MouseEvent& event) {
     MouseHook::instance().resetTriggerState();
     m_activeProfile.reset();
+    m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
 
     // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
@@ -615,6 +613,7 @@ void GestureEngine::reinjectTriggerClick() {
 void GestureEngine::cancelTracking() {
     MouseHook::instance().resetTriggerState();
     m_activeProfile.reset();
+    m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
     if (m_trailVisible.load()) {
         GestureTrailOverlay::instance().hide();

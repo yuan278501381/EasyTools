@@ -1,4 +1,19 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  File, 
+  Folder, 
+  ExternalLink, 
+  FolderOpen, 
+  Copy, 
+  X, 
+  FileText, 
+  Image, 
+  Film, 
+  Music, 
+  Code, 
+  FileDigit, 
+  Search 
+} from 'lucide-react';
 import { bridgeRequest, useBridgeEvent } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import './QuickLookApp.css';
@@ -116,16 +131,16 @@ export default function QuickLookApp() {
   }, [data]);
 
   const fileIcon = useMemo(() => {
-    if (!data) return '📄';
-    if (data.isDirectory) return '📁';
+    if (!data) return <FileText size={18} />;
+    if (data.isDirectory) return <Folder size={18} />;
     switch (data.type) {
-      case 'markdown': return '📝';
-      case 'image': return '🖼️';
-      case 'video': return '🎬';
-      case 'audio': return '🎵';
-      case 'code': return '💻';
-      case 'pdf': return '📕';
-      default: return '📄';
+      case 'markdown': return <FileText size={18} />;
+      case 'image': return <Image size={18} />;
+      case 'video': return <Film size={18} />;
+      case 'audio': return <Music size={18} />;
+      case 'code': return <Code size={18} />;
+      case 'pdf': return <FileText size={18} />;
+      default: return <File size={18} />;
     }
   }, [data]);
 
@@ -152,7 +167,7 @@ export default function QuickLookApp() {
     return (
       <div className="ql-container ql-empty-container">
         <div className="ql-empty-state">
-          <div className="ql-empty-icon">🔍</div>
+          <div className="ql-empty-icon"><Search size={32} /></div>
           <div className="ql-empty-title">在资源管理器中选中文件并按空格键</div>
           <div className="ql-empty-desc">支持 Markdown、代码、图片、音视频、PDF 及文件夹等任意格式秒级预览</div>
         </div>
@@ -245,7 +260,8 @@ export default function QuickLookApp() {
             onClick={() => bridgeRequest('quicklook.open', { path: data.path })}
             title="使用默认程序打开 (Enter)"
           >
-            🚀 打开文件
+            <ExternalLink size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
+            打开文件
           </button>
           <button
             type="button"
@@ -253,7 +269,8 @@ export default function QuickLookApp() {
             onClick={() => bridgeRequest('quicklook.showInFolder', { path: data.path })}
             title="在文件夹中定位文件"
           >
-            📂 定位
+            <FolderOpen size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
+            定位
           </button>
           <button
             type="button"
@@ -261,7 +278,8 @@ export default function QuickLookApp() {
             onClick={() => bridgeRequest('quicklook.copyPath', { path: data.path })}
             title="复制文件绝对路径"
           >
-            📋 复制路径
+            <Copy size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
+            复制路径
           </button>
           <button
             type="button"
@@ -269,7 +287,7 @@ export default function QuickLookApp() {
             onClick={() => bridgeRequest('quicklook.hide')}
             title="关闭预览 (Esc / Space)"
           >
-            ✕
+            <X size={14} />
           </button>
         </div>
       </header>
@@ -320,7 +338,7 @@ export default function QuickLookApp() {
         {data.type === 'audio' && (
           <div className="ql-media-view ql-audio-container">
             <div className="ql-audio-card">
-              <div className="ql-audio-icon">🎵</div>
+              <div className="ql-audio-icon"><Music size={36} /></div>
               <div className="ql-audio-title">{data.name}</div>
               <audio controls autoPlay src={`https://easytools.local/` + encodeURIComponent(data.name)} className="ql-audio-player" />
             </div>
@@ -345,7 +363,9 @@ export default function QuickLookApp() {
                   {data.folderChildren?.map((child, index) => (
                     <tr key={index}>
                       <td className="ql-cell-name">
-                        <span className="ql-table-icon">{child.isDirectory ? '📁' : '📄'}</span>
+                        <span className="ql-table-icon" style={{ display: 'inline-flex', alignItems: 'center', marginRight: 4 }}>
+                          {child.isDirectory ? <Folder size={14} /> : <File size={14} />}
+                        </span>
                         <span>{child.name}</span>
                       </td>
                       <td>{child.formattedSize}</td>
@@ -361,7 +381,7 @@ export default function QuickLookApp() {
         {data.type === 'binary' && (
           <div className="ql-binary-view">
             <div className="ql-binary-card">
-              <div className="ql-binary-icon">📦</div>
+              <div className="ql-binary-icon"><FileDigit size={36} /></div>
               <div className="ql-binary-name">{data.name}</div>
               <div className="ql-binary-meta">{data.formattedSize} · 二进制文件</div>
               {data.hexDump ? (

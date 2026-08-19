@@ -108,10 +108,10 @@ struct GestureResult {
 
 /// 识别参数配置
 struct RecognizerConfig {
-    int minSegmentDistance   = 30;      // 最小方向段移动距离（像素），小于此值忽略
-    int samplingInterval    = 5;       // 采样间隔（像素），过滤过于密集的点
+    int minSegmentDistance   = 14;      // 最小方向段移动距离（像素，14px 极速跟手响应）
+    int samplingInterval     = 2;       // 采样间隔（像素，2px 细腻平滑捕获）
     double angleToleranceDeg = 22.5;   // 角度容差（度），±容差内归类为同一方向
-    int maxDirections       = 10;      // 最大方向段数量（超过视为无效手势）
+    int maxDirections        = 10;      // 最大方向段数量（超过视为无效手势）
     bool enableScribbleCancel = true;   // 是否开启快速乱晃/打圈反悔取消手势
 };
 
@@ -154,6 +154,9 @@ private:
     /// 计算两点之间的距离
     static double calculateDistance(int x1, int y1, int x2, int y2);
 
+    /// 检查点是否在当前方向上继续推进
+    static bool isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) noexcept;
+
     /// 处理累积的点，提取方向段
     void processPoints();
 
@@ -161,8 +164,9 @@ private:
     std::vector<TrackPoint> m_points;              // 所有轨迹点
     std::vector<Direction> m_directions;           // 已识别的方向段序列
 
-    // 当前方向段的累积状态
+    // 当前方向段的累积状态 (基于拐点检测模型)
     TrackPoint m_segmentStart{0, 0};               // 当前段起点
+    TrackPoint m_peakPoint{0, 0};                  // 当前段沿前进方向的最远极值点 (拐点)
     Direction m_currentDirection = Direction::None; // 当前段方向
     bool m_hasSegmentStart = false;
 };

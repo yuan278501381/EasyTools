@@ -19,6 +19,9 @@
 #include <nlohmann/json.hpp>
 #include "MftParser.h"
 #include "content/ContentSearchEngine.h"
+#include "db/RunHistoryManager.h"
+#include "db/SearchHistoryManager.h"
+#include "db/DatabaseManager.h"
 
 #define SERVICE_NAME L"EasyTools_SearchService"
 
@@ -78,8 +81,10 @@ void InitLogger() {
 
 nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     std::wstring wQuery;
+    std::string searchMode = "name";
     std::vector<char> enabledDrives;
     SearchExcludeOptions excludeOpts;
+    size_t requestedLimit = 100;
 
     std::string utf8Input = WStringToString(rawInput);
     if (!utf8Input.empty() && utf8Input.front() == '{') {
@@ -92,14 +97,82 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         MftParser* pRaw = parser.get();
                         std::thread([pRaw]() {
                             pRaw->EnumerateFiles();
+                            pRaw->StartListening();
+                            std::vector<MftParser*> allParsers;
+                            for (auto& p : g_MftParsers) allParsers.push_back(p.get());
+                            easy::service::db::DatabaseManager::instance().saveSnapshot(allParsers);
                         }).detach();
                     }
                     return {{"success", true}, {"rebuilding", true}};
+                }
+                if (act == "recordRun") {
+                    if (reqJson.contains("path") && reqJson["path"].is_string()) {
+                        std::wstring path = StringToWString(reqJson["path"].get<std::string>());
+                        easy::service::db::RunHistoryManager::instance().recordRun(path);
+                        return {{"success", true}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "recordSearch") {
+                    if (reqJson.contains("query") && reqJson["query"].is_string()) {
+                        std::wstring q = StringToWString(reqJson["query"].get<std::string>());
+                        easy::service::db::SearchHistoryManager::instance().recordSearch(q);
+                        return {{"success", true}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "getSearchHistory") {
+                    size_t limit = reqJson.value("limit", 30);
+                    auto list = easy::service::db::SearchHistoryManager::instance().getRecentSearches(limit);
+                    nlohmann::json arr = nlohmann::json::array();
+                    for (const auto& item : list) {
+                        arr.push_back({
+                            {"search", WStringToString(item.search)},
+                            {"searchCount", item.searchCount},
+                            {"lastSearchDate", item.lastSearchDate}
+                        });
+                    }
+                    return {{"success", true}, {"history", arr}};
+                }
+                if (act == "removeSearchHistory") {
+                    if (reqJson.contains("search") && reqJson["search"].is_string()) {
+                        std::wstring q = StringToWString(reqJson["search"].get<std::string>());
+                        bool ok = easy::service::db::SearchHistoryManager::instance().removeSearch(q);
+                        return {{"success", ok}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "clearSearchHistory") {
+                    easy::service::db::SearchHistoryManager::instance().clear();
+                    return {{"success", true}};
+                }
+                if (act == "getDbStats") {
+                    auto stats = easy::service::db::DatabaseManager::instance().getStats();
+                    return {
+                        {"success", true},
+                        {"dbPath", WStringToString(stats.dbPath)},
+                        {"dbSize", stats.fileSize},
+                        {"timestamp", stats.timestamp},
+                        {"totalRecords", stats.totalRecords},
+                        {"volumeCount", stats.volumeCount},
+                        {"exists", stats.exists},
+                        {"runHistoryCount", easy::service::db::RunHistoryManager::instance().size()},
+                        {"searchHistoryCount", easy::service::db::SearchHistoryManager::instance().size()}
+                    };
+                }
+                if (act == "saveSnapshot") {
+                    std::vector<MftParser*> allParsers;
+                    for (auto& p : g_MftParsers) allParsers.push_back(p.get());
+                    bool ok = easy::service::db::DatabaseManager::instance().saveSnapshot(allParsers);
+                    return {{"success", ok}};
                 }
             }
 
             if (reqJson.contains("query") && reqJson["query"].is_string()) {
                 wQuery = StringToWString(reqJson["query"].get<std::string>());
+            }
+            if (reqJson.contains("searchMode") && reqJson["searchMode"].is_string()) {
+                searchMode = reqJson["searchMode"].get<std::string>();
             }
             if (reqJson.contains("drives") && reqJson["drives"].is_array()) {
                 for (const auto& d : reqJson["drives"]) {
@@ -123,6 +196,11 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             if (reqJson.contains("excludeSystem") && reqJson["excludeSystem"].is_boolean()) {
                 excludeOpts.excludeSystem = reqJson["excludeSystem"].get<bool>();
             }
+            if (reqJson.contains("limit") && reqJson["limit"].is_number_integer()) {
+                int l = reqJson["limit"].get<int>();
+                if (l <= 0) requestedLimit = 10000; // 全部返回 (安全上限 10000)
+                else requestedLimit = static_cast<size_t>(l);
+            }
             if (reqJson.contains("contentCustomExts") || reqJson.contains("contentDisabledExts")) {
                 std::vector<std::wstring> customExts;
                 std::vector<std::wstring> disabledExts;
@@ -144,10 +222,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     } else {
         wQuery = rawInput;
     }
-
-    if (wQuery.empty()) {
-        return {{"results", nlohmann::json::array()}};
-    }
+    const auto overallStartTime = std::chrono::steady_clock::now();
 
     auto isDriveEnabled = [&](char driveLetter) {
         if (enabledDrives.empty()) return true;
@@ -157,14 +232,54 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         return false;
     };
 
+    size_t totalIndexedFiles = 0;
+    for (const auto& parser : g_MftParsers) {
+        if (isDriveEnabled(parser->getDriveLetter())) {
+            totalIndexedFiles += parser->getFileCount();
+        }
+    }
+
+    if (wQuery.empty()) {
+        return {
+            {"results", nlohmann::json::array()},
+            {"totalIndexedFiles", totalIndexedFiles},
+            {"elapsedMs", 0}
+        };
+    }
+
     SearchExpression expr = SearchExpression::parse(wQuery);
     nlohmann::json responseJson = {{"results", nlohmann::json::array()}};
 
-    if (expr.hasContentFilter() && !expr.getContentQuery().empty()) {
+    auto runNameSearch = [&](const std::wstring& queryStr, size_t maxCount) -> std::vector<SearchResult> {
+        std::vector<std::future<std::vector<SearchResult>>> futures;
+        futures.reserve(g_MftParsers.size());
+        for (auto& parser : g_MftParsers) {
+            if (!isDriveEnabled(parser->getDriveLetter())) continue;
+            futures.push_back(std::async(std::launch::async, [&parser, &queryStr, &excludeOpts, maxCount]() {
+                return parser->Search(queryStr, static_cast<int>(maxCount), excludeOpts);
+            }));
+        }
+
+        std::vector<SearchResult> results;
+        for (auto& f : futures) {
+            auto volumeResults = f.get();
+            results.insert(results.end(),
+                           std::make_move_iterator(volumeResults.begin()),
+                           std::make_move_iterator(volumeResults.end()));
+        }
+        std::stable_sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+            if (a.fileName.size() != b.fileName.size()) return a.fileName.size() < b.fileName.size();
+            return _wcsicmp(a.fileName.c_str(), b.fileName.c_str()) < 0;
+        });
+        if (results.size() > maxCount) results.resize(maxCount);
+        return results;
+    };
+
+    auto runContentSearch = [&](const std::wstring& queryStr, const std::wstring& contentPattern, size_t maxCount) -> std::vector<nlohmann::json> {
         std::vector<SearchResult> candidates;
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            auto volumeResults = parser->Search(wQuery, 100000, excludeOpts);
+            auto volumeResults = parser->Search(queryStr, 10000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -176,53 +291,71 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
         for (auto& candidate : candidates) {
             if (candidate.isDirectory) continue;
-            if (candidate.fileSize > 50 * 1024 * 1024) continue; // 忽略大于 50MB 的巨型文件
+            if (candidate.fileSize > 50 * 1024 * 1024) continue;
             
             size_t dotPos = candidate.fullPath.rfind(L'.');
             if (dotPos == std::wstring::npos) continue;
             std::wstring ext = candidate.fullPath.substr(dotPos + 1);
             if (!contentEngine.canSearchContent(ext)) continue;
 
-            // 过滤深层 Windows 庞大二进制目录（除非显式指定 windows 路径）
             if (candidate.fullPath.find(L"\\Windows\\WinSxS\\") != std::wstring::npos ||
                 candidate.fullPath.find(L"\\Windows\\System32\\") != std::wstring::npos ||
                 candidate.fullPath.find(L"\\$Recycle.Bin\\") != std::wstring::npos) {
-                if (wQuery.find(L"windows") == std::wstring::npos && wQuery.find(L"winsxs") == std::wstring::npos) {
+                if (queryStr.find(L"windows") == std::wstring::npos && queryStr.find(L"winsxs") == std::wstring::npos) {
                     continue;
                 }
             }
             textCandidates.push_back(std::move(candidate));
         }
 
-        // 智能优先级权重排序：将非系统工作盘（D:、E:）、用户桌面/文档/Chosen优先放置在前面扫描
         auto getPathPriority = [](const std::wstring& path) -> int {
-            // 缓存与垃圾构建路径降权
-            if (path.find(L"\\AppData\\Local\\npm-cache\\") != std::wstring::npos ||
-                path.find(L"\\AppData\\Local\\pip\\") != std::wstring::npos ||
-                path.find(L"\\AppData\\Local\\go-build\\") != std::wstring::npos ||
-                path.find(L"\\.gradle\\") != std::wstring::npos ||
-                path.find(L"\\AppData\\Local\\Temp\\") != std::wstring::npos) {
-                return 10;
+            std::wstring p;
+            p.reserve(path.size());
+            for (wchar_t c : path) p.push_back(std::towlower(c));
+
+            if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
+                p.find(L"\\.gradle") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\temp") != std::wstring::npos ||
+                p.find(L"\\node_modules") != std::wstring::npos ||
+                p.find(L"\\.git") != std::wstring::npos ||
+                p.find(L"\\$recycle.bin") != std::wstring::npos ||
+                p.find(L"\\windows") != std::wstring::npos ||
+                p.find(L"\\虚拟机共享文件夹") != std::wstring::npos ||
+                p.find(L"\\baidunetdiskdownload") != std::wstring::npos ||
+                p.find(L"\\wxwork") != std::wstring::npos ||
+                p.find(L"\\xwechat_files") != std::wstring::npos ||
+                p.find(L"\\wechat files") != std::wstring::npos ||
+                p.find(L"\\cefcache") != std::wstring::npos ||
+                p.find(L"\\crashpad") != std::wstring::npos ||
+                p.find(L"\\coverage_report") != std::wstring::npos ||
+                p.find(L"\\extensions") != std::wstring::npos) {
+                return 1;
             }
-            // AppData 内其他目录
-            if (path.find(L"\\AppData\\") != std::wstring::npos) {
-                return 30;
+            if (p.find(L"\\appdata") != std::wstring::npos ||
+                p.find(L"\\program files") != std::wstring::npos ||
+                p.find(L"\\programdata") != std::wstring::npos) {
+                return 20;
             }
-            // 非系统盘（D:、E: 等用户数据与工作盘）最高优先级
-            if (path.size() >= 2 && path[1] == L':' && path[0] != L'C' && path[0] != L'c') {
-                return 100;
+            if (p.find(L"\\chosen") != std::wstring::npos ||
+                p.find(L"\\repo") != std::wstring::npos ||
+                p.find(L"\\sap_b1") != std::wstring::npos ||
+                p.find(L"\\workspace") != std::wstring::npos ||
+                p.find(L"\\projects") != std::wstring::npos ||
+                p.find(L"\\source") != std::wstring::npos ||
+                p.find(L"\\src") != std::wstring::npos) {
+                return 2000;
             }
-            // C 盘中的工作区/桌面/文档/Chosen
-            if (path.find(L"\\Desktop\\") != std::wstring::npos ||
-                path.find(L"\\Documents\\") != std::wstring::npos ||
-                path.find(L"\\Downloads\\") != std::wstring::npos ||
-                path.find(L"\\repo\\") != std::wstring::npos ||
-                path.find(L"\\workspace\\") != std::wstring::npos ||
-                path.find(L"\\Projects\\") != std::wstring::npos ||
-                path.find(L"\\Chosen\\") != std::wstring::npos) {
-                return 90;
+            if (p.find(L"\\desktop") != std::wstring::npos ||
+                p.find(L"\\documents") != std::wstring::npos ||
+                p.find(L"\\downloads") != std::wstring::npos) {
+                return 1000;
             }
-            return 50;
+            if (p.size() >= 2 && p[1] == L':' && p[0] != L'c') {
+                return 500;
+            }
+            return 200;
         };
 
         std::stable_sort(textCandidates.begin(), textCandidates.end(), [&](const auto& a, const auto& b) {
@@ -233,9 +366,10 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         });
 
         std::mutex resultsMutex;
+        std::vector<nlohmann::json> contentResults;
         std::atomic<size_t> matchCount{0};
         const auto startTime = std::chrono::steady_clock::now();
-        const auto deadline = startTime + std::chrono::milliseconds(3000);
+        const auto deadline = startTime + std::chrono::milliseconds(10000);
 
         const unsigned int numThreads = (std::max)(2u, (std::min)(16u, std::thread::hardware_concurrency()));
         std::vector<std::thread> workers;
@@ -243,14 +377,14 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
         for (unsigned int t = 0; t < numThreads; ++t) {
             workers.emplace_back([&]() {
-                while (matchCount.load() < 100) {
+                while (matchCount.load() < maxCount) {
                     if (std::chrono::steady_clock::now() > deadline) break;
                     size_t idx = nextIndex.fetch_add(1);
                     if (idx >= textCandidates.size()) break;
 
                     const auto& item = textCandidates[idx];
                     std::vector<easy::service::content::ContentSnippet> snippets;
-                    if (contentEngine.searchFile(item.fullPath, expr.getContentQuery(), false, snippets)) {
+                    if (contentEngine.searchFile(item.fullPath, contentPattern, false, snippets)) {
                         nlohmann::json snippetsJson = nlohmann::json::array();
                         for (const auto& snip : snippets) {
                             snippetsJson.push_back({
@@ -272,8 +406,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         };
 
                         std::lock_guard<std::mutex> lock(resultsMutex);
-                        if (responseJson["results"].size() < 100) {
-                            responseJson["results"].push_back(std::move(itemJson));
+                        if (contentResults.size() < maxCount) {
+                            contentResults.push_back(std::move(itemJson));
                             matchCount.fetch_add(1);
                         }
                     }
@@ -284,40 +418,74 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         for (auto& w : workers) {
             if (w.joinable()) w.join();
         }
+        return contentResults;
+    };
+
+    bool isExplicitContent = expr.hasContentFilter() && !expr.getContentQuery().empty();
+    std::wstring contentPattern = isExplicitContent ? expr.getContentQuery() : wQuery;
+
+    if (isExplicitContent || searchMode == "content") {
+        auto contentMatches = runContentSearch(isExplicitContent ? wQuery : (L"content:" + wQuery), contentPattern, requestedLimit);
+        for (auto& item : contentMatches) {
+            responseJson["results"].push_back(std::move(item));
+        }
+    } else if (searchMode == "both") {
+        // 双搜模式：同时搜索文件名与文件内容
+        auto nameMatches = runNameSearch(wQuery, requestedLimit);
+        auto contentMatches = runContentSearch(L"content:" + wQuery, wQuery, requestedLimit);
+
+        std::unordered_set<std::string> seenPaths;
+        for (const auto& result : nameMatches) {
+            std::string p = WStringToString(result.fullPath);
+            seenPaths.insert(p);
+            uint32_t rc = easy::service::db::RunHistoryManager::instance().getRunCount(result.fullPath);
+            double fs = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(result.fullPath);
+            responseJson["results"].push_back({
+                {"name", WStringToString(result.fileName)},
+                {"path", std::move(p)},
+                {"isDirectory", result.isDirectory},
+                {"size", result.fileSize},
+                {"creationTime", result.creationTime},
+                {"lastWriteTime", result.lastWriteTime},
+                {"runCount", rc},
+                {"frecencyScore", fs}
+            });
+        }
+
+        for (auto& item : contentMatches) {
+            std::string p = item["path"].get<std::string>();
+            if (seenPaths.find(p) == seenPaths.end()) {
+                seenPaths.insert(p);
+                std::wstring wp = StringToWString(p);
+                item["runCount"] = easy::service::db::RunHistoryManager::instance().getRunCount(wp);
+                item["frecencyScore"] = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(wp);
+                responseJson["results"].push_back(std::move(item));
+            }
+        }
     } else {
-        std::vector<std::future<std::vector<SearchResult>>> futures;
-        futures.reserve(g_MftParsers.size());
-        for (auto& parser : g_MftParsers) {
-            if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            futures.push_back(std::async(std::launch::async, [&parser, &wQuery, &excludeOpts]() {
-                return parser->Search(wQuery, 50, excludeOpts);
-            }));
-        }
-
-        std::vector<SearchResult> results;
-        for (auto& f : futures) {
-            auto volumeResults = f.get();
-            results.insert(results.end(),
-                           std::make_move_iterator(volumeResults.begin()),
-                           std::make_move_iterator(volumeResults.end()));
-        }
-        std::stable_sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
-            if (a.fileName.size() != b.fileName.size()) return a.fileName.size() < b.fileName.size();
-            return _wcsicmp(a.fileName.c_str(), b.fileName.c_str()) < 0;
-        });
-        if (results.size() > 50) results.resize(50);
-
-        for (const auto& result : results) {
+        // 仅搜文件名 (name 极速模式)
+        auto nameMatches = runNameSearch(wQuery, requestedLimit);
+        for (const auto& result : nameMatches) {
+            uint32_t rc = easy::service::db::RunHistoryManager::instance().getRunCount(result.fullPath);
+            double fs = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(result.fullPath);
             responseJson["results"].push_back({
                 {"name", WStringToString(result.fileName)},
                 {"path", WStringToString(result.fullPath)},
                 {"isDirectory", result.isDirectory},
                 {"size", result.fileSize},
                 {"creationTime", result.creationTime},
-                {"lastWriteTime", result.lastWriteTime}
+                {"lastWriteTime", result.lastWriteTime},
+                {"runCount", rc},
+                {"frecencyScore", fs}
             });
         }
     }
+
+    const auto overallEndTime = std::chrono::steady_clock::now();
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(overallEndTime - overallStartTime).count();
+
+    responseJson["totalIndexedFiles"] = totalIndexedFiles;
+    responseJson["elapsedMs"] = elapsedMs;
 
     return responseJson;
 }
@@ -373,12 +541,14 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
 void IPCServerThread() {
     spdlog::info("IPC Server Thread started.");
-    
-    // Index every local fixed NTFS volume instead of silently limiting search
-    // to C:. Removable/network volumes are excluded because USN semantics and
-    // availability are not stable enough for a resident service.
+
+    // 初始化历史与快照数据库管理器
+    easy::service::db::RunHistoryManager::instance().init();
+    easy::service::db::SearchHistoryManager::instance().init();
+    easy::service::db::DatabaseManager::instance().init();
+
+    // 扫描所有本地驱动器
     const DWORD driveMask = GetLogicalDrives();
-    std::vector<std::thread> indexThreads;
     for (char drive = 'A'; drive <= 'Z' && g_IsRunning.load(); ++drive) {
         if (!(driveMask & (1u << (drive - 'A')))) continue;
         const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\'};
@@ -388,14 +558,56 @@ void IPCServerThread() {
 
         auto parser = std::make_unique<MftParser>();
         if (parser->Initialize(drive)) {
-            MftParser* pRaw = parser.get();
             g_MftParsers.push_back(std::move(parser));
+        }
+    }
+
+    // 尝试从 EasyTools.db 二进制快照秒级冷启动 (< 30ms)
+    std::vector<MftParser*> rawParsers;
+    for (auto& p : g_MftParsers) rawParsers.push_back(p.get());
+
+    bool snapshotLoaded = easy::service::db::DatabaseManager::instance().loadSnapshot(rawParsers);
+    std::vector<std::thread> indexThreads;
+
+    if (snapshotLoaded) {
+        spdlog::info("Successfully loaded database snapshot from EasyTools.db, checking volume readiness...");
+        bool anyMissing = false;
+        for (auto* pRaw : rawParsers) {
+            if (pRaw->getFileCount() == 0) {
+                anyMissing = true;
+                char drive = pRaw->getDriveLetter();
+                indexThreads.emplace_back([pRaw, drive]() {
+                    pRaw->EnumerateFiles();
+                    pRaw->StartListening();
+                    spdlog::info("Indexed drive {}: (volume was unpopulated in snapshot)", drive);
+                });
+            } else {
+                pRaw->StartListening();
+            }
+        }
+        if (anyMissing) {
+            std::thread([rawParsers]() {
+                Sleep(5000);
+                easy::service::db::DatabaseManager::instance().saveSnapshot(rawParsers);
+                spdlog::info("Updated complete database snapshot saved to EasyTools.db");
+            }).detach();
+        }
+    } else {
+        spdlog::info("No valid database snapshot found, performing full MFT scan and building initial index...");
+        for (auto* pRaw : rawParsers) {
+            char drive = pRaw->getDriveLetter();
             indexThreads.emplace_back([pRaw, drive]() {
                 pRaw->EnumerateFiles();
                 pRaw->StartListening();
                 spdlog::info("Indexed drive {}:", drive);
             });
         }
+        // 初始全量索引完成后在后台异步保存快照
+        std::thread([rawParsers]() {
+            Sleep(5000);
+            easy::service::db::DatabaseManager::instance().saveSnapshot(rawParsers);
+            spdlog::info("Initial database snapshot saved to EasyTools.db");
+        }).detach();
     }
     spdlog::info("Search index launched for {} volume(s)", g_MftParsers.size());
 

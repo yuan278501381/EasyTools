@@ -27,7 +27,40 @@ inline bool isCornerFillet(Direction a, Direction b, Direction c) noexcept {
     return false;
 }
 
+inline bool isJitterRebound(Direction a, Direction b, Direction c) noexcept {
+    if (a != c) return false;
+    // 1. 180度反向回弹抖动 (如 Down -> Up -> Down, Left -> Right -> Left)
+    if ((a == Direction::Left && b == Direction::Right) ||
+        (a == Direction::Right && b == Direction::Left) ||
+        (a == Direction::Up && b == Direction::Down) ||
+        (a == Direction::Down && b == Direction::Up)) {
+        return true;
+    }
+    // 2. 45度微小对角抖动 (如 Down -> DownRight -> Down, Right -> UpRight -> Right)
+    if ((a == Direction::Down && (b == Direction::DownRight || b == Direction::DownLeft)) ||
+        (a == Direction::Up   && (b == Direction::UpRight   || b == Direction::UpLeft))   ||
+        (a == Direction::Left && (b == Direction::UpLeft    || b == Direction::DownLeft)) ||
+        (a == Direction::Right&& (b == Direction::UpRight   || b == Direction::DownRight))) {
+        return true;
+    }
+    return false;
+}
+
 } // namespace
+
+bool GestureRecognizer::isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) noexcept {
+    switch (dir) {
+        case Direction::Right:     return current.x > peak.x;
+        case Direction::Left:      return current.x < peak.x;
+        case Direction::Up:        return current.y < peak.y;
+        case Direction::Down:      return current.y > peak.y;
+        case Direction::UpRight:   return (current.x - current.y) > (peak.x - peak.y);
+        case Direction::DownRight: return (current.x + current.y) > (peak.x + peak.y);
+        case Direction::UpLeft:    return (-current.x - current.y) > (-peak.x - peak.y);
+        case Direction::DownLeft:  return (-current.x + current.y) > (-peak.x + peak.y);
+        default:                   return false;
+    }
+}
 
 GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
     : m_config(config) {}
@@ -37,10 +70,12 @@ void GestureRecognizer::reset() {
     m_directions.clear();
     m_currentDirection = Direction::None;
     m_hasSegmentStart = false;
+    m_segmentStart = {0, 0};
+    m_peakPoint = {0, 0};
 }
 
 void GestureRecognizer::addPoint(int x, int y) {
-    // 采样过滤: 与上一个点距离太近则跳过
+    // 采样过滤: 与上一个点距离太近则跳过 (默认 2px)
     if (!m_points.empty()) {
         double dist = calculateDistance(m_points.back().x, m_points.back().y, x, y);
         if (dist < m_config.samplingInterval) {
@@ -53,6 +88,7 @@ void GestureRecognizer::addPoint(int x, int y) {
     // 初始化段起点
     if (!m_hasSegmentStart) {
         m_segmentStart = {x, y};
+        m_peakPoint = {x, y};
         m_hasSegmentStart = true;
         return;
     }
@@ -65,30 +101,42 @@ void GestureRecognizer::processPoints() {
     if (m_points.size() < 2 || !m_hasSegmentStart) return;
 
     const auto& current = m_points.back();
-    double dist = calculateDistance(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
 
-    // 距离未达到阈值，继续累积
-    if (dist < m_config.minSegmentDistance) return;
+    // 阶段 1: 尚未确定初始方向段
+    if (m_currentDirection == Direction::None) {
+        double dist = calculateDistance(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
+        if (dist < m_config.minSegmentDistance) return;
 
-    // 计算方向
-    double angle = calculateAngle(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
-    Direction dir = angleToDirection(angle);
+        double angle = calculateAngle(m_segmentStart.x, m_segmentStart.y, current.x, current.y);
+        Direction dir = angleToDirection(angle);
+        if (dir != Direction::None) {
+            m_currentDirection = dir;
+            m_peakPoint = current;
+        }
+        return;
+    }
 
-    if (dir == Direction::None) return;
+    // 阶段 2: 已有当前方向，判断是否沿当前方向继续推进
+    if (isAdvancing(m_currentDirection, m_peakPoint, current)) {
+        m_peakPoint = current;
+        return;
+    }
 
-    if (dir != m_currentDirection) {
-        // 方向发生变化，记录新的方向段
-        if (m_currentDirection != Direction::None) {
-            // 前一个方向段已确认
+    // 阶段 3: 偏折拐弯检测 (从最远拐点计算偏折矢量)
+    double distFromPeak = calculateDistance(m_peakPoint.x, m_peakPoint.y, current.x, current.y);
+    if (distFromPeak >= m_config.minSegmentDistance) {
+        double turnAngle = calculateAngle(m_peakPoint.x, m_peakPoint.y, current.x, current.y);
+        Direction turnDir = angleToDirection(turnAngle);
+
+        if (turnDir != Direction::None && turnDir != m_currentDirection) {
+            // 确认拐角发生，锁定前一段并将极值拐点作为新段起点
             if (m_directions.size() < static_cast<size_t>(m_config.maxDirections)) {
                 m_directions.push_back(m_currentDirection);
             }
+            m_segmentStart = m_peakPoint;
+            m_currentDirection = turnDir;
+            m_peakPoint = current;
         }
-        m_currentDirection = dir;
-        m_segmentStart = current;  // 新段的起点
-    } else {
-        // 方向不变，更新段起点（滑动窗口，保持灵敏度）
-        m_segmentStart = current;
     }
 }
 
@@ -114,8 +162,8 @@ std::vector<Direction> GestureRecognizer::simplifyDirections(const std::vector<D
                 Direction b = current[i + 1];
                 Direction c = current[i + 2];
 
-                // 规则 1: 消除孤立抖动回弹 [A, B, A] -> [A]
-                if (a == c) {
+                // 规则 1: 消除孤立抖动回弹 (反向回弹或微小对角抖动)
+                if (isJitterRebound(a, b, c)) {
                     next.push_back(a);
                     i += 3;
                     modified = true;

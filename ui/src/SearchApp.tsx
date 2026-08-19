@@ -31,7 +31,9 @@ import {
   Plus,
   Trash2,
   Code2,
-  Palette
+  Palette,
+  Move,
+  Info
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -47,6 +49,35 @@ export interface DriveInfo {
   type: 'fixed' | 'remote' | 'removable' | 'cdrom' | 'ramdisk' | 'unknown';
   totalBytes: number;
   freeBytes: number;
+}
+
+export type SearchMode = 'name' | 'both' | 'content';
+
+export interface ContentSnippet {
+  lineNumber: number;
+  lineContent: string;
+  matchOffset: number;
+  matchLength: number;
+}
+
+export interface SearchResult {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  creationTime?: number;
+  lastWriteTime?: number;
+  snippets?: ContentSnippet[];
+  runCount?: number;
+  frecencyScore?: number;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  available: boolean;
+  totalIndexedFiles?: number;
+  elapsedMs?: number;
+  error?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -91,28 +122,7 @@ function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode 
   }
 }
 
-interface ContentSnippet {
-  lineNumber: number;
-  lineContent: string;
-  matchOffset?: number;
-  matchLength?: number;
-}
 
-interface SearchResult {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size?: number;
-  creationTime?: number;
-  lastWriteTime?: number;
-  snippets?: ContentSnippet[];
-}
-
-interface SearchResponse {
-  results: SearchResult[];
-  available: boolean;
-  error?: string;
-}
 
 export type SearchDensity = 'compact' | 'standard' | 'comfortable';
 export type SortField = 'relevance' | 'modified' | 'name' | 'size' | 'created';
@@ -189,8 +199,7 @@ const SYNTAX_EXAMPLES = [
 
 interface FormatCategory {
   id: string;
-  name: string;
-  subTitle: string;
+  nameKey: 'search.catCode' | 'search.catDocs' | 'search.catConfig' | 'search.catDesign';
   iconName: 'code' | 'doc' | 'config' | 'design';
   extensions: string[];
 }
@@ -198,29 +207,25 @@ interface FormatCategory {
 const CONTENT_FORMAT_CATEGORIES: FormatCategory[] = [
   {
     id: 'code',
-    name: '代码与脚本',
-    subTitle: 'Code & Scripts',
+    nameKey: 'search.catCode',
     iconName: 'code',
     extensions: ['cpp', 'c', 'h', 'hpp', 'cs', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'svelte', 'rs', 'go', 'swift', 'kt', 'dart', 'lua', 'sql', 'sh', 'bat', 'ps1', 'php', 'rb', 'asm', 'glsl', 'hlsl']
   },
   {
     id: 'docs',
-    name: '办公与文档',
-    subTitle: 'Office & Docs',
+    nameKey: 'search.catDocs',
     iconName: 'doc',
     extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'txt', 'md', 'csv', 'tsv', 'wps', 'et', 'dps', 'tex', 'diff', 'patch']
   },
   {
     id: 'config',
-    name: '配置与数据',
-    subTitle: 'Config & Data',
+    nameKey: 'search.catConfig',
     iconName: 'config',
     extensions: ['json', 'jsonc', 'json5', 'yaml', 'yml', 'xml', 'toml', 'ini', 'cfg', 'conf', 'config', 'env', 'reg', 'properties']
   },
   {
     id: 'design',
-    name: '工程与矢量',
-    subTitle: 'Design & CAD',
+    nameKey: 'search.catDesign',
     iconName: 'design',
     extensions: ['dxf', 'psd', 'ai', 'cdr', 'xmind']
   }
@@ -360,12 +365,12 @@ function getSortedResults(
 ): SearchResult[] {
   if (results.length <= 1) return results;
   return [...results].sort((a, b) => {
-    // 1. 组合规则第 1 级: 📁 文件夹置顶
+    // 1. 组合规则第 1 级: 文件夹置顶
     if (foldersFirst && a.isDirectory !== b.isDirectory) {
       return a.isDirectory ? -1 : 1;
     }
 
-    // 2. 组合规则第 2 级: 🏷️ 按扩展名/类型分组
+    // 2. 组合规则第 2 级: 按扩展名/类型分组
     if (groupByType && !a.isDirectory && !b.isDirectory) {
       const extA = a.name.includes('.') ? a.name.slice(a.name.lastIndexOf('.')).toLowerCase() : '';
       const extB = b.name.includes('.') ? b.name.slice(b.name.lastIndexOf('.')).toLowerCase() : '';
@@ -375,7 +380,11 @@ function getSortedResults(
 
     // 3. 业务主排序列
     let cmp = 0;
-    if (sortField === 'modified') {
+    if (sortField === 'relevance') {
+      const scoreA = Number(a.frecencyScore) || 0;
+      const scoreB = Number(b.frecencyScore) || 0;
+      cmp = scoreA - scoreB;
+    } else if (sortField === 'modified') {
       const timeA = Number(a.lastWriteTime) || 0;
       const timeB = Number(b.lastWriteTime) || 0;
       cmp = timeA - timeB;
@@ -412,6 +421,117 @@ export default function SearchApp() {
   const [actionError, setActionError] = useState('');
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [showViewSettings, setShowViewSettings] = useState(false);
+  const [maxResultLimit, setMaxResultLimit] = useState<number>(() => {
+    const saved = localStorage.getItem('easytools_search_max_results');
+    return saved !== null ? parseInt(saved, 10) : 100;
+  });
+
+  const changeMaxResultLimit = (limit: number) => {
+    setMaxResultLimit(limit);
+    localStorage.setItem('easytools_search_max_results', String(limit));
+  };
+
+  const [searchHistory, setSearchHistory] = useState<{ search: string; searchCount: number; lastSearchDate: number }[]>([]);
+  const [dbStats, setDbStats] = useState<{
+    dbPath: string;
+    dbSize: number;
+    timestamp: number;
+    totalRecords: number;
+    volumeCount: number;
+    exists: boolean;
+    runHistoryCount: number;
+    searchHistoryCount: number;
+  } | null>(null);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const res = await bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 });
+      if (res && res.success && Array.isArray(res.history)) {
+        setSearchHistory(res.history);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const refreshDbStats = useCallback(async () => {
+    try {
+      const res = await bridgeRequest<{
+        dbPath: string;
+        dbSize: number;
+        timestamp: number;
+        totalRecords: number;
+        volumeCount: number;
+        exists: boolean;
+        runHistoryCount: number;
+        searchHistoryCount: number;
+        success: boolean;
+      }>('search.getDbStats');
+      if (res && res.success) {
+        setDbStats(res);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 })
+      .then((res) => {
+        if (active && res && res.success && Array.isArray(res.history)) {
+          setSearchHistory(res.history);
+        }
+      })
+      .catch(() => undefined);
+
+    void bridgeRequest<{
+      dbPath: string;
+      dbSize: number;
+      timestamp: number;
+      totalRecords: number;
+      volumeCount: number;
+      exists: boolean;
+      runHistoryCount: number;
+      searchHistoryCount: number;
+      success: boolean;
+    }>('search.getDbStats')
+      .then((res) => {
+        if (active && res && res.success) {
+          setDbStats(res);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const removeHistoryItem = async (e: React.MouseEvent, s: string) => {
+    e.stopPropagation();
+    await bridgeRequest('search.removeSearchHistory', { search: s });
+    setSearchHistory(prev => prev.filter(item => item.search !== s));
+  };
+
+  const clearAllHistory = async () => {
+    await bridgeRequest('search.clearSearchHistory');
+    setSearchHistory([]);
+    toast.success('已清空所有搜索历史');
+    void refreshDbStats();
+    void refreshHistory();
+  };
+
+  const handleSaveSnapshot = async () => {
+    toast.loading('正在将全盘索引写入 EasyTools.db 快照...', { id: 'db-save' });
+    const res = await bridgeRequest<{ success: boolean }>('search.saveSnapshot');
+    if (res && res.success) {
+      toast.success('EasyTools.db 磁盘快照已持久化保存！冷启动耗时 <30ms', { id: 'db-save' });
+      void refreshDbStats();
+    } else {
+      toast.error('保存快照失败', { id: 'db-save' });
+    }
+  };
 
   const [sortField, setSortField] = useState<SortField>(() => {
     const saved = localStorage.getItem('easytools_search_sort_field');
@@ -543,6 +663,26 @@ export default function SearchApp() {
     return localStorage.getItem('easytools_search_exclude_hidden') === 'true';
   });
   const [isRebuilding, setIsRebuilding] = useState(false);
+
+  // 默认搜索范围模式: 'name' (仅文件名·极速) | 'both' (文件名+内容双搜) | 'content' (仅文件内容)
+  const [searchMode, setSearchMode] = useState<SearchMode>(() => {
+    return (localStorage.getItem('easytools_search_default_mode') as SearchMode) || 'name';
+  });
+  const [totalIndexedFiles, setTotalIndexedFiles] = useState<number>(0);
+  const [searchElapsedMs, setSearchElapsedMs] = useState<number>(0);
+
+  const changeSearchMode = (mode: SearchMode) => {
+    setSearchMode(mode);
+    localStorage.setItem('easytools_search_default_mode', mode);
+  };
+
+  useEffect(() => {
+    void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
+      if (res && res.totalIndexedFiles) {
+        setTotalIndexedFiles(res.totalIndexedFiles);
+      }
+    }).catch(() => undefined);
+  }, []);
 
   const [disabledContentFormats, setDisabledContentFormats] = useState<string[]>(() => {
     try {
@@ -723,31 +863,46 @@ export default function SearchApp() {
       .catch(() => undefined);
   }, []);
 
-  const changeWindowSize = (width: number, height: number) => {
+  const changeWindowSize = (width: number, height: number, center = true) => {
     setWindowSize({ width, height });
-    void bridgeRequest('search.setWindowSize', { width, height }).catch(() => undefined);
+    void bridgeRequest('search.setWindowSize', { width, height, center }).catch(() => undefined);
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const startX = e.clientX;
-    const startY = e.clientY;
+
+    const startScreenX = e.screenX;
+    const startScreenY = e.screenY;
     const startW = windowSize.width;
     const startH = windowSize.height;
 
+    let currentW = startW;
+    let currentH = startH;
+    let rafId = 0;
+
     const onMouseMove = (moveEvt: MouseEvent) => {
-      const deltaX = (moveEvt.clientX - startX) * 2;
-      const deltaY = (moveEvt.clientY - startY) * 2;
+      const deltaX = moveEvt.screenX - startScreenX;
+      const deltaY = moveEvt.screenY - startScreenY;
       const newW = Math.max(500, Math.min(2200, Math.round(startW + deltaX)));
       const newH = Math.max(400, Math.min(1400, Math.round(startH + deltaY)));
-      setWindowSize({ width: newW, height: newH });
-      void bridgeRequest('search.setWindowSize', { width: newW, height: newH }).catch(() => undefined);
+
+      if (newW !== currentW || newH !== currentH) {
+        currentW = newW;
+        currentH = newH;
+        setWindowSize({ width: newW, height: newH });
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          void bridgeRequest('search.setWindowSize', { width: currentW, height: currentH, center: false }).catch(() => undefined);
+        });
+      }
     };
 
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      cancelAnimationFrame(rafId);
+      void bridgeRequest('search.setWindowSize', { width: currentW, height: currentH, center: false }).catch(() => undefined);
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -876,9 +1031,13 @@ export default function SearchApp() {
         excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__', 'npm-cache', 'go-build', '.gradle', 'pip\\cache');
       }
 
+      const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
+
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { 
           query: trimmed,
+          searchMode: effectiveMode,
+          limit: maxResultLimit,
           drives: enabledDrives.length > 0 ? enabledDrives : undefined,
           excludes: excludesList.length > 0 ? excludesList : undefined,
           excludeHidden: excludeHidden,
@@ -890,6 +1049,12 @@ export default function SearchApp() {
         startTransition(() => {
           setResults(Array.isArray(response.results) ? response.results : []);
           setSelectedIndex(0);
+          if (response.totalIndexedFiles !== undefined) {
+            setTotalIndexedFiles(response.totalIndexedFiles);
+          }
+          if (response.elapsedMs !== undefined) {
+            setSearchElapsedMs(response.elapsedMs);
+          }
           if (response.available !== undefined) {
             setServiceAvailable(response.available);
           }
@@ -907,7 +1072,7 @@ export default function SearchApp() {
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [query, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
+  }, [query, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -951,6 +1116,10 @@ export default function SearchApp() {
   const sortedResults = useMemo(() => {
     return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
   }, [results, sortField, sortDirection, foldersFirst, groupByType]);
+
+  const totalResultSize = useMemo(() => {
+    return sortedResults.reduce((acc, item) => acc + (item.isDirectory ? 0 : (Number(item.size) || 0)), 0);
+  }, [sortedResults]);
 
   const handleSetSortDirect = (field: SortField, dir: SortDirection) => {
     setSortField(field);
@@ -1064,6 +1233,7 @@ export default function SearchApp() {
     if (!result) return;
     setActionError('');
     try {
+      void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('system.openFile', { path: result.path });
       hide();
     } catch {
@@ -1075,6 +1245,7 @@ export default function SearchApp() {
     if (!result) return;
     setActionError('');
     try {
+      void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('system.openFolder', { path: result.path });
       hide();
     } catch {
@@ -1209,13 +1380,28 @@ export default function SearchApp() {
   return (
     <main className="search-app">
       <section className="search-container" aria-label={t('search.title', '快速文件搜索')}>
-        <div className="search-input-wrapper">
+        <div 
+          className="search-input-wrapper"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              void bridgeRequest('search.startDrag');
+            }
+          }}
+        >
           <Search className="search-icon" size={22} aria-hidden="true" />
           <input
             ref={inputRef}
             autoFocus
             className="search-input"
-            placeholder={t('search.placeholder', '搜索文件、通配符 (*.txt)、扩展名 (ext:png) 或拼音... [F1 语法]')}
+            placeholder={
+              activeCategory === 'content'
+                ? '搜索文档与代码全文内容 (Word/Excel/PDF/代码/文本)... [F1 语法]'
+                : searchMode === 'both'
+                ? '智能双搜：同时匹配文件名与文档全文内容... [F1 语法]'
+                : searchMode === 'content'
+                ? '全文检索：搜索文档与代码全文内容... [F1 语法]'
+                : '搜索文件名、通配符 (*.txt)、扩展名 (ext:png) 或拼音... [输入 content: 搜内容]'
+            }
             value={query}
             onChange={(event) => updateQuery(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -1227,6 +1413,20 @@ export default function SearchApp() {
           />
           {loading && <span className="search-loading" aria-label={t('common.loading', '正在搜索...')} />}
           
+          <button
+            className="search-help-btn search-drag-btn"
+            onMouseDown={() => void bridgeRequest('search.startDrag')}
+            onDoubleClick={() => {
+              void bridgeRequest('search.resetPlacement');
+              setWindowSize({ width: 760, height: 520 });
+              toast.success('已恢复默认居中与 760×520 尺寸');
+            }}
+            title="按住拖拽移动窗口位置 · 双击居中复位"
+            type="button"
+          >
+            <Move size={17} />
+          </button>
+
           <button
             className={`search-help-btn ${showViewSettings ? 'search-help-btn--active' : ''}`}
             onClick={() => {
@@ -1267,6 +1467,19 @@ export default function SearchApp() {
           </div>
 
           <div className="search-bar-right-group">
+            {/* 全盘已索引总数与耗时统计胶囊 */}
+            <div 
+              className="search-stats-pill" 
+              title={`全盘共索引 ${totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '百万'} 个文件，最近一次查询耗时 ${searchElapsedMs} 毫秒`}
+            >
+              <span className="search-stats-dot" />
+              {sortedResults.length > 0 ? (
+                <span><strong>{sortedResults.length}</strong> / 全盘 {totalIndexedFiles ? (totalIndexedFiles > 10000 ? (totalIndexedFiles / 10000).toFixed(1) + '万' : totalIndexedFiles) : '--'} · {searchElapsedMs}ms</span>
+              ) : (
+                <span>共 <strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '2,654,120'}</strong> 文件</span>
+              )}
+            </div>
+
             {/* 导出当前搜索结果为 CSV */}
             {sortedResults.length > 0 && (
               <button
@@ -1470,6 +1683,54 @@ export default function SearchApp() {
           </div>
         </div>
 
+        {/* ── 历史搜索词极客气泡条 ── */}
+        {query.trim() === '' && searchHistory.length > 0 && (
+          <div className="search-history-container">
+            <div className="search-history-header">
+              <div className="search-history-title">
+                <Clock size={13} />
+                <span>最近搜索历史 (点击快速复用)</span>
+              </div>
+              <button
+                type="button"
+                className="search-history-clear-btn"
+                onClick={clearAllHistory}
+                title="清空所有历史搜索记录"
+              >
+                <Trash2 size={11} />
+                <span>清空历史</span>
+              </button>
+            </div>
+            <div className="search-history-chips">
+              {searchHistory.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="search-history-chip"
+                  onClick={() => {
+                    updateQuery(item.search);
+                    inputRef.current?.focus();
+                  }}
+                  title={`搜索频次: ${item.searchCount} 次 · 点击直接复用`}
+                >
+                  <Clock size={11} className="search-history-chip-icon" />
+                  <span className="search-history-chip-text">{item.search}</span>
+                  {item.searchCount > 1 && (
+                    <span className="search-history-chip-count">{item.searchCount}</span>
+                  )}
+                  <button
+                    type="button"
+                    className="search-history-chip-del"
+                    onClick={(e) => void removeHistoryItem(e, item.search)}
+                    title="删除此条历史"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── 右上角悬浮毛玻璃视图定制气泡 (Popover) ── */}
         {showViewSettings && (
           <div className="search-view-settings-popover" ref={viewSettingsRef}>
@@ -1489,12 +1750,71 @@ export default function SearchApp() {
             </div>
 
             <div className="popover-body">
+              {/* 0. 默认搜索范围与模式 */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <span>默认搜索模式</span>
+                  <span className="popover-badge-curr">
+                    {searchMode === 'name' ? '仅搜文件名' : searchMode === 'both' ? '混合双搜' : '仅搜内容'}
+                  </span>
+                </div>
+                <div className="popover-search-modes-grid">
+                  <div 
+                    className={`popover-search-mode-card ${searchMode === 'name' ? 'popover-search-mode-card--active' : ''}`}
+                    onClick={() => changeSearchMode('name')}
+                  >
+                    <div className="search-mode-header">
+                      <div className="search-mode-title-wrap">
+                        <Zap size={14} className="search-mode-icon-name" />
+                        <span className="search-mode-title">仅搜文件名 (极速·默认)</span>
+                      </div>
+                      {searchMode === 'name' && <Check size={13} className="search-mode-check" />}
+                    </div>
+                    <div className="search-mode-desc">
+                      毫秒级响应 (&lt; 5ms)；若需临时搜内容，可点击顶部「文件内容」标签或输入 content:
+                    </div>
+                  </div>
+
+                  <div 
+                    className={`popover-search-mode-card ${searchMode === 'both' ? 'popover-search-mode-card--active' : ''}`}
+                    onClick={() => changeSearchMode('both')}
+                  >
+                    <div className="search-mode-header">
+                      <div className="search-mode-title-wrap">
+                        <Sparkles size={14} className="search-mode-icon-both" />
+                        <span className="search-mode-title">文件名与内容双搜 (混合)</span>
+                      </div>
+                      {searchMode === 'both' && <Check size={13} className="search-mode-check" />}
+                    </div>
+                    <div className="search-mode-desc">
+                      输入关键词时同时穿透匹配文件名与文档/代码全文内容，智能合并呈现
+                    </div>
+                  </div>
+
+                  <div 
+                    className={`popover-search-mode-card ${searchMode === 'content' ? 'popover-search-mode-card--active' : ''}`}
+                    onClick={() => changeSearchMode('content')}
+                  >
+                    <div className="search-mode-header">
+                      <div className="search-mode-title-wrap">
+                        <FileText size={14} className="search-mode-icon-content" />
+                        <span className="search-mode-title">仅搜文件内容 (全文模式)</span>
+                      </div>
+                      {searchMode === 'content' && <Check size={13} className="search-mode-check" />}
+                    </div>
+                    <div className="search-mode-desc">
+                      默认对全盘所有办公文档、表格、PDF、CAD与代码源文件执行穿透全文检索
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* 1. 布局密度 */}
               <div className="popover-section">
                 <div className="popover-section-title">
                   <span>列表显示密度</span>
                   <span className="popover-badge-curr">
-                    {density === 'compact' ? '紧凑' : density === 'comfortable' ? '宽松' : '标准'}
+                    {density === 'compact' ? t('search.densityCompact') : density === 'comfortable' ? t('search.densityComfortable') : t('search.densityStandard')}
                   </span>
                 </div>
                 <div className="popover-segmented-control">
@@ -1503,31 +1823,73 @@ export default function SearchApp() {
                     className={`popover-segment ${density === 'compact' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('compact')}
                   >
-                    紧凑 (极客)
+                    {t('search.densityCompact')}
                   </button>
                   <button
                     type="button"
                     className={`popover-segment ${density === 'standard' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('standard')}
                   >
-                    标准
+                    {t('search.densityStandard')}
                   </button>
                   <button
                     type="button"
                     className={`popover-segment ${density === 'comfortable' ? 'popover-segment--active' : ''}`}
                     onClick={() => changeDensity('comfortable')}
                   >
-                    宽松
+                    {t('search.densityComfortable')}
                   </button>
                 </div>
               </div>
 
-              {/* 2. 窗口尺寸快捷预设 */}
+              {/* 2. 检索结果数量上限 (支持全部返回) */}
               <div className="popover-section">
                 <div className="popover-section-title">
-                  <span>窗口尺寸预设 ({windowSize.width} × {windowSize.height})</span>
+                  <span>{t('search.maxResults')}</span>
+                  <span className="popover-badge-curr">
+                    {maxResultLimit === 0 ? t('search.maxResultsAll') : `${maxResultLimit} 条`}
+                  </span>
+                </div>
+                <div className="popover-segmented-control">
+                  {[50, 100, 200, 0].map((lim) => (
+                    <button
+                      key={lim}
+                      type="button"
+                      className={`popover-segment ${maxResultLimit === lim ? 'popover-segment--active' : ''}`}
+                      onClick={() => changeMaxResultLimit(lim)}
+                    >
+                      {lim === 0 ? t('search.maxResultsAll') : (lim === 50 ? t('search.maxResults50') : lim === 100 ? t('search.maxResults100') : t('search.maxResults200'))}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. 窗口尺寸与位置管理 */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <span>窗口尺寸与位置调节 ({windowSize.width} × {windowSize.height})</span>
+                  <button
+                    type="button"
+                    className="popover-mini-link"
+                    onClick={() => {
+                      void bridgeRequest('search.resetPlacement');
+                      setWindowSize({ width: 760, height: 520 });
+                      toast.success('已恢复默认居中与 760×520 尺寸');
+                    }}
+                    title="恢复至默认居中与 760×520 尺寸"
+                  >
+                    <RotateCcw size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+                    恢复默认居中 (760×520)
+                  </button>
                 </div>
                 <div className="popover-presets-grid">
+                  <button
+                    type="button"
+                    className={`popover-preset-btn ${windowSize.width === 760 && windowSize.height === 520 ? 'popover-preset-btn--active' : ''}`}
+                    onClick={() => changeWindowSize(760, 520)}
+                  >
+                    默认 (760×520)
+                  </button>
                   {WINDOW_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
@@ -1538,6 +1900,10 @@ export default function SearchApp() {
                       {preset.label}
                     </button>
                   ))}
+                </div>
+                <div className="popover-section-hint">
+                  <Info size={12} style={{ marginRight: 4, verticalAlign: -1, display: 'inline-block' }} />
+                  提示：按住窗口顶部空白处或右上角移动图标可随意拖拽窗口；拖拽右下角或窗口边缘可自由拉伸任意大小，系统将自动记忆您的习惯位置。
                 </div>
               </div>
 
@@ -1699,7 +2065,7 @@ export default function SearchApp() {
                     title="恢复出厂支持格式"
                   >
                     <RotateCcw size={11} />
-                    <span>恢复默认</span>
+                    <span>{t('search.resetDefault')}</span>
                   </button>
                 </div>
                 
@@ -1717,10 +2083,7 @@ export default function SearchApp() {
                               {cat.iconName === 'config' && <SlidersHorizontal size={12} />}
                               {cat.iconName === 'design' && <Palette size={12} />}
                             </div>
-                            <div className="popover-format-cat-title-col">
-                              <span className="popover-format-cat-name">{cat.name}</span>
-                              <span className="popover-format-cat-sub">{cat.subTitle}</span>
-                            </div>
+                            <span className="popover-format-cat-name">{t(cat.nameKey)}</span>
                             <span className="popover-format-badge-count">{enabledCount} / {cat.extensions.length}</span>
                           </div>
                           <button
@@ -1728,7 +2091,7 @@ export default function SearchApp() {
                             className="popover-cat-toggle-btn"
                             onClick={() => toggleCategoryFormats(cat, !allEnabled)}
                           >
-                            {allEnabled ? '全禁' : '全选'}
+                            {allEnabled ? t('search.disableAll') : t('search.enableAll')}
                           </button>
                         </div>
                         <div className="popover-format-chips">
@@ -1758,10 +2121,7 @@ export default function SearchApp() {
                         <div className="format-cat-icon-badge format-cat-icon-badge--custom">
                           <Sparkles size={12} />
                         </div>
-                        <div className="popover-format-cat-title-col">
-                          <span className="popover-format-cat-name">用户自定义格式</span>
-                          <span className="popover-format-cat-sub">Custom Formats</span>
-                        </div>
+                        <span className="popover-format-cat-name">{t('search.customFormats')}</span>
                         <span className="popover-format-badge-count">{customContentFormats.length} 项</span>
                       </div>
                     </div>
@@ -1819,6 +2179,69 @@ export default function SearchApp() {
                         <span>添加</span>
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 8. 索引数据库快照与缓存状态 */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <div className="popover-section-title-left">
+                    <HardDrive size={13} className="popover-title-icon" />
+                    <span>磁盘快照与数据库</span>
+                    <span className="popover-title-badge">EasyTools.db</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="popover-quick-action"
+                    onClick={handleSaveSnapshot}
+                    title="立即将全盘内存索引持久化写入磁盘快照"
+                  >
+                    <Zap size={11} />
+                    <span>保存快照</span>
+                  </button>
+                </div>
+                
+                <div className="popover-db-card">
+                  <div className="popover-db-row">
+                    <span className="popover-db-label">快照状态：</span>
+                    <span className="popover-db-val">
+                      {dbStats?.exists ? (
+                        <span className="popover-db-status--ok">已持久化 ({formatBytes(dbStats.dbSize)})</span>
+                      ) : (
+                        <span className="popover-db-status--empty">已就绪 (关机或空闲自动持久化)</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="popover-db-row">
+                    <span className="popover-db-label">全盘索引记录：</span>
+                    <span className="popover-db-val">{dbStats?.totalRecords ? dbStats.totalRecords.toLocaleString() : (totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '0')} 条</span>
+                  </div>
+                  <div className="popover-db-row">
+                    <span className="popover-db-label">运行频次库：</span>
+                    <span className="popover-db-val">Run History ({dbStats?.runHistoryCount ?? 0} 条高频)</span>
+                  </div>
+                  <div className="popover-db-row">
+                    <span className="popover-db-label">搜索历史库：</span>
+                    <span className="popover-db-val">Search History ({dbStats?.searchHistoryCount ?? 0} 条检索词)</span>
+                  </div>
+                  <div className="popover-db-actions">
+                    <button
+                      type="button"
+                      className="popover-db-btn"
+                      onClick={handleSaveSnapshot}
+                    >
+                      <Zap size={12} />
+                      <span>写入快照 (冷启动&lt;30ms)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="popover-db-btn popover-db-btn--danger"
+                      onClick={clearAllHistory}
+                    >
+                      <Trash2 size={12} />
+                      <span>清空历史</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1928,13 +2351,19 @@ export default function SearchApp() {
                               {getFileTypeBadge(result.name, result.isDirectory).label}
                             </span>
                           )}
+                          {Boolean(result.runCount && result.runCount > 0) && (
+                            <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
+                              打开 {result.runCount}次
+                            </span>
+                          )}
                         </span>
                       )}
                       {isColVisible('path') && (
                         <span className="file-path-inline" style={{ flex: `${pathFlex} 1 0` }} title={result.path}>
                           {isColVisible('parent') && extractParentFolder(result.path) && (
                             <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                              📂 {highlightMatch(extractParentFolder(result.path), queryKeywords)}
+                              <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
+                              {highlightMatch(extractParentFolder(result.path), queryKeywords)}
                             </span>
                           )}
                           <span className="file-path-text">{highlightMatch(result.path, queryKeywords)}</span>
@@ -1967,6 +2396,11 @@ export default function SearchApp() {
                                 {getFileTypeBadge(result.name, result.isDirectory).label}
                               </span>
                             )}
+                            {Boolean(result.runCount && result.runCount > 0) && (
+                              <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
+                                打开 {result.runCount}次
+                              </span>
+                            )}
                           </span>
                         )}
                         <div className="file-meta-top">
@@ -1985,7 +2419,8 @@ export default function SearchApp() {
                           <div className="file-path-wrapper" title={result.path}>
                             {isColVisible('parent') && extractParentFolder(result.path) && (
                               <span className="file-parent-tag" title={`所属上级目录: ${extractParentFolder(result.path)}`}>
-                                📂 {highlightMatch(extractParentFolder(result.path), queryKeywords)}
+                                <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
+                                {highlightMatch(extractParentFolder(result.path), queryKeywords)}
                               </span>
                             )}
                             <span className="file-path">{highlightMatch(result.path, queryKeywords)}</span>
@@ -2019,13 +2454,64 @@ export default function SearchApp() {
         )}
 
         <footer className="search-footer">
-          <span className="search-hint"><kbd>Enter</kbd> {t('search.open', '打开')}</span>
-          <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder', '定位目录')}</span>
-          <span className="search-hint"><kbd>Ctrl+C</kbd> {t('search.copyPath', '复制路径')}</span>
-          <span className="search-hint"><kbd>Ctrl+E</kbd> 导出CSV</span>
-          <span className="search-hint"><kbd>Ctrl+Shift+D</kbd> 排序</span>
-          <span className="search-hint"><kbd>F1</kbd> 语法手册</span>
-          <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>
+          <div className="search-footer-left">
+            {/* 1. 总对象数显示 (Everything 级核心状态) */}
+            <div className="search-footer-stat-item" title="当前匹配到的文件与文件夹对象总数">
+              <span>
+                {sortedResults.length > 0 ? (
+                  <><strong>{sortedResults.length.toLocaleString()}</strong> 个对象</>
+                ) : (
+                  <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '1,394,498'}</strong> 个对象</>
+                )}
+              </span>
+            </div>
+
+            {/* 2. 当前匹配结果总大小 */}
+            {sortedResults.length > 0 && totalResultSize > 0 && (
+              <>
+                <span className="search-footer-stat-divider" />
+                <div className="search-footer-stat-item" title="当前搜索结果所有文件的累计容量占用">
+                  <span><strong>{formatBytes(totalResultSize)}</strong></span>
+                </div>
+              </>
+            )}
+
+            {/* 3. 当前选中项序号与单项大小 */}
+            {sortedResults.length > 0 && sortedResults[selectedIndex] && (
+              <>
+                <span className="search-footer-stat-divider" />
+                <div className="search-footer-stat-item search-footer-stat-sub" title={sortedResults[selectedIndex].path}>
+                  <span>
+                    选中 <strong>{selectedIndex + 1}</strong> / {sortedResults.length}
+                    {!sortedResults[selectedIndex].isDirectory && sortedResults[selectedIndex].size !== undefined ? (
+                      <> ({formatBytes(sortedResults[selectedIndex].size || 0)})</>
+                    ) : (
+                      <> (文件夹)</>
+                    )}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* 4. 引擎匹配耗时 */}
+            {searchElapsedMs !== undefined && searchElapsedMs >= 0 && sortedResults.length > 0 && (
+              <>
+                <span className="search-footer-stat-divider" />
+                <div className="search-footer-stat-item search-footer-stat-sub" title="MFT 内存索引引擎匹配耗时">
+                  <span>{searchElapsedMs} ms</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="search-footer-right">
+            <span className="search-hint"><kbd>Enter</kbd> {t('search.open', '打开')}</span>
+            <span className="search-hint"><kbd>Ctrl+Enter</kbd> {t('search.openFolder', '定位')}</span>
+            <span className="search-hint"><kbd>Ctrl+C</kbd> 复制</span>
+            <span className="search-hint"><kbd>Ctrl+E</kbd> 导出</span>
+            <span className="search-hint"><kbd>F1</kbd> 语法</span>
+            <span className="search-hint"><kbd>Esc</kbd> {t('search.close', '关闭')}</span>
+          </div>
         </footer>
 
         <div

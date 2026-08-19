@@ -198,11 +198,19 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
         }
     }
 
+    if (rawTokens.size() > 1) {
+        expr.m_requiresFullPath = true;
+    }
+
     SearchOrGroup currentGroup;
     bool nextIsOr = false;
 
     for (size_t idx = 0; idx < rawTokens.size(); ++idx) {
         const auto& token = rawTokens[idx];
+        if (token.find(L'\\') != std::wstring::npos || token.find(L'/') != std::wstring::npos ||
+            token.find(L'*') != std::wstring::npos || token.find(L'?') != std::wstring::npos) {
+            expr.m_requiresFullPath = true;
+        }
         if (token == L"|" || token == L"OR" || token == L"or") {
             nextIsOr = true;
             continue;
@@ -234,26 +242,10 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
 
 template <typename PathSupplier>
 static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& record,
-                                  wchar_t driveLetter, PathSupplier&& getPath) {
+                                  wchar_t driveLetter, PathSupplier&& getPath, bool requiresFullPath) {
     bool matched = false;
 
     switch (clause.filterType) {
-        case SearchFilterType::Content: {
-            if (record.isDirectory) {
-                matched = false;
-                break;
-            }
-            const auto dotPos = record.normalizedName.rfind(L'.');
-            if (dotPos == std::wstring::npos) {
-                matched = false;
-                break;
-            }
-            std::wstring_view ext(record.normalizedName.data() + dotPos + 1,
-                                  record.normalizedName.size() - dotPos - 1);
-            matched = easy::service::content::ContentSearchEngine::instance().canSearchContent(ext);
-            break;
-        }
-
         case SearchFilterType::FileOnly:
             if (record.isDirectory) matched = false;
             else if (clause.pattern.empty()) matched = true;
@@ -334,13 +326,10 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             break;
 
         case SearchFilterType::Regex:
-            if (clause.regexObj) {
-                matched = std::regex_search(record.fileName, *clause.regexObj);
-                if (!matched) {
-                    const std::wstring& fullPath = getPath();
-                    if (!fullPath.empty()) {
-                        matched = std::regex_search(fullPath, *clause.regexObj);
-                    }
+            if (clause.regexObj.has_value()) {
+                matched = std::regex_search(record.fileName, clause.regexObj.value());
+                if (!matched && requiresFullPath) {
+                    matched = std::regex_search(getPath(), clause.regexObj.value());
                 }
             }
             break;
@@ -351,7 +340,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             } else {
                 matched = record.fileName.find(clause.rawPattern) != std::wstring::npos;
             }
-            if (!matched) {
+            if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
                 if (!fullPath.empty()) {
                     if (clause.hasWildcard) {
@@ -363,17 +352,17 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             }
             break;
 
-        case SearchFilterType::PinyinOnly: {
-            const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
+        case SearchFilterType::PinyinOnly:
             if (clause.hasWildcard) {
+                const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
                 matched = SearchExpression::matchWildcard(pat, record.pinyinFull) ||
                           SearchExpression::matchWildcard(pat, record.pinyinInitials);
             } else {
-                matched = record.pinyinFull.find(pat) != std::wstring::npos ||
-                          record.pinyinInitials.find(pat) != std::wstring::npos;
+                const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
+                matched = (record.pinyinInitials.find(pat) != std::wstring::npos ||
+                           record.pinyinFull.find(pat) != std::wstring::npos);
             }
             break;
-        }
 
         case SearchFilterType::NoPinyin:
             if (clause.hasWildcard) {
@@ -381,7 +370,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             } else {
                 matched = record.normalizedName.find(clause.pattern) != std::wstring::npos;
             }
-            if (!matched) {
+            if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
                 if (!fullPath.empty()) {
                     std::wstring normPath = SearchExpression::normalize(fullPath);
@@ -392,6 +381,11 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                     }
                 }
             }
+            break;
+
+        case SearchFilterType::Content:
+            // Content 过滤在内存初筛阶段始终放行候选文件，后续由内容解析引擎穿透
+            matched = true;
             break;
 
         case SearchFilterType::None:
@@ -414,8 +408,8 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                 }
             }
 
-            // 2. 文件名未命中时，兜底在完整路径中匹配 (支持跨目录联合搜索，例如 *中源*账号密码* 或 中源 账号密码)
-            if (!matched) {
+            // 2. 仅当检索表达式显式需要全路径 (如包含多词组、斜杠或 path: 前缀) 且文件名未命中时，才兜底在路径中匹配
+            if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
                 if (!fullPath.empty()) {
                     std::wstring normPath = SearchExpression::normalize(fullPath);
@@ -451,7 +445,7 @@ bool SearchExpression::matchesWithLazyPath(const FileRecord& record, wchar_t dri
     for (const auto& group : m_orGroups) {
         bool groupPassed = false;
         for (const auto& clause : group.clauses) {
-            if (matchSingleClauseLazy(clause, record, driveLetter, getOrFetchPath)) {
+            if (matchSingleClauseLazy(clause, record, driveLetter, getOrFetchPath, m_requiresFullPath)) {
                 groupPassed = true;
                 break;
             }

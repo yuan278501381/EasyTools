@@ -42,8 +42,16 @@ public:
     std::vector<SearchResult> Search(const std::wstring& query, int limit = 100,
                                      const SearchExcludeOptions& excludeOpts = {});
 
+    // 快照导出与载入接口
+    void exportSnapshot(std::vector<FileRecord>& outRecords, uint64_t& outLastUsn, uint32_t& outVolumeSerial) const;
+    bool importSnapshot(std::vector<FileRecord>&& records, uint64_t lastUsn, uint32_t volumeSerial);
+    bool catchUpUsnJournal(uint64_t fromUsn);
+
     char getDriveLetter() const { return m_DriveLetter; }
     UINT getDriveType() const { return m_DriveType; }
+    uint64_t getCurrentUsn() const;
+    uint32_t getVolumeSerialNumber() const;
+    size_t getFileCount() const;
 
 private:
     char m_DriveLetter = 0;
@@ -71,5 +79,6 @@ private:
     void rebuildFolderPaths();
 
     std::unordered_map<DWORDLONG, std::wstring> m_FolderPaths;
+    std::vector<const FileRecord*> m_FlatRecords;
     bool m_IsFallbackDirectoryWalk{false};
 };

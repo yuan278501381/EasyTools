@@ -423,9 +423,11 @@ struct AudioCapture::Impl {
         {
             std::lock_guard statusLock(statusMutex);
             constexpr float decay = 0.82f;
-            captureStatus.systemPeak = system.active
+            const bool isSysMuted = systemMuted.load(std::memory_order_relaxed);
+            const bool isMicMuted = microphoneMuted.load(std::memory_order_relaxed);
+            captureStatus.systemPeak = (system.active && !isSysMuted)
                 ? std::max(systemPeak, captureStatus.systemPeak * decay) : 0.0f;
-            captureStatus.microphonePeak = microphone.active
+            captureStatus.microphonePeak = (microphone.active && !isMicMuted)
                 ? std::max(microphonePeak, captureStatus.microphonePeak * decay) : 0.0f;
             captureStatus.mixedPeak = std::max(mixedPeak, captureStatus.mixedPeak * decay);
         }

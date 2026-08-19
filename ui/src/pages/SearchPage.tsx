@@ -3,7 +3,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Select, Button, Tabs, type TabItem } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Button, Tabs, type TabItem } from '../components/UIKit';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
 import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
@@ -209,22 +209,6 @@ export const SearchPage: FC = () => {
                   id="search-case-toggle"
                   checked={settings.caseSensitive}
                   onChange={v => saveSetting('caseSensitive', v)}
-                />
-              </SettingRow>
-
-              <SettingRow
-                label={t('searchPage.maxResultsTitle', '最大返回结果数')}
-                description={t('searchPage.maxResultsDesc', '限制单次查询返回条目数以保证极致流畅度')}
-              >
-                <Select
-                  value={String(settings.maxResults)}
-                  options={[
-                    { value: '20', label: '20 条 (极速)' },
-                    { value: '50', label: '50 条 (推荐)' },
-                    { value: '100', label: '100 条' },
-                    { value: '200', label: '200 条 (完整)' },
-                  ]}
-                  onChange={v => saveSetting('maxResults', Number(v))}
                 />
               </SettingRow>
             </Card>
