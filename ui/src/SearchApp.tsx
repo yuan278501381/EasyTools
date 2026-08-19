@@ -1271,10 +1271,15 @@ export default function SearchApp() {
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('system.openFile', { path: result.path });
+      await bridgeRequest('search.openFile', { filepath: result.path, path: result.path });
       hide();
     } catch {
-      setActionError(t('search.openFailed', '打开文件失败'));
+      try {
+        await bridgeRequest('system.openFile', { path: result.path, filepath: result.path });
+        hide();
+      } catch {
+        setActionError(t('search.openFailed', '打开文件失败'));
+      }
     }
   }, [hide, t]);
 
@@ -1283,20 +1288,51 @@ export default function SearchApp() {
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('system.openFolder', { path: result.path });
+      await bridgeRequest('search.openFolder', { filepath: result.path, path: result.path });
       hide();
     } catch {
-      setActionError(t('search.openFolderFailed', '定位目录失败'));
+      try {
+        await bridgeRequest('system.openFolder', { path: result.path, filepath: result.path });
+        hide();
+      } catch {
+        setActionError(t('search.openFolderFailed', '定位目录失败'));
+      }
     }
   }, [hide, t]);
 
   const copyPathResult = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
-    navigator.clipboard.writeText(result.path).then(() => {
-      toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
-    }).catch(() => {
-      setActionError(t('search.copyFailed', '复制路径失败'));
-    });
+    setActionError('');
+    const doNativeCopy = async () => {
+      try {
+        await bridgeRequest('system.copyText', { text: result.path });
+        toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+      } catch {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = result.path;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+        } catch {
+          setActionError(t('search.copyFailed', '复制路径失败'));
+        }
+      }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(result.path).then(() => {
+        toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+      }).catch(() => {
+        void doNativeCopy();
+      });
+    } else {
+      void doNativeCopy();
+    }
   }, [t]);
 
   const pinResult = useCallback(async (result: SearchResult | undefined) => {

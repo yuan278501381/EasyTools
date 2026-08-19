@@ -787,12 +787,39 @@ void MessageBridge::registerBuiltinHandlers() {
         return selected ? json(WinUtils::wstringToUtf8(selected->wstring())) : json(nullptr);
     });
     registerHandler("system.openFile", [](const json& params) -> json {
-        const std::string path = params.value("path", "");
+        const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
         const auto result = reinterpret_cast<INT_PTR>(
             ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
         return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+    });
+    registerHandler("system.openFolder", [](const json& params) -> json {
+        const std::string path = params.value("path", params.value("filepath", ""));
+        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
+        const auto wide = WinUtils::utf8ToWstring(path);
+        const std::wstring args = L"/select,\"" + wide + L"\"";
+        const auto result = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
+        return {{"success", result > 32}, {"errorCode", result > 32 ? 0 : result}};
+    });
+    registerHandler("system.copyText", [](const json& params) -> json {
+        const std::string text = params.value("text", "");
+        if (text.empty()) return {{"success", false}};
+        const auto wide = WinUtils::utf8ToWstring(text);
+        if (!OpenClipboard(nullptr)) return {{"success", false}};
+        EmptyClipboard();
+        HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
+        if (hGlob) {
+            void* pBuf = GlobalLock(hGlob);
+            if (pBuf) {
+                memcpy(pBuf, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
+                GlobalUnlock(hGlob);
+                SetClipboardData(CF_UNICODETEXT, hGlob);
+            }
+        }
+        CloseClipboard();
+        return {{"success", true}};
     });
     registerHandler("app.checkForUpdates", [](const json&) -> json {
         const bool started = UpdateChecker::instance().checkAsync(true);

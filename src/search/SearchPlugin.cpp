@@ -283,34 +283,28 @@ public:
         });
 
         mb.registerHandler("search.openFile", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", "");
+            const std::string filepath = params.value("filepath", params.value("path", ""));
+            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            std::error_code ec;
-            if (!filepath.empty() && std::filesystem::exists(std::filesystem::path(widePath), ec)) {
-                HINSTANCE result = ShellExecuteW(nullptr, L"open", widePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                if ((INT_PTR)result <= 32) {
-                    LOG_ERROR("SearchPlugin: 无法打开文件 {}, error={}", filepath, (INT_PTR)result);
-                    return {{"success", false}};
-                }
-                return {{"success", true}};
+            HINSTANCE result = ShellExecuteW(nullptr, L"open", widePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if ((INT_PTR)result <= 32) {
+                LOG_ERROR("SearchPlugin: 无法打开文件 {}, error={}", filepath, (INT_PTR)result);
+                return {{"success", false}, {"error", (INT_PTR)result}};
             }
-            return {{"success", false}};
+            return {{"success", true}};
         });
 
         mb.registerHandler("search.openFolder", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", "");
+            const std::string filepath = params.value("filepath", params.value("path", ""));
+            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            std::error_code ec;
-            if (!filepath.empty() && std::filesystem::exists(std::filesystem::path(widePath), ec)) {
-                const std::wstring args = L"/select,\"" + widePath + L"\"";
-                HINSTANCE result = ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
-                if ((INT_PTR)result <= 32) {
-                    LOG_ERROR("SearchPlugin: 无法在资源管理器中定位文件 {}, error={}", filepath, (INT_PTR)result);
-                    return {{"success", false}};
-                }
-                return {{"success", true}};
+            const std::wstring args = L"/select,\"" + widePath + L"\"";
+            HINSTANCE result = ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+            if ((INT_PTR)result <= 32) {
+                LOG_ERROR("SearchPlugin: 无法在资源管理器中定位文件 {}, error={}", filepath, (INT_PTR)result);
+                return {{"success", false}, {"error", (INT_PTR)result}};
             }
-            return {{"success", false}};
+            return {{"success", true}};
         });
 
         mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {
