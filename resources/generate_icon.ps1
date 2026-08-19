@@ -3,9 +3,9 @@
 #
 # 规范:
 #   1. app.ico (用于任务栏、任务管理器、Alt+Tab、桌面快捷方式、安装包)
-#      • 经典原版蓝底 RGB(35, 116, 225) + 经典纯白闪电 (替代原字母 "E")
+#      • 原版经典蓝底 RGB(35, 116, 225) + 大号加粗纯白闪电 (占 86% 面积，极高辨识度)
 #   2. tray.ico (用于 Windows 系统托盘区 Notification Area)
-#      • 纯透明底色 + 经典纯白闪电 (Pure White Lightning)，保持与原版视觉一致且托盘纯白
+#      • 纯透明底色 + 大号饱满纯白闪电 (占满 96% 面积，粗壮清晰，与系统图标同等量感)
 #   3. 输出未压缩 32 位 DIB 多分辨率 (16, 20, 24, 32, 40, 48, 64, 128, 256)，100% 兼容 rc.exe / High-DPI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -125,23 +125,23 @@ function Build-IcoFile {
     Write-Output "Generated: $OutputPath ($($Sizes.Length) sizes: $($Sizes -join ', ') px)"
 }
 
-# 绘制经典闪电点阵
-function Get-ClassicLightningPoints {
+# 绘制加粗饱满的大号经典闪电点阵
+function Get-BoldClassicLightningPoints {
     param ([float]$w, [float]$h, [float]$padX = 0, [float]$padY = 0)
     $bw = $w - ($padX * 2)
     $bh = $h - ($padY * 2)
 
     return @(
-        (New-Object System.Drawing.PointF ($padX + $bw * (13.0 / 24.0)), ($padY + $bh * (2.0 / 24.0))),
-        (New-Object System.Drawing.PointF ($padX + $bw * (3.0 / 24.0)),  ($padY + $bh * (14.0 / 24.0))),
-        (New-Object System.Drawing.PointF ($padX + $bw * (12.0 / 24.0)), ($padY + $bh * (14.0 / 24.0))),
-        (New-Object System.Drawing.PointF ($padX + $bw * (11.0 / 24.0)), ($padY + $bh * (22.0 / 24.0))),
-        (New-Object System.Drawing.PointF ($padX + $bw * (21.0 / 24.0)), ($padY + $bh * (10.0 / 24.0))),
-        (New-Object System.Drawing.PointF ($padX + $bw * (12.0 / 24.0)), ($padY + $bh * (10.0 / 24.0)))
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.58), ($padY + $bh * 0.00)),  # 顶尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.00), ($padY + $bh * 0.58)),  # 左尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.48), ($padY + $bh * 0.58)),  # 腰左内折
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.42), ($padY + $bh * 1.00)),  # 底尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 1.00), ($padY + $bh * 0.42)),  # 右尖
+        (New-Object System.Drawing.PointF ($padX + $bw * 0.52), ($padY + $bh * 0.42))   # 腰右内折
     )
 }
 
-# ── 1. 生成 app.ico (原版蓝底 RGB(35, 116, 225) + 纯白经典闪电) ────────────
+# ── 1. 生成 app.ico (原版蓝底 RGB(35, 116, 225) + 大号饱满纯白闪电) ────────
 $appIcoPath = Join-Path $PSScriptRoot "app.ico"
 Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     param ($g, $sz)
@@ -149,25 +149,25 @@ Build-IcoFile -OutputPath $appIcoPath -RenderCallback {
     # 原版纯正经典蓝底色 RGB(35, 116, 225)
     $g.Clear([System.Drawing.Color]::FromArgb(255, 35, 116, 225))
 
-    # 居中纯白闪电 (替代原本的 "E")
-    $padX = [float]($sz * 0.15)
-    $padY = [float]($sz * 0.12)
-    $pts = Get-ClassicLightningPoints $sz $sz $padX $padY
+    # 居中加粗大号纯白闪电 (占 86% 面积，即使在 16px 列表缩略图下也极度清晰)
+    $padX = [float]($sz * 0.08)
+    $padY = [float]($sz * 0.06)
+    $pts = Get-BoldClassicLightningPoints $sz $sz $padX $padY
 
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
     $whiteBrush.Dispose()
 }
 
-# ── 2. 生成 tray.ico (纯透明底色 + 永远纯白经典闪电) ─────────────────
+# ── 2. 生成 tray.ico (纯透明底色 + 大号饱满纯白闪电) ─────────────────
 $trayIcoPath = Join-Path $PSScriptRoot "tray.ico"
 Build-IcoFile -OutputPath $trayIcoPath -RenderCallback {
     param ($g, $sz)
 
-    # 托盘专属：无背景色，纯透明底，纯白经典闪电
-    $padX = [float]($sz * 0.08)
-    $padY = [float]($sz * 0.06)
-    $pts = Get-ClassicLightningPoints $sz $sz $padX $padY
+    # 托盘专属：透明底，闪电占满 96% 区域，加粗饱满，与系统其他托盘图标具备同等量感
+    $padX = [float]($sz * 0.02)
+    $padY = [float]($sz * 0.02)
+    $pts = Get-BoldClassicLightningPoints $sz $sz $padX $padY
     
     $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
     $g.FillPolygon($whiteBrush, $pts)
