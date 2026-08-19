@@ -28,6 +28,7 @@ import {
   ACTION_TYPE_KEYS,
   BUILTIN_COMMAND_KEYS,
   TRIGGER_ITEM_DEFINITIONS,
+  upsertGestureMapping,
   type GestureMapping,
   type GestureProfileData,
   type TriggerState,
@@ -415,22 +416,7 @@ export const GesturePage: FC = () => {
   };
 
   const handleSaveMapping = (saved: GestureMapping) => {
-    const list = [...currentMappings];
-    const editingId = editingMapping?.id;
-    const editingCode = editingMapping?.gestureCode?.trim().toUpperCase();
-    const savedCode = saved.gestureCode.trim().toUpperCase();
-
-    // 过滤掉原本正在编辑的项，以及与保存项编码冲突的旧项（实现自动替换覆盖）
-    const filtered = list.filter((m) => {
-      const mCode = m.gestureCode.trim().toUpperCase();
-      if (editingId && m.id && m.id === editingId) return false;
-      if (!editingId && editingCode && mCode === editingCode) return false;
-      if (mCode === savedCode) return false;
-      return true;
-    });
-
-    filtered.push(saved);
-    void persistMappings(filtered);
+    void persistMappings(upsertGestureMapping(currentMappings, saved, editingMapping));
     setEditorOpen(false);
   };
 

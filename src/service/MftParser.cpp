@@ -269,6 +269,11 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
 }
 
 void MftParser::EnumerateFiles() {
+    {
+        std::unique_lock lock(m_MapMutex);
+        m_Store.clear();
+        m_FolderPaths.reset();
+    }
     if (m_IsFallbackDirectoryWalk || m_hVolume == INVALID_HANDLE_VALUE) {
         EnumerateFilesViaDirectoryWalk(m_DriveLetter);
         return;

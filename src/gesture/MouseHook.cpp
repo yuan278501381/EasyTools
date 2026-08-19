@@ -54,6 +54,11 @@ void MouseHook::setEventCallback(MouseEventCallback callback) {
     m_callback = std::move(callback);
 }
 
+void MouseHook::setFaultCallback(MouseHookFaultCallback callback) {
+    std::lock_guard lock(m_callbackMutex);
+    m_faultCallback = std::move(callback);
+}
+
 void MouseHook::setTriggerMode(TriggerMode mode) {
     m_configuredTriggerMode.store(mode, std::memory_order_release);
     LOG_INFO("鼠标手势触发模式已更新: mode={}", static_cast<int>(mode));
@@ -96,19 +101,27 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
     static thread_local bool s_reentry = false;
 
     if (nCode >= 0 && !s_reentry) {
-        // ── 看门狗：检查是否处于熔断冷却期 ──
-        if (self.m_circuitBreakerTripped.load(std::memory_order_relaxed)) {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - self.m_circuitBreakerTime).count();
-            if (elapsed > CIRCUIT_BREAKER_COOLDOWN_MS) {
-                // 冷却期满，自愈恢复
-                LOG_INFO("鼠标钩子熔断冷却期满，自动尝试恢复工作状态");
-                self.m_circuitBreakerTripped.store(false, std::memory_order_relaxed);
-            } else {
-                // 仍处于熔断状态，直接放行系统输入，拒绝处理
-                return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+            // ── 看门狗：检查是否处于熔断冷却期 ──
+            if (self.m_circuitBreakerTripped.load(std::memory_order_relaxed)) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - self.m_circuitBreakerTime).count();
+                if (elapsed > CIRCUIT_BREAKER_COOLDOWN_MS) {
+                    LOG_INFO("鼠标钩子熔断冷却期满，自动尝试恢复工作状态");
+                    self.m_circuitBreakerTripped.store(false, std::memory_order_relaxed);
+                } else {
+                    // 冷却期内不进引擎，但按键闩锁必须跟手：漏掉的抬起会让下一笔
+                    // 手势的按下被 `!m_triggerButtonDown` 挡掉，表现为"画不出来，
+                    // 要点一下左键才恢复"。
+                    auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+                    if (data && (data->flags & LLMHF_INJECTED) == 0) {
+                        if (wParam == WM_RBUTTONUP || wParam == WM_MBUTTONUP ||
+                            wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONUP) {
+                            self.m_triggerButtonDown.store(false, std::memory_order_release);
+                        }
+                    }
+                    return CallNextHookEx(self.m_hookHandle, nCode, wParam, lParam);
+                }
             }
-        }
 
         s_reentry = true;
         struct ReentryGuard { ~ReentryGuard() { s_reentry = false; } } reentryGuard;
@@ -268,19 +281,33 @@ bool MouseHook::processEvent(const MouseEvent& event) {
         const auto end_time = std::chrono::steady_clock::now();
         const auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
         const auto durationMs = durationUs / 1000;
-        
-        if (durationMs > 15) {
-            LOG_WARN("鼠标钩子回调执行耗时过长: {} ms ({} us) (建议优化以避免系统卡顿)", durationMs, durationUs);
-        } else {
-            LOG_TRACE("鼠标钩子事件处理完成: type={}, pos=({}, {}), 耗时={}us, 拦截={}",
-                      static_cast<int>(event.type), event.position.x, event.position.y, durationUs, intercepted);
+
+        // 移动事件是热路径，绝不能在钩子回调里写日志：一次 20ms 的回调再加
+        // 文件 sink，会把后续每一帧都拖进同样的泥潭。
+        if (durationMs > 15 && event.type != MouseEventType::Move) {
+            LOG_WARN("鼠标钩子回调执行耗时过长: {} ms ({} us) type={}",
+                     durationMs, durationUs, static_cast<int>(event.type));
         }
         if (durationMs > CIRCUIT_BREAKER_TIMEOUT_MS) {
             LOG_CRITICAL("【熔断告警】鼠标钩子回调耗时 {} ms (阈值 {} ms)，触发全局熔断机制保护系统！", durationMs, CIRCUIT_BREAKER_TIMEOUT_MS);
             m_circuitBreakerTripped.store(true, std::memory_order_relaxed);
             m_circuitBreakerTime = std::chrono::steady_clock::now();
+            m_triggerButtonDown.store(false, std::memory_order_release);
+
+            MouseHookFaultCallback fault;
+            {
+                std::lock_guard lock(m_callbackMutex);
+                fault = m_faultCallback;
+            }
+            if (fault) {
+                try {
+                    fault();
+                } catch (...) {
+                    LOG_ERROR("鼠标钩子熔断复位回调异常");
+                }
+            }
         }
-        
+
         return intercepted;
     }
 

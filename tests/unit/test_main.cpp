@@ -18,6 +18,7 @@
 #include "gesture/GestureRecognizer.h"
 #include "gesture/GestureAction.h"
 #include "gesture/GestureProfile.h"
+#include "gesture/GestureInputPolicy.h"
 #include "gesture/BuiltinCommands.h"
 #include "gesture/HotCornerEngine.h"
 #include "gesture/ScopeRule.h"
@@ -169,6 +170,87 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(parsed.b, 0.0f);
     auto invalidHex = easy::core::parseHexColor("invalid");
     EXPECT_GT(invalidHex.r, 0.0f);
+}
+
+TEST(GestureInputPolicyTest, TriggerDownHonorsMode) {
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::RightDown, TriggerMode::RightOnly));
+    EXPECT_FALSE(isGestureTriggerDown(MouseEventType::MiddleDown, TriggerMode::RightOnly));
+
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::MiddleDown, TriggerMode::MiddleOnly));
+    EXPECT_FALSE(isGestureTriggerDown(MouseEventType::RightDown, TriggerMode::MiddleOnly));
+
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::RightDown, TriggerMode::Both));
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::MiddleDown, TriggerMode::Both));
+    EXPECT_FALSE(isGestureTriggerDown(MouseEventType::LeftDown, TriggerMode::Both));
+    EXPECT_FALSE(isGestureTriggerDown(MouseEventType::Move, TriggerMode::Both));
+}
+
+TEST(GestureInputPolicyTest, TriggerUpPairsWithActualButton) {
+    EXPECT_EQ(triggerUpFor(MouseEventType::RightDown), MouseEventType::RightUp);
+    EXPECT_EQ(triggerUpFor(MouseEventType::MiddleDown), MouseEventType::MiddleUp);
+}
+
+TEST(GestureInputPolicyTest, LeftClickAlwaysCancelsTracking) {
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::LeftDown, MouseEventType::RightDown));
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::LeftUp, MouseEventType::MiddleDown));
+}
+
+TEST(GestureInputPolicyTest, OppositeMouseButtonCancelsTracking) {
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::MiddleDown, MouseEventType::RightDown));
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::RightDown, MouseEventType::MiddleDown));
+    EXPECT_FALSE(cancelsGestureTracking(MouseEventType::RightDown, MouseEventType::RightDown));
+    EXPECT_FALSE(cancelsGestureTracking(MouseEventType::Move, MouseEventType::RightDown));
+    EXPECT_FALSE(cancelsGestureTracking(MouseEventType::RightUp, MouseEventType::RightDown));
+}
+
+TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
+    EXPECT_TRUE(shouldShowGestureResultToast(true, true, false));
+    EXPECT_FALSE(shouldShowGestureResultToast(false, true, false));
+    EXPECT_FALSE(shouldShowGestureResultToast(true, false, false));
+    EXPECT_TRUE(shouldShowGestureResultToast(false, true, true));
+}
+
+TEST(GestureInputPolicyTest, FadeClockStartsAfterFirstPresentedFrame) {
+    EXPECT_FALSE(gestureFadeShouldFinish(false, 500, 240, 420));
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 100, 240, 420));
+    EXPECT_TRUE(gestureFadeShouldFinish(true, 240 + 420, 240, 420));
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 349, 0, 350));
+    EXPECT_TRUE(gestureFadeShouldFinish(true, 350, 0, 350));
+}
+
+TEST(GestureInputPolicyTest, TrailColorFollowsAccentUnlessCustom) {
+    const auto cyan = easy::core::getAccentColorRGB("cyan");
+    const auto autoRgb = resolveGestureTrailRgb("auto", "#FF0000", cyan);
+    EXPECT_FLOAT_EQ(autoRgb.r, cyan.r);
+    EXPECT_FLOAT_EQ(autoRgb.g, cyan.g);
+    EXPECT_FLOAT_EQ(autoRgb.b, cyan.b);
+
+    const auto customRgb = resolveGestureTrailRgb("custom", "#FF0000", cyan);
+    EXPECT_NEAR(customRgb.r, 1.0f, 0.01f);
+    EXPECT_NEAR(customRgb.g, 0.0f, 0.01f);
+    EXPECT_NEAR(customRgb.b, 0.0f, 0.01f);
+
+    const auto emptyCustom = resolveGestureTrailRgb("custom", "", cyan);
+    EXPECT_FLOAT_EQ(emptyCustom.r, cyan.r);
+}
+
+TEST(GestureInputPolicyTest, TrailPaletteFollowsThemeSetting) {
+    EXPECT_TRUE(gestureTrailUsesLightPalette("light", false));
+    EXPECT_FALSE(gestureTrailUsesLightPalette("dark", true));
+    EXPECT_TRUE(gestureTrailUsesLightPalette("system", true));
+    EXPECT_FALSE(gestureTrailUsesLightPalette("system", false));
+}
+
+TEST(GestureInputPolicyTest, FadeAlphaHoldsThenEases) {
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(false, 0, 240, 420), 1.0f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 0, 240, 420), 1.0f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 240, 240, 420), 1.0f);
+    EXPECT_NEAR(gestureFadeAlpha(true, 240 + 210, 240, 420), 0.25f, 0.01f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 240 + 420, 240, 420), 0.0f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 10, 240, 0), 1.0f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 241, 240, 0), 0.0f);
+    EXPECT_NEAR(gestureFadeAlpha(true, 175, 0, 350), 0.25f, 0.01f);
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 350, 0, 350), 0.0f);
 }
 
 // -----------------------------------------------------------------------------

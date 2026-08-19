@@ -115,6 +115,9 @@ struct ActionToggleRecordingEvent {};
 /// 触发手势暂停切换事件
 struct ActionToggleGesturePauseEvent {};
 
+/// 取消正在进行的瞬时 UI（手势追踪、轮盘菜单）。Esc 发出，不吞掉按键。
+struct CancelTransientUiEvent {};
+
 // ─────────────────────────────────────────────────────────────────────────────// 显示全局 Toast 的事件
 struct ShowToastEvent {
     std::wstring message;

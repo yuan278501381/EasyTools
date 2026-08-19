@@ -238,6 +238,13 @@ public:
             auto& engine = easy::gesture::GestureEngine::instance();
             engine.setPaused(!engine.isPaused());
         });
+        m_cancelSubscription = bus.subscribe<easy::core::CancelTransientUiEvent>([](const easy::core::CancelTransientUiEvent&) {
+            easy::gesture::GestureEngine::instance().cancelActiveGesture();
+            easy::gesture::RadialMenuOverlay::instance().hide();
+        });
+        m_themeSubscription = bus.subscribe<easy::core::ThemeChangedEvent>([](const easy::core::ThemeChangedEvent&) {
+            easy::gesture::GestureTrailOverlay::instance().reloadThemeColors();
+        });
         
         mb.registerHandler("gesture.togglePause", [](const nlohmann::json&) -> nlohmann::json {
             auto& engine = easy::gesture::GestureEngine::instance();
@@ -586,6 +593,10 @@ public:
         easy::core::HotkeyManager::instance().unregisterHotkey("Pause Gestures");
         easy::core::EventBus::instance().unsubscribeAndWait(m_pauseSubscription);
         m_pauseSubscription = 0;
+        easy::core::EventBus::instance().unsubscribeAndWait(m_cancelSubscription);
+        m_cancelSubscription = 0;
+        easy::core::EventBus::instance().unsubscribeAndWait(m_themeSubscription);
+        m_themeSubscription = 0;
 
         auto& gestureEngine = easy::gesture::GestureEngine::instance();
         gestureEngine.saveToConfig();
@@ -597,6 +608,8 @@ public:
 
 private:
     easy::core::SubscriptionId m_pauseSubscription = 0;
+    easy::core::SubscriptionId m_cancelSubscription = 0;
+    easy::core::SubscriptionId m_themeSubscription = 0;
 };
 
 } // namespace easy::gesture

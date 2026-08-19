@@ -36,6 +36,7 @@ struct TrailStyle {
     float lineWidth     = 3.0f;     // 线条宽度
     float startOpacity  = 0.9f;     // 起点不透明度
     float endOpacity    = 0.2f;     // 终点不透明度（渐隐）
+    float fadeHoldMs    = 0.0f;     // 松手后立即开始淡出
     float fadeOutMs     = 350.0f;   // 淡出时间(毫秒)
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
@@ -98,8 +99,21 @@ private:
     bool createOverlayWindow(HINSTANCE hInstance);
     bool updateTextFormat(float dpiScale);
 
-    /// 渲染帧
-    void render();
+    /// 渲染一帧。成功提交到屏幕后返回 true。
+    bool render();
+
+    /// 按轨迹包围盒调整分层窗口与 DIB，避免每次提交整块虚拟屏。
+    bool fitSurface(int left, int top, int right, int bottom);
+    bool recreateBitmapLocked(int x, int y, int width, int height);
+
+    /// 根据当前配置重建 D2D 画笔。调用方必须已持有 m_renderMutex，且渲染目标有效。
+    void applyThemeColorsLocked();
+
+    /// 在渲染线程执行真正的隐藏与资源释放，禁止从鼠标钩子调用
+    void applyHideOnRenderThread();
+
+    /// 释放 D2D 资源。调用方必须已持有 m_renderMutex。
+    void releaseD2DResourcesLocked();
 
     /// 专用高优先级异步渲染循环 (彻底隔离鼠标钩子热路径，消除输入迟滞)
     void renderLoop(std::stop_token stopToken);
@@ -112,10 +126,15 @@ private:
     TrailStyle m_style;
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_fading{false};
+    std::atomic<bool> m_hideRequested{false};
+    std::atomic<bool> m_wantVisible{false};
+    std::atomic<bool> m_wakeRender{false};
     std::atomic<uint64_t> m_trailEpoch{0};
     uint64_t m_fadeEpoch = 0;
     float m_fadeAlpha = 1.0f;
     DWORD m_fadeStartTick = 0;
+    std::atomic<bool> m_fadeClockStarted{false};
+    std::atomic<bool> m_themeDirty{true};
 
     // 专用异步渲染引擎
     std::jthread m_renderThread;
@@ -126,6 +145,11 @@ private:
     // 虚拟屏幕原点: 轨迹点是绝对屏幕坐标, 覆盖层左上角对应此原点, 绘制时需减去
     int m_originX = 0;
     int m_originY = 0;
+    int m_virtualX = 0;
+    int m_virtualY = 0;
+    int m_virtualW = 0;
+    int m_virtualH = 0;
+    std::atomic<DWORD> m_lastWakeTick{0};
 
     // 轨迹数据
     std::mutex m_trailMutex;
@@ -137,6 +161,8 @@ private:
 
     // Direct2D 资源与并发安全渲染锁
     std::mutex m_renderMutex;
+
+    uint64_t m_loggedPresentEpoch = 0;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;

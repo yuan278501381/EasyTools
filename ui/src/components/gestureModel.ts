@@ -99,3 +99,51 @@ export function codeToArrows(code: string): string {
 }
 
 export const GESTURE_CODE_PATTERN = /^[UDLR]{1,3}(-[UDLR]{1,3})*$/;
+
+export function normalizeGestureCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+/**
+ * 编辑已有手势时原地替换，保持列表顺序；新增则追加到末尾。
+ * 若保存的方向码与另一项冲突，则覆盖那一项（编辑中的项仍留在原位）。
+ */
+export function upsertGestureMapping(
+  list: readonly GestureMapping[],
+  saved: GestureMapping,
+  editing: GestureMapping | null,
+): GestureMapping[] {
+  const savedCode = normalizeGestureCode(saved.gestureCode);
+  const editingId = editing?.id;
+  const editingCode = editing ? normalizeGestureCode(editing.gestureCode) : '';
+
+  const isEditingItem = (m: GestureMapping) => {
+    if (!editing) return false;
+    if (editingId && m.id) return m.id === editingId;
+    return editingCode !== '' && normalizeGestureCode(m.gestureCode) === editingCode;
+  };
+
+  const next = list.slice();
+  let editIdx = next.findIndex(isEditingItem);
+
+  if (editIdx >= 0) {
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (i === editIdx) continue;
+      if (normalizeGestureCode(next[i].gestureCode) === savedCode) {
+        next.splice(i, 1);
+        if (i < editIdx) editIdx -= 1;
+      }
+    }
+    next[editIdx] = saved;
+    return next;
+  }
+
+  const conflictIdx = next.findIndex((m) => normalizeGestureCode(m.gestureCode) === savedCode);
+  if (conflictIdx >= 0) {
+    next[conflictIdx] = saved;
+    return next;
+  }
+
+  next.push(saved);
+  return next;
+}

@@ -99,6 +99,9 @@ public:
 
     void setTrailCallback(TrailRenderCallback callback);
 
+    /// 取消当前追踪（左键、Esc、钩子熔断时调用）
+    void cancelActiveGesture();
+
     /// 从配置文件加载全部状态
     void loadFromConfig();
 

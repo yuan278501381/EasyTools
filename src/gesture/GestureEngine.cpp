@@ -4,6 +4,7 @@
 
 #include "gesture/GestureEngine.h"
 #include "gesture/GestureTrailOverlay.h"
+#include "gesture/GestureInputPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -41,6 +42,7 @@ bool GestureEngine::start() {
     hook.setEventCallback([this](const MouseEvent& event) -> bool {
         return onMouseEvent(event);
     });
+    hook.setFaultCallback([this]() { cancelActiveGesture(); });
 
     if (!hook.install()) {
         LOG_ERROR("手势引擎启动失败: 无法安装鼠标钩子");
@@ -68,7 +70,10 @@ bool GestureEngine::start() {
 }
 
 void GestureEngine::stop() {
-    MouseHook::instance().uninstall();
+    auto& hook = MouseHook::instance();
+    hook.setFaultCallback(nullptr);
+    hook.setEventCallback(nullptr);
+    hook.uninstall();
     if (m_actionWorker.joinable()) {
         m_actionWorker.request_stop();
         m_actionCv.notify_all();
@@ -222,7 +227,7 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
 
         switch (m_state.load()) {
             case GestureState::Idle:
-                if (event.type == m_triggerDown.load()) {
+                if (isGestureTriggerDown(event.type, MouseHook::instance().triggerMode())) {
                     // 每次触发键按下 = 一次新的用户操作, 开启全新 TraceId 贯穿整条链路
                     m_gestureTraceId = easy::core::TraceId::begin();
 
@@ -287,12 +292,9 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
                 } else if (event.type == m_activeTriggerUp) {
                     endTracking(event);
                     return true; // 拦截触发按键的抬起事件
-                } else if (event.type == MouseEventType::LeftDown || event.type == MouseEventType::LeftUp || event.type == MouseEventType::RightDown) {
-                    // 如果在手势过程中按下了其他键（如左键），立即取消手势并放行按键
-                    if (event.type != m_activeTriggerDown) {
-                        cancelTracking();
-                        return false;
-                    }
+                } else if (cancelsGestureTracking(event.type, m_activeTriggerDown)) {
+                    cancelTracking();
+                    return false;
                 }
                 return false;
 
@@ -311,8 +313,8 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
 }
 
 void GestureEngine::beginTracking(const MouseEvent& event) {
-    m_activeTriggerDown = m_triggerDown.load();
-    m_activeTriggerUp = m_triggerUp.load();
+    m_activeTriggerDown = event.type;
+    m_activeTriggerUp = triggerUpFor(event.type);
     m_trackingStartTime = std::chrono::steady_clock::now();
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
@@ -473,7 +475,7 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     if (!profile) {
         // 手势在当前窗口被禁用 → 还原为普通点击
         m_state = GestureState::Idle;
-        if (m_trailVisible.load()) GestureTrailOverlay::instance().hide();
+        if (m_trailVisible.load()) GestureTrailOverlay::instance().endTrail();
         reinjectTriggerClick();
         LOG_DEBUG("手势在当前窗口被禁用");
         return;
@@ -535,7 +537,9 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         // 未找到手势映射：直接隐藏，不显示任何 Toast
         LOG_DEBUG("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
         if (m_trailVisible.load()) {
-            GestureTrailOverlay::instance().hide();
+            // 未匹配也走异步淡出，绝不能在 WH_MOUSE_LL 回调里 hide()+拆 DIB。
+            // 实测那条路径 100ms+，会触发 3 秒熔断，表现为下一笔轨迹画不出来。
+            GestureTrailOverlay::instance().endTrail();
         }
     }
 
@@ -607,6 +611,15 @@ void GestureEngine::reinjectTriggerClick() {
     if (!easy::core::MainThreadDispatcher::instance().postDeferred(inject)) {
         LOG_WARN("主线程延迟队列不可用，立即补发触发键点击");
         inject();
+    }
+}
+
+void GestureEngine::cancelActiveGesture() {
+    std::lock_guard lock(m_mutex);
+    if (m_state.load(std::memory_order_relaxed) == GestureState::Tracking) {
+        cancelTracking();
+    } else {
+        MouseHook::instance().resetTriggerState();
     }
 }
 

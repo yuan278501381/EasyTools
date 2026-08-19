@@ -564,7 +564,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             }
         }
 
-        // 2. ESC 退出 QuickLook 预览
+        // 2. ESC：先收 QuickLook；再通知手势/轮盘取消追踪，但不吞掉按键
         if (vkCode == VK_ESCAPE) {
             if (easy::ui::QuickLookWindow::instance().isVisible()) {
                 easy::core::MainThreadDispatcher::instance().post([]() {
@@ -572,6 +572,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
                 });
                 return true;
             }
+            easy::core::EventBus::instance().publish(easy::core::CancelTransientUiEvent{});
         }
 
         // 3. 方向键联动：在资源管理器中切换选中项时，QuickLook 自动刷新预览内容

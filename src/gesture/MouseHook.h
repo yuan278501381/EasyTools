@@ -49,6 +49,9 @@ struct MouseEvent {
 /// 鼠标事件回调，返回 true 表示拦截此事件不传递给下层
 using MouseEventCallback = std::function<bool(const MouseEvent&)>;
 
+/// 钩子回调超时熔断后的复位通知。必须不在引擎互斥锁内调用。
+using MouseHookFaultCallback = std::function<void()>;
+
 /// 手势允许的触发按键模式
 enum class TriggerMode : uint8_t {
     RightOnly = 0,        // 仅右键 (次要按键，自适应左手模式)
@@ -72,6 +75,9 @@ public:
 
     /// 设置事件回调（由 GestureEngine 设置）
     void setEventCallback(MouseEventCallback callback);
+
+    /// 熔断触发时复位手势追踪，避免漏掉的抬起把下一笔手势永久吞掉
+    void setFaultCallback(MouseHookFaultCallback callback);
 
     /// 设置触发键模式 (支持同时启用右键与中键)
     void setTriggerMode(TriggerMode mode);
@@ -121,6 +127,7 @@ private:
 
     // 直接回调模式（可选，用于低延迟场景）
     MouseEventCallback m_callback;
+    MouseHookFaultCallback m_faultCallback;
     std::mutex m_callbackMutex;
 };
 
