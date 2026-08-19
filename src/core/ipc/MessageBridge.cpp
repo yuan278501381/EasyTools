@@ -15,10 +15,15 @@
 #include "core/events/EventBus.h"
 
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <thread>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 #include <shobjidl.h>
 #include <shellapi.h>
 
@@ -255,6 +260,171 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
     }
 }
 
+// ── 异步方法线程池 ──────────────────────────────────────────────────────────
+//
+// 队列里只保存原始消息文本和响应回调，处理器是任务真正执行时才从 m_handlers
+// 查找的。因此排队中的任务不会持有插件 DLL 内的 std::function，插件卸载不会
+// 留下指向已卸载模块的悬空调用。
+
+namespace {
+
+constexpr size_t AsyncWorkerCount = 4;
+
+/// 队列上限。搜索场景下堆积几乎都来自连续击键，因此过载时丢弃最旧的一条，
+/// 并立刻给它回一个错误响应，避免前端 Promise 悬挂到超时。
+constexpr size_t MaxQueuedAsyncJobs = 64;
+
+std::mutex g_workerPoolMutex;
+
+}  // namespace
+
+struct MessageBridge::WorkerPool {
+    struct Job {
+        std::string message;
+        AsyncResponder responder;
+    };
+
+    std::vector<std::thread> threads;
+    std::deque<Job> jobs;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool stopping = false;
+};
+
+MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
+    std::lock_guard guard(g_workerPoolMutex);
+    if (m_workerPool) return *m_workerPool;
+
+    auto* pool = new WorkerPool();
+    pool->threads.reserve(AsyncWorkerCount);
+    for (size_t i = 0; i < AsyncWorkerCount; ++i) {
+        pool->threads.emplace_back([pool]() {
+            for (;;) {
+                WorkerPool::Job job;
+                {
+                    std::unique_lock lock(pool->mutex);
+                    pool->cv.wait(lock, [pool] { return pool->stopping || !pool->jobs.empty(); });
+                    if (pool->jobs.empty()) return;  // 仅在 stopping 时成立
+                    job = std::move(pool->jobs.front());
+                    pool->jobs.pop_front();
+                }
+                std::string response = MessageBridge::instance().handleMessage(job.message);
+                try {
+                    job.responder(std::move(response));
+                } catch (const std::exception& e) {
+                    LOG_ERROR("异步 IPC 响应回调异常: {}", e.what());
+                } catch (...) {
+                    LOG_ERROR("异步 IPC 响应回调未知异常");
+                }
+            }
+        });
+    }
+    m_workerPool = pool;
+    LOG_DEBUG("异步 IPC 线程池已启动: threads={}", AsyncWorkerCount);
+    return *pool;
+}
+
+void MessageBridge::shutdownWorkerPool() {
+    WorkerPool* pool = nullptr;
+    {
+        std::lock_guard guard(g_workerPoolMutex);
+        pool = m_workerPool;
+        m_workerPool = nullptr;
+    }
+    if (!pool) return;
+
+    std::deque<WorkerPool::Job> abandoned;
+    {
+        std::lock_guard lock(pool->mutex);
+        pool->stopping = true;
+        abandoned.swap(pool->jobs);
+    }
+    pool->cv.notify_all();
+    for (auto& thread : pool->threads) {
+        if (thread.joinable()) thread.join();
+    }
+
+    // 让仍在排队的请求立刻失败，而不是让前端等到超时。
+    for (auto& job : abandoned) {
+        if (!job.responder) continue;
+        json response = {
+            {"id", 0},
+            {"error", {{"code", -32000}, {"message", "Bridge is shutting down"}}}
+        };
+        try {
+            job.responder(response.dump());
+        } catch (...) {
+        }
+    }
+    delete pool;
+    LOG_DEBUG("异步 IPC 线程池已关闭");
+}
+
+void MessageBridge::markMethodAsync(const std::string& method) {
+    {
+        std::unique_lock lock(m_mutex);
+        m_asyncMethods.insert(method);
+    }
+    ensureWorkerPool();
+    LOG_DEBUG("IPC 方法已标记为异步执行: {}", method);
+}
+
+void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResponder responder) {
+    if (!responder) return;
+
+    int id = 0;
+    bool runAsync = false;
+    try {
+        auto request = json::parse(messageJson);
+        id = request.value("id", 0);
+        const std::string method = request.value("method", "");
+        std::shared_lock lock(m_mutex);
+        runAsync = m_asyncMethods.find(method) != m_asyncMethods.end();
+    } catch (...) {
+        // 解析失败时交给同步路径，由它统一产出格式正确的错误响应。
+        runAsync = false;
+    }
+
+    if (!runAsync) {
+        responder(handleMessage(messageJson));
+        return;
+    }
+
+    auto& pool = ensureWorkerPool();
+    WorkerPool::Job evicted;
+    bool hasEvicted = false;
+    {
+        std::lock_guard lock(pool.mutex);
+        if (pool.stopping) {
+            json response = {
+                {"id", id},
+                {"error", {{"code", -32000}, {"message", "Bridge is shutting down"}}}
+            };
+            responder(response.dump());
+            return;
+        }
+        if (pool.jobs.size() >= MaxQueuedAsyncJobs) {
+            evicted = std::move(pool.jobs.front());
+            pool.jobs.pop_front();
+            hasEvicted = true;
+        }
+        pool.jobs.push_back(WorkerPool::Job{messageJson, std::move(responder)});
+    }
+    pool.cv.notify_one();
+
+    if (hasEvicted && evicted.responder) {
+        LOG_WARN("异步 IPC 队列过载, 丢弃最旧的待处理请求");
+        json response = {
+            {"id", 0},
+            {"error", {{"code", -32000}, {"message", "Request dropped: bridge queue overloaded"}}}
+        };
+        try {
+            evicted.responder(response.dump());
+        } catch (...) {
+        }
+    }
+}
+
 void MessageBridge::setEventPusher(EventPusher pusher) {
     std::unique_lock lock(m_mutex);
     m_eventPusher = std::move(pusher);
@@ -262,6 +432,11 @@ void MessageBridge::setEventPusher(EventPusher pusher) {
 }
 
 void MessageBridge::clearHandlers() {
+    // Stop async dispatch first: queued jobs look their handler up at execution
+    // time, so draining them before clearing m_handlers avoids spurious
+    // "method not found" responses during shutdown.
+    shutdownWorkerPool();
+
     // std::function destructors may release objects whose cleanup re-enters the
     // bridge. Move callbacks out while locked, then destroy them without
     // holding m_mutex to avoid shutdown deadlocks.
@@ -272,6 +447,7 @@ void MessageBridge::clearHandlers() {
         handlers.reserve(m_handlers.size());
         for (auto& [_, slot] : m_handlers) handlers.push_back(std::move(slot));
         m_handlers.clear();
+        m_asyncMethods.clear();
         eventPusher.swap(m_eventPusher);
     }
     eventPusher = nullptr;

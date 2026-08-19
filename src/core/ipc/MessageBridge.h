@@ -20,6 +20,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <nlohmann/json.hpp>
 
 namespace easy::core {
@@ -31,6 +32,9 @@ using MessageHandler = std::function<json(const json& params)>;
 
 /// 事件推送器类型: 由 WebView2 层实现，用于向 JS 发送消息
 using EventPusher = std::function<void(const std::string& eventName, const json& data)>;
+
+/// 异步响应回调。可能在任意工作线程上被调用，调用方需自行切回所需线程。
+using AsyncResponder = std::function<void(std::string responseJson)>;
 
 class EASYCORE_API MessageBridge {
 public:
@@ -54,6 +58,16 @@ public:
     /// @param messageJson JSON-RPC 风格消息: {"id": 1, "method": "xxx", "params": {...}}
     /// @return 响应 JSON: {"id": 1, "result": {...}} 或 {"id": 1, "error": {...}}
     std::string handleMessage(const std::string& messageJson);
+
+    /// 将方法标记为异步执行。被标记的方法会在后台线程池中运行，调用
+    /// handleMessageAsync 的线程（通常是 WebView2 的 UI 线程）不会被阻塞。
+    /// 适用于跨进程、跨磁盘等耗时不可控的处理器。
+    void markMethodAsync(const std::string& method);
+
+    /// 处理来自前端的消息，结果通过 responder 回调返回。
+    /// 方法已标记为异步时投递到线程池并立即返回，responder 在工作线程被调用；
+    /// 否则同步执行，responder 在本函数返回前被调用。
+    void handleMessageAsync(const std::string& messageJson, AsyncResponder responder);
 
     // ── 事件推送 (C++ → JS) ─────────────────────────────────────────────
 
@@ -83,9 +97,17 @@ private:
         bool accepting = true;
     };
 
+    struct WorkerPool;
+
     static void retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots);
 
+    /// 惰性创建线程池。仅在确实注册了异步方法时才付出线程开销。
+    WorkerPool& ensureWorkerPool();
+    void shutdownWorkerPool();
+
     std::unordered_map<std::string, std::shared_ptr<HandlerSlot>> m_handlers;
+    std::unordered_set<std::string> m_asyncMethods;
+    WorkerPool* m_workerPool = nullptr;
     EventPusher m_eventPusher;
     mutable std::shared_mutex m_mutex;
 };
