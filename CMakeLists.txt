@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.25)
 # ─────────────────────────────────────────────────────────────────────────────
 
 project(EasyTools
-    VERSION 1.0.5
+    VERSION 1.0.6
     DESCRIPTION "High-performance desktop productivity toolkit"
     LANGUAGES CXX
 )
@@ -144,7 +144,7 @@ easytools_add_plugin_manifest(Plugin_Gesture)
 target_compile_definitions(Plugin_Gesture PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Gesture PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Gesture PRIVATE EasyCore
-    d2d1 dwrite windowscodecs user32 shell32 shcore
+    d2d1 dwrite windowscodecs user32 shell32 shcore dwmapi
 )
 set_target_properties(Plugin_Gesture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
@@ -272,7 +272,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 d3d11 dxgi ole32 shcore
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)

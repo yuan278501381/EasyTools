@@ -231,13 +231,13 @@ void GestureTrailOverlay::shutdown() {
         m_renderThread.join();
     }
     releaseD2DResources();
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
-        m_hwnd = nullptr;
-    }
     if (m_toastHwnd) {
         DestroyWindow(m_toastHwnd);
         m_toastHwnd = nullptr;
+    }
+    if (m_hwnd) {
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
     }
     if (m_helperOwnerHwnd) {
         DestroyWindow(m_helperOwnerHwnd);
@@ -487,7 +487,8 @@ void GestureTrailOverlay::hide() {
 void GestureTrailOverlay::yieldZOrderForInput() {
     auto lower = [](HWND hwnd) {
         if (hwnd && IsWindow(hwnd) && IsWindowVisible(hwnd)) {
-            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+            // NOTOPMOST 仍会停在普通窗口堆顶，继续挡住目标。先沉底，让 WindowFromPoint / 前台切换落到真实应用。
+            SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         }
     };
@@ -578,8 +579,14 @@ bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int 
         LOG_WARN("手势覆盖层提交失败: {}x{} error={}", width, height, err);
         return false;
     }
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    // 两个分层窗口都已位于 TOPMOST 组时不要逐帧重新插队。旧逻辑每帧先把轨迹
+    // 提到最前，再把 Toast 提到最前；二者重叠时会在两次提交之间短暂交换层级，
+    // 肉眼表现为闪烁。仅在输入动作暂时沉底后才恢复 TOPMOST。
+    const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if ((exStyle & WS_EX_TOPMOST) == 0) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
     if (!IsWindowVisible(hwnd)) {
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     }
@@ -769,7 +776,9 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         L"EasyTools Gesture Toast",
         WS_POPUP,
         0, 0, 64, 64,
-        m_helperOwnerHwnd,
+        // Toast 归轨迹窗口所有。Win32 保证 owned window 始终位于 owner 上方，
+        // 即使两者的像素表面在相邻时刻更新，也不会让轨迹盖住 Toast。
+        m_hwnd,
         nullptr,
         hInstance,
         this

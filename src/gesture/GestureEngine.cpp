@@ -354,14 +354,17 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
 
-    // 穿透轨迹/toast 覆盖层：上一笔淡出时 WindowFromPoint 会命中 overlay。
-    HWND hwndUnderCursor = static_cast<HWND>(windowFromPointSkippingGestureOverlay(
-        event.position.x, event.position.y));
-    m_gestureStartWindow = hwndUnderCursor ? hwndUnderCursor : event.foregroundWindow;
-    m_previousForeground = GetForegroundWindow();
-    if (resolveGestureKeyTarget(m_previousForeground, nullptr, nullptr) == nullptr) {
-        m_previousForeground = nullptr;
-    }
+    // 钩子里只做轻量命中：overlay 仍在 TOPMOST 时 WindowFromPoint 常打到覆盖层。
+    // 真正的选窗放到松手后的输入线程（先把 overlay 沉底，再用 EnumWindows 穿透）。
+    // 钩子回调里不走 EnumWindows（可能和目标线程互锁）。按下时只记下坐标与最近的外部窗口；
+    // 松手后的输入线程会把 overlay 沉底再穿透选窗。
+    m_gestureStartPt = { event.position.x, event.position.y };
+    m_gestureEndPt = m_gestureStartPt;
+    HWND fg = GetForegroundWindow();
+    m_previousForeground = static_cast<HWND>(resolveGestureKeyTarget(
+        fg, event.foregroundWindow, m_lastExternalWindow));
+    if (m_previousForeground) m_lastExternalWindow = m_previousForeground;
+    m_gestureStartWindow = m_previousForeground;
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_fallbackProfile = getProfile("default");
@@ -479,6 +482,10 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     m_liveMatchTick = 0;
     HWND startWindow = m_gestureStartWindow;
     HWND previousForeground = m_previousForeground;
+    HWND lastExternal = m_lastExternalWindow;
+    const POINT startPt = m_gestureStartPt;
+    const POINT endPt = { event.position.x, event.position.y };
+    m_gestureEndPt = endPt;
     m_gestureStartWindow = nullptr;
     m_previousForeground = nullptr;
 
@@ -553,22 +560,33 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         // 后台 worker 没有前台权限，开机后设置窗抢焦点时 Ctrl+W 会打空。
         // Lua / 外部程序仍走后台队列，避免卡住 WH_MOUSE_LL。
         // 优先用手势起点窗口：松手时光标压在 TOPMOST 轨迹上，WindowFromPoint 会命中 overlay。
-        HWND fromPoint = static_cast<HWND>(windowFromPointSkippingGestureOverlay(
-            event.position.x, event.position.y));
+        // 钩子里的 HWND 只是兜底：overlay 仍 TOPMOST 时选窗经常是 null。
+        // 真正命中在输入线程 yieldZOrder 之后做。
         HWND keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
-            startWindow, previousForeground, fromPoint));
-        if (!keyTarget) {
-            keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
-                event.foregroundWindow, GetForegroundWindow(), nullptr));
-        }
+            startWindow, previousForeground, lastExternal));
 
         if (gestureActionNeedsInputThread(action->type)) {
             GestureAction act = *action;
             const std::string traceId = m_gestureTraceId;
-            HWND hwnd = keyTarget;
-            if (!easy::core::MainThreadDispatcher::instance().postDeferred([act, hwnd, traceId]() {
+            if (!easy::core::MainThreadDispatcher::instance().postDeferred(
+                    [this, act, startPt, endPt, keyTarget, lastExternal, previousForeground, startWindow, traceId]() {
                     easy::core::TraceId::setCurrent(traceId);
                     GestureTrailOverlay::instance().yieldZOrderForInput();
+                    HWND hwnd = static_cast<HWND>(resolveGestureKeyTarget(
+                        windowFromPointSkippingGestureOverlay(startPt.x, startPt.y),
+                        windowFromPointSkippingGestureOverlay(endPt.x, endPt.y),
+                        startWindow));
+                    if (!hwnd) {
+                        hwnd = static_cast<HWND>(resolveGestureKeyTarget(
+                            keyTarget, previousForeground, lastExternal));
+                    }
+                    if (hwnd) {
+                        std::lock_guard lock(m_mutex);
+                        m_lastExternalWindow = hwnd;
+                    }
+                    LOG_INFO("手势选窗: start=({},{}) end=({},{}) hwnd=0x{:X}",
+                             startPt.x, startPt.y, endPt.x, endPt.y,
+                             reinterpret_cast<uintptr_t>(hwnd));
                     LOG_INFO("手势动作开始执行(输入线程): action={}, type={}, targetHwnd=0x{:X}",
                              act.name, static_cast<int>(act.type),
                              reinterpret_cast<uintptr_t>(hwnd));

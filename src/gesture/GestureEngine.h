@@ -148,6 +148,9 @@ private:
     std::atomic<bool> m_autoBypassFullscreen{false};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口
     HWND m_previousForeground = nullptr;  // 手势开始前的前台窗口（排除 EasyTools UI）
+    HWND m_lastExternalWindow = nullptr;  // 最近一次命中的外部窗口，设置窗抢焦点时的兜底
+    POINT m_gestureStartPt{};
+    POINT m_gestureEndPt{};
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
     uint8_t m_gestureModifiers = 0;       // 手势开始时的修饰键状态
     std::chrono::steady_clock::time_point m_trackingStartTime; // 手势开始追踪的时间点

@@ -159,6 +159,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         showSettingsWindow();
     }
 
+    // 所有核心服务、插件和原生 Overlay 均已完成初始化后再给出成功反馈。
+    // 复用统一 Toast 通道，保持提示克制且不抢焦点。
+    easy::core::EventBus::instance().publish(
+        easy::core::ShowToastEvent{L"EasyTools 已启动"});
+
     LOG_INFO("程序启动完成，进入消息循环");
 
     // ── 8. 消息循环 ──────────────────────────────────────────────────────

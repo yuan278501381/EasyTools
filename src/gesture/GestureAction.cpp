@@ -11,6 +11,7 @@
 #include "core/lua/LuaEngine.h"
 
 #include <windows.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <array>
 #include <chrono>
@@ -164,6 +165,44 @@ HWND asLiveWindow(HWND hwnd) noexcept {
     return root ? root : hwnd;
 }
 
+bool isWindowCloaked(HWND hwnd) noexcept {
+    BOOL cloaked = FALSE;
+    if (!hwnd) return false;
+    if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked)))) {
+        return false;
+    }
+    return cloaked != FALSE;
+}
+
+bool windowContainsPoint(HWND hwnd, POINT pt) noexcept {
+    RECT rc{};
+    return hwnd && GetWindowRect(hwnd, &rc) && PtInRect(&rc, pt) != FALSE;
+}
+
+bool isAcceptedGestureHitWindow(HWND hwnd, POINT pt) noexcept {
+    HWND root = asLiveWindow(hwnd);
+    if (!root) return false;
+    return gestureHitTestAcceptsWindow(
+        IsWindowVisible(root) != FALSE,
+        isGesturePassThroughWindow(root),
+        isEasyToolsUiWindow(root),
+        isWindowCloaked(root),
+        windowContainsPoint(root, pt));
+}
+
+struct EnumGestureHitCtx {
+    POINT pt{};
+    HWND result = nullptr;
+};
+
+BOOL CALLBACK enumGestureHitProc(HWND hwnd, LPARAM lp) {
+    auto* ctx = reinterpret_cast<EnumGestureHitCtx*>(lp);
+    if (!ctx) return FALSE;
+    if (!isAcceptedGestureHitWindow(hwnd, ctx->pt)) return TRUE;
+    ctx->result = asLiveWindow(hwnd);
+    return FALSE;
+}
+
 HWND firstExternalWindow(HWND a, HWND b, HWND c) noexcept {
     for (HWND h : {asLiveWindow(a), asLiveWindow(b), asLiveWindow(c)}) {
         if (h && !isEasyToolsUiWindow(h)) return h;
@@ -259,28 +298,15 @@ void* resolveGestureKeyTarget(void* candidate, void* gestureStart, void* previou
 
 void* windowFromPointSkippingGestureOverlay(int x, int y) noexcept {
     POINT pt = {x, y};
-    HWND hwnd = WindowFromPoint(pt);
-    HWND top = asLiveWindow(hwnd);
-    if (top && !gestureHitTestShouldSkipCandidate(
-            IsWindowVisible(top) != FALSE,
-            isGesturePassThroughWindow(top),
-            true)) {
-        return top;
+    HWND quick = asLiveWindow(WindowFromPoint(pt));
+    if (isAcceptedGestureHitWindow(quick, pt)) {
+        return quick;
     }
 
-    HWND probe = top ? GetWindow(top, GW_HWNDNEXT) : GetTopWindow(GetDesktopWindow());
-    for (int i = 0; probe && i < 256; ++i, probe = GetWindow(probe, GW_HWNDNEXT)) {
-        HWND root = asLiveWindow(probe);
-        if (!root) continue;
-        RECT rc{};
-        const bool contains = GetWindowRect(root, &rc) != FALSE && PtInRect(&rc, pt) != FALSE;
-        const bool overlay = isGesturePassThroughWindow(root);
-        if (gestureHitTestShouldSkipCandidate(IsWindowVisible(root) != FALSE, overlay, contains)) {
-            continue;
-        }
-        return root;
-    }
-    return nullptr;
+    EnumGestureHitCtx ctx{};
+    ctx.pt = pt;
+    EnumWindows(enumGestureHitProc, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.result;
 }
 
 bool gestureActionNeedsInputThread(ActionType type) noexcept {

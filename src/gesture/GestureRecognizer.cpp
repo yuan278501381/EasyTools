@@ -196,48 +196,55 @@ std::string refineCodeWithPath(const std::string& code,
     const int ex = pts.back().x;
     const int ey = pts.back().y;
 
-    auto enoughSecondLeg = [minSeg](int primary, int ortho) noexcept {
-        if (primary < minSeg * 2) return false;
-        const int need = (std::max)(minSeg * 2, primary * 22 / 100);
-        return std::abs(ortho) >= need;
+    struct TurnCandidate {
+        int score = -1;
+        int secondOrtho = 0;
     };
+    TurnCandidate best;
 
-    int bestScore = 0;
-    int bestPrimary = 0;
-    int bestOrtho = 0;
-    bool found = false;
+    // 单纯倾斜的直线不应被“补全”为组合手势。真正的 L 形必须同时满足：
+    // 1. 第一段已经走够；2. 第二段长度显著；3. 第二段由正交轴主导。
+    // 第 3 条是关键：它把持续略向左的「下」与明确转向左的「下-左」分开。
+    auto considerTurn = [minSeg, &best](int firstPrimary, int firstOrtho,
+                                        int secondPrimary, int secondOrtho) noexcept {
+        if (firstPrimary < minSeg * 2) return;
+        const int secondLength = std::abs(secondOrtho);
+        const int requiredLength = (std::max)(minSeg * 2, firstPrimary * 24 / 100);
+        if (secondLength < requiredLength) return;
+
+        // 第一段可以自然倾斜，但不能本来就是一条明显对角线。
+        if (std::abs(firstOrtho) * 2 > firstPrimary) return;
+        // 第二段必须真正转向正交轴，而不是沿原斜率继续漂移。
+        if (secondLength * 4 < std::abs(secondPrimary) * 5) return;
+
+        const int score = firstPrimary + secondLength -
+            std::abs(firstOrtho) - std::abs(secondPrimary);
+        if (score > best.score) best = {score, secondOrtho};
+    };
 
     if (code == "D" || code == "U") {
         for (int i = 1; i < n - 1; ++i) {
-            const int primary = (code == "D") ? (pts[i].y - sy) : (sy - pts[i].y);
-            const int ortho = ex - pts[i].x;
-            if (primary <= 0) continue;
-            const int score = primary * std::abs(ortho);
-            if (!found || score > bestScore) {
-                found = true;
-                bestScore = score;
-                bestPrimary = primary;
-                bestOrtho = ortho;
-            }
+            const int firstPrimary = (code == "D") ? (pts[i].y - sy) : (sy - pts[i].y);
+            const int firstOrtho = pts[i].x - sx;
+            const int secondPrimary = (code == "D") ? (ey - pts[i].y) : (pts[i].y - ey);
+            const int secondOrtho = ex - pts[i].x;
+            considerTurn(firstPrimary, firstOrtho, secondPrimary, secondOrtho);
         }
-        if (found && enoughSecondLeg(bestPrimary, bestOrtho)) {
-            return (bestOrtho >= 0) ? (code + std::string("-R")) : (code + std::string("-L"));
+        if (best.score >= 0) {
+            return (best.secondOrtho >= 0) ? (code + std::string("-R"))
+                                           : (code + std::string("-L"));
         }
     } else {
         for (int i = 1; i < n - 1; ++i) {
-            const int primary = (code == "R") ? (pts[i].x - sx) : (sx - pts[i].x);
-            const int ortho = ey - pts[i].y;
-            if (primary <= 0) continue;
-            const int score = primary * std::abs(ortho);
-            if (!found || score > bestScore) {
-                found = true;
-                bestScore = score;
-                bestPrimary = primary;
-                bestOrtho = ortho;
-            }
+            const int firstPrimary = (code == "R") ? (pts[i].x - sx) : (sx - pts[i].x);
+            const int firstOrtho = pts[i].y - sy;
+            const int secondPrimary = (code == "R") ? (ex - pts[i].x) : (pts[i].x - ex);
+            const int secondOrtho = ey - pts[i].y;
+            considerTurn(firstPrimary, firstOrtho, secondPrimary, secondOrtho);
         }
-        if (found && enoughSecondLeg(bestPrimary, bestOrtho)) {
-            return (bestOrtho >= 0) ? (code + std::string("-D")) : (code + std::string("-U"));
+        if (best.score >= 0) {
+            return (best.secondOrtho >= 0) ? (code + std::string("-D"))
+                                           : (code + std::string("-U"));
         }
     }
     return code;
@@ -463,29 +470,21 @@ Direction GestureRecognizer::angleToDirection(double angleRad) const {
     // 将角度归一化到 [0, 2π)
     if (angleRad < 0) angleRad += 2 * std::numbers::pi;
 
-    // 每个方向占 45°（π/4 弧度），允许 ±22.5° 容差
-    // 方向划分 (以正右方 0° 为起点，逆时针):
-    //   Right:     [-22.5°, 22.5°)    → [337.5°, 360°) ∪ [0°, 22.5°)
-    //   UpRight:   [22.5°, 67.5°)
-    //   Up:        [67.5°, 112.5°)
-    //   UpLeft:    [112.5°, 157.5°)
-    //   Left:      [157.5°, 202.5°)
-    //   DownLeft:  [202.5°, 247.5°)
-    //   Down:      [247.5°, 292.5°)
-    //   DownRight: [292.5°, 337.5°)
-
     double angleDeg = angleRad * 180.0 / std::numbers::pi;
 
-    if (angleDeg >= 337.5 || angleDeg < 22.5)   return Direction::Right;
-    if (angleDeg >= 22.5  && angleDeg < 67.5)    return Direction::UpRight;
-    if (angleDeg >= 67.5  && angleDeg < 112.5)   return Direction::Up;
-    if (angleDeg >= 112.5 && angleDeg < 157.5)   return Direction::UpLeft;
-    if (angleDeg >= 157.5 && angleDeg < 202.5)   return Direction::Left;
-    if (angleDeg >= 202.5 && angleDeg < 247.5)   return Direction::DownLeft;
-    if (angleDeg >= 247.5 && angleDeg < 292.5)   return Direction::Down;
-    if (angleDeg >= 292.5 && angleDeg < 337.5)   return Direction::DownRight;
+    // 人画水平/垂直线时比画对角线更容易产生小角度偏差。给四个基准方向
+    // 约 ±30° 的“磁吸区”，剩余区域才归为对角线；45° 对角手势仍完整保留。
+    const double cardinalTolerance =
+        (std::clamp)(m_config.angleToleranceDeg + 7.5, 22.5, 35.0);
+    if (circularDeltaDeg(angleDeg, 0.0)   <= cardinalTolerance) return Direction::Right;
+    if (circularDeltaDeg(angleDeg, 90.0)  <= cardinalTolerance) return Direction::Up;
+    if (circularDeltaDeg(angleDeg, 180.0) <= cardinalTolerance) return Direction::Left;
+    if (circularDeltaDeg(angleDeg, 270.0) <= cardinalTolerance) return Direction::Down;
 
-    return Direction::None;
+    if (angleDeg < 90.0)  return Direction::UpRight;
+    if (angleDeg < 180.0) return Direction::UpLeft;
+    if (angleDeg < 270.0) return Direction::DownLeft;
+    return Direction::DownRight;
 }
 
 double GestureRecognizer::calculateDistance(int x1, int y1, int x2, int y2) {

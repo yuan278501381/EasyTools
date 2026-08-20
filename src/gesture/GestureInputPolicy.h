@@ -166,6 +166,12 @@ inline bool gestureHitTestShouldSkipCandidate(bool visible, bool overlayClass,
     return !visible || overlayClass || !containsPoint;
 }
 
+/// 手势作用窗口：必须可见、未遮罩，且不是 EasyTools 自己的设置/覆盖层。
+inline bool gestureHitTestAcceptsWindow(bool visible, bool passThrough, bool easyToolsUi,
+                                        bool cloaked, bool containsPoint) noexcept {
+    return visible && !passThrough && !easyToolsUi && !cloaked && containsPoint;
+}
+
 /// Alt+F4 应直接向目标窗口投递关闭，而不是再合成按键（覆盖层抢前台时 SendInput 会打空）。
 inline bool keyStrokeShouldPostClose(uint8_t modifiers, uint16_t virtualKey) noexcept {
     const uint8_t withoutAlt = static_cast<uint8_t>(modifiers & ~static_cast<uint8_t>(MOD_ALT));

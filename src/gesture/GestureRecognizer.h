@@ -152,7 +152,7 @@ struct GestureResult {
 struct RecognizerConfig {
     int minSegmentDistance   = 14;      // 最小方向段移动距离（像素，14px 极速跟手响应）
     int samplingInterval     = 2;       // 采样间隔（像素，2px 细腻平滑捕获）
-    double angleToleranceDeg = 22.5;   // 角度容差（度），±容差内归类为同一方向
+    double angleToleranceDeg = 22.5;   // 基础角度容差；实际对基准方向额外留出自然手抖余量
     int maxDirections        = 10;      // 最大方向段数量（超过视为无效手势）
     bool enableScribbleCancel = true;   // 是否开启快速乱晃/打圈反悔取消手势
 };

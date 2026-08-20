@@ -203,6 +203,8 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(refineCodeWithPath("D", {{0, 0}}, 14), "D");
     EXPECT_EQ(refineCodeWithPath("D", {{0, 0}, {8, 400}}, 14), "D");
     EXPECT_EQ(refineCodeWithPath("D", {{0, 0}, {120, 400}}, 14), "D");
+    // 整笔持续向左倾斜仍是「下」，没有真实转角就不能升级成「下-左」。
+    EXPECT_EQ(refineCodeWithPath("D", {{0, 0}, {-15, 30}, {-30, 60}, {-45, 90}, {-60, 120}}, 14), "D");
     EXPECT_EQ(refineCodeWithPath("DR", {{0, 0}, {40, 40}, {80, 80}}, 14), "DR");
     {
         std::vector<TrackPoint> lDownRight;
@@ -314,9 +316,17 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
         std::vector<TrackPoint> slantDown;
         for (int y = 0; y <= 240; y += 4) slantDown.push_back({y / 20, y});
         EXPECT_EQ(recognizePath(slantDown), "D");
+        std::vector<TrackPoint> slantDownLeft;
+        for (int y = 0; y <= 240; y += 4) slantDownLeft.push_back({-y * 13 / 25, y});
+        EXPECT_EQ(recognizePath(slantDownLeft), "D");
         std::vector<TrackPoint> slantRight;
         for (int x = 0; x <= 240; x += 4) slantRight.push_back({x, x / 20});
         EXPECT_EQ(recognizePath(slantRight), "R");
+
+        // 明确的 45° 对角线与真正组合手势不能被基准方向容错吞掉。
+        std::vector<TrackPoint> diagonalDownLeft;
+        for (int y = 0; y <= 120; y += 4) diagonalDownLeft.push_back({-y, y});
+        EXPECT_EQ(recognizePath(diagonalDownLeft), "DL");
     }
 
     {
@@ -416,6 +426,12 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, true, true));
     EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, false, false));
     EXPECT_FALSE(gestureHitTestShouldSkipCandidate(true, false, true));
+    EXPECT_TRUE(gestureHitTestAcceptsWindow(true, false, false, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, true, false, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, true, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, false, true, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(false, false, false, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, false, false, false));
     EXPECT_TRUE(keyStrokeShouldPostClose(MOD_ALT, VK_F4));
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_ALT | MOD_CONTROL, VK_F4));
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_CONTROL, 'W'));
