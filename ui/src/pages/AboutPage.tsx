@@ -155,13 +155,23 @@ export const AboutPage: FC = () => {
 
   return (
     <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
+
+      <div className="about-grand-showcase">
+        <div className="about-grand-showcase__aura"></div>
+        <div className="about-grand-showcase__logo-container">
+          <EasyToolsBolt size={140} className="about-grand-showcase__logo" />
+        </div>
+        <div className="about-grand-showcase__text">
+          <h1 className="about-grand-showcase__title">EasyTools</h1>
+          <p className="about-grand-showcase__subtitle">The Ultimate Windows Productivity Suite</p>
+        </div>
+      </div>
+
       <SettingGroup title={t('about.title')} icon={<Info size={20} strokeWidth={2.5} />}>
         <Card className="about-card-hero">
           <div className="about-hero">
             <div className="about-hero__brand">
-              <div className="about-hero__logo-box">
-                <EasyToolsBolt size={24} fill="var(--primary)" />
-              </div>
+              
               <div className="about-hero__info">
                 <div className="about-hero__title-row">
                   <h2 className="about-hero__title">EasyTools</h2>
