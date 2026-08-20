@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- EasyTools 品牌方案 1: 单独纯白超速滑翔光翼 E (The Aero-Glide 'E') -->
+  <!-- 适用于 Figma / Illustrator / Sketch / Inkscape 任意编辑曲线与节点 -->
+  <g fill="#FFFFFF" id="aero-glide-e">
+    <!-- 顶层滑翔翼 (带气动前扬上翘角) -->
+    <path id="top-wing" d="M190 85 C220 85 385 85 405 85 C430 85 440 105 415 135 C380 170 330 190 305 190 L160 190 Z" />
+    <!-- 中层穿梭翼 -->
+    <path id="middle-wing" d="M145 230 L365 230 C385 230 390 248 370 270 C350 292 320 312 295 312 L120 312 Z" />
+    <!-- 底层滑行翼 -->
+    <path id="bottom-wing" d="M110 350 L370 350 C390 350 395 368 375 395 C355 422 320 445 285 445 L65 445 Z" />
+    <!-- 前倾动能主脊柱 (倾斜角 ~14°) -->
+    <path id="spine" d="M190 85 L250 85 L125 445 L65 445 Z" />
+  </g>
+</svg>

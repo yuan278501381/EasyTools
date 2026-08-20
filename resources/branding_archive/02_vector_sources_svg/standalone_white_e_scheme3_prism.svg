@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- EasyTools 品牌方案 3: 单独纯白悬浮三维卡片 E (The Layered Prism 'E') -->
+  <g fill="#FFFFFF" id="layered-prism-e">
+    <rect id="spine" x="130" y="90" width="70" height="332" rx="35" opacity="0.85" />
+    <rect id="top-card" x="130" y="90" width="270" height="72" rx="36" />
+    <rect id="mid-card" x="130" y="220" width="240" height="72" rx="36" />
+    <rect id="bot-card" x="130" y="350" width="270" height="72" rx="36" />
+  </g>
+</svg>

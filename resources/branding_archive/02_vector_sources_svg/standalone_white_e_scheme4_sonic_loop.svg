@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- EasyTools 品牌方案 4: 单独纯白莫比乌斯流体尾迹 e (The Sonic Loop 'e') -->
+  <g fill="#FFFFFF" id="sonic-loop-e">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M256 60 C150 60 75 145 75 270 C75 385 160 452 280 452 C350 452 405 410 455 170 C405 315 320 358 256 358 C185 358 145 305 145 240 L395 240 C405 240 405 185 375 140 C340 90 300 60 256 60 Z M170 190 C180 135 220 115 256 115 C295 115 330 135 330 190 L170 190 Z" />
+  </g>
+</svg>
