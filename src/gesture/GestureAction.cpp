@@ -4,6 +4,7 @@
 
 #include "gesture/GestureAction.h"
 #include "gesture/BuiltinCommands.h"
+#include "gesture/GestureInputPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -13,6 +14,8 @@
 #include <shellapi.h>
 #include <array>
 #include <chrono>
+#include <format>
+#include <string>
 #include <thread>
 
 namespace easy::gesture {
@@ -114,13 +117,45 @@ bool isGlobalKey(WORD vk) {
            (vk == VK_SNAPSHOT);
 }
 
+std::wstring windowClassName(HWND hwnd) noexcept {
+    wchar_t cls[256] = {};
+    if (hwnd) GetClassNameW(hwnd, cls, 256);
+    return cls;
+}
+
+std::string describeWindow(HWND hwnd) {
+    if (!hwnd) return "null";
+    if (!IsWindow(hwnd)) {
+        return std::format("0x{:X}(stale)", reinterpret_cast<uintptr_t>(hwnd));
+    }
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    if (!root) root = hwnd;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(root, &pid);
+    return std::format("0x{:X} class={} pid={}",
+                       reinterpret_cast<uintptr_t>(root),
+                       easy::core::WinUtils::wstringToUtf8(windowClassName(root)),
+                       pid);
+}
+
 bool isEasyToolsUiWindow(HWND hwnd) noexcept {
     if (!hwnd || !IsWindow(hwnd)) return false;
     HWND root = GetAncestor(hwnd, GA_ROOT);
     if (!root) root = hwnd;
-    wchar_t cls[256] = {};
-    GetClassNameW(root, cls, 256);
-    return wcsncmp(cls, L"EasyTools_", 10) == 0;
+    return isEasyToolsUiClassName(windowClassName(root));
+}
+
+bool isGesturePassThroughWindow(HWND hwnd) noexcept {
+    if (!hwnd || !IsWindow(hwnd)) return false;
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    if (!root) root = hwnd;
+    if (isGestureOverlayClassName(windowClassName(root))) return true;
+    const LONG_PTR ex = GetWindowLongPtrW(root, GWL_EXSTYLE);
+    if ((ex & WS_EX_LAYERED) && (ex & WS_EX_TRANSPARENT) && (ex & WS_EX_TOPMOST) &&
+        (ex & WS_EX_NOACTIVATE) && isEasyToolsUiWindow(root)) {
+        return true;
+    }
+    return false;
 }
 
 HWND asLiveWindow(HWND hwnd) noexcept {
@@ -163,7 +198,10 @@ void pulseForegroundUnlock() noexcept {
 
 bool activateTargetWindow(HWND targetHwnd, bool allowWait) noexcept {
     targetHwnd = asLiveWindow(targetHwnd);
-    if (!targetHwnd || isEasyToolsUiWindow(targetHwnd)) return false;
+    if (!targetHwnd || isEasyToolsUiWindow(targetHwnd)) {
+        LOG_WARN("手势目标窗口不可用或属于 EasyTools UI: {}", describeWindow(targetHwnd));
+        return false;
+    }
 
     AllowSetForegroundWindow(ASFW_ANY);
     LockSetForegroundWindow(LSFW_UNLOCK);
@@ -219,6 +257,32 @@ void* resolveGestureKeyTarget(void* candidate, void* gestureStart, void* previou
     return resolved;
 }
 
+void* windowFromPointSkippingGestureOverlay(int x, int y) noexcept {
+    POINT pt = {x, y};
+    HWND hwnd = WindowFromPoint(pt);
+    HWND top = asLiveWindow(hwnd);
+    if (top && !gestureHitTestShouldSkipCandidate(
+            IsWindowVisible(top) != FALSE,
+            isGesturePassThroughWindow(top),
+            true)) {
+        return top;
+    }
+
+    HWND probe = top ? GetWindow(top, GW_HWNDNEXT) : GetTopWindow(GetDesktopWindow());
+    for (int i = 0; probe && i < 256; ++i, probe = GetWindow(probe, GW_HWNDNEXT)) {
+        HWND root = asLiveWindow(probe);
+        if (!root) continue;
+        RECT rc{};
+        const bool contains = GetWindowRect(root, &rc) != FALSE && PtInRect(&rc, pt) != FALSE;
+        const bool overlay = isGesturePassThroughWindow(root);
+        if (gestureHitTestShouldSkipCandidate(IsWindowVisible(root) != FALSE, overlay, contains)) {
+            continue;
+        }
+        return root;
+    }
+    return nullptr;
+}
+
 bool gestureActionNeedsInputThread(ActionType type) noexcept {
     return type == ActionType::SendKeys || type == ActionType::BuiltinCommand;
 }
@@ -231,21 +295,43 @@ void KeyStroke::send(void* targetWindowPtr) const {
         return;
     }
 
-    HWND targetHwnd = static_cast<HWND>(targetWindowPtr);
+    HWND targetHwnd = asLiveWindow(static_cast<HWND>(targetWindowPtr));
+    if (isEasyToolsUiWindow(targetHwnd) || isGesturePassThroughWindow(targetHwnd)) {
+        LOG_WARN("拒绝向 EasyTools UI 注入按键: keys={}, target={}",
+                 toString(), describeWindow(targetHwnd));
+        targetHwnd = nullptr;
+    }
 
-    // 1. 如果是非全局媒体键，且明确指定了鼠标下方目标窗口，优先激活该窗口确保按键精准生效
+    HWND fgBefore = GetForegroundWindow();
+    if (!isGlobalKey(virtualKey) && !targetHwnd) {
+        POINT pt{};
+        GetCursorPos(&pt);
+        targetHwnd = static_cast<HWND>(resolveGestureKeyTarget(
+            fgBefore, windowFromPointSkippingGestureOverlay(pt.x, pt.y), nullptr));
+    }
+
+    LOG_INFO("手势按键注入: keys={}, target={}, fg={}",
+             toString(), describeWindow(targetHwnd), describeWindow(fgBefore));
+
+    if (!isGlobalKey(virtualKey) && !targetHwnd) {
+        LOG_WARN("无外部目标窗口，放弃按键注入: keys={}, fg={}",
+                 toString(), describeWindow(fgBefore));
+        return;
+    }
+
+    if (!isGlobalKey(virtualKey) && targetHwnd && keyStrokeShouldPostClose(modifiers, virtualKey)) {
+        PostMessageW(targetHwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+        PostMessageW(targetHwnd, WM_CLOSE, 0, 0);
+        LOG_INFO("关闭窗口已投递: {}", describeWindow(targetHwnd));
+        return;
+    }
+
+    // 非全局键先把输入焦点切到目标窗口，再原子发送。切不过则放弃，避免 Ctrl+W 打进前台的设置页。
     if (!isGlobalKey(virtualKey) && targetHwnd) {
-        activateTargetWindow(targetHwnd, /*allowWait=*/true);
-    } else if (!isGlobalKey(virtualKey)) {
-        HWND fg = GetForegroundWindow();
-        if (!fg) {
-            POINT pt;
-            GetCursorPos(&pt);
-            fg = WindowFromPoint(pt);
-            if (fg) fg = GetAncestor(fg, GA_ROOT);
-            if (fg) {
-                SetForegroundWindow(fg);
-            }
+        if (!activateTargetWindow(targetHwnd, /*allowWait=*/true)) {
+            LOG_WARN("未能激活目标窗口，放弃注入: keys={}, target={}, fg={}",
+                     toString(), describeWindow(targetHwnd), describeWindow(GetForegroundWindow()));
+            return;
         }
     }
 

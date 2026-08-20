@@ -354,13 +354,9 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_recognizer.reset();
     m_recognizer.addPoint(event.position.x, event.position.y);
 
-    // 优先获取光标下方的顶层窗口
-    POINT pt = { event.position.x, event.position.y };
-    HWND hwndUnderCursor = WindowFromPoint(pt);
-    if (hwndUnderCursor) {
-        HWND root = GetAncestor(hwndUnderCursor, GA_ROOT);
-        if (root) hwndUnderCursor = root;
-    }
+    // 穿透轨迹/toast 覆盖层：上一笔淡出时 WindowFromPoint 会命中 overlay。
+    HWND hwndUnderCursor = static_cast<HWND>(windowFromPointSkippingGestureOverlay(
+        event.position.x, event.position.y));
     m_gestureStartWindow = hwndUnderCursor ? hwndUnderCursor : event.foregroundWindow;
     m_previousForeground = GetForegroundWindow();
     if (resolveGestureKeyTarget(m_previousForeground, nullptr, nullptr) == nullptr) {
@@ -528,8 +524,8 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     LOG_INFO("手势识别成功: code={}, fullCode={}, arrows={}, 点数={}, 距离={:.0f}px",
              bareCode, fullCode, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
 
-    // 查找适用的 Profile
-    auto profile = resolveProfile(m_gestureStartWindow);
+    // 查找适用的 Profile（成员窗口句柄已清空，必须用本次快照）
+    auto profile = resolveProfile(startWindow);
     if (!profile) {
         // 手势在当前窗口被禁用 → 还原为普通点击
         m_state = GestureState::Idle;
@@ -555,20 +551,16 @@ void GestureEngine::endTracking(const MouseEvent& event) {
 
         // SendKeys / 内置窗口命令必须在收到这次鼠标输入的 UI 线程上执行：
         // 后台 worker 没有前台权限，开机后设置窗抢焦点时 Ctrl+W 会打空。
-        // Lua / 外部程序仍走后台队列，避免卡住 WH_MOUSE_LL。 
-        // 解析手势结束时鼠标光标下方的顶层窗口
-        POINT endPt = { event.position.x, event.position.y };
-        HWND targetWnd = WindowFromPoint(endPt);
-        if (targetWnd) {
-            HWND root = GetAncestor(targetWnd, GA_ROOT);
-            if (root) targetWnd = root;
-        }
-        if (!targetWnd) targetWnd = startWindow;
-        if (!targetWnd) targetWnd = event.foregroundWindow;
-        if (!targetWnd) targetWnd = GetForegroundWindow();
+        // Lua / 外部程序仍走后台队列，避免卡住 WH_MOUSE_LL。
+        // 优先用手势起点窗口：松手时光标压在 TOPMOST 轨迹上，WindowFromPoint 会命中 overlay。
+        HWND fromPoint = static_cast<HWND>(windowFromPointSkippingGestureOverlay(
+            event.position.x, event.position.y));
         HWND keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
-            targetWnd, startWindow, previousForeground));
-        if (!keyTarget) keyTarget = targetWnd;
+            startWindow, previousForeground, fromPoint));
+        if (!keyTarget) {
+            keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
+                event.foregroundWindow, GetForegroundWindow(), nullptr));
+        }
 
         if (gestureActionNeedsInputThread(action->type)) {
             GestureAction act = *action;
@@ -576,6 +568,7 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             HWND hwnd = keyTarget;
             if (!easy::core::MainThreadDispatcher::instance().postDeferred([act, hwnd, traceId]() {
                     easy::core::TraceId::setCurrent(traceId);
+                    GestureTrailOverlay::instance().yieldZOrderForInput();
                     LOG_INFO("手势动作开始执行(输入线程): action={}, type={}, targetHwnd=0x{:X}",
                              act.name, static_cast<int>(act.type),
                              reinterpret_cast<uintptr_t>(hwnd));

@@ -402,6 +402,26 @@ TEST(GestureInputPolicyTest, OppositeMouseButtonCancelsTracking) {
     EXPECT_FALSE(cancelsGestureTracking(MouseEventType::RightUp, MouseEventType::RightDown));
 }
 
+TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
+    EXPECT_TRUE(isEasyToolsUiClassName(L"EasyTools_SettingsWindow"));
+    EXPECT_TRUE(isEasyToolsUiClassName(L"EasyTools_GestureOverlay"));
+    EXPECT_TRUE(isEasyToolsUiClassName(L"EasyTools_TrayWindow"));
+    EXPECT_FALSE(isEasyToolsUiClassName(L"EasyTools"));
+    EXPECT_FALSE(isEasyToolsUiClassName(L"Chrome_WidgetWin_1"));
+    EXPECT_FALSE(isEasyToolsUiClassName(L""));
+    EXPECT_TRUE(isGestureOverlayClassName(L"EasyTools_GestureOverlay"));
+    EXPECT_FALSE(isGestureOverlayClassName(L"EasyTools_SettingsWindow"));
+    EXPECT_FALSE(isGestureOverlayClassName(L"Chrome_WidgetWin_1"));
+    EXPECT_TRUE(gestureHitTestShouldSkipCandidate(false, false, true));
+    EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, true, true));
+    EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, false, false));
+    EXPECT_FALSE(gestureHitTestShouldSkipCandidate(true, false, true));
+    EXPECT_TRUE(keyStrokeShouldPostClose(MOD_ALT, VK_F4));
+    EXPECT_FALSE(keyStrokeShouldPostClose(MOD_ALT | MOD_CONTROL, VK_F4));
+    EXPECT_FALSE(keyStrokeShouldPostClose(MOD_CONTROL, 'W'));
+    EXPECT_FALSE(keyStrokeShouldPostClose(0, VK_F4));
+}
+
 TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
     EXPECT_TRUE(shouldShowGestureResultToast(true, true, false));
     EXPECT_FALSE(shouldShowGestureResultToast(false, true, false));
@@ -583,6 +603,36 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     auto ksEmpty = KeyStroke::fromString("");
     EXPECT_EQ(ksEmpty.virtualKey, 0);
     EXPECT_EQ(resolveGestureKeyTarget(nullptr, nullptr, nullptr), nullptr);
+    windowFromPointSkippingGestureOverlay(-100000, -100000);
+    windowFromPointSkippingGestureOverlay(0, 0);
+
+    WNDCLASSEXW overlayWc{};
+    overlayWc.cbSize = sizeof(overlayWc);
+    overlayWc.lpfnWndProc = DefWindowProcW;
+    overlayWc.hInstance = GetModuleHandleW(nullptr);
+    overlayWc.lpszClassName = L"EasyTools_GestureOverlay";
+    RegisterClassExW(&overlayWc);
+    WNDCLASSEXW settingsWc = overlayWc;
+    settingsWc.lpszClassName = L"EasyTools_SettingsWindow";
+    RegisterClassExW(&settingsWc);
+
+    HWND overlay = CreateWindowExW(WS_EX_TOOLWINDOW, L"EasyTools_GestureOverlay", L"t",
+                                   WS_POPUP, 0, 0, 8, 8, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
+    HWND settings = CreateWindowExW(WS_EX_TOOLWINDOW, L"EasyTools_SettingsWindow", L"t",
+                                    WS_POPUP, 0, 0, 8, 8, nullptr, nullptr,
+                                    GetModuleHandleW(nullptr), nullptr);
+    HWND external = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"t",
+                                    WS_POPUP, 0, 0, 8, 8, nullptr, nullptr,
+                                    GetModuleHandleW(nullptr), nullptr);
+    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, nullptr), nullptr);
+    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, external), external);
+    EXPECT_EQ(resolveGestureKeyTarget(overlay, external, settings), external);
+    KeyStroke::fromString("Alt+F4").send(external);
+    KeyStroke::fromString("").send(nullptr);
+    if (overlay) DestroyWindow(overlay);
+    if (settings) DestroyWindow(settings);
+    if (external && IsWindow(external)) DestroyWindow(external);
     EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::SendKeys));
     EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::BuiltinCommand));
     EXPECT_FALSE(gestureActionNeedsInputThread(ActionType::LuaScript));

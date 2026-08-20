@@ -48,7 +48,7 @@ HWND resolveTargetWindow(void* targetWindowPtr) {
     if (hwnd) return hwnd;
     POINT pt;
     GetCursorPos(&pt);
-    hwnd = WindowFromPoint(pt);
+    hwnd = static_cast<HWND>(windowFromPointSkippingGestureOverlay(pt.x, pt.y));
     hwnd = static_cast<HWND>(resolveGestureKeyTarget(hwnd, nullptr, nullptr));
     return hwnd;
 }

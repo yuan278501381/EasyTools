@@ -81,6 +81,9 @@ public:
     /// 立即隐藏
     void hide();
 
+    /// 注入按键前暂时让出 TOPMOST，避免覆盖层挡住目标窗口取得前台。
+    void yieldZOrderForInput();
+
     /// 重新根据全局配置与主题加载画笔颜色
     void reloadThemeColors();
 

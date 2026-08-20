@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <string>
 
 namespace easy::gesture {
 
@@ -146,6 +147,29 @@ inline bool gestureTrailUsesLightPalette(std::string_view theme,
     if (theme == "light") return true;
     if (theme == "system") return systemAppsUseLight;
     return false;
+}
+
+/// EasyTools 自己的顶层窗口类名统一用 EasyTools_ 前缀。
+inline bool isEasyToolsUiClassName(std::wstring_view cls) noexcept {
+    constexpr std::wstring_view kPrefix = L"EasyTools_";
+    return cls.size() >= kPrefix.size() && cls.substr(0, kPrefix.size()) == kPrefix;
+}
+
+/// 轨迹 / toast 覆盖层：TOPMOST 分层窗，松手时光标一定压在笔迹上。
+inline bool isGestureOverlayClassName(std::wstring_view cls) noexcept {
+    return cls == L"EasyTools_GestureOverlay";
+}
+
+/// 从覆盖层往下找真实窗口时，不可见、覆盖层、几何上不含该点的候选都跳过。
+inline bool gestureHitTestShouldSkipCandidate(bool visible, bool overlayClass,
+                                              bool containsPoint) noexcept {
+    return !visible || overlayClass || !containsPoint;
+}
+
+/// Alt+F4 应直接向目标窗口投递关闭，而不是再合成按键（覆盖层抢前台时 SendInput 会打空）。
+inline bool keyStrokeShouldPostClose(uint8_t modifiers, uint16_t virtualKey) noexcept {
+    const uint8_t withoutAlt = static_cast<uint8_t>(modifiers & ~static_cast<uint8_t>(MOD_ALT));
+    return withoutAlt == 0 && (modifiers & MOD_ALT) != 0 && virtualKey == VK_F4;
 }
 
 }  // namespace easy::gesture

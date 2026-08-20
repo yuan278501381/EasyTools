@@ -484,6 +484,17 @@ void GestureTrailOverlay::hide() {
     m_renderCv.notify_one();
 }
 
+void GestureTrailOverlay::yieldZOrderForInput() {
+    auto lower = [](HWND hwnd) {
+        if (hwnd && IsWindow(hwnd) && IsWindowVisible(hwnd)) {
+            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+    };
+    lower(m_hwnd);
+    lower(m_toastHwnd);
+}
+
 void GestureTrailOverlay::applyHideOnRenderThread() {
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_HIDE);
@@ -1230,6 +1241,9 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
             }
             return 0;
         }
+
+        case WM_NCHITTEST:
+            return HTTRANSPARENT;
 
         default:
             return DefWindowProcW(hwnd, msg, wParam, lParam);

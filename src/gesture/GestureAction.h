@@ -75,6 +75,9 @@ struct KeyStroke {
 /// 手势按键目标：跳过 EasyTools 自己的设置/托盘/覆盖层，避免 Ctrl+W 打进设置页。
 void* resolveGestureKeyTarget(void* candidate, void* gestureStart, void* previousForeground) noexcept;
 
+/// 光标下的顶层窗口，穿透手势轨迹 / toast（它们是 TOPMOST，松手时正压在笔尖上）。
+void* windowFromPointSkippingGestureOverlay(int x, int y) noexcept;
+
 /// 动作类型是否必须在收到用户输入的 UI 线程上执行（SendKeys / 内置窗口命令）。
 bool gestureActionNeedsInputThread(ActionType type) noexcept;
 
