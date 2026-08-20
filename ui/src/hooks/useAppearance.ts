@@ -71,7 +71,8 @@ export function useAppearance() {
         if (typeof settings.accentColor === 'string' && settings.accentColor) {
           applyAccent(settings.accentColor);
         }
-        if (typeof settings.language === 'string' && settings.language !== 'auto') {
+        if (typeof settings.language === 'string' && settings.language !== 'auto' &&
+            i18n.language !== settings.language) {
           void i18n.changeLanguage(settings.language);
         }
       })

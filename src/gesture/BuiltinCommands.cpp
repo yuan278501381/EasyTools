@@ -43,20 +43,14 @@ void sendCombo(uint8_t modifiers, uint16_t vk, void* targetWindow = nullptr) {
 
 /// 取得手势作用的目标窗口: 优先使用传入的 targetWindow，否则解析前台或光标下顶层窗口。
 HWND resolveTargetWindow(void* targetWindowPtr) {
-    if (targetWindowPtr && IsWindow(static_cast<HWND>(targetWindowPtr))) {
-        HWND root = GetAncestor(static_cast<HWND>(targetWindowPtr), GA_ROOT);
-        return root ? root : static_cast<HWND>(targetWindowPtr);
-    }
-    HWND hwnd = GetForegroundWindow();
-    if (!hwnd) {
-        POINT pt;
-        GetCursorPos(&pt);
-        hwnd = WindowFromPoint(pt);
-    }
-    if (!hwnd) return nullptr;
-    // 上溯到顶层窗口 (避免命中子控件)。
-    HWND root = GetAncestor(hwnd, GA_ROOT);
-    return root ? root : hwnd;
+    HWND hwnd = static_cast<HWND>(resolveGestureKeyTarget(
+        targetWindowPtr, GetForegroundWindow(), nullptr));
+    if (hwnd) return hwnd;
+    POINT pt;
+    GetCursorPos(&pt);
+    hwnd = WindowFromPoint(pt);
+    hwnd = static_cast<HWND>(resolveGestureKeyTarget(hwnd, nullptr, nullptr));
+    return hwnd;
 }
 
 void toggleTopmost(HWND hwnd) {

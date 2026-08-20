@@ -6,11 +6,14 @@
 #include "gesture/BuiltinCommands.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
 
 #include <windows.h>
 #include <shellapi.h>
 #include <array>
+#include <chrono>
+#include <thread>
 
 namespace easy::gesture {
 
@@ -105,34 +108,120 @@ std::string KeyStroke::toString() const {
 
 namespace {
 
-// 判断是否为全局多媒体控制或全局系统键 (不需要且不应切换目标窗口焦点)
 bool isGlobalKey(WORD vk) {
-    return (vk >= VK_VOLUME_MUTE && vk <= VK_MEDIA_PLAY_PAUSE) || // 0xAD - 0xB3 多媒体音量/播放
-           (vk >= 0xB4 && vk <= 0xB7) ||                          // 启动应用键
-           (vk == VK_SNAPSHOT);                                   // PrintScreen
+    return (vk >= VK_VOLUME_MUTE && vk <= VK_MEDIA_PLAY_PAUSE) ||
+           (vk >= 0xB4 && vk <= 0xB7) ||
+           (vk == VK_SNAPSHOT);
 }
 
-void activateTargetWindow(HWND targetHwnd) {
-    if (!targetHwnd || !IsWindow(targetHwnd)) return;
+bool isEasyToolsUiWindow(HWND hwnd) noexcept {
+    if (!hwnd || !IsWindow(hwnd)) return false;
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    if (!root) root = hwnd;
+    wchar_t cls[256] = {};
+    GetClassNameW(root, cls, 256);
+    return wcsncmp(cls, L"EasyTools_", 10) == 0;
+}
+
+HWND asLiveWindow(HWND hwnd) noexcept {
+    if (!hwnd || !IsWindow(hwnd)) return nullptr;
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    return root ? root : hwnd;
+}
+
+HWND firstExternalWindow(HWND a, HWND b, HWND c) noexcept {
+    for (HWND h : {asLiveWindow(a), asLiveWindow(b), asLiveWindow(c)}) {
+        if (h && !isEasyToolsUiWindow(h)) return h;
+    }
+    return nullptr;
+}
+
+struct ThreadInputAttach {
+    DWORD self = 0;
+    DWORD other = 0;
+    bool attached = false;
+
+    ThreadInputAttach(DWORD selfTid, DWORD otherTid) : self(selfTid), other(otherTid) {
+        if (other && other != self) {
+            attached = AttachThreadInput(self, other, TRUE) != FALSE;
+        }
+    }
+    ~ThreadInputAttach() {
+        if (attached) AttachThreadInput(self, other, FALSE);
+    }
+    ThreadInputAttach(const ThreadInputAttach&) = delete;
+    ThreadInputAttach& operator=(const ThreadInputAttach&) = delete;
+};
+
+void pulseForegroundUnlock() noexcept {
+    INPUT inp{};
+    inp.type = INPUT_KEYBOARD;
+    inp.ki.wVk = VK_MENU;
+    inp.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(1, &inp, sizeof(INPUT));
+}
+
+bool activateTargetWindow(HWND targetHwnd, bool allowWait) noexcept {
+    targetHwnd = asLiveWindow(targetHwnd);
+    if (!targetHwnd || isEasyToolsUiWindow(targetHwnd)) return false;
+
+    AllowSetForegroundWindow(ASFW_ANY);
+    LockSetForegroundWindow(LSFW_UNLOCK);
+
     HWND curFg = GetForegroundWindow();
-    if (curFg == targetHwnd) return;
+    if (curFg == targetHwnd) return true;
 
-    DWORD curThread = GetCurrentThreadId();
-    DWORD fgThread = curFg ? GetWindowThreadProcessId(curFg, nullptr) : 0;
-    DWORD targetThread = GetWindowThreadProcessId(targetHwnd, nullptr);
-
-    if (fgThread && fgThread != curThread) AttachThreadInput(curThread, fgThread, TRUE);
-    if (targetThread && targetThread != curThread) AttachThreadInput(curThread, targetThread, TRUE);
+    const DWORD selfTid = GetCurrentThreadId();
+    const DWORD fgTid = curFg ? GetWindowThreadProcessId(curFg, nullptr) : 0;
+    const DWORD targetTid = GetWindowThreadProcessId(targetHwnd, nullptr);
+    ThreadInputAttach attachFg(selfTid, fgTid);
+    ThreadInputAttach attachTarget(selfTid, targetTid);
 
     if (IsIconic(targetHwnd)) ShowWindow(targetHwnd, SW_RESTORE);
-    SetForegroundWindow(targetHwnd);
     BringWindowToTop(targetHwnd);
+    SetForegroundWindow(targetHwnd);
 
-    if (fgThread && fgThread != curThread) AttachThreadInput(curThread, fgThread, FALSE);
-    if (targetThread && targetThread != curThread) AttachThreadInput(curThread, targetThread, FALSE);
+    if (GetForegroundWindow() != targetHwnd) {
+        pulseForegroundUnlock();
+        SetForegroundWindow(targetHwnd);
+        BringWindowToTop(targetHwnd);
+    }
+
+    if (allowWait && GetForegroundWindow() != targetHwnd) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
+        while (std::chrono::steady_clock::now() < deadline) {
+            SetForegroundWindow(targetHwnd);
+            if (GetForegroundWindow() == targetHwnd) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    const HWND nowFg = GetForegroundWindow();
+    const bool ok = (nowFg == targetHwnd);
+    if (!ok) {
+        wchar_t cls[256] = {};
+        GetClassNameW(targetHwnd, cls, 256);
+        LOG_WARN("手势目标窗口未能取得前台: hwnd=0x{:X}, class={}, fg=0x{:X}",
+                 reinterpret_cast<uintptr_t>(targetHwnd),
+                 easy::core::WinUtils::wstringToUtf8(cls),
+                 reinterpret_cast<uintptr_t>(nowFg));
+    }
+    return ok;
 }
 
 } // namespace
+
+void* resolveGestureKeyTarget(void* candidate, void* gestureStart, void* previousForeground) noexcept {
+    HWND resolved = firstExternalWindow(
+        static_cast<HWND>(candidate),
+        static_cast<HWND>(gestureStart),
+        static_cast<HWND>(previousForeground));
+    return resolved;
+}
+
+bool gestureActionNeedsInputThread(ActionType type) noexcept {
+    return type == ActionType::SendKeys || type == ActionType::BuiltinCommand;
+}
 
 // ── KeyStroke::send ──────────────────────────────────────────────────────────
 
@@ -146,7 +235,7 @@ void KeyStroke::send(void* targetWindowPtr) const {
 
     // 1. 如果是非全局媒体键，且明确指定了鼠标下方目标窗口，优先激活该窗口确保按键精准生效
     if (!isGlobalKey(virtualKey) && targetHwnd) {
-        activateTargetWindow(targetHwnd);
+        activateTargetWindow(targetHwnd, /*allowWait=*/true);
     } else if (!isGlobalKey(virtualKey)) {
         HWND fg = GetForegroundWindow();
         if (!fg) {

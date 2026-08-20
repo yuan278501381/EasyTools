@@ -53,6 +53,23 @@ inline bool shouldShowGestureResultToast(bool recognized, bool hasResultText,
     return excessive || (recognized && hasResultText);
 }
 
+/// 绘制过程中覆盖层只扩大、不收缩、不挪原点；否则卡片一闪窗口就搬一次，轨迹会抽搐。
+inline void growOverlayRect(int& left, int& top, int& right, int& bottom,
+                            int originX, int originY, int width, int height) noexcept {
+    if (width <= 0 || height <= 0) return;
+    left = (std::min)(left, originX);
+    top = (std::min)(top, originY);
+    right = (std::max)(right, originX + width);
+    bottom = (std::max)(bottom, originY + height);
+}
+
+inline bool overlaySurfaceContains(int left, int top, int right, int bottom,
+                                   int originX, int originY, int width, int height) noexcept {
+    return width > 0 && height > 0 &&
+           left >= originX && top >= originY &&
+           right <= originX + width && bottom <= originY + height;
+}
+
 /// 淡出时钟必须从第一帧真正画出来之后才走。若从松手瞬间起算，重建整屏
 /// DIB 的耗时会被算进淡出窗口里，结果动作已经执行、轨迹和 Toast 一帧都没有。
 inline bool gestureFadeShouldFinish(bool clockStarted, DWORD elapsedMs,

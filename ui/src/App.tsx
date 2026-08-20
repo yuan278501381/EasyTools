@@ -90,15 +90,22 @@ function App() {
   const activePlugins = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
 
   useEffect(() => {
+    let cancelled = false;
     bridgeRequest<{ theme?: string; language?: string }>('general.getSettings')
       .then((settings) => {
+        if (cancelled) return;
         if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
           setThemePreference(settings.theme);
         }
-        if (settings.language && settings.language !== 'auto') void i18n.changeLanguage(settings.language);
+        if (settings.language && settings.language !== 'auto' && i18n.language !== settings.language) {
+          void i18n.changeLanguage(settings.language);
+        }
       })
       .catch(console.error);
-  }, [i18n]);
+    return () => { cancelled = true; };
+    // 见 GeneralPage：不能把 i18n 放进依赖，否则 changeLanguage 会形成 IPC 风暴。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 检查是否需要显示首次引导
   useEffect(() => {

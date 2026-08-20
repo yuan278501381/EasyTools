@@ -77,23 +77,31 @@ export const GeneralPage: FC = () => {
 
   // 初始化获取设置
   useEffect(() => {
+    let cancelled = false;
     Promise.all([
       bridgeRequest<GeneralSettings>('general.getSettings'),
       bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
     ]).then(([res, hotkeyData]) => {
+      if (cancelled) return;
       setSettings(prev => ({ ...prev, ...res }));
       const lang = res.language;
-      if (lang && lang !== 'auto') {
-        i18n.changeLanguage(lang);
+      if (lang && lang !== 'auto' && i18n.language !== lang) {
+        void i18n.changeLanguage(lang);
       }
       setHotkeys(Array.isArray(hotkeyData) ? hotkeyData : []);
     })
     .catch((error) => {
+      if (cancelled) return;
       console.error(error);
       toast.error(t('general.loadFailed'));
     })
-    .finally(() => setLoading(false));
-  }, [i18n, t]);
+    .finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+    // i18n.changeLanguage 会换掉 t/i18n 引用；放进依赖会把 IPC 打成几百 Hz，卡死主线程钩子。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 保存单个设置项
   const updateSetting = useCallback(async <K extends keyof GeneralSettings,>(key: K, value: GeneralSettings[K]) => {

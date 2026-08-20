@@ -165,6 +165,102 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Right, Direction::UpRight})), "R-U");
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Left, Direction::UpLeft})), "L-U");
     EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({Direction::Up, Direction::DownRight})), "U-DR");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Down, Direction::Right, Direction::DownRight})), "D-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Down, Direction::Left, Direction::DownLeft})), "D-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Up, Direction::Right, Direction::UpRight})), "U-R");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Up, Direction::Left, Direction::UpLeft})), "U-L");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Right, Direction::Down, Direction::DownRight})), "R-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Right, Direction::Up, Direction::UpRight})), "R-U");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Left, Direction::Down, Direction::DownLeft})), "L-D");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Left, Direction::Up, Direction::UpLeft})), "L-U");
+    EXPECT_EQ(directionsToCode(GestureRecognizer::simplifyDirections({
+        Direction::Down, Direction::Right, Direction::Down})), "D-R-D");
+
+    EXPECT_EQ(tokenToDirection("XX"), Direction::None);
+    EXPECT_EQ(tokenToDirection(""), Direction::None);
+    EXPECT_TRUE(codeToDirections("").empty());
+    EXPECT_EQ(directionsToCode(codeToDirections("D-R")), "D-R");
+    EXPECT_EQ(directionsToCode(codeToDirections("DR")), "DR");
+    EXPECT_EQ(codeToDirections("D-XX-R").size(), 2u);
+
+    EXPECT_EQ(*expandSingleDiagonalCode("DR"), "D-R");
+    EXPECT_EQ(*expandSingleDiagonalCode("DL"), "D-L");
+    EXPECT_EQ(*expandSingleDiagonalCode("UR"), "U-R");
+    EXPECT_EQ(*expandSingleDiagonalCode("UL"), "U-L");
+    EXPECT_FALSE(expandSingleDiagonalCode("D-R").has_value());
+    EXPECT_FALSE(expandSingleDiagonalCode("L").has_value());
+
+    EXPECT_EQ(refineCodeWithPath("", {{0, 0}, {10, 10}}, 14), "");
+    EXPECT_EQ(refineCodeWithPath("D-R", {{0, 0}, {0, 80}, {80, 80}}, 14), "D-R");
+    EXPECT_EQ(refineCodeWithPath("D", {{0, 0}}, 14), "D");
+    EXPECT_EQ(refineCodeWithPath("D", {{0, 0}, {8, 400}}, 14), "D");
+    EXPECT_EQ(refineCodeWithPath("D", {{0, 0}, {120, 400}}, 14), "D");
+    EXPECT_EQ(refineCodeWithPath("DR", {{0, 0}, {40, 40}, {80, 80}}, 14), "DR");
+    {
+        std::vector<TrackPoint> lDownRight;
+        for (int y = 0; y <= 80; y += 8) lDownRight.push_back({0, y});
+        for (int x = 8; x <= 80; x += 8) lDownRight.push_back({x, 80});
+        EXPECT_EQ(refineCodeWithPath("D", lDownRight, 14), "D-R");
+        std::vector<TrackPoint> lDownLeft;
+        for (int y = 0; y <= 80; y += 8) lDownLeft.push_back({80, y});
+        for (int x = 72; x >= 0; x -= 8) lDownLeft.push_back({x, 80});
+        EXPECT_EQ(refineCodeWithPath("D", lDownLeft, 14), "D-L");
+        std::vector<TrackPoint> lUpRight;
+        for (int y = 80; y >= 0; y -= 8) lUpRight.push_back({0, y});
+        for (int x = 8; x <= 80; x += 8) lUpRight.push_back({x, 0});
+        EXPECT_EQ(refineCodeWithPath("U", lUpRight, 14), "U-R");
+        std::vector<TrackPoint> lRightDown;
+        for (int x = 0; x <= 80; x += 8) lRightDown.push_back({x, 0});
+        for (int y = 8; y <= 80; y += 8) lRightDown.push_back({80, y});
+        EXPECT_EQ(refineCodeWithPath("R", lRightDown, 14), "R-D");
+        std::vector<TrackPoint> slantDown;
+        for (int y = 0; y <= 200; y += 10) slantDown.push_back({y / 20, y});
+        EXPECT_EQ(refineCodeWithPath("D", slantDown, 14), "D");
+    }
+
+    auto recognizePath = [](const std::vector<TrackPoint>& pts) {
+        GestureRecognizer r;
+        r.reset();
+        for (const auto& p : pts) r.addPoint(p.x, p.y);
+        auto res = r.finalize();
+        return res ? res->code : std::string{};
+    };
+    auto driftTurn = [](int ax, int ay, int bx, int by) {
+        std::vector<TrackPoint> pts;
+        for (int i = 0; i <= 24; ++i) pts.push_back({ax * i, ay * i});
+        const auto last = pts.back();
+        for (int i = 1; i <= 24; ++i) {
+            pts.push_back({last.x + bx * i, last.y + by * i});
+        }
+        return pts;
+    };
+    EXPECT_EQ(recognizePath(driftTurn(0, 4, 4, 1)), "D-R");
+    EXPECT_EQ(recognizePath(driftTurn(0, 4, -4, 1)), "D-L");
+    EXPECT_EQ(recognizePath(driftTurn(0, -4, 4, -1)), "U-R");
+    EXPECT_EQ(recognizePath(driftTurn(0, -4, -4, -1)), "U-L");
+    EXPECT_EQ(recognizePath(driftTurn(4, 0, 1, 4)), "R-D");
+    EXPECT_EQ(recognizePath(driftTurn(4, 0, 1, -4)), "R-U");
+    EXPECT_EQ(recognizePath(driftTurn(-4, 0, -1, 4)), "L-D");
+    EXPECT_EQ(recognizePath(driftTurn(-4, 0, -1, -4)), "L-U");
+    EXPECT_EQ(recognizePath(driftTurn(0, 4, 0, -4)), "D-U");
+    EXPECT_EQ(recognizePath(driftTurn(4, 0, -4, 0)), "R-L");
+
+    {
+        std::vector<TrackPoint> sloppyDown;
+        sloppyDown.push_back({0, 0});
+        sloppyDown.push_back({10, 10});
+        sloppyDown.push_back({16, 16});
+        for (int y = 20; y <= 120; y += 4) sloppyDown.push_back({16, y});
+        EXPECT_EQ(recognizePath(sloppyDown), "D");
+    }
 
     // 自然「下再右」：横扫时手腕仍会略微下沉，不能把整笔锁死成 D
     {
@@ -177,6 +273,81 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
         auto naturalRes = natural.finalize();
         ASSERT_TRUE(naturalRes.has_value());
         EXPECT_EQ(naturalRes->code, "D-R");
+    }
+
+    {
+        std::vector<TrackPoint> slowDownRight;
+        for (int y = 0; y <= 100; y += 2) slowDownRight.push_back({0, y});
+        for (int x = 2; x <= 100; x += 2) slowDownRight.push_back({x, 100});
+        EXPECT_EQ(recognizePath(slowDownRight), "D-R");
+        std::vector<TrackPoint> slowDownLeft;
+        for (int y = 0; y <= 100; y += 2) slowDownLeft.push_back({100, y});
+        for (int x = 98; x >= 0; x -= 2) slowDownLeft.push_back({x, 100});
+        EXPECT_EQ(recognizePath(slowDownLeft), "D-L");
+        std::vector<TrackPoint> slowUpRight;
+        for (int y = 100; y >= 0; y -= 2) slowUpRight.push_back({0, y});
+        for (int x = 2; x <= 100; x += 2) slowUpRight.push_back({x, 0});
+        EXPECT_EQ(recognizePath(slowUpRight), "U-R");
+        std::vector<TrackPoint> slowUpLeft;
+        for (int y = 100; y >= 0; y -= 2) slowUpLeft.push_back({100, y});
+        for (int x = 98; x >= 0; x -= 2) slowUpLeft.push_back({x, 0});
+        EXPECT_EQ(recognizePath(slowUpLeft), "U-L");
+        std::vector<TrackPoint> slowRightDown;
+        for (int x = 0; x <= 100; x += 2) slowRightDown.push_back({x, 0});
+        for (int y = 2; y <= 100; y += 2) slowRightDown.push_back({100, y});
+        EXPECT_EQ(recognizePath(slowRightDown), "R-D");
+        std::vector<TrackPoint> slowRightUp;
+        for (int x = 0; x <= 100; x += 2) slowRightUp.push_back({x, 100});
+        for (int y = 98; y >= 0; y -= 2) slowRightUp.push_back({100, y});
+        EXPECT_EQ(recognizePath(slowRightUp), "R-U");
+        std::vector<TrackPoint> slowLeftDown;
+        for (int x = 100; x >= 0; x -= 2) slowLeftDown.push_back({x, 0});
+        for (int y = 2; y <= 100; y += 2) slowLeftDown.push_back({0, y});
+        EXPECT_EQ(recognizePath(slowLeftDown), "L-D");
+        std::vector<TrackPoint> slowLeftUp;
+        for (int x = 100; x >= 0; x -= 2) slowLeftUp.push_back({x, 100});
+        for (int y = 98; y >= 0; y -= 2) slowLeftUp.push_back({0, y});
+        EXPECT_EQ(recognizePath(slowLeftUp), "L-U");
+    }
+
+    {
+        std::vector<TrackPoint> slantDown;
+        for (int y = 0; y <= 240; y += 4) slantDown.push_back({y / 20, y});
+        EXPECT_EQ(recognizePath(slantDown), "D");
+        std::vector<TrackPoint> slantRight;
+        for (int x = 0; x <= 240; x += 4) slantRight.push_back({x, x / 20});
+        EXPECT_EQ(recognizePath(slantRight), "R");
+    }
+
+    {
+        std::vector<TrackPoint> drHook;
+        for (int y = 0; y <= 80; y += 4) drHook.push_back({0, y});
+        for (int x = 4; x <= 80; x += 4) drHook.push_back({x, 80});
+        for (int i = 1; i <= 6; ++i) drHook.push_back({80 + i * 2, 80 + i * 2});
+        EXPECT_EQ(recognizePath(drHook), "D-R");
+        std::vector<TrackPoint> urHook;
+        for (int y = 80; y >= 0; y -= 4) urHook.push_back({0, y});
+        for (int x = 4; x <= 80; x += 4) urHook.push_back({x, 0});
+        for (int i = 1; i <= 6; ++i) urHook.push_back({80 + i * 2, -i * 2});
+        EXPECT_EQ(recognizePath(urHook), "U-R");
+        std::vector<TrackPoint> rdHook;
+        for (int x = 0; x <= 80; x += 4) rdHook.push_back({x, 0});
+        for (int y = 4; y <= 80; y += 4) rdHook.push_back({80, y});
+        for (int i = 1; i <= 6; ++i) rdHook.push_back({80 + i * 2, 80 + i * 2});
+        EXPECT_EQ(recognizePath(rdHook), "R-D");
+    }
+
+    {
+        std::vector<TrackPoint> downRightDown;
+        for (int y = 0; y <= 60; y += 4) downRightDown.push_back({0, y});
+        for (int x = 4; x <= 60; x += 4) downRightDown.push_back({x, 60});
+        for (int y = 64; y <= 120; y += 4) downRightDown.push_back({60, y});
+        EXPECT_EQ(recognizePath(downRightDown), "D-R-D");
+        std::vector<TrackPoint> leftUpRight;
+        for (int x = 120; x >= 60; x -= 4) leftUpRight.push_back({x, 120});
+        for (int y = 116; y >= 60; y -= 4) leftUpRight.push_back({60, y});
+        for (int x = 64; x <= 120; x += 4) leftUpRight.push_back({x, 60});
+        EXPECT_EQ(recognizePath(leftUpRight), "L-U-R");
     }
 
     // 乱晃反悔与原地打圈自动取消判定
@@ -236,6 +407,22 @@ TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
     EXPECT_FALSE(shouldShowGestureResultToast(false, true, false));
     EXPECT_FALSE(shouldShowGestureResultToast(true, false, false));
     EXPECT_TRUE(shouldShowGestureResultToast(false, true, true));
+}
+
+TEST(GestureInputPolicyTest, OverlaySurfaceGrowsOnly) {
+    int left = 100, top = 100, right = 200, bottom = 200;
+    growOverlayRect(left, top, right, bottom, 0, 0, 256, 256);
+    EXPECT_EQ(left, 0);
+    EXPECT_EQ(top, 0);
+    EXPECT_EQ(right, 256);
+    EXPECT_EQ(bottom, 256);
+    EXPECT_TRUE(overlaySurfaceContains(10, 10, 20, 20, 0, 0, 256, 256));
+    EXPECT_FALSE(overlaySurfaceContains(-1, 0, 10, 10, 0, 0, 256, 256));
+    EXPECT_FALSE(overlaySurfaceContains(10, 10, 20, 20, 0, 0, 0, 0));
+    int emptyL = 8, emptyT = 8, emptyR = 16, emptyB = 16;
+    growOverlayRect(emptyL, emptyT, emptyR, emptyB, 0, 0, 0, 0);
+    EXPECT_EQ(emptyL, 8);
+    EXPECT_EQ(emptyR, 16);
 }
 
 TEST(GestureInputPolicyTest, FadeClockStartsAfterFirstPresentedFrame) {
@@ -358,7 +545,11 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
 
     auto ksEmpty = KeyStroke::fromString("");
     EXPECT_EQ(ksEmpty.virtualKey, 0);
-    ksEmpty.send(nullptr); // 空按键安全防御
+    EXPECT_EQ(resolveGestureKeyTarget(nullptr, nullptr, nullptr), nullptr);
+    EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::SendKeys));
+    EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::BuiltinCommand));
+    EXPECT_FALSE(gestureActionNeedsInputThread(ActionType::LuaScript));
+    EXPECT_FALSE(gestureActionNeedsInputThread(ActionType::RunProgram));
 
     // 2. GestureAction JSON 往返
     GestureAction a1;

@@ -26,6 +26,7 @@
 #include <deque>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <thread>
 
 namespace easy::gesture {
@@ -145,13 +146,15 @@ private:
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_trailVisible{true};
     std::atomic<bool> m_autoBypassFullscreen{false};
-    HWND m_gestureStartWindow = nullptr;  // 手势开始时的前台窗口
+    HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口
+    HWND m_previousForeground = nullptr;  // 手势开始前的前台窗口（排除 EasyTools UI）
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
     uint8_t m_gestureModifiers = 0;       // 手势开始时的修饰键状态
     std::chrono::steady_clock::time_point m_trackingStartTime; // 手势开始追踪的时间点
     std::optional<GestureProfile> m_activeProfile;       // 本次手势激活的 Profile 缓存
     std::optional<GestureProfile> m_fallbackProfile;     // 本次手势 fallback 的默认 Profile 缓存
     std::vector<Direction> m_lastRecognizedDirections; // 缓存方向序列
+    std::string m_lastLiveCode;
     PauseChangedCallback m_pauseChangedCallback;
 
     // 轨迹可视化

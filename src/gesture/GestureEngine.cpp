@@ -13,8 +13,43 @@
 
 #include <algorithm>
 #include <thread>
+#include <vector>
 
 namespace easy::gesture {
+
+namespace {
+
+std::optional<GestureAction> lookupProfileAction(
+    const std::optional<GestureProfile>& profile,
+    const std::optional<GestureProfile>& fallback,
+    const std::string& code) {
+    if (!profile || code.empty()) return std::nullopt;
+    if (auto action = profile->findAction(code)) return action;
+    if (fallback && profile->name() != "default") {
+        return fallback->findAction(code);
+    }
+    return std::nullopt;
+}
+
+std::optional<GestureAction> lookupGestureAction(
+    const std::optional<GestureProfile>& profile,
+    const std::optional<GestureProfile>& fallback,
+    const std::string& fullCode,
+    const std::string& bareCode) {
+    if (fullCode != bareCode) {
+        if (auto action = lookupProfileAction(profile, fallback, fullCode)) return action;
+    }
+    if (auto action = lookupProfileAction(profile, fallback, bareCode)) return action;
+    const auto expanded = expandSingleDiagonalCode(bareCode);
+    if (!expanded) return std::nullopt;
+    if (fullCode != bareCode && fullCode.size() >= bareCode.size()) {
+        const auto prefix = fullCode.substr(0, fullCode.size() - bareCode.size());
+        if (auto action = lookupProfileAction(profile, fallback, prefix + *expanded)) return action;
+    }
+    return lookupProfileAction(profile, fallback, *expanded);
+}
+
+}  // namespace
 
 GestureEngine& GestureEngine::instance() {
     static GestureEngine inst;
@@ -327,10 +362,15 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
         if (root) hwndUnderCursor = root;
     }
     m_gestureStartWindow = hwndUnderCursor ? hwndUnderCursor : event.foregroundWindow;
+    m_previousForeground = GetForegroundWindow();
+    if (resolveGestureKeyTarget(m_previousForeground, nullptr, nullptr) == nullptr) {
+        m_previousForeground = nullptr;
+    }
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_fallbackProfile = getProfile("default");
     m_lastRecognizedDirections.clear();
+    m_lastLiveCode.clear();
     m_state = GestureState::Tracking;
 
     // 开始轨迹可视化
@@ -350,8 +390,19 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
 
     m_recognizer.addPoint(event.position.x, event.position.y);
 
-    // 实时轨迹与按键回显样式动作可视化
-    if (m_trailVisible.load()) {
+    TrailRenderCallback callback;
+    {
+        std::lock_guard lock(m_callbackMutex);
+        callback = m_trailCallback;
+    }
+
+    const bool showTrail = m_trailVisible.load();
+    std::vector<Direction> dirs;
+    if (showTrail || callback) {
+        dirs = m_recognizer.currentDirections();
+    }
+
+    if (showTrail) {
         auto& trail = GestureTrailOverlay::instance();
         trail.addPoint(
             static_cast<float>(event.position.x),
@@ -363,8 +414,9 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
             trail.setRecognized(false);
             trail.setLiveAction("•••");
         } else {
-            const auto dirs = m_recognizer.currentDirections();
-            if (dirs != m_lastRecognizedDirections) {
+            const std::string bareCode = directionsToCode(dirs);
+            if (bareCode != m_lastLiveCode) {
+                m_lastLiveCode = bareCode;
                 m_lastRecognizedDirections = dirs;
 
                 std::string liveLabel;
@@ -374,31 +426,16 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
                     if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
                     if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
 
-                    std::string bareCode = directionsToCode(dirs);
-                    std::string fullCode = modPrefix + bareCode;
-
+                    const std::string fullCode = modPrefix + bareCode;
                     std::optional<GestureAction> action;
                     if (m_activeProfile) {
-                        if (!modPrefix.empty()) {
-                            action = m_activeProfile->findAction(fullCode);
-                            if (!action && m_activeProfile->name() != "default" && m_fallbackProfile) {
-                                action = m_fallbackProfile->findAction(fullCode);
-                            }
-                        }
-                        if (!action) {
-                            action = m_activeProfile->findAction(bareCode);
-                            if (!action && m_activeProfile->name() != "default" && m_fallbackProfile) {
-                                action = m_fallbackProfile->findAction(bareCode);
-                            }
-                        }
+                        action = lookupGestureAction(m_activeProfile, m_fallbackProfile, fullCode, bareCode);
                     }
 
                     if (action) {
-                        // 识别成功：轨迹变为主体色，Toast 提示动作名称
                         trail.setRecognized(true);
                         liveLabel = action->name;
                     } else {
-                        // 普通未识别到手势：轨迹保持高阶银灰色，不需要任何 Toast 提示
                         trail.setRecognized(false);
                         liveLabel.clear();
                     }
@@ -410,14 +447,7 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
         }
     }
 
-    // 回调（如有注册）
-    TrailRenderCallback callback;
-    {
-        std::lock_guard lock(m_callbackMutex);
-        callback = m_trailCallback;
-    }
     if (callback) {
-        auto dirs = m_recognizer.currentDirections();
         callback({}, dirs);
     }
 }
@@ -427,6 +457,11 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     m_activeProfile.reset();
     m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
+    m_lastLiveCode.clear();
+    HWND startWindow = m_gestureStartWindow;
+    HWND previousForeground = m_previousForeground;
+    m_gestureStartWindow = nullptr;
+    m_previousForeground = nullptr;
 
     // 恢复本次手势的 TraceId (按下/移动/抬起跨多次钩子回调, 期间可能被其它操作改写)
     easy::core::TraceId::setCurrent(m_gestureTraceId);
@@ -481,29 +516,9 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         return;
     }
 
-    // 查找动作: 先精确匹配带修饰键的编码，再 fallback 到无修饰键编码
-    std::optional<GestureAction> action;
-    std::string matchedCode = fullCode;
-
-    if (!modPrefix.empty()) {
-        action = profile->findAction(fullCode);
-        if (!action && profile->name() != "default") {
-            if (const auto fallback = getProfile("default")) {
-                action = fallback->findAction(fullCode);
-            }
-        }
-    }
-
-    // 带修饰键未匹配时，fallback 到纯方向编码
-    if (!action) {
-        matchedCode = bareCode;
-        action = profile->findAction(bareCode);
-        if (!action && profile->name() != "default") {
-            if (const auto fallback = getProfile("default")) {
-                action = fallback->findAction(bareCode);
-            }
-        }
-    }
+    const auto fallback = getProfile("default");
+    std::optional<GestureAction> action = lookupGestureAction(profile, fallback, fullCode, bareCode);
+    const std::string matchedCode = action ? (profile->findAction(fullCode) ? fullCode : bareCode) : fullCode;
 
     if (action) {
         LOG_INFO("执行手势动作: gesture={}, matchedCode={}, action={}, profile={}",
@@ -515,12 +530,9 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             GestureTrailOverlay::instance().endTrail(resultLabel);
         }
 
-        // 关键: 动作执行 (SendInput / Lua / ShellExecute / 弹窗) 可能耗时甚至阻塞，
-        // 而本函数运行在 WH_MOUSE_LL 低级钩子回调里（主线程消息泵上）。若在此同步执行，
-        // 超过 LowLevelHooksTimeout 会被系统静默移除钩子，Lua 的 MessageBox 更会冻结全局输入。
-        // 因此把动作放到分离线程异步执行。GestureAction 可拷贝，按值捕获保证生命周期安全。
-        // 把 TraceId 一并带入线程, 让动作执行日志与本次手势串在同一条链路上。
-        
+        // SendKeys / 内置窗口命令必须在收到这次鼠标输入的 UI 线程上执行：
+        // 后台 worker 没有前台权限，开机后设置窗抢焦点时 Ctrl+W 会打空。
+        // Lua / 外部程序仍走后台队列，避免卡住 WH_MOUSE_LL。 
         // 解析手势结束时鼠标光标下方的顶层窗口
         POINT endPt = { event.position.x, event.position.y };
         HWND targetWnd = WindowFromPoint(endPt);
@@ -528,18 +540,43 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             HWND root = GetAncestor(targetWnd, GA_ROOT);
             if (root) targetWnd = root;
         }
-        if (!targetWnd) targetWnd = m_gestureStartWindow;
+        if (!targetWnd) targetWnd = startWindow;
         if (!targetWnd) targetWnd = event.foregroundWindow;
         if (!targetWnd) targetWnd = GetForegroundWindow();
+        HWND keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
+            targetWnd, startWindow, previousForeground));
+        if (!keyTarget) keyTarget = targetWnd;
 
-        enqueueAction(*action, m_gestureTraceId, targetWnd);
+        if (gestureActionNeedsInputThread(action->type)) {
+            GestureAction act = *action;
+            const std::string traceId = m_gestureTraceId;
+            HWND hwnd = keyTarget;
+            if (!easy::core::MainThreadDispatcher::instance().postDeferred([act, hwnd, traceId]() {
+                    easy::core::TraceId::setCurrent(traceId);
+                    LOG_INFO("手势动作开始执行(输入线程): action={}, type={}, targetHwnd=0x{:X}",
+                             act.name, static_cast<int>(act.type),
+                             reinterpret_cast<uintptr_t>(hwnd));
+                    try {
+                        act.execute(hwnd);
+                        LOG_INFO("手势动作执行完毕: action={}", act.name);
+                    } catch (const std::exception& e) {
+                        LOG_ERROR("手势动作执行异常: action={}, error={}", act.name, e.what());
+                    } catch (...) {
+                        LOG_ERROR("手势动作执行未知异常: action={}", act.name);
+                    }
+                })) {
+                enqueueAction(*action, m_gestureTraceId, keyTarget);
+            }
+        } else {
+            enqueueAction(*action, m_gestureTraceId, keyTarget);
+        }
     } else {
-        // 未找到手势映射：直接隐藏，不显示任何 Toast
-        LOG_DEBUG("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
+        // 未绑定：轨迹仍淡出，卡片标明未绑定，避免「画了却没反应」
+        LOG_INFO("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
         if (m_trailVisible.load()) {
-            // 未匹配也走异步淡出，绝不能在 WH_MOUSE_LL 回调里 hide()+拆 DIB。
-            // 实测那条路径 100ms+，会触发 3 秒熔断，表现为下一笔轨迹画不出来。
-            GestureTrailOverlay::instance().endTrail();
+            std::string missLabel;
+            if (!result->toArrowString().empty()) missLabel = "未绑定";
+            GestureTrailOverlay::instance().endTrail(missLabel);
         }
     }
 
@@ -628,6 +665,9 @@ void GestureEngine::cancelTracking() {
     m_activeProfile.reset();
     m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
+    m_lastLiveCode.clear();
+    m_gestureStartWindow = nullptr;
+    m_previousForeground = nullptr;
     if (m_trailVisible.load()) {
         GestureTrailOverlay::instance().hide();
     }

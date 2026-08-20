@@ -29,6 +29,29 @@ inline bool isCornerFillet(Direction a, Direction b, Direction c) noexcept {
     return false;
 }
 
+constexpr double kPi = std::numbers::pi;
+
+double circularDeltaDeg(double a, double b) noexcept {
+    double d = std::fabs(a - b);
+    d = std::fmod(d, 360.0);
+    if (d > 180.0) d = 360.0 - d;
+    return d;
+}
+
+double directionCenterDeg(Direction dir) noexcept {
+    switch (dir) {
+        case Direction::Right:     return 0.0;
+        case Direction::UpRight:   return 45.0;
+        case Direction::Up:        return 90.0;
+        case Direction::UpLeft:    return 135.0;
+        case Direction::Left:      return 180.0;
+        case Direction::DownLeft:  return 225.0;
+        case Direction::Down:      return 270.0;
+        case Direction::DownRight: return 315.0;
+        default:                   return 0.0;
+    }
+}
+
 inline bool isJitterRebound(Direction a, Direction b, Direction c) noexcept {
     if (a != c) return false;
     // 1. 180度反向回弹抖动 (如 Down -> Up -> Down, Left -> Right -> Left)
@@ -65,25 +88,170 @@ inline std::optional<Direction> completeIncompleteFillet(Direction known, Direct
     return std::nullopt;
 }
 
-void compressRepeats(std::vector<Direction>& dirs) {
-    std::vector<Direction> compressed;
-    for (auto d : dirs) {
-        if (d != Direction::None && (compressed.empty() || compressed.back() != d)) {
-            compressed.push_back(d);
+struct DirectionSegment {
+    Direction dir = Direction::None;
+    double length = 1.0;
+};
+
+void compressSegments(std::vector<DirectionSegment>& segs) {
+    std::vector<DirectionSegment> out;
+    for (auto& s : segs) {
+        if (s.dir == Direction::None || s.length <= 0.0) continue;
+        if (!out.empty() && out.back().dir == s.dir) {
+            out.back().length += s.length;
+        } else {
+            out.push_back(s);
         }
     }
-    dirs = std::move(compressed);
+    segs = std::move(out);
+}
+
+std::vector<Direction> dirsFromSegments(const std::vector<DirectionSegment>& segs) {
+    std::vector<Direction> out;
+    out.reserve(segs.size());
+    for (const auto& s : segs) out.push_back(s.dir);
+    return out;
+}
+
+std::vector<Direction> simplifySegments(std::vector<DirectionSegment> current) {
+    compressSegments(current);
+
+    bool modified = true;
+    while (modified && current.size() >= 3) {
+        modified = false;
+        std::vector<DirectionSegment> next;
+        for (size_t i = 0; i < current.size(); ) {
+            if (i + 2 < current.size()) {
+                const Direction a = current[i].dir;
+                const Direction b = current[i + 1].dir;
+                const Direction c = current[i + 2].dir;
+                if (isJitterRebound(a, b, c)) {
+                    next.push_back(current[i]);
+                    i += 3;
+                    modified = true;
+                    continue;
+                }
+                if (isCornerFillet(a, b, c)) {
+                    next.push_back(current[i]);
+                    next.push_back(current[i + 2]);
+                    i += 3;
+                    modified = true;
+                    continue;
+                }
+            }
+            next.push_back(current[i]);
+            ++i;
+        }
+        current = std::move(next);
+        compressSegments(current);
+    }
+
+    bool filletModified = true;
+    while (filletModified && current.size() >= 2) {
+        filletModified = false;
+        if (current.size() == 2) {
+            // 两段未走完的转角：D-DR → D-R。用户常在对角圆角上松手。
+            if (auto completed = completeIncompleteFillet(current[0].dir, current[1].dir)) {
+                current[1].dir = *completed;
+                filletModified = true;
+            }
+        } else if (completeIncompleteFillet(current[current.size() - 2].dir, current.back().dir)) {
+            // 三段以上：末尾对角是前一段的收笔圆角，不能发明新的直角段
+            // （否则 D-R 末尾下垂会变成 D-R-D，截图手势被误触）。
+            current.pop_back();
+            filletModified = true;
+        }
+        if (current.size() >= 2) {
+            if (auto invented = completeIncompleteFillet(current[1].dir, current[0].dir)) {
+                if (current[0].length < current[1].length * 0.4) {
+                    current.erase(current.begin());
+                } else {
+                    current[0].dir = *invented;
+                }
+                filletModified = true;
+            }
+        }
+        compressSegments(current);
+    }
+
+    return dirsFromSegments(current);
 }
 
 } // namespace
 
+std::string refineCodeWithPath(const std::string& code,
+                               const std::vector<TrackPoint>& pts,
+                               int minSegmentDistance) noexcept {
+    if (code.empty() || code.find('-') != std::string::npos || pts.size() < 3) {
+        return code;
+    }
+    if (code != "U" && code != "D" && code != "L" && code != "R") {
+        return code;
+    }
+
+    const int minSeg = (std::max)(minSegmentDistance, 1);
+    const int n = static_cast<int>(pts.size());
+    const int sx = pts.front().x;
+    const int sy = pts.front().y;
+    const int ex = pts.back().x;
+    const int ey = pts.back().y;
+
+    auto enoughSecondLeg = [minSeg](int primary, int ortho) noexcept {
+        if (primary < minSeg * 2) return false;
+        const int need = (std::max)(minSeg * 2, primary * 22 / 100);
+        return std::abs(ortho) >= need;
+    };
+
+    int bestScore = 0;
+    int bestPrimary = 0;
+    int bestOrtho = 0;
+    bool found = false;
+
+    if (code == "D" || code == "U") {
+        for (int i = 1; i < n - 1; ++i) {
+            const int primary = (code == "D") ? (pts[i].y - sy) : (sy - pts[i].y);
+            const int ortho = ex - pts[i].x;
+            if (primary <= 0) continue;
+            const int score = primary * std::abs(ortho);
+            if (!found || score > bestScore) {
+                found = true;
+                bestScore = score;
+                bestPrimary = primary;
+                bestOrtho = ortho;
+            }
+        }
+        if (found && enoughSecondLeg(bestPrimary, bestOrtho)) {
+            return (bestOrtho >= 0) ? (code + std::string("-R")) : (code + std::string("-L"));
+        }
+    } else {
+        for (int i = 1; i < n - 1; ++i) {
+            const int primary = (code == "R") ? (pts[i].x - sx) : (sx - pts[i].x);
+            const int ortho = ey - pts[i].y;
+            if (primary <= 0) continue;
+            const int score = primary * std::abs(ortho);
+            if (!found || score > bestScore) {
+                found = true;
+                bestScore = score;
+                bestPrimary = primary;
+                bestOrtho = ortho;
+            }
+        }
+        if (found && enoughSecondLeg(bestPrimary, bestOrtho)) {
+            return (bestOrtho >= 0) ? (code + std::string("-D")) : (code + std::string("-U"));
+        }
+    }
+    return code;
+}
+
 bool GestureRecognizer::isAdvancing(Direction dir, const TrackPoint& peak, const TrackPoint& current) const noexcept {
     const double dist = calculateDistance(peak.x, peak.y, current.x, current.y);
-    if (dist < static_cast<double>((std::max)(m_config.samplingInterval, 2)) * 2.0) {
-        return true;
-    }
-    const double angle = calculateAngle(peak.x, peak.y, current.x, current.y);
-    return angleToDirection(angle) == dir;
+    if (dist <= 0.5) return true;
+    double angle = calculateAngle(peak.x, peak.y, current.x, current.y);
+    if (angle < 0.0) angle += 2.0 * kPi;
+    const double deg = angle * 180.0 / kPi;
+    // 比 45° 分箱更宽：自然下笔常偏 25–35°，不能因此切出假的第二段。
+    const double cone = (std::clamp)(m_config.angleToleranceDeg * 1.75, 32.0, 42.0);
+    return circularDeltaDeg(deg, directionCenterDeg(dir)) <= cone;
 }
 
 GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
@@ -92,6 +260,7 @@ GestureRecognizer::GestureRecognizer(const RecognizerConfig& config)
 void GestureRecognizer::reset() {
     m_points.clear();
     m_directions.clear();
+    m_segmentLengths.clear();
     m_currentDirection = Direction::None;
     m_hasSegmentStart = false;
     m_segmentStart = {0, 0};
@@ -125,6 +294,10 @@ void GestureRecognizer::processPoints() {
     if (m_points.size() < 2 || !m_hasSegmentStart) return;
 
     const auto& current = m_points.back();
+    const double distFromPeak = calculateDistance(
+        m_peakPoint.x, m_peakPoint.y, current.x, current.y);
+    const double deadzone =
+        static_cast<double>((std::max)(m_config.samplingInterval, 2)) * 2.0;
 
     // 阶段 1: 尚未确定初始方向段
     if (m_currentDirection == Direction::None) {
@@ -140,6 +313,11 @@ void GestureRecognizer::processPoints() {
         return;
     }
 
+    // 微步不更新拐点：否则 2px 采样会把峰值顺着圆角爬进第二段，L 形被锁成单段。
+    if (distFromPeak < deadzone) {
+        return;
+    }
+
     // 阶段 2: 已有当前方向，判断是否沿当前方向继续推进
     if (isAdvancing(m_currentDirection, m_peakPoint, current)) {
         m_peakPoint = current;
@@ -147,15 +325,16 @@ void GestureRecognizer::processPoints() {
     }
 
     // 阶段 3: 偏折拐弯检测 (从最远拐点计算偏折矢量)
-    double distFromPeak = calculateDistance(m_peakPoint.x, m_peakPoint.y, current.x, current.y);
     if (distFromPeak >= m_config.minSegmentDistance) {
         double turnAngle = calculateAngle(m_peakPoint.x, m_peakPoint.y, current.x, current.y);
         Direction turnDir = angleToDirection(turnAngle);
 
         if (turnDir != Direction::None && turnDir != m_currentDirection) {
-            // 确认拐角发生，锁定前一段并将极值拐点作为新段起点
             if (m_directions.size() < static_cast<size_t>(m_config.maxDirections)) {
+                const double len = calculateDistance(
+                    m_segmentStart.x, m_segmentStart.y, m_peakPoint.x, m_peakPoint.y);
                 m_directions.push_back(m_currentDirection);
+                m_segmentLengths.push_back((std::max)(len, 1.0));
             }
             m_segmentStart = m_peakPoint;
             m_currentDirection = turnDir;
@@ -165,70 +344,75 @@ void GestureRecognizer::processPoints() {
 }
 
 std::vector<Direction> GestureRecognizer::simplifyDirections(const std::vector<Direction>& raw) {
-    if (raw.empty()) return {};
+    std::vector<DirectionSegment> segs;
+    segs.reserve(raw.size());
+    for (auto d : raw) segs.push_back({d, 1.0});
+    return simplifySegments(std::move(segs));
+}
 
-    // 步骤 1: 压缩连续重复方向 [A, A] -> [A]
-    std::vector<Direction> current;
-    for (auto d : raw) {
-        if (d != Direction::None && (current.empty() || current.back() != d)) {
-            current.push_back(d);
-        }
+namespace {
+
+std::vector<DirectionSegment> segmentsFrom(const std::vector<Direction>& dirs,
+                                           const std::vector<double>& lengths,
+                                           Direction currentDir,
+                                           double currentLen) {
+    std::vector<DirectionSegment> segs;
+    segs.reserve(dirs.size() + 1);
+    for (size_t i = 0; i < dirs.size(); ++i) {
+        segs.push_back({dirs[i], i < lengths.size() ? lengths[i] : 1.0});
+    }
+    if (currentDir != Direction::None && (segs.empty() || segs.back().dir != currentDir)) {
+        segs.push_back({currentDir, (std::max)(currentLen, 1.0)});
+    }
+    return segs;
+}
+
+}  // namespace
+
+std::optional<GestureResult> GestureRecognizer::finalize() {
+    if (isScribbleCanceled()) {
+        LOG_INFO("手势识别: 检测到乱晃/原地反悔操作，已自动取消手势执行");
+        return std::nullopt;
     }
 
-    // 步骤 2: 循环消除回弹微抖动 [A, B, A] -> [A] 以及转弯过渡圆角 [A, B(对角), C(垂直正交)] -> [A, C]
-    bool modified = true;
-    while (modified && current.size() >= 3) {
-        modified = false;
-        std::vector<Direction> next;
-        for (size_t i = 0; i < current.size(); ) {
-            if (i + 2 < current.size()) {
-                Direction a = current[i];
-                Direction b = current[i + 1];
-                Direction c = current[i + 2];
+    const double currentLen = calculateDistance(
+        m_segmentStart.x, m_segmentStart.y, m_peakPoint.x, m_peakPoint.y);
+    auto simplified = simplifySegments(
+        segmentsFrom(m_directions, m_segmentLengths, m_currentDirection, currentLen));
 
-                // 规则 1: 消除孤立抖动回弹 (反向回弹或微小对角抖动)
-                if (isJitterRebound(a, b, c)) {
-                    next.push_back(a);
-                    i += 3;
-                    modified = true;
-                    continue;
-                }
-
-                // 规则 2: 转角圆弧消除 [A, B, C] -> [A, C]
-                if (isCornerFillet(a, b, c)) {
-                    next.push_back(a);
-                    next.push_back(c);
-                    i += 3;
-                    modified = true;
-                    continue;
-                }
-            }
-
-            next.push_back(current[i]);
-            ++i;
-        }
-
-        compressRepeats(current);
+    if (simplified.empty()) {
+        LOG_TRACE("手势识别: 轨迹太短或无有效方向段, 点数={}", m_points.size());
+        return std::nullopt;
     }
 
-    // 步骤 3: 未走完的转角圆角。自然「下再右」常在对角上松手，得到 D-DR 而不是 D-R。
-    bool filletModified = true;
-    while (filletModified && current.size() >= 2) {
-        filletModified = false;
-        if (auto completed = completeIncompleteFillet(current[current.size() - 2], current.back())) {
-            current.back() = *completed;
-            filletModified = true;
-        }
-        if (current.size() >= 2) {
-            if (auto completed = completeIncompleteFillet(current[1], current[0])) {
-                current[0] = *completed;
-                filletModified = true;
-            }
-        }
-        compressRepeats(current);
+    GestureResult result;
+    result.rawPoints = m_points;
+    for (size_t i = 1; i < m_points.size(); ++i) {
+        result.totalDistance += calculateDistance(
+            m_points[i - 1].x, m_points[i - 1].y,
+            m_points[i].x, m_points[i].y
+        );
     }
 
-    return current;
+    const std::string rawCode = directionsToCode(simplified);
+    result.code = refineCodeWithPath(rawCode, m_points, m_config.minSegmentDistance);
+    result.directions = (result.code == rawCode) ? std::move(simplified)
+                                                 : codeToDirections(result.code);
+
+    LOG_DEBUG("手势识别完成: code={}, arrows={}, 点数={}, 总距离={:.1f}px",
+              result.code, result.toArrowString(), m_points.size(), result.totalDistance);
+
+    return result;
+}
+
+std::vector<Direction> GestureRecognizer::currentDirections() const {
+    const double currentLen = calculateDistance(
+        m_segmentStart.x, m_segmentStart.y, m_peakPoint.x, m_peakPoint.y);
+    auto simplified = simplifySegments(
+        segmentsFrom(m_directions, m_segmentLengths, m_currentDirection, currentLen));
+    const std::string rawCode = directionsToCode(simplified);
+    const std::string refined = refineCodeWithPath(rawCode, m_points, m_config.minSegmentDistance);
+    return (refined == rawCode) ? simplified : codeToDirections(refined);
 }
 
 bool GestureRecognizer::isScribbleCanceled() const {
@@ -267,64 +451,6 @@ bool GestureRecognizer::isScribbleCanceled() const {
     if (totalDist > 100.0 && bboxDiag < 50.0 && reversals >= 2) return true;
 
     return false;
-}
-
-std::optional<GestureResult> GestureRecognizer::finalize() {
-    // 0. 乱晃反悔检测：若检测到快速乱晃擦除行为，自动放弃识别
-    if (isScribbleCanceled()) {
-        LOG_INFO("手势识别: 检测到乱晃/原地反悔操作，已自动取消手势执行");
-        return std::nullopt;
-    }
-
-    // 将最后一个正在累积的方向段加入
-    auto rawDirs = m_directions;
-    if (m_currentDirection != Direction::None) {
-        if (rawDirs.empty() || rawDirs.back() != m_currentDirection) {
-            rawDirs.push_back(m_currentDirection);
-        }
-    }
-
-    // 运行世界级转弯圆角平滑与防抖算法
-    auto simplified = simplifyDirections(rawDirs);
-
-    if (simplified.empty()) {
-        LOG_TRACE("手势识别: 轨迹太短或无有效方向段, 点数={}", m_points.size());
-        return std::nullopt;
-    }
-
-    // 构建结果
-    GestureResult result;
-    result.directions = simplified;
-    result.rawPoints = m_points;
-
-    // 计算总距离
-    for (size_t i = 1; i < m_points.size(); ++i) {
-        result.totalDistance += calculateDistance(
-            m_points[i - 1].x, m_points[i - 1].y,
-            m_points[i].x, m_points[i].y
-        );
-    }
-
-    // 生成方向编码字符串 (如 "L-U-R")
-    for (size_t i = 0; i < simplified.size(); ++i) {
-        if (i > 0) result.code += "-";
-        result.code += directionToCode(simplified[i]);
-    }
-
-    LOG_DEBUG("手势识别完成: code={}, arrows={}, 点数={}, 总距离={:.1f}px",
-              result.code, result.toArrowString(), m_points.size(), result.totalDistance);
-
-    return result;
-}
-
-std::vector<Direction> GestureRecognizer::currentDirections() const {
-    auto rawDirs = m_directions;
-    if (m_currentDirection != Direction::None) {
-        if (rawDirs.empty() || rawDirs.back() != m_currentDirection) {
-            rawDirs.push_back(m_currentDirection);
-        }
-    }
-    return simplifyDirections(rawDirs);
 }
 
 double GestureRecognizer::calculateAngle(int x1, int y1, int x2, int y2) {

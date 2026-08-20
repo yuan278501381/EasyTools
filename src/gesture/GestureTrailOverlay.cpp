@@ -283,12 +283,6 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 
         m_renderRequested.store(false, std::memory_order_relaxed);
 
-        if (m_wantVisible.load(std::memory_order_acquire) && m_hwnd &&
-            !IsWindowVisible(m_hwnd)) {
-            ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
-            m_visible.store(true, std::memory_order_release);
-        }
-
         bool fading = m_fading.load(std::memory_order_relaxed);
         if (fading) {
             const uint64_t currentEpoch = m_trailEpoch.load(std::memory_order_acquire);
@@ -327,9 +321,15 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
                 } else {
                     m_fadeAlpha = gestureFadeAlpha(clockStarted, elapsed, holdMs, fadeMs);
                     const bool presented = render();
-                    if (presented && !clockStarted) {
-                        m_fadeStartTick = GetTickCount();
-                        m_fadeClockStarted.store(true, std::memory_order_release);
+                    if (presented) {
+                        if (m_hwnd && !IsWindowVisible(m_hwnd)) {
+                            ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+                            m_visible.store(true, std::memory_order_release);
+                        }
+                        if (!clockStarted) {
+                            m_fadeStartTick = GetTickCount();
+                            m_fadeClockStarted.store(true, std::memory_order_release);
+                        }
                     }
                     continue;
                 }
@@ -338,7 +338,10 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 
         if (!fading && (m_visible.load(std::memory_order_relaxed) ||
                         m_wantVisible.load(std::memory_order_relaxed))) {
-            render();
+            if (render() && m_hwnd && !IsWindowVisible(m_hwnd)) {
+                ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+                m_visible.store(true, std::memory_order_release);
+            }
         }
     }
 }
@@ -484,6 +487,8 @@ void GestureTrailOverlay::applyHideOnRenderThread() {
     m_isRecognized.store(false);
     m_fadeAlpha = 1.0f;
     releaseD2DResources();
+    m_width = 0;
+    m_height = 0;
 }
 
 bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int height) {
@@ -522,7 +527,8 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
     m_originY = y;
     m_width = width;
     m_height = height;
-    MoveWindow(m_hwnd, x, y, width, height, FALSE);
+    // 分层窗口的位置和像素必须由 UpdateLayeredWindow 一次提交。
+    // 这里 MoveWindow 会先露出一块空/错位的表面，轨迹看起来像在抽搐。
 
     if (m_renderTarget) {
         RECT memRect = {0, 0, width, height};
@@ -541,8 +547,8 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
         m_virtualH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     }
 
-    constexpr int kGrid = 128;
-    constexpr int kPad = 72;
+    constexpr int kGrid = 256;
+    constexpr int kPad = 128;
     constexpr int kMin = 256;
     left = snapDown(left - kPad, kGrid);
     top = snapDown(top - kPad, kGrid);
@@ -564,17 +570,18 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
         top = (std::max)(m_virtualY, bottom - (std::max)(kMin, bottom - top));
     }
 
-    const int w = (std::max)(1, right - left);
-    const int h = (std::max)(1, bottom - top);
-    const int neededArea = w * h;
-    const int existingArea = m_width * m_height;
-    const bool contained =
-        m_memoryDC && m_memoryBitmap &&
-        left >= m_originX && top >= m_originY &&
-        right <= m_originX + m_width && bottom <= m_originY + m_height &&
-        existingArea > 0 && existingArea <= neededArea * 4;
-    if (contained && m_renderTarget) return true;
-    return recreateBitmapLocked(left, top, w, h);
+    const bool keepUntilHide =
+        m_wantVisible.load(std::memory_order_relaxed) ||
+        m_fading.load(std::memory_order_relaxed) ||
+        m_visible.load(std::memory_order_relaxed);
+    if (keepUntilHide) {
+        growOverlayRect(left, top, right, bottom, m_originX, m_originY, m_width, m_height);
+    }
+    if (overlaySurfaceContains(left, top, right, bottom, m_originX, m_originY, m_width, m_height) &&
+        m_renderTarget) {
+        return true;
+    }
+    return recreateBitmapLocked(left, top, (std::max)(1, right - left), (std::max)(1, bottom - top));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -584,7 +591,7 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
 bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = 0;
     wc.lpfnWndProc = overlayWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = OVERLAY_CLASS;
@@ -626,6 +633,10 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    // HWND 需要非零尺寸才能创建；追踪表面从 0 开始，避免把虚拟屏左上角的 256×256
+    // 占位框并进第一笔轨迹，把覆盖层钉死在屏幕角落。
+    m_width = 0;
+    m_height = 0;
     return true;
 }
 
@@ -817,9 +828,12 @@ bool GestureTrailOverlay::render() {
     const bool isExcessiveEarly = (resultText == "•••");
     const bool toastNow = shouldShowGestureResultToast(
         isRecognized, !resultText.empty(), isExcessiveEarly);
-    if (toastNow) {
-        const int toastW = static_cast<int>(240.0f * toastScale);
-        const int toastH = static_cast<int>(80.0f * toastScale);
+    const int toastW = static_cast<int>(280.0f * toastScale);
+    const int toastH = static_cast<int>(96.0f * toastScale);
+    // 卡片在屏幕下方固定位置。第一帧就把槽位算进表面，避免命中映射时窗口从
+    // 光标旁突然撑到屏幕底部，看起来像轨迹在抽搐。
+    if (toastNow || m_wantVisible.load(std::memory_order_relaxed) ||
+        m_fading.load(std::memory_order_relaxed)) {
         left = (std::min)(left, toastCenterX - toastW / 2);
         right = (std::max)(right, toastCenterX + toastW / 2);
         top = (std::min)(top, toastCenterY - toastH / 2);

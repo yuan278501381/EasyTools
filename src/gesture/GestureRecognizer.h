@@ -12,7 +12,9 @@
 #ifndef EASYTOOLS_GESTURE_GESTURERECOGNIZER_H
 #define EASYTOOLS_GESTURE_GESTURERECOGNIZER_H
 
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cmath>
 #include <optional>
@@ -72,6 +74,32 @@ inline std::string directionsToCode(const std::vector<Direction>& dirs) {
     return code;
 }
 
+inline Direction tokenToDirection(std::string_view tok) noexcept {
+    if (tok == "U") return Direction::Up;
+    if (tok == "D") return Direction::Down;
+    if (tok == "L") return Direction::Left;
+    if (tok == "R") return Direction::Right;
+    if (tok == "UL") return Direction::UpLeft;
+    if (tok == "UR") return Direction::UpRight;
+    if (tok == "DL") return Direction::DownLeft;
+    if (tok == "DR") return Direction::DownRight;
+    return Direction::None;
+}
+
+inline std::vector<Direction> codeToDirections(const std::string& code) {
+    std::vector<Direction> out;
+    size_t start = 0;
+    while (start < code.size()) {
+        const size_t dash = code.find('-', start);
+        const std::string tok = code.substr(start, dash == std::string::npos ? std::string::npos : dash - start);
+        const Direction dir = tokenToDirection(tok);
+        if (dir != Direction::None) out.push_back(dir);
+        if (dash == std::string::npos) break;
+        start = dash + 1;
+    }
+    return out;
+}
+
 /// 方向序列 → 显示用箭头组合 (如 "←↓")
 inline std::string directionsToArrowString(const std::vector<Direction>& dirs) {
     std::string result;
@@ -81,11 +109,25 @@ inline std::string directionsToArrowString(const std::vector<Direction>& dirs) {
     return result;
 }
 
+/// 单段对角编码在未单独映射时，等价于对应的直角两段（↘ ≈ ↓→）。
+inline std::optional<std::string> expandSingleDiagonalCode(const std::string& code) {
+    if (code == "DR") return std::string{"D-R"};
+    if (code == "DL") return std::string{"D-L"};
+    if (code == "UR") return std::string{"U-R"};
+    if (code == "UL") return std::string{"U-L"};
+    return std::nullopt;
+}
+
 /// 轨迹点
 struct TrackPoint {
     int x;
     int y;
 };
+
+/// 单段直角结果若轨迹存在明显转角第二段，则升级为两段编码（安全网，不把斜线误升成 L）。
+std::string refineCodeWithPath(const std::string& code,
+                               const std::vector<TrackPoint>& pts,
+                               int minSegmentDistance) noexcept;
 
 /// 手势识别结果
 struct GestureResult {
@@ -144,6 +186,9 @@ public:
     /// 高阶手势方向段平滑与转弯圆弧折叠算法 (RDP & Fillet Simplification)
     static std::vector<Direction> simplifyDirections(const std::vector<Direction>& raw);
 
+    const std::vector<TrackPoint>& points() const { return m_points; }
+    const RecognizerConfig& config() const { return m_config; }
+
 private:
     /// 计算两点之间的角度（弧度，0 = 正右，逆时针为正）
     static double calculateAngle(int x1, int y1, int x2, int y2);
@@ -165,6 +210,7 @@ private:
     RecognizerConfig m_config;
     std::vector<TrackPoint> m_points;              // 所有轨迹点
     std::vector<Direction> m_directions;           // 已识别的方向段序列
+    std::vector<double> m_segmentLengths;          // 与 m_directions 对齐的段长
 
     // 当前方向段的累积状态 (基于拐点检测模型)
     TrackPoint m_segmentStart{0, 0};               // 当前段起点
