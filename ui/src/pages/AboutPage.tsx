@@ -162,7 +162,10 @@ export const AboutPage: FC = () => {
           <EasyToolsBolt size={140} className="about-grand-showcase__logo" />
         </div>
         <div className="about-grand-showcase__text">
-          <h1 className="about-grand-showcase__title">EasyTools</h1>
+          <div className="about-grand-showcase__title-row">
+            <h1 className="about-grand-showcase__title">EasyTools</h1>
+            <span className="about-grand-showcase__version">v{version}</span>
+          </div>
           <p className="about-grand-showcase__subtitle">The Ultimate Windows Productivity Suite</p>
         </div>
       </div>

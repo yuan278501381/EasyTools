@@ -521,10 +521,25 @@ void SettingsWindow::applyPersistedPlacementIfAny() {
                         easy::core::dpi::scaleForDpi(static_cast<unsigned>(
                             (std::max)(1, savedDpi)));
 
+    // 若历史记录保存的尺寸超过或接近全屏，平滑回退为标准适中尺寸
+    const int scaledW = static_cast<int>(std::lround(savedW * ratio));
+    const int scaledH = static_cast<int>(std::lround(savedH * ratio));
+    const RECT workArea = easy::core::dpi::workArea(MonitorFromPoint(origin, MONITOR_DEFAULTTONEAREST));
+    const int maxAcceptableW = static_cast<int>((workArea.right - workArea.left) * 0.88f);
+    const int maxAcceptableH = static_cast<int>((workArea.bottom - workArea.top) * 0.88f);
+
+    if (scaledW > maxAcceptableW || scaledH > maxAcceptableH) {
+        m_config.width = SettingsWindowStyle::BaseWidth;
+        m_config.height = SettingsWindowStyle::BaseHeight;
+        m_config.hasCustomPlacement = false;
+        m_config.startCentered = true;
+        return;
+    }
+
     m_config.posX = savedX;
     m_config.posY = savedY;
-    m_config.width = (std::max)(400, static_cast<int>(std::lround(savedW * ratio)));
-    m_config.height = (std::max)(300, static_cast<int>(std::lround(savedH * ratio)));
+    m_config.width = (std::max)(400, scaledW);
+    m_config.height = (std::max)(300, scaledH);
     m_config.hasCustomPlacement = true;
     m_config.startCentered = false;
 }

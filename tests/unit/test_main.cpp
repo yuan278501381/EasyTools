@@ -1878,16 +1878,16 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     const SIZE settings100 = easy::ui::SettingsWindowStyle::windowSizeForDpi(96);
     const SIZE settings150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
     const SIZE settings200 = easy::ui::SettingsWindowStyle::windowSizeForDpi(192);
-    EXPECT_TRUE(settings100.cx == 1380 && settings100.cy == 900);
-    EXPECT_TRUE(settings150.cx == 2070 && settings150.cy == 1350);
-    EXPECT_TRUE(settings200.cx == 2760 && settings200.cy == 1800);
+    EXPECT_TRUE(settings100.cx == 1100 && settings100.cy == 750);
+    EXPECT_TRUE(settings150.cx == 1650 && settings150.cy == 1125);
+    EXPECT_TRUE(settings200.cx == 2200 && settings200.cy == 1500);
 
     const SIZE settingsMin100 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(96);
     const SIZE settingsMin150 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(144);
     const SIZE settingsMin200 = easy::ui::SettingsWindowStyle::minWindowSizeForDpi(192);
-    EXPECT_TRUE(settingsMin100.cx == 880 && settingsMin100.cy == 560);
-    EXPECT_TRUE(settingsMin150.cx == 1320 && settingsMin150.cy == 840);
-    EXPECT_TRUE(settingsMin200.cx == 1760 && settingsMin200.cy == 1120);
+    EXPECT_TRUE(settingsMin100.cx == 680 && settingsMin100.cy == 460);
+    EXPECT_TRUE(settingsMin150.cx == 1020 && settingsMin150.cy == 690);
+    EXPECT_TRUE(settingsMin200.cx == 1360 && settingsMin200.cy == 920);
 
     const auto radial100 = easy::gesture::RadialMenuStyle::metricsForDpi(96);
     const auto radial150 = easy::gesture::RadialMenuStyle::metricsForDpi(144);

@@ -56,6 +56,13 @@
   text-align: center;
 }
 
+.about-grand-showcase__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
 .about-grand-showcase__title {
   margin: 0;
   font-size: 2.2rem;
@@ -66,6 +73,19 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1.1;
+}
+
+.about-grand-showcase__version {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 2px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
 }
 
 .about-grand-showcase__subtitle {

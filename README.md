@@ -1,20 +1,24 @@
-# EasyTools
-
 <div align="center">
 
-![EasyTools Logo](ui/public/favicon.svg)
+<a href="https://github.com/yuan278501381/easyTools">
+  <img src="docs/images/about_hero_showcase.png" alt="EasyTools Grand Showcase Header" width="100%" />
+</a>
 
-# EasyTools · 极客桌面效率工具箱
+<br/>
+<br/>
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![C++20](https://img.shields.io/badge/C++-20-00599C.svg?logo=c%2B%2B)
-![Direct2D](https://img.shields.io/badge/DirectX-Direct2D%20%2F%20DXGI-0078D7.svg)
-![React 19](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)
-![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64%20%2F%20ARM64)-0078D6.svg?logo=windows)
-![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen.svg)
-![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)
+[![Latest Release](https://img.shields.io/github/v/release/yuan278501381/easyTools?color=38BDF8&label=Release&logo=github)](https://github.com/yuan278501381/easyTools/releases/latest)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![C++20](https://img.shields.io/badge/C++-20-00599C.svg?logo=c%2B%2B)](https://en.cppreference.com/w/cpp/20)
+[![Direct2D](https://img.shields.io/badge/DirectX-Direct2D%20%2F%20DXGI-0078D7.svg)](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal)
+[![React 19](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)](https://react.dev/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64%20%2F%20ARM64)-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen.svg)](#-代码覆盖率与质量门禁)
+[![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)](https://github.com/yuan278501381/easyTools/actions)
 
-**一款极致轻量、亚毫秒级响应、具备世界级交互美学与极客易用度的 Windows 现代化桌面效率全家桶**
+<p align="center">
+  <strong>一款极致轻量、亚毫秒级响应、具备世界级交互美学与极客易用度的 Windows 现代化桌面效率全家桶</strong>
+</p>
 
 [🚀 快速开始](#-快速开始-quick-start) • [✨ 全功能特性详解](#-全功能特性详解) • [⌨️ 快捷键与手势速查](#-快捷键与手势速查) • [🏗️ 架构与内存收缩体系](#-架构与极致内存收缩体系) • [🛠️ 源码构建与开发](#-从源码构建与开发) • [📄 开源协议与署名](#-开源许可证与作者署名)
 
