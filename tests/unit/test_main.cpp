@@ -425,12 +425,49 @@ TEST(GestureInputPolicyTest, OverlaySurfaceGrowsOnly) {
     EXPECT_EQ(emptyR, 16);
 }
 
+TEST(GestureInputPolicyTest, OverlayRejectsOversizedLeftoverSurface) {
+    EXPECT_TRUE(overlayCanReuseSurface(256, 256, 256, 256, 2));
+    EXPECT_TRUE(overlayCanReuseSurface(256, 256, 360, 360, 2));
+    EXPECT_FALSE(overlayCanReuseSurface(256, 256, 1792, 1792, 2));
+    EXPECT_FALSE(overlayCanReuseSurface(256, 256, 2816, 1024, 2));
+    EXPECT_FALSE(overlayCanReuseSurface(0, 256, 256, 256, 2));
+    EXPECT_FALSE(overlayCanReuseSurface(256, 256, 256, 256, 0));
+}
+
+TEST(GestureInputPolicyTest, FadeClockWaitsForRequiredToast) {
+    EXPECT_FALSE(gestureFrameReadyToFade(false, false, false));
+    EXPECT_TRUE(gestureFrameReadyToFade(true, false, false));
+    EXPECT_FALSE(gestureFrameReadyToFade(true, true, false));
+    EXPECT_TRUE(gestureFrameReadyToFade(true, true, true));
+}
+
+TEST(GestureInputPolicyTest, LiveMatchHoldsThroughBriefUnmatchedGap) {
+    EXPECT_TRUE(keepLiveGestureMatch(true, false, 0, 120));
+    EXPECT_TRUE(keepLiveGestureMatch(false, true, 80, 120));
+    EXPECT_FALSE(keepLiveGestureMatch(false, true, 120, 120));
+    EXPECT_FALSE(keepLiveGestureMatch(false, false, 0, 120));
+}
+
+TEST(GestureInputPolicyTest, TrailOutlineWidthClampsAndWidens) {
+    EXPECT_FLOAT_EQ(clampTrailOutlineWidth(0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(clampTrailOutlineWidth(-2.0f), 0.0f);
+    EXPECT_FLOAT_EQ(clampTrailOutlineWidth(2.5f), 2.5f);
+    EXPECT_FLOAT_EQ(clampTrailOutlineWidth(99.0f), 8.0f);
+    EXPECT_FLOAT_EQ(trailOutlineWidenWidth(4.0f, 2.5f), 9.0f);
+    EXPECT_FLOAT_EQ(trailOutlineWidenWidth(4.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(trailOutlineWidenWidth(0.0f, 2.5f), 0.0f);
+}
+
 TEST(GestureInputPolicyTest, FadeClockStartsAfterFirstPresentedFrame) {
     EXPECT_FALSE(gestureFadeShouldFinish(false, 500, 240, 420));
     EXPECT_FALSE(gestureFadeShouldFinish(true, 100, 240, 420));
     EXPECT_TRUE(gestureFadeShouldFinish(true, 240 + 420, 240, 420));
     EXPECT_FALSE(gestureFadeShouldFinish(true, 349, 0, 350));
     EXPECT_TRUE(gestureFadeShouldFinish(true, 350, 0, 350));
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 159, 160, 280));
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 160 + 279, 160, 280));
+    EXPECT_TRUE(gestureFadeShouldFinish(true, 160 + 280, 160, 280));
+    EXPECT_FLOAT_EQ(gestureFadeAlpha(true, 160, 160, 280), 1.0f);
 }
 
 TEST(GestureInputPolicyTest, TrailColorFollowsAccentUnlessCustom) {

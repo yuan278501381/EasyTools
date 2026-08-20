@@ -77,6 +77,7 @@ interface GestureState {
   trailColorMode?: 'auto' | 'custom';
   trailColor?: string;
   trailWidth?: number;
+  trailOutlineWidth?: number;
 }
 
 const TRAIL_COLOR_PRESETS = [
@@ -109,6 +110,7 @@ export const GesturePage: FC = () => {
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#8B5CF6');
   const [trailWidth, setTrailWidth] = useState(4.0);
+  const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
   
   // Profiles & Rules
   const [profiles, setProfiles] = useState<Record<string, GestureProfileData>>({
@@ -175,6 +177,7 @@ export const GesturePage: FC = () => {
         setTrailColorMode(state.trailColorMode ?? 'auto');
         setTrailColor(state.trailColor ?? '#8B5CF6');
         setTrailWidth(state.trailWidth ?? 4.0);
+        setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
 
         const pMap: Record<string, GestureProfileData> = {};
         if (Array.isArray(profileList)) {
@@ -486,6 +489,19 @@ export const GesturePage: FC = () => {
     }
   };
 
+  const handleTrailOutlineWidthChange = async (widthStr: string) => {
+    const w = parseFloat(widthStr);
+    const outline = Number.isFinite(w) ? w : 2.5;
+    setTrailOutlineWidth(outline);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { trailOutlineWidth: outline });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
+    } catch (err) {
+      console.error('Failed to update trail outline width:', err);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
   const handleToggleAutoBypass = async (checked: boolean) => {
     setAutoBypassFullscreen(checked);
     try {
@@ -717,18 +733,44 @@ export const GesturePage: FC = () => {
                 />
               </SettingRow>
 
+              <SettingRow label={tr('gesture.trailOutline')} description={tr('gesture.trailOutlineDesc')}>
+                <Select
+                  id="gesture-trail-outline"
+                  value={String(trailOutlineWidth)}
+                  onChange={handleTrailOutlineWidthChange}
+                  options={[
+                    { value: '0', label: tr('gesture.trailOutlineNone') },
+                    { value: '1.5', label: tr('gesture.trailOutlineFine') },
+                    { value: '2.5', label: tr('gesture.trailOutlineStandard') },
+                    { value: '4', label: tr('gesture.trailOutlineBold') },
+                  ]}
+                />
+              </SettingRow>
+
               {/* 实时平滑霓虹流光轨迹预览条 */}
               <div className="gesture-trail-preview-card">
                 <div className="gesture-trail-preview-label">轨迹流光渲染预览</div>
                 <svg className="gesture-trail-preview-svg" viewBox="0 0 400 50" preserveAspectRatio="none">
-                  <path
-                    d="M 20 25 Q 110 5, 200 25 T 370 25"
-                    fill="none"
-                    stroke={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
-                    strokeWidth={trailWidth * 2.4}
-                    strokeOpacity="0.30"
-                    strokeLinecap="round"
-                  />
+                  {trailOutlineWidth > 0 && (
+                    <path
+                      d="M 20 25 Q 110 5, 200 25 T 370 25"
+                      fill="none"
+                      stroke="#FFFFFF"
+                      strokeWidth={trailWidth + trailOutlineWidth * 2}
+                      strokeOpacity="0.96"
+                      strokeLinecap="round"
+                    />
+                  )}
+                  {trailOutlineWidth <= 0 && (
+                    <path
+                      d="M 20 25 Q 110 5, 200 25 T 370 25"
+                      fill="none"
+                      stroke={trailColorMode === 'custom' ? trailColor : 'var(--primary)'}
+                      strokeWidth={trailWidth * 2.4}
+                      strokeOpacity="0.30"
+                      strokeLinecap="round"
+                    />
+                  )}
                   <path
                     d="M 20 25 Q 110 5, 200 25 T 370 25"
                     fill="none"
@@ -737,6 +779,15 @@ export const GesturePage: FC = () => {
                     strokeOpacity="0.95"
                     strokeLinecap="round"
                   />
+                  {trailOutlineWidth > 0 && (
+                    <circle
+                      cx="370"
+                      cy="25"
+                      r={trailWidth * 0.9 + trailOutlineWidth}
+                      fill="#FFFFFF"
+                      fillOpacity="0.96"
+                    />
+                  )}
                   <circle
                     cx="370"
                     cy="25"

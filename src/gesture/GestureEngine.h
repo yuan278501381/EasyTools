@@ -155,6 +155,9 @@ private:
     std::optional<GestureProfile> m_fallbackProfile;     // 本次手势 fallback 的默认 Profile 缓存
     std::vector<Direction> m_lastRecognizedDirections; // 缓存方向序列
     std::string m_lastLiveCode;
+    std::string m_liveHeldLabel;
+    bool m_liveHadMatch = false;
+    DWORD m_liveMatchTick = 0;
     PauseChangedCallback m_pauseChangedCallback;
 
     // 轨迹可视化

@@ -12,6 +12,7 @@
 #include "gesture/HotCornerEngine.h"
 #include "gesture/RadialMenuOverlay.h"
 #include "gesture/GestureTrailOverlay.h"
+#include "gesture/GestureInputPolicy.h"
 #include "EasyToolsVersion.h"
 #include <algorithm>
 #include <array>
@@ -277,7 +278,8 @@ public:
                 {"autoBypassFullscreen", engine.autoBypassFullscreen()},
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
-                {"trailWidth", config.get<float>("/gesture/trailWidth", 4.0f)}
+                {"trailWidth", config.get<float>("/gesture/trailWidth", 4.0f)},
+                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)}
             };
         });
 
@@ -289,7 +291,7 @@ public:
             }
             static const std::unordered_set<std::string> allowed = {
                 "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen",
-                "trailColorMode", "trailColor", "trailWidth"
+                "trailColorMode", "trailColor", "trailWidth", "trailOutlineWidth"
             };
             for (const auto& [key, value] : params.items()) {
                 if (!allowed.contains(key)) {
@@ -302,7 +304,8 @@ public:
                 (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean()) ||
                 (params.contains("trailColorMode") && !params["trailColorMode"].is_string()) ||
                 (params.contains("trailColor") && !params["trailColor"].is_string()) ||
-                (params.contains("trailWidth") && !params["trailWidth"].is_number())) {
+                (params.contains("trailWidth") && !params["trailWidth"].is_number()) ||
+                (params.contains("trailOutlineWidth") && !params["trailOutlineWidth"].is_number())) {
                 return {{"success", false}, {"error", "setting has invalid type"}};
             }
             if (params.contains("enabled") && params.contains("paused") &&
@@ -330,6 +333,8 @@ public:
             std::string trailColorMode = params.value("trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto"));
             std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6"));
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 4.0f));
+            float trailOutlineWidth = clampTrailOutlineWidth(
+                params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)));
 
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},
@@ -337,7 +342,8 @@ public:
                 {"autoBypassFullscreen", autoBypassFullscreen},
                 {"trailColorMode", trailColorMode},
                 {"trailColor", trailColor},
-                {"trailWidth", trailWidth}
+                {"trailWidth", trailWidth},
+                {"trailOutlineWidth", trailOutlineWidth}
             };
             if (!config.mergePatch({{"gesture", patch}}, "/gesture")) {
                 return {{"success", false}, {"error", "failed to persist gesture settings"}};
@@ -357,7 +363,8 @@ public:
                 {"autoBypassFullscreen", engine.autoBypassFullscreen()},
                 {"trailColorMode", trailColorMode},
                 {"trailColor", trailColor},
-                {"trailWidth", trailWidth}
+                {"trailWidth", trailWidth},
+                {"trailOutlineWidth", trailOutlineWidth}
             };
         });
 

@@ -34,10 +34,11 @@ struct TrailPoint {
 /// 轨迹样式配置
 struct TrailStyle {
     float lineWidth     = 3.0f;     // 线条宽度
+    float outlineWidth  = 2.5f;     // 白色描边宽度，0 表示关闭
     float startOpacity  = 0.9f;     // 起点不透明度
     float endOpacity    = 0.2f;     // 终点不透明度（渐隐）
-    float fadeHoldMs    = 0.0f;     // 松手后立即开始淡出
-    float fadeOutMs     = 350.0f;   // 淡出时间(毫秒)
+    float fadeHoldMs    = 160.0f;   // 松手后先完整停住，让动作名可被读到
+    float fadeOutMs     = 280.0f;   // 随后平滑淡出
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
     float resultFontSize = 24.0f;   // 结果文字大小 (世界级大气醒目尺寸)
@@ -105,6 +106,13 @@ private:
     /// 按轨迹包围盒调整分层窗口与 DIB，避免每次提交整块虚拟屏。
     bool fitSurface(int left, int top, int right, int bottom);
     bool recreateBitmapLocked(int x, int y, int width, int height);
+    bool presentLayeredLocked(HWND hwnd, HDC memDC, int x, int y, int width, int height);
+    bool ensureToastSurfaceLocked(int width, int height);
+    bool presentToastLocked(const std::string& resultText, bool recognized, bool excessive,
+                            int toastCenterX, int toastCenterY, float toastScale);
+    void hideToastWindow();
+    void releaseToastSurfaceLocked();
+    bool ensureToastTargetLocked();
 
     /// 根据当前配置重建 D2D 画笔。调用方必须已持有 m_renderMutex，且渲染目标有效。
     void applyThemeColorsLocked();
@@ -123,11 +131,14 @@ private:
 
     HWND m_helperOwnerHwnd = nullptr;
     HWND m_hwnd = nullptr;
+    HWND m_toastHwnd = nullptr;
     TrailStyle m_style;
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_fading{false};
     std::atomic<bool> m_hideRequested{false};
     std::atomic<bool> m_wantVisible{false};
+    std::atomic<bool> m_strokeSurfaceLive{false};
+    std::atomic<bool> m_dismissPrevious{false};
     std::atomic<bool> m_wakeRender{false};
     std::atomic<uint64_t> m_trailEpoch{0};
     uint64_t m_fadeEpoch = 0;
@@ -166,11 +177,19 @@ private:
 
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_toastTarget;
     HDC m_memoryDC = nullptr;
     HBITMAP m_memoryBitmap = nullptr;
     HBITMAP m_oldBitmap = nullptr;
     int m_width = 0;
     int m_height = 0;
+    HDC m_toastDC = nullptr;
+    HBITMAP m_toastBitmap = nullptr;
+    HBITMAP m_toastOldBitmap = nullptr;
+    int m_toastOriginX = 0;
+    int m_toastOriginY = 0;
+    int m_toastWidth = 0;
+    int m_toastHeight = 0;
     float m_dpiScale = 1.0f;
     float m_textScale = 0.0f;
     
@@ -181,6 +200,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_greyLineBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_greyGlowBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_headCoreBrush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_outlineBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBgBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_themeBgBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_textBorderBrush;

@@ -371,6 +371,9 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     m_fallbackProfile = getProfile("default");
     m_lastRecognizedDirections.clear();
     m_lastLiveCode.clear();
+    m_liveHeldLabel.clear();
+    m_liveHadMatch = false;
+    m_liveMatchTick = 0;
     m_state = GestureState::Tracking;
 
     // 开始轨迹可视化
@@ -433,13 +436,30 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
                     }
 
                     if (action) {
+                        m_liveHadMatch = true;
+                        m_liveMatchTick = GetTickCount();
+                        m_liveHeldLabel = action->name;
                         trail.setRecognized(true);
                         liveLabel = action->name;
+                    } else if (keepLiveGestureMatch(
+                                   false, m_liveHadMatch,
+                                   GetTickCount() - m_liveMatchTick,
+                                   kLiveGestureMatchHoldMs)) {
+                        liveLabel = m_liveHeldLabel;
                     } else {
+                        m_liveHadMatch = false;
+                        m_liveHeldLabel.clear();
                         trail.setRecognized(false);
                         liveLabel.clear();
                     }
+                } else if (keepLiveGestureMatch(
+                               false, m_liveHadMatch,
+                               GetTickCount() - m_liveMatchTick,
+                               kLiveGestureMatchHoldMs)) {
+                    liveLabel = m_liveHeldLabel;
                 } else {
+                    m_liveHadMatch = false;
+                    m_liveHeldLabel.clear();
                     trail.setRecognized(false);
                 }
                 trail.setLiveAction(liveLabel);
@@ -458,6 +478,9 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
     m_lastLiveCode.clear();
+    m_liveHeldLabel.clear();
+    m_liveHadMatch = false;
+    m_liveMatchTick = 0;
     HWND startWindow = m_gestureStartWindow;
     HWND previousForeground = m_previousForeground;
     m_gestureStartWindow = nullptr;
@@ -666,6 +689,9 @@ void GestureEngine::cancelTracking() {
     m_fallbackProfile.reset();
     m_lastRecognizedDirections.clear();
     m_lastLiveCode.clear();
+    m_liveHeldLabel.clear();
+    m_liveHadMatch = false;
+    m_liveMatchTick = 0;
     m_gestureStartWindow = nullptr;
     m_previousForeground = nullptr;
     if (m_trailVisible.load()) {

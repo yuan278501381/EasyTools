@@ -6,6 +6,7 @@ build-*/
 deploy_dist/
 deploy_dist_backup/
 deploy_dist_staging_*/
+deploy_schemes/
 deploy_logs/
 release_assets/
 coverage_report/

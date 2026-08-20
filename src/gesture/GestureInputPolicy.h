@@ -13,6 +13,7 @@
 #include "core/utils/ThemeUtils.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string_view>
 
 namespace easy::gesture {
@@ -68,6 +69,46 @@ inline bool overlaySurfaceContains(int left, int top, int right, int bottom,
     return width > 0 && height > 0 &&
            left >= originX && top >= originY &&
            right <= originX + width && bottom <= originY + height;
+}
+
+/// 上一笔留下的超大 DIB 即使几何上还能装下当前轨迹，也不能继续拿来提交：
+/// UpdateLayeredWindow 一张近乎整屏的位图，短手势会一帧都画不出来。
+inline bool overlayCanReuseSurface(int neededW, int neededH,
+                                   int existingW, int existingH,
+                                   int maxAreaFactor) noexcept {
+    if (neededW <= 0 || neededH <= 0 || existingW <= 0 || existingH <= 0) return false;
+    if (maxAreaFactor <= 0) return false;
+    const long long neededArea = static_cast<long long>(neededW) * neededH;
+    const long long existingArea = static_cast<long long>(existingW) * existingH;
+    return existingArea <= neededArea * static_cast<long long>(maxAreaFactor);
+}
+
+/// 松手结果卡片必须真正画出来，淡出时钟才能走。否则动作已经执行，用户只看到空白。
+inline bool gestureFrameReadyToFade(bool trailPresented, bool toastRequired,
+                                    bool toastPresented) noexcept {
+    if (!trailPresented) return false;
+    return !toastRequired || toastPresented;
+}
+
+/// 实时命中不要跟着方向编码每个拐点闪灰：刚命中过的动作保持一小段，直到稳定未匹配或换了新动作。
+inline bool keepLiveGestureMatch(bool hasNewMatch, bool hadMatch,
+                                 DWORD unmatchedElapsedMs, DWORD holdMs) noexcept {
+    if (hasNewMatch) return true;
+    if (!hadMatch) return false;
+    return unmatchedElapsedMs < holdMs;
+}
+
+inline constexpr DWORD kLiveGestureMatchHoldMs = 120;
+
+inline float clampTrailOutlineWidth(float width) noexcept {
+    if (!std::isfinite(width) || width <= 0.0f) return 0.0f;
+    return (std::min)(width, 8.0f);
+}
+
+/// 白色描边作为最外圈：核心宽度 + 两侧描边。
+inline float trailOutlineWidenWidth(float coreWidth, float outlineWidth) noexcept {
+    if (coreWidth <= 0.0f || outlineWidth <= 0.0f) return 0.0f;
+    return coreWidth + outlineWidth * 2.0f;
 }
 
 /// 淡出时钟必须从第一帧真正画出来之后才走。若从松手瞬间起算，重建整屏
