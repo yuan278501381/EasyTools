@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
-  <!-- EasyTools 品牌方案 2: 单独纯白闪电融合同构 E (The Bolt 'E' Fusion) -->
-  <g fill="#FFFFFF" id="bolt-fusion-e">
-    <path id="lightning-spine" d="M225 60 L140 250 L245 250 L160 450 L315 220 L220 220 L275 60 Z" />
-    <rect id="top-bar" x="260" y="80" width="140" height="55" rx="10" />
-    <rect id="mid-bar" x="235" y="225" width="165" height="55" rx="10" />
-    <rect id="bot-bar" x="200" y="375" width="200" height="55" rx="10" />
-  </g>
-</svg>

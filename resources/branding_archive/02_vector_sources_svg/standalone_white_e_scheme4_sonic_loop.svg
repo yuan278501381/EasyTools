@@ -1,6 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
-  <!-- EasyTools 品牌方案 4: 单独纯白莫比乌斯流体尾迹 e (The Sonic Loop 'e') -->
-  <g fill="#FFFFFF" id="sonic-loop-e">
-    <path fill-rule="evenodd" clip-rule="evenodd" d="M256 60 C150 60 75 145 75 270 C75 385 160 452 280 452 C350 452 405 410 455 170 C405 315 320 358 256 358 C185 358 145 305 145 240 L395 240 C405 240 405 185 375 140 C340 90 300 60 256 60 Z M170 190 C180 135 220 115 256 115 C295 115 330 135 330 190 L170 190 Z" />
+  <!-- EasyTools 官方方案 4: 莫比乌斯流体尾迹 e (The Sonic Loop 'e') -->
+  <!-- 完美 1:1 还原渲染母版单线缎带流动回环与极速飞扬尾迹 -->
+  <defs>
+    <linearGradient id="sonicRibbonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="45%" stop-color="#F8FAFC" />
+      <stop offset="75%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#FFFFFF" />
+    </linearGradient>
+    <linearGradient id="innerLoopShadow" x1="30%" y1="20%" x2="70%" y2="80%">
+      <stop offset="0%" stop-color="#CBD5E1" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+  </defs>
+
+  <g id="sonic-loop-e-master-group">
+    <!-- 外围流体缎带与飞扬穿梭尾迹 (一笔到底闭合曲线) -->
+    <path id="sonic-ribbon-body"
+      fill-rule="evenodd"
+      clip-rule="evenodd"
+      d="M245 75 
+         C145 75, 75 155, 75 265 
+         C75 365, 145 435, 250 435 
+         C330 435, 395 385, 455 175 
+         C405 310, 320 348, 250 348 
+         C180 348, 148 298, 148 245 
+         L385 245 
+         C398 245, 405 200, 375 150 
+         C342 98, 298 75, 245 75 
+         Z 
+         M165 195 
+         C175 145, 210 125, 248 125 
+         C285 125, 320 145, 322 195 
+         L165 195 
+         Z"
+      fill="url(#sonicRibbonGrad)" />
   </g>
 </svg>

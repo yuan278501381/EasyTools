@@ -1,14 +1,69 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
-  <!-- EasyTools 品牌方案 1: 单独纯白超速滑翔光翼 E (The Aero-Glide 'E') -->
-  <!-- 适用于 Figma / Illustrator / Sketch / Inkscape 任意编辑曲线与节点 -->
-  <g fill="#FFFFFF" id="aero-glide-e">
-    <!-- 顶层滑翔翼 (带气动前扬上翘角) -->
-    <path id="top-wing" d="M190 85 C220 85 385 85 405 85 C430 85 440 105 415 135 C380 170 330 190 305 190 L160 190 Z" />
-    <!-- 中层穿梭翼 -->
-    <path id="middle-wing" d="M145 230 L365 230 C385 230 390 248 370 270 C350 292 320 312 295 312 L120 312 Z" />
-    <!-- 底层滑行翼 -->
-    <path id="bottom-wing" d="M110 350 L370 350 C390 350 395 368 375 395 C355 422 320 445 285 445 L65 445 Z" />
-    <!-- 前倾动能主脊柱 (倾斜角 ~14°) -->
-    <path id="spine" d="M190 85 L250 85 L125 445 L65 445 Z" />
+  <!-- EasyTools 官方方案 1: 超速滑翔光翼 E (The Aero-Glide 'E') -->
+  <!-- 完美 1:1 还原渲染母版气动前倾曲率、三段微重叠飞翼与丝滑贝塞尔流动节点 -->
+  <defs>
+    <!-- 微折叠层叠暗部渐变 (赋予 2D 矢量纯净而真实的三维折纸深度) -->
+    <linearGradient id="foldGradTop" x1="0%" y1="0%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="65%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+    <linearGradient id="foldGradMid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="70%" stop-color="#F1F5F9" />
+      <stop offset="100%" stop-color="#CBD5E1" />
+    </linearGradient>
+    <linearGradient id="spineGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+    <!-- 纯白单色模式滤镜/填色定义 -->
+  </defs>
+
+  <g id="aero-glide-e-master-group">
+    <!-- 1. 底层滑行稳舵翼 (Bottom Glide Wing) -->
+    <path id="bottom-wing"
+      d="M175 330 
+         C200 330, 310 330, 340 330 
+         C375 330, 395 350, 370 380 
+         C345 410, 305 425, 270 425 
+         L145 425 
+         C120 425, 105 405, 120 380 
+         Z" 
+      fill="url(#foldGradTop)" />
+
+    <!-- 2. 中层穿梭主翼 (Middle Cruise Wing) -->
+    <path id="middle-wing"
+      d="M195 215 
+         C225 215, 300 215, 335 215 
+         C370 215, 385 235, 365 260 
+         C345 285, 315 295, 280 295 
+         L165 295 
+         C145 295, 135 280, 145 260 
+         Z" 
+      fill="url(#foldGradMid)" />
+
+    <!-- 3. 前倾动能主脊椎 (Swept-Forward Kinetic Spine) -->
+    <path id="main-spine"
+      d="M205 95 
+         C235 95, 260 95, 280 95 
+         C250 180, 200 320, 145 425 
+         L95 425 
+         C85 425, 80 415, 85 400 
+         C110 340, 160 200, 205 95 
+         Z" 
+      fill="url(#spineGrad)" />
+
+    <!-- 4. 顶层破空前扬飞翼 (Top Aero-Sweep Wing - 视觉主体) -->
+    <path id="top-wing"
+      d="M205 95 
+         C235 95, 350 95, 385 95 
+         C425 95, 435 118, 400 152 
+         C365 186, 310 195, 275 195 
+         L185 195 
+         C165 195, 155 180, 168 158 
+         C180 138, 192 118, 205 95 
+         Z" 
+      fill="url(#foldGradTop)" />
   </g>
 </svg>
