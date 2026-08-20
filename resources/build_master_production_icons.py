@@ -15,6 +15,22 @@ def create_squircle_mask(size, radius_ratio=0.22):
     draw.rounded_rectangle([(0, 0), (sw, sh)], radius=r, fill=255)
     return mask.resize((w, h), Image.Resampling.LANCZOS)
 
+def create_gradient_bg(size, color1, color2):
+    w, h = size
+    img = Image.new("RGBA", size)
+    arr = np.zeros((h, w, 4), dtype=np.uint8)
+    
+    # Simple linear gradient top-left to bottom-right
+    for y in range(h):
+        for x in range(w):
+            t = (x + y) / (w + h)
+            r = int(color1[0] * (1 - t) + color2[0] * t)
+            g = int(color1[1] * (1 - t) + color2[1] * t)
+            b = int(color1[2] * (1 - t) + color2[2] * t)
+            arr[y, x] = (r, g, b, 255)
+            
+    return Image.fromarray(arr)
+
 def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48, 64, 128, 256)):
     images_data = []
     header_size = 6 + len(sizes) * 16
@@ -55,119 +71,81 @@ def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48
         for _, _, _, data in images_data:
             f.write(data)
             
-    print(f"Master ICO Generated: {output_path} ({len(sizes)} sizes)")
+    print(f"ICO Generated: {output_path} ({len(sizes)} sizes)")
 
-def extract_large_pure_tray_icon(jpg_path, crop_box, bg_threshold=50):
-    img = Image.open(jpg_path).convert("RGBA")
-    cropped = img.crop(crop_box)
-    
-    arr = np.array(cropped)
-    r, g, b = arr[:,:,0].astype(float), arr[:,:,1].astype(float), arr[:,:,2].astype(float)
-    brightness = 0.299 * r + 0.587 * g + 0.114 * b
-    
-    low_cut = bg_threshold
-    high_cut = bg_threshold + 40
-    alpha = np.clip((brightness - low_cut) / (high_cut - low_cut) * 255.0, 0, 255).astype(np.uint8)
-    
-    res = Image.new("RGBA", cropped.size, (255, 255, 255, 0))
-    res.putalpha(Image.fromarray(alpha, "L"))
-    
-    bbox = res.getbbox()
-    if bbox:
-        res_cropped = res.crop(bbox)
-        # 大号托盘图标：填满 98% 的画布 (留出极小 1% 边距，达到最大视觉冲击力与清晰度)
-        target_size = 502
-        res_cropped.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
-        final_img = Image.new("RGBA", (512, 512), (255, 255, 255, 0))
-        offset = ((512 - res_cropped.width) // 2, (512 - res_cropped.height) // 2)
-        final_img.paste(res_cropped, offset, res_cropped)
-        return final_img
-    return res
-
-def build_scheme(scheme_num: int):
-    artifact_dir = r"C:\Users\yuan2\.gemini\antigravity\brain\a4d8e3c0-7c1c-4d27-95cd-65baa13ee7a1"
+def build_perfect_icons():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    archive_dir = os.path.join(repo_root, "resources", "branding_archive")
     resources_dir = os.path.join(repo_root, "resources")
-    ui_components_dir = os.path.join(repo_root, "ui", "src", "components")
-    ui_public_dir = os.path.join(repo_root, "ui", "public")
-
-    if scheme_num == 1:
-        print(">> 装配 方案 1: 超速滑翔光翼 E (大号纯白托盘 + 高清母版)...")
-        app_master_jpg = os.path.join(artifact_dir, "letter_e_aero_glide_1787155546091.jpg")
-        tray_master_jpg = os.path.join(artifact_dir, "master_tray_aero_glide_e_1787158355720.jpg")
-        
-        img_app = Image.open(app_master_jpg).convert("RGBA")
-        squircle = img_app.crop((120, 120, 904, 904)).resize((512, 512), Image.Resampling.LANCZOS)
-        mask = create_squircle_mask((512, 512), 0.22)
-        squircle.putalpha(mask)
-        
-        tray_img = extract_large_pure_tray_icon(tray_master_jpg, (270, 290, 730, 710), 50)
-
-    else:
-        print(">> 装配 方案 4: 莫比乌斯流体尾迹 e (大号纯白托盘 + 高清母版)...")
-        app_master_jpg = os.path.join(artifact_dir, "letter_e_sonic_loop_1787155667576.jpg")
-        tray_master_jpg = os.path.join(artifact_dir, "master_tray_sonic_loop_e_1787158373479.jpg")
-        
-        img_app = Image.open(app_master_jpg).convert("RGBA")
-        squircle = img_app.crop((156, 160, 868, 872)).resize((512, 512), Image.Resampling.LANCZOS)
-        mask = create_squircle_mask((512, 512), 0.22)
-        squircle.putalpha(mask)
-        
-        tray_img = extract_large_pure_tray_icon(tray_master_jpg, (320, 310, 840, 670), 50)
-
-    # 1. 输出 resources/app.ico 与 resources/tray.ico
-    app_ico_path = os.path.join(resources_dir, "app.ico")
-    tray_ico_path = os.path.join(resources_dir, "tray.ico")
-    save_ico(squircle, app_ico_path)
-    save_ico(tray_img, tray_ico_path)
-
-    # 2. 前端 UI 组件 base64 内嵌
-    buffered = BytesIO()
-    squircle.resize((96, 96), Image.Resampling.LANCZOS).save(buffered, format="PNG")
-    import base64
-    b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
     
-    # 3. 更新 ui/public/favicon.svg
-    favicon_svg_content = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 96 96" width="96" height="96">
-  <image width="96" height="96" xlink:href="data:image/png;base64,{b64_str}"/>
-</svg>'''
-    with open(os.path.join(ui_public_dir, "favicon.svg"), "w", encoding="utf-8") as f:
-        f.write(favicon_svg_content)
-
-    # 4. 更新 React 组件 EasyToolsBolt.tsx
-    bolt_component_code = f'''import React from 'react';
-
-interface EasyToolsBoltProps {{
-  size?: number;
-  className?: string;
-  fill?: string;
-}}
-
-/**
- * 官方标准 100% 高保真母版品牌 Logo (Scheme {scheme_num})
- */
-export const EasyToolsBolt: React.FC<EasyToolsBoltProps> = ({{
-  size = 24,
-  className = '',
-}}) => {{
-  return (
-    <img
-      src="data:image/png;base64,{b64_str}"
-      alt="EasyTools"
-      width={{size}}
-      height={{size}}
-      className={{className}}
-      style={{{{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0, borderRadius: size * 0.22 }}}}
-      aria-hidden="true"
-    />
-  );
-}};
-'''
-    with open(os.path.join(ui_components_dir, "EasyToolsBolt.tsx"), "w", encoding="utf-8") as f:
-        f.write(bolt_component_code)
-
-    print(f"Scheme {scheme_num} 大号托盘与高保真母版资产全部就绪！")
+    # 1. Load the flawless extracted large E
+    large_e_path = os.path.join(archive_dir, "extracted_large_e.png")
+    if not os.path.exists(large_e_path):
+        print("Error: extracted_large_e.png not found.")
+        return
+        
+    large_e = Image.open(large_e_path).convert("RGBA")
+    
+    # 2. App Icon (Squircle with Gradient)
+    # The mockup uses a deep space blue-gray background. 
+    # Let's use #2F3746 (47, 55, 70) to #1C2331 (28, 35, 49)
+    bg = create_gradient_bg((512, 512), (56, 68, 88), (31, 38, 51))
+    
+    # Create squircle mask
+    mask = create_squircle_mask((512, 512), 0.22)
+    bg.putalpha(mask)
+    
+    # Paste the letter E centered
+    e_w, e_h = large_e.size
+    # We want it to take up about 75% of the height
+    target_h = int(512 * 0.75)
+    target_w = int(e_w * (target_h / e_h))
+    e_resized = large_e.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    
+    offset_x = (512 - target_w) // 2
+    offset_y = (512 - target_h) // 2
+    
+    # Drop shadow
+    shadow = e_resized.copy()
+    shadow_data = np.array(shadow)
+    shadow_data[:, :, 0:3] = 0 # Black
+    shadow = Image.fromarray(shadow_data).filter(ImageFilter.GaussianBlur(15))
+    
+    bg.paste(shadow, (offset_x, offset_y + 10), shadow)
+    bg.paste(e_resized, (offset_x, offset_y), e_resized)
+    
+    save_ico(bg, os.path.join(resources_dir, "app.ico"))
+    
+    # 3. Tray Icon (Pure White shape from the same perfect alpha mask)
+    # The tray E has some slits, let's just make it completely white but keep the alpha gradients 
+    # so the overlapping layers look slightly transparent at the folds, just like the actual mockup.
+    tray_e = large_e.copy()
+    tray_data = np.array(tray_e)
+    # Set RGB to 255, keep alpha
+    tray_data[:, :, 0:3] = 255
+    tray_pure = Image.fromarray(tray_data)
+    
+    # Make it a square
+    size = max(tray_pure.width, tray_pure.height)
+    tray_sq = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    offset = ((size - tray_pure.width) // 2, (size - tray_pure.height) // 2)
+    tray_sq.paste(tray_pure, offset, tray_pure)
+    
+    # Crop tight so it fills 98% of tray
+    bbox = tray_sq.getbbox()
+    tray_sq = tray_sq.crop(bbox)
+    
+    # Pad it to exactly square
+    final_size = max(tray_sq.width, tray_sq.height)
+    # Add a tiny 2px padding for 256x256 (less than 1%)
+    pad = int(final_size * 0.02)
+    final_tray = Image.new("RGBA", (final_size + pad*2, final_size + pad*2), (255, 255, 255, 0))
+    offset_2 = ((final_size + pad*2 - tray_sq.width) // 2, (final_size + pad*2 - tray_sq.height) // 2)
+    final_tray.paste(tray_sq, offset_2, tray_sq)
+    
+    save_ico(final_tray, os.path.join(resources_dir, "tray.ico"))
+    
+    print("Perfect matching icons generated from user mockup!")
 
 if __name__ == "__main__":
-    scheme = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    build_scheme(scheme)
+    build_perfect_icons()
