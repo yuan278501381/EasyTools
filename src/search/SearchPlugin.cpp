@@ -224,10 +224,24 @@ ScmEndpointResult startScmServiceAndWait(DWORD& error) {
 
     SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService",
                                      SERVICE_START | SERVICE_QUERY_STATUS);
+    bool canStart = true;
     if (!service) {
         error = GetLastError();
-        return error == ERROR_SERVICE_DOES_NOT_EXIST ? ScmEndpointResult::AllowPortableFallback
-                                                      : ScmEndpointResult::Unavailable;
+        if (error == ERROR_SERVICE_DOES_NOT_EXIST) {
+            return ScmEndpointResult::AllowPortableFallback;
+        }
+        if (easy::search::scmOpenShouldRetryQueryOnly(error)) {
+            service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_QUERY_STATUS);
+            if (!service) {
+                error = GetLastError();
+                LOG_WARN("SearchPlugin: 无法查询 SCM 搜索服务，回退便携进程, error={}", error);
+                return ScmEndpointResult::AllowPortableFallback;
+            }
+            canStart = false;
+            error = ERROR_SUCCESS;
+        } else {
+            return ScmEndpointResult::Unavailable;
+        }
     }
     struct ServiceGuard { SC_HANDLE value; ~ServiceGuard() { if (value) CloseServiceHandle(value); } } serviceGuard{service};
 
@@ -236,13 +250,13 @@ ScmEndpointResult startScmServiceAndWait(DWORD& error) {
     if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
                               reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
         error = GetLastError();
-        return ScmEndpointResult::Unavailable;
+        return canStart ? ScmEndpointResult::Unavailable : ScmEndpointResult::AllowPortableFallback;
     }
 
-    bool startExplicitlyFailed = false;
+    bool startExplicitlyFailed = !canStart;
     auto action = easy::search::decideStartupAction(
         WaitNamedPipeA(g_searchPipe.c_str(), 1) != FALSE,
-        toScmServiceState(status.dwCurrentState), false);
+        toScmServiceState(status.dwCurrentState), startExplicitlyFailed);
     if (action == easy::search::StartupAction::UseEndpoint) return ScmEndpointResult::Ready;
     if (action == easy::search::StartupAction::StartScmService) {
         const std::wstring tokenArg = L"--pipe-token=" +
@@ -277,6 +291,9 @@ ScmEndpointResult startScmServiceAndWait(DWORD& error) {
                     ? ScmEndpointResult::AllowPortableFallback : ScmEndpointResult::Unavailable;
             }
         }
+    } else if (action == easy::search::StartupAction::AllowPortableFallback) {
+        LOG_WARN("SearchPlugin: SCM 无法为本用户启动（无启动权限或服务已停止），回退便携索引进程");
+        return ScmEndpointResult::AllowPortableFallback;
     } else if (action != easy::search::StartupAction::WaitForScmEndpoint) {
         error = ERROR_SERVICE_NOT_ACTIVE;
         return ScmEndpointResult::Unavailable;

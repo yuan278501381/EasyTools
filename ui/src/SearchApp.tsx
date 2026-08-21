@@ -2226,7 +2226,7 @@ export default function SearchApp() {
               {sortedResults.length > 0 ? (
                 <span><strong>{sortedResults.length}</strong> / 全盘 {totalIndexedFiles ? (totalIndexedFiles > 10000 ? (totalIndexedFiles / 10000).toFixed(1) + '万' : totalIndexedFiles) : '--'} · {searchElapsedMs}ms</span>
               ) : (
-                <span>共 <strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '2,654,120'}</strong> 文件</span>
+                <span>共 <strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> 文件</span>
               )}
             </div>
 
@@ -3154,7 +3154,7 @@ export default function SearchApp() {
                 {sortedResults.length > 0 ? (
                   <><strong>{sortedResults.length.toLocaleString()}</strong> 个对象</>
                 ) : (
-                  <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '1,394,498'}</strong> 个对象</>
+                  <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> 个对象</>
                 )}
               </span>
               <button

@@ -501,6 +501,9 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 inst.m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
             }
             return 0;
+        case WM_CLOSE:
+            inst.hide();
+            return 0;
         case WM_SEARCH_VERIFY_DEACTIVATED: {
             if (!inst.m_visible.load()) break;
             if (inst.isMenuActive()) break;

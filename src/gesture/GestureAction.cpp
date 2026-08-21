@@ -344,7 +344,10 @@ void KeyStroke::send(void* targetWindowPtr) const {
         return;
     }
 
-    if (!isGlobalKey(virtualKey) && targetHwnd && keyStrokeShouldPostClose(modifiers, virtualKey)) {
+    if (!isGlobalKey(virtualKey) && targetHwnd &&
+        (keyStrokeShouldPostClose(modifiers, virtualKey) ||
+         (isEasyToolsUiWindow(targetHwnd) &&
+          keyStrokeShouldDismissEasyToolsUi(modifiers, virtualKey)))) {
         PostMessageW(targetHwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
         PostMessageW(targetHwnd, WM_CLOSE, 0, 0);
         LOG_INFO("关闭窗口已投递: {}", describeWindow(targetHwnd));

@@ -208,6 +208,13 @@ inline bool keyStrokeShouldPostClose(uint8_t modifiers, uint16_t virtualKey) noe
     return withoutAlt == 0 && (modifiers & MOD_ALT) != 0 && virtualKey == VK_F4;
 }
 
+/// 画在 EasyTools 自己的设置/搜索窗上时，关闭标签页应关掉该窗口，而不是把 Ctrl+W 打进 WebView。
+inline bool keyStrokeShouldDismissEasyToolsUi(uint8_t modifiers, uint16_t virtualKey) noexcept {
+    if (keyStrokeShouldPostClose(modifiers, virtualKey)) return true;
+    const uint8_t withoutCtrl = static_cast<uint8_t>(modifiers & ~static_cast<uint8_t>(MOD_CONTROL));
+    return withoutCtrl == 0 && (modifiers & MOD_CONTROL) != 0 && virtualKey == 'W';
+}
+
 }  // namespace easy::gesture
 
 #endif  // EASYTOOLS_GESTURE_GESTUREINPUTPOLICY_H

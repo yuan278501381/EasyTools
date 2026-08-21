@@ -461,6 +461,10 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_ALT | MOD_CONTROL, VK_F4));
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_CONTROL, 'W'));
     EXPECT_FALSE(keyStrokeShouldPostClose(0, VK_F4));
+    EXPECT_TRUE(keyStrokeShouldDismissEasyToolsUi(MOD_CONTROL, 'W'));
+    EXPECT_TRUE(keyStrokeShouldDismissEasyToolsUi(MOD_ALT, VK_F4));
+    EXPECT_FALSE(keyStrokeShouldDismissEasyToolsUi(MOD_CONTROL | MOD_SHIFT, 'W'));
+    EXPECT_FALSE(keyStrokeShouldDismissEasyToolsUi(MOD_CONTROL, 'T'));
 }
 
 TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
@@ -2050,6 +2054,14 @@ TEST(SearchServiceStartupPolicyTest, ScmStateNeverCausesPrematurePortableDuplica
         ScmServiceState::StartPending, false, true));
     EXPECT_FALSE(easy::search::isScmEndpointIdentityConflict(
         ScmServiceState::Running, true, true));
+    EXPECT_TRUE(easy::search::scmOpenShouldRetryQueryOnly(ERROR_ACCESS_DENIED));
+    EXPECT_FALSE(easy::search::scmOpenShouldRetryQueryOnly(ERROR_SERVICE_DOES_NOT_EXIST));
+    EXPECT_FALSE(easy::search::scmOpenShouldRetryQueryOnly(ERROR_SUCCESS));
+    // 没有启动权限时，已停止的 SCM 服务必须回退便携进程，否则搜索永久不可用。
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Stopped, true),
+              StartupAction::AllowPortableFallback);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Running, true),
+              StartupAction::WaitForScmEndpoint);
 }
 
 // -----------------------------------------------------------------------------

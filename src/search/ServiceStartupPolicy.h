@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 // 搜索服务启动判定保持纯函数：SCM 的状态与客户端是否已连接到本用户端点
 // 被分离，单元测试不依赖真实服务、磁盘或管理员权限。
 
@@ -41,6 +43,12 @@ inline StartupAction decideStartupAction(
             return StartupAction::ReportUnavailable;
     }
     return StartupAction::ReportUnavailable;
+}
+
+/// OpenService(SERVICE_START|QUERY) 常因普通用户没有启动权限而 ACCESS_DENIED，
+/// 并不表示服务不存在。此时应降级为只查询；查不到或服务已停止则走便携进程。
+inline bool scmOpenShouldRetryQueryOnly(DWORD openError) noexcept {
+    return openError == ERROR_ACCESS_DENIED;
 }
 
 /// Once a SCM service is RUNNING it must publish the authenticated per-user
