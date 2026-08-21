@@ -5,7 +5,6 @@ import { ExternalLink, Info, Layers, Cpu, RefreshCw, User, ShieldCheck } from 'l
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import './AboutPage.css';
-import { EasyToolsBolt } from '../components/EasyToolsBolt';
 
 interface DependencyInfo {
   name: string;
@@ -159,7 +158,15 @@ export const AboutPage: FC = () => {
       <div className="about-grand-showcase">
         <div className="about-grand-showcase__aura"></div>
         <div className="about-grand-showcase__logo-container">
-          <EasyToolsBolt size={160} className="about-grand-showcase__logo" />
+          <img
+            src="/Logo_Origin.png"
+            width={180}
+            height={180}
+            className="about-grand-showcase__logo"
+            alt="EasyTools"
+            draggable={false}
+            decoding="async"
+          />
         </div>
         <div className="about-grand-showcase__text">
           <div className="about-grand-showcase__title-row">

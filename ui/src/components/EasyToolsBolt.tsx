@@ -1,8 +1,8 @@
 import React from 'react';
 
 /**
- * 品牌图标。公开资源使用 1024 原图 `/Logo.png`，小尺寸走 256 的 srcset，
- * 避免把 128px 位图拉到关于页 / 高 DPI 侧边栏后发糊。
+ * 品牌应用图标。源是 `Logo_Origin.png`（1254 透明立体 E）合成的圆角方标。
+ * 小尺寸走 256 预缩放，避免浏览器直接把 1024 压成 32px 发糊。
  */
 export const EasyToolsBolt: React.FC<{
   size?: number;

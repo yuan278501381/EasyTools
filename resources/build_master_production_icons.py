@@ -69,7 +69,7 @@ def save_ico(image: Image.Image, output_path: str, sizes=(16, 20, 24, 32, 40, 48
 
 def build_world_class_icons():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    source_logo_path = os.path.join(repo_root, "Logo-ChatGPT Image.png")
+    source_logo_path = os.path.join(repo_root, "ui", "public", "Logo_Origin.png")
     resources_dir = os.path.join(repo_root, "resources")
     
     if not os.path.exists(source_logo_path):
