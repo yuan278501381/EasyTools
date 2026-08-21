@@ -202,26 +202,273 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 
 ## 🏗️ 架构与极致内存收缩体系
 
-### 1. 进程与模块物理拓扑
+### 1. 系统架构总览
 
-```text
-EasyTools.exe (主宿主进程 / WebView2 UI / 事件主循环)
-├── EasyCore.dll                 配置持久化、IPC 管道、日志(Spdlog)、热键钩子、物理内存修剪
-├── plugins/
-│   ├── Plugin_Gesture.dll       鼠标手势引擎、热角检测、径向轮盘菜单
-│   ├── Plugin_Capture.dll       截图标注、置顶贴图、滚动长截图、4K 录屏、Windows OCR
-│   ├── Plugin_Search.dll        NTFS 搜索客户端、IPC 管道桥接
-│   └── Plugin_Keycast.dll       按键实时回显、热力统计
-├── EasyTools_Service.exe        机器级 NTFS / MFT 极速文件索引服务
-└── ui/index.html + assets/      React 19 按表面拆分的本地生产资源
+> 下图展示 EasyTools 从操作系统层、原生 C++ 内核层、插件化业务层到 WebView2 前端渲染层的完整分层拓扑。
+
+```mermaid
+graph TB
+    subgraph OS["🖥️ Windows 10 / 11 操作系统层"]
+        DXGI["DXGI Desktop Duplication"]
+        D2D["Direct2D GPU 渲染"]
+        WASAPI["WASAPI 音频采集"]
+        MFT["NTFS MFT / USN Journal"]
+        WinOCR["Windows.Media.Ocr"]
+        HookAPI["SetWindowsHookEx"]
+        DPI["Per-Monitor V2 DPI"]
+    end
+
+    subgraph Host["⚙️ EasyTools.exe 主宿主进程"]
+        MainLoop["Win32 消息主循环"]
+        HotkeyMgr["全局热键注册 & WM_HOTKEY"]
+        PluginMgr["PluginManager 插件生命周期"]
+        Bridge["MessageBridge JSON-IPC"]
+        WV2Env["WebView2 Environment 单例"]
+        Suspend["WebViewSuspend 深度休眠"]
+        DpiSync["syncWebViewDpi RAW_PIXELS"]
+    end
+
+    subgraph Core["📦 EasyCore.dll 核心库"]
+        Config["ConfigManager JSON 持久化"]
+        Logger["Spdlog 统一日志 + TraceID"]
+        IPC["命名管道 IPC 服务端"]
+        Trim["WinUtils::trimWorkingSet"]
+        LuaVM["Sol2 Lua 脚本引擎"]
+        Stats["按键 & 鼠标统计引擎"]
+    end
+
+    subgraph Plugins["🔌 plugins/ 插件层 (独立 DLL)"]
+        Gesture["Plugin_Gesture.dll\n手势引擎 · 热角 · 径向轮盘"]
+        Capture["Plugin_Capture.dll\n截图标注 · 贴图 · 长截图 · 4K录屏 · OCR"]
+        Search["Plugin_Search.dll\nNTFS 搜索客户端 · IPC 桥接"]
+        Keycast["Plugin_Keycast.dll\n按键回显 · 热力统计"]
+    end
+
+    subgraph Service["🔎 EasyTools_Service.exe"]
+        MFTIdx["MFT 索引引擎"]
+        PipeServer["认证命名管道服务端"]
+    end
+
+    subgraph UI["🎨 WebView2 前端 (React 19 + TypeScript)"]
+        Settings["SettingsWindow 设置中心"]
+        SearchUI["SearchWindow 搜索浮窗"]
+        TrayUI["TrayWindow 托盘菜单"]
+        QuickLook["QuickLookWindow 快捷预览"]
+    end
+
+    MainLoop --> HotkeyMgr
+    MainLoop --> PluginMgr
+    MainLoop --> Bridge
+    HotkeyMgr --> Gesture
+    HotkeyMgr --> Capture
+
+    PluginMgr --> Gesture
+    PluginMgr --> Capture
+    PluginMgr --> Search
+    PluginMgr --> Keycast
+
+    Gesture --> D2D
+    Gesture --> HookAPI
+    Capture --> DXGI
+    Capture --> D2D
+    Capture --> WASAPI
+    Capture --> WinOCR
+    Search --> IPC
+    Keycast --> HookAPI
+
+    Bridge --> WV2Env
+    WV2Env --> Settings
+    WV2Env --> SearchUI
+    WV2Env --> TrayUI
+    WV2Env --> QuickLook
+    Suspend --> WV2Env
+    DpiSync --> DPI
+
+    IPC --> PipeServer
+    MFTIdx --> MFT
+    PipeServer --> MFTIdx
+
+    Core --> Logger
+    Core --> Config
+    Core --> Trim
+    Core --> LuaVM
+
+    style OS fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style Host fill:#0f172a,stroke:#1e40af,color:#93c5fd
+    style Core fill:#14532d,stroke:#166534,color:#86efac
+    style Plugins fill:#451a03,stroke:#92400e,color:#fcd34d
+    style Service fill:#4c1d95,stroke:#6d28d9,color:#c4b5fd
+    style UI fill:#0c4a6e,stroke:#0369a1,color:#7dd3fc
 ```
 
-### 2. 核心架构亮点
+---
 
-1. **单 Environment 多窗口复用**：设置窗口、搜索浮窗与托盘菜单共享同一个 WebView2 浏览器环境，减少重复初始化；具体内存收益需在目标设备上通过基准验证；
+### 2. 物理内存生命周期 — 冷热路径修剪策略
+
+> 遵循 **"冷路径退场修剪，热操作期间绝不修剪"** 核心原则，杜绝高频路径上的软缺页卡顿。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: 启动完成
+
+    Idle --> HotPath: 用户触发操作
+    HotPath --> ColdPath: 操作完成 / 窗口隐藏
+
+    state HotPath {
+        direction LR
+        [*] --> Active
+        Active: 🔥 热路径运行中
+        note right of Active
+            ❌ 严禁调用 trimWorkingSet
+            • 1000Hz 鼠标钩子回调
+            • Direct2D 60FPS 轨迹渲染
+            • 键盘连击流 & Keycast
+            • 录屏帧捕获 & 编码
+        end note
+    }
+
+    state ColdPath {
+        direction LR
+        [*] --> Release
+        Release: ♻️ 释放大对象
+        Release --> TrimWS: trimWorkingSet()
+        TrimWS --> SuspendWV: TrySuspend()
+        SuspendWV: 💤 Chromium 深度休眠
+        note right of Release
+            ✅ 安全修剪节点
+            • 截图完成 / 取消
+            • 录屏停止
+            • 长截图拼接导出
+            • OCR 识别完毕
+            • 设置 / 搜索窗口隐藏
+            • 插件停用 / 卸载
+        end note
+    }
+
+    ColdPath --> Idle: 物理内存已归还
+    Idle --> HotPath: 下次操作按需惰性重建资源
+```
+
+---
+
+### 3. 时序图：鼠标手势动作执行流程
+
+> 从用户按下鼠标右键到手势动作分发的完整调用链路。
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 用户
+    participant Hook as WH_MOUSE_LL 钩子
+    participant Engine as GestureEngine
+    participant D2D as Direct2D Overlay
+    participant HUD as HUD Toast
+    participant Policy as GestureInputPolicy
+    participant Action as GestureAction
+    participant Target as 目标窗口
+
+    U->>Hook: 按下鼠标右键
+    Hook->>Engine: WM_RBUTTONDOWN (坐标)
+    Engine->>D2D: 创建透明 Overlay 窗口
+    
+    loop 每次鼠标移动 (1000Hz)
+        U->>Hook: WM_MOUSEMOVE
+        Hook->>Engine: 追加轨迹点 (300 点滑窗)
+        Engine->>D2D: 渲染贝塞尔曲线轨迹
+        Engine->>Engine: 实时方向识别 (L/R/U/D)
+    end
+
+    U->>Hook: 释放鼠标右键
+    Hook->>Engine: WM_RBUTTONUP
+
+    Engine->>Engine: matchGesture(方向序列)
+    
+    alt 匹配成功
+        Engine->>Policy: pickGestureTargetSlot(起始坐标)
+        Policy-->>Engine: 目标窗口 HWND (穿透 Overlay)
+        Engine->>HUD: 显示动作名称 (主题色底板)
+        Engine->>Action: dispatch(动作, 目标HWND)
+        Action->>Action: 原子性 SendInput (Down+Up)
+        Action->>Target: 发送按键 / 命令
+    else 未匹配
+        Engine->>HUD: 灰色流光静默淡出
+    else 超时 15 秒
+        Engine->>HUD: 🔴 红底大白圆点 (••••)
+    end
+
+    Engine->>D2D: 销毁 Overlay
+    Engine->>Engine: trimWorkingSet()
+```
+
+---
+
+### 4. 时序图：NTFS 搜索服务启动与权限降级
+
+> 展示搜索插件如何智能判定 SCM 服务状态并在权限不足时平滑降级为便携进程。
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 用户
+    participant UI as SearchWindow
+    participant Plugin as Plugin_Search
+    participant Policy as ServiceStartupPolicy
+    participant SCM as Windows SCM
+    participant Svc as EasyTools_Service
+    participant Portable as 便携索引进程
+
+    U->>UI: Alt+Space 呼出搜索
+    UI->>Plugin: 初始化搜索引擎
+
+    Plugin->>SCM: OpenService(START | QUERY)
+    
+    alt 管理员权限 — 正常启动
+        SCM-->>Plugin: 服务句柄 ✅
+        Plugin->>Policy: decideStartupAction(状态)
+        Policy-->>Plugin: StartScmService
+        Plugin->>SCM: StartService()
+        SCM->>Svc: 启动 MFT 索引服务
+        Svc-->>Plugin: 命名管道就绪
+        Plugin->>UI: 搜索引擎就绪 (SCM)
+    else 普通用户 — ACCESS_DENIED
+        SCM-->>Plugin: ERROR_ACCESS_DENIED ⚠️
+        Plugin->>Policy: scmOpenShouldRetryQueryOnly()
+        Policy-->>Plugin: true — 降级为只读查询
+        Plugin->>SCM: OpenService(QUERY_ONLY)
+        
+        alt 服务已在运行
+            SCM-->>Plugin: 状态 = RUNNING
+            Plugin->>Policy: decideStartupAction(Running)
+            Policy-->>Plugin: WaitForScmEndpoint
+            Svc-->>Plugin: 命名管道就绪
+            Plugin->>UI: 搜索引擎就绪 (SCM)
+        else 服务已停止
+            SCM-->>Plugin: 状态 = STOPPED
+            Plugin->>Policy: decideStartupAction(Stopped, noStart)
+            Policy-->>Plugin: AllowPortableFallback
+            Plugin->>Portable: 启动当前用户便携进程
+            Portable-->>Plugin: 本地管道就绪
+            Plugin->>UI: 搜索引擎就绪 (便携)
+        end
+    else 服务未安装
+        SCM-->>Plugin: ERROR_SERVICE_DOES_NOT_EXIST
+        Plugin->>Portable: 启动便携索引进程
+        Portable-->>Plugin: 本地管道就绪
+        Plugin->>UI: 搜索引擎就绪 (便携)
+    end
+
+    U->>UI: 输入搜索关键词
+    UI->>Plugin: query("关键词")
+    Plugin-->>UI: 返回结果列表
+```
+
+---
+
+### 5. 核心架构亮点
+
+1. **单 Environment 多窗口复用**：设置窗口、搜索浮窗、托盘菜单与快捷预览共享同一个 WebView2 浏览器环境，减少重复初始化；具体内存收益需在目标设备上通过基准验证；
 2. **冷路径退场修剪与深度休眠**：窗口隐藏时通过 `ICoreWebView2_3::TrySuspend()` 挂起 Chromium 渲染管线，并在截图/录屏/OCR 等重型任务结束后主动调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
 3. **原子性按键投递模型**：快捷键执行在单次 `SendInput` 调用中原子性提交完整 Down + Up 序列，彻底杜绝多线程环境下的按键粘滞与幽灵按键叠加；
-4. **Per-Monitor V2 High-DPI 适配**：主要窗口与原生 Overlay 会跟随显示器 DPI 更新屏幕缩放、字号、间距与点击区域，并持续补齐混合 DPI 边界场景。
+4. **Per-Monitor V2 High-DPI 渲染矫正**：统一通过 `syncWebViewDpi` 切换 `COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS` 并注入 `RasterizationScale`，解决 150%/200% 缩放下的二次放大模糊，保证 4K 屏幕像素级锐利；
+5. **双轨搜索服务降级**：管理员环境连接 SCM 系统服务，普通用户自动降级为当前进程内便携索引引擎，确保全平台无缝可用。
 
 ---
 
