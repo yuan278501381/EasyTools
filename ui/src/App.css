@@ -59,3 +59,17 @@
     padding: var(--spacing-md);
   }
 }
+
+/* 1080p @ 150% 等工作区高度不够「黄金 750」时，压缩页头留出滚动空间 */
+@media (max-height: 720px) {
+  .app__header {
+    padding: var(--spacing-md) var(--spacing-lg);
+    padding-bottom: var(--spacing-sm);
+  }
+  .app__header-title {
+    font-size: 1.15rem;
+  }
+  .app__content {
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+}

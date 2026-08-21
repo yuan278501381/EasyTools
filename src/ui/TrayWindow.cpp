@@ -3,6 +3,7 @@
 #include "core/ipc/MessageBridge.h"
 #include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewDpi.h"
 #include "ui/WebViewWindowStyle.h"
 #include "ui/WebViewSecurity.h"
 #include <wrl/event.h>
@@ -82,9 +83,7 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
 
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
-            RECT bounds;
-            GetClientRect(m_hwnd, &bounds);
-            m_controller->put_Bounds(bounds);
+            syncWebViewDpi(m_controller.Get(), m_hwnd);
         }
         return;
     }
@@ -185,8 +184,7 @@ void TrayWindow::setContentSize(int width, int height) {
     SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, scaledW, scaledH,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (m_controller) {
-        RECT bounds{0, 0, scaledW, scaledH};
-        m_controller->put_Bounds(bounds);
+        syncWebViewDpi(m_controller.Get(), m_hwnd);
     }
     m_updatingPlacement = false;
 }
@@ -231,6 +229,7 @@ void TrayWindow::initializeWebView2() {
                             RECT bounds;
                             GetClientRect(m_hwnd, &bounds);
                             m_controller->put_Bounds(bounds);
+                            syncWebViewDpi(m_controller.Get(), m_hwnd);
 
                             // 取消右键菜单和状态栏
                             Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
@@ -349,9 +348,7 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
     switch (uMsg) {
         case WM_SIZE:
             if (inst.m_controller) {
-                RECT bounds;
-                GetClientRect(hwnd, &bounds);
-                inst.m_controller->put_Bounds(bounds);
+                syncWebViewDpi(inst.m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
                     inst.m_controller->put_IsVisible(TRUE);
                 }
@@ -361,6 +358,9 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         case WM_DISPLAYCHANGE:
             if (!inst.m_updatingPlacement && IsWindowVisible(hwnd)) {
                 inst.updatePlacement();
+            }
+            if (inst.m_controller) {
+                syncWebViewDpi(inst.m_controller.Get(), hwnd);
             }
             return 0;
         case WM_ACTIVATE:

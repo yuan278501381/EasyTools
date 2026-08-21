@@ -258,6 +258,7 @@
 }
 
 html {
+  /* 14 CSS px（DIP）。Windows 150%/200% 由 WebView RasterizationScale 映射到物理像素，这里不要再乘 devicePixelRatio。 */
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

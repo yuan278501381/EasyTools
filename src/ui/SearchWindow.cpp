@@ -6,6 +6,7 @@
 #include "core/utils/DpiUtils.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewDpi.h"
 #include "ui/WebViewWindowStyle.h"
 #include "ui/WebViewSecurity.h"
 #include "ui/WebViewSuspend.h"
@@ -56,8 +57,10 @@ void SearchWindow::setWindowSize(int baseWidth, int baseHeight, bool forceCenter
     int scaledWidth = easy::core::dpi::scaleMetric(baseWidth, scale);
     int scaledHeight = easy::core::dpi::scaleMetric(baseHeight, scale);
     const int margin = easy::core::dpi::scaleMetric(SearchWindowStyle::BaseScreenMargin, scale);
-    scaledWidth = (std::min)(scaledWidth, static_cast<int>(workArea.right - workArea.left - margin * 2));
-    scaledHeight = (std::min)(scaledHeight, static_cast<int>(workArea.bottom - workArea.top - margin * 2));
+    const SIZE fitted = easy::core::dpi::fitSizeToWorkArea(
+        {scaledWidth, scaledHeight}, workArea, margin);
+    scaledWidth = fitted.cx;
+    scaledHeight = fitted.cy;
 
     int x = workArea.left + (workArea.right - workArea.left - scaledWidth) / 2;
     int y = workArea.top + (workArea.bottom - workArea.top - scaledHeight) / 2;
@@ -88,8 +91,7 @@ void SearchWindow::setWindowSize(int baseWidth, int baseHeight, bool forceCenter
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, scaledWidth, scaledHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (m_controller) {
-        RECT bounds{0, 0, scaledWidth, scaledHeight};
-        m_controller->put_Bounds(bounds);
+        syncWebViewDpi(m_controller.Get(), m_hwnd);
     }
 }
 
@@ -213,8 +215,7 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
 
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
-    size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
-    size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
+    size = easy::core::dpi::fitSizeToWorkArea(size, workArea, margin);
     int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
     int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
 
@@ -259,8 +260,7 @@ void SearchWindow::updatePlacement() {
 
     const int margin = easy::core::dpi::scaleMetric(
         SearchWindowStyle::BaseScreenMargin, scale);
-    size.cx = (std::min)(size.cx, workArea.right - workArea.left - margin * 2);
-    size.cy = (std::min)(size.cy, workArea.bottom - workArea.top - margin * 2);
+    size = easy::core::dpi::fitSizeToWorkArea(size, workArea, margin);
     int x = workArea.left + (workArea.right - workArea.left - size.cx) / 2;
     int y = workArea.top + (workArea.bottom - workArea.top - size.cy) / 2;
 
@@ -275,8 +275,7 @@ void SearchWindow::updatePlacement() {
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, size.cx, size.cy,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (m_controller) {
-        RECT bounds{0, 0, size.cx, size.cy};
-        m_controller->put_Bounds(bounds);
+        syncWebViewDpi(m_controller.Get(), m_hwnd);
     }
     m_updatingPlacement = false;
 }
@@ -324,6 +323,7 @@ void SearchWindow::initializeWebView2() {
                             RECT bounds;
                             GetClientRect(m_hwnd, &bounds);
                             m_controller->put_Bounds(bounds);
+                            syncWebViewDpi(m_controller.Get(), m_hwnd);
                             m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 
                             // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
@@ -441,9 +441,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
     switch (uMsg) {
         case WM_SIZE:
             if (inst.m_controller) {
-                RECT bounds;
-                GetClientRect(hwnd, &bounds);
-                inst.m_controller->put_Bounds(bounds);
+                syncWebViewDpi(inst.m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
                     inst.m_controller->put_IsVisible(TRUE);
                 }
@@ -473,6 +471,9 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                              suggested->right - suggested->left,
                              suggested->bottom - suggested->top,
                              SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if (inst.m_controller) {
+                syncWebViewDpi(inst.m_controller.Get(), hwnd);
             }
             return 0;
         }

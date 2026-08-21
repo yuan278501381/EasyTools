@@ -24,6 +24,22 @@ inline int scaleMetric(int logicalPixels, float scale) noexcept {
         logicalPixels * std::clamp(scale, MinimumScale, MaximumScale))));
 }
 
+/// WebView2 RasterizationScale 与窗口 DPI 必须是同一倍率（96 DPI = 1.0）。
+inline double rasterizationScaleForDpi(UINT dpi) noexcept {
+    return static_cast<double>(scaleForDpi(dpi));
+}
+
+/// 把期望的物理像素尺寸钳进工作区，供 1080p@150% 这类「黄金尺寸比桌面还高」的屏。
+inline SIZE fitSizeToWorkArea(SIZE desired, RECT work, int margin) noexcept {
+    const int inset = (std::max)(0, margin);
+    const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - inset * 2);
+    const int maxH = (std::max)(1, static_cast<int>(work.bottom - work.top) - inset * 2);
+    return SIZE{
+        (std::min)((std::max)(1, static_cast<int>(desired.cx)), maxW),
+        (std::min)((std::max)(1, static_cast<int>(desired.cy)), maxH)
+    };
+}
+
 inline UINT effectiveDpiForMonitor(HMONITOR monitor) noexcept {
     UINT dpiX = DefaultDpi;
     UINT dpiY = DefaultDpi;

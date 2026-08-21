@@ -20,6 +20,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewDpi.h"
 #include "ui/WebViewSecurity.h"
 #include "ui/WebViewSuspend.h"
 
@@ -78,9 +79,7 @@ void SettingsWindow::show(HINSTANCE hInstance) {
         if (m_webView) m_suspendController.resume(m_webView.Get(), "settings");
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
-            RECT bounds;
-            GetClientRect(m_hwnd, &bounds);
-            m_controller->put_Bounds(bounds);
+            syncWebViewDpi(m_controller.Get(), m_hwnd);
         }
         if (m_webViewReady) {
             easy::core::PerformanceMonitor::instance().recordLatency(
@@ -174,26 +173,11 @@ void SettingsWindow::destroy() {
 
 bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     m_suspendController.reset();
-    // 注册窗口类
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = windowProc;
-    wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = CreateSolidBrush(RGB(20, 20, 30)); // 默认暗色背景，防止 Mica 失效时白屏
-    wc.lpszClassName = SETTINGS_WINDOW_CLASS;
-    wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
-    if (!wc.hIcon) wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
-    wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
-
-    RegisterClassExW(&wc);
 
     if (!m_config.hasCustomPlacement) {
         applyPersistedPlacementIfAny();
     }
 
-    // Per-Monitor DPI Awareness V2: 依据目标显示器工作区与 DPI 计算初始自适应布局
     const POINT placementOrigin{m_config.hasCustomPlacement ? m_config.posX : 0,
                                 m_config.hasCustomPlacement ? m_config.posY : 0};
     const HMONITOR monitor = m_config.hasCustomPlacement
@@ -203,6 +187,21 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
     const float scale = easy::core::dpi::scaleForDpi(dpi);
 
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = windowProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = CreateSolidBrush(RGB(20, 20, 30));
+    wc.lpszClassName = SETTINGS_WINDOW_CLASS;
+    wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON,
+        GetSystemMetricsForDpi(SM_CXICON, dpi), GetSystemMetricsForDpi(SM_CYICON, dpi), LR_DEFAULTCOLOR);
+    if (!wc.hIcon) wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
+    wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON,
+        GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_DEFAULTCOLOR);
+    RegisterClassExW(&wc);
+
     SIZE targetSize = (m_config.width == SettingsWindowStyle::BaseWidth &&
                        m_config.height == SettingsWindowStyle::BaseHeight)
         ? SettingsWindowStyle::windowSizeForDpi(dpi)
@@ -211,6 +210,7 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
 
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;
+    const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
     if (m_config.hasCustomPlacement) {
         targetSize.cx = (std::max)(400, m_config.width);
         targetSize.cy = (std::max)(300, m_config.height);
@@ -225,12 +225,7 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         targetSize.cx = clamped.right - clamped.left;
         targetSize.cy = clamped.bottom - clamped.top;
     } else {
-        const int margin = easy::core::dpi::scaleMetric(SettingsWindowStyle::BaseScreenMargin, scale);
-        const int maxW = (std::max)(1, static_cast<int>(work.right - work.left) - margin * 2);
-        const int maxH = (std::max)(1, static_cast<int>(work.bottom - work.top) - margin * 2);
-        targetSize.cx = (std::min)(targetSize.cx, static_cast<LONG>(maxW));
-        targetSize.cy = (std::min)(targetSize.cy, static_cast<LONG>(maxH));
-
+        targetSize = easy::core::dpi::fitSizeToWorkArea(targetSize, work, margin);
         x = m_config.startCentered
             ? work.left + (work.right - work.left - targetSize.cx) / 2
             : CW_USEDEFAULT;
@@ -338,6 +333,7 @@ void SettingsWindow::onWebView2Ready() {
     RECT bounds;
     GetClientRect(m_hwnd, &bounds);
     m_controller->put_Bounds(bounds);
+    syncWebViewDpi(m_controller.Get(), m_hwnd);
 
     // ── 配置 WebView2 设置 ──────────────────────────────────────────────
     ComPtr<ICoreWebView2Settings> settings;
@@ -610,11 +606,7 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
     switch (msg) {
         case WM_SIZE: {
             if (self && self->m_controller) {
-                RECT bounds;
-                GetClientRect(hwnd, &bounds);
-                self->m_controller->put_Bounds(bounds);
-                
-                // 确保尺寸变化时如果窗口可见，组件也可见
+                syncWebViewDpi(self->m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
                     self->m_controller->put_IsVisible(TRUE);
                 }
@@ -646,9 +638,7 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                              SWP_NOZORDER | SWP_NOACTIVATE);
             }
             if (self && self->m_controller) {
-                RECT bounds{};
-                GetClientRect(hwnd, &bounds);
-                self->m_controller->put_Bounds(bounds);
+                syncWebViewDpi(self->m_controller.Get(), hwnd);
             }
             if (self) self->persistGeometry();
             return 0;

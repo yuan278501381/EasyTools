@@ -2285,6 +2285,9 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     EXPECT_NEAR(scaleForDpi(120), 1.25f, 0.001f);
     EXPECT_NEAR(scaleForDpi(144), 1.5f, 0.001f);
     EXPECT_NEAR(scaleForDpi(192), 2.0f, 0.001f);
+    EXPECT_NEAR(rasterizationScaleForDpi(96), 1.0, 0.001);
+    EXPECT_NEAR(rasterizationScaleForDpi(144), 1.5, 0.001);
+    EXPECT_NEAR(rasterizationScaleForDpi(192), 2.0, 0.001);
     EXPECT_NEAR(scaleForDpi(480), 5.0f, 0.001f);
     EXPECT_NEAR(scaleForDpi(768), 5.0f, 0.001f);
     EXPECT_EQ(scaleMetric(36, 1.0f), 36);
@@ -2354,6 +2357,18 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     EXPECT_TRUE(settingsMin100.cx == 680 && settingsMin100.cy == 460);
     EXPECT_TRUE(settingsMin150.cx == 1020 && settingsMin150.cy == 690);
     EXPECT_TRUE(settingsMin200.cx == 1360 && settingsMin200.cy == 920);
+
+    const SIZE want150 = easy::ui::SettingsWindowStyle::windowSizeForDpi(144);
+    const RECT desk1080{0, 0, 1920, 1040};
+    const SIZE fitted1080at150 = fitSizeToWorkArea(
+        want150, desk1080, scaleMetric(24, 1.5f));
+    EXPECT_LE(fitted1080at150.cx, 1920 - 72);
+    EXPECT_LE(fitted1080at150.cy, 1040 - 72);
+    EXPECT_LT(fitted1080at150.cy, want150.cy);
+
+    const SIZE alreadyFits = fitSizeToWorkArea({800, 600}, {0, 0, 1920, 1080}, 24);
+    EXPECT_EQ(alreadyFits.cx, 800);
+    EXPECT_EQ(alreadyFits.cy, 600);
 
     const auto radial100 = easy::gesture::RadialMenuStyle::metricsForDpi(96);
     const auto radial150 = easy::gesture::RadialMenuStyle::metricsForDpi(144);

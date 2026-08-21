@@ -4,6 +4,7 @@
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewDpi.h"
 #include "ui/WebViewWindowStyle.h"
 #include "ui/WebViewSecurity.h"
 #include <WebView2.h>
@@ -374,6 +375,7 @@ void QuickLookWindow::initializeWebView2() {
                         RECT bounds;
                         GetClientRect(m_hwnd, &bounds);
                         m_controller->put_Bounds(bounds);
+                        syncWebViewDpi(m_controller.Get(), m_hwnd);
 
                         ComPtr<ICoreWebView2Controller2> controller2;
                         if (SUCCEEDED(m_controller.As(&controller2)) && controller2) {
@@ -469,9 +471,7 @@ LRESULT CALLBACK QuickLookWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam
     switch (uMsg) {
         case WM_SIZE: {
             if (self && self->m_controller) {
-                RECT bounds;
-                GetClientRect(hwnd, &bounds);
-                self->m_controller->put_Bounds(bounds);
+                syncWebViewDpi(self->m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
                     self->m_controller->put_IsVisible(TRUE);
                 }
@@ -486,9 +486,7 @@ LRESULT CALLBACK QuickLookWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam
                              SWP_NOZORDER | SWP_NOACTIVATE);
             }
             if (self && self->m_controller) {
-                RECT bounds{};
-                GetClientRect(hwnd, &bounds);
-                self->m_controller->put_Bounds(bounds);
+                syncWebViewDpi(self->m_controller.Get(), hwnd);
             }
             return 0;
         }
