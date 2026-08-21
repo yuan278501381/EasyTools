@@ -36,6 +36,8 @@ public:
 
     bool Initialize(char driveLetter);
     void EnumerateFiles();
+    void requestStop() noexcept { m_StopRequested.store(true, std::memory_order_release); }
+    void resetStopRequest() noexcept { m_StopRequested.store(false, std::memory_order_release); }
     
     // USN Journal Monitoring
     void StartListening();
@@ -75,6 +77,7 @@ private:
     
     // Listener Thread
     std::atomic<bool> m_IsListening{false};
+    std::atomic<bool> m_StopRequested{false};
     std::unique_ptr<std::thread> m_ListenerThread;
     void UsnListenerLoop();
     

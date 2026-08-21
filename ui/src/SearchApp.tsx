@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, startTransition, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefCallback } from 'react';
 import { 
   File, 
   Folder, 
@@ -45,6 +45,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
+import { DynamicRowLayout, isSelectedOutsideVirtualRange } from './searchVirtualization';
 import { nextQueryId, resolveDebounceMs } from './searchScheduling';
 import './SearchApp.css';
 
@@ -491,6 +492,9 @@ interface SearchResultRowProps {
   onSelect: (index: number) => void;
   onOpen: (result: SearchResult) => void;
   onContextMenu: (event: ReactMouseEvent, index: number, result: SearchResult) => void;
+  measureRef?: RefCallback<HTMLLIElement>;
+  style?: CSSProperties;
+  setSize?: number;
 }
 
 /**
@@ -511,6 +515,9 @@ const SearchResultRow = memo(function SearchResultRow({
   onSelect,
   onOpen,
   onContextMenu,
+  measureRef,
+  style,
+  setSize,
 }: SearchResultRowProps) {
   const parentFolder = columns.parent ? extractParentFolder(result.path) : '';
   const sizeText = columns.size ? formatFileSize(result.size, result.isDirectory) : '';
@@ -519,9 +526,14 @@ const SearchResultRow = memo(function SearchResultRow({
   return (
     <li
       id={`search-result-${index}`}
+      data-virtual-index={index}
       className={`search-result-item ${selected ? 'selected' : ''}`}
       role="option"
       aria-selected={selected}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+      ref={measureRef}
+      style={style}
       onMouseEnter={() => onHover(index)}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => onSelect(index)}
@@ -632,6 +644,161 @@ const SearchResultRow = memo(function SearchResultRow({
     </li>
   );
 });
+
+interface VirtualSearchResultsProps {
+  results: SearchResult[];
+  selectedIndex: number;
+  density: SearchDensity;
+  columns: ColumnLayout;
+  queryKeywords: string[];
+  onHover: (index: number) => void;
+  onSelect: (index: number) => void;
+  onOpen: (result: SearchResult) => void;
+  onContextMenu: (event: ReactMouseEvent, index: number, result: SearchResult) => void;
+}
+
+/**
+ * 动态高度虚拟列表。内容命中摘要会令行高不同，不能用固定高度的传统虚拟滚动；
+ * ResizeObserver 只测量视口附近真实行，其余行使用密度估算值并在滚动时逐步校准。
+ */
+export function VirtualSearchResults({
+  results, selectedIndex, density, columns, queryKeywords, onHover, onSelect, onOpen, onContextMenu,
+}: VirtualSearchResultsProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(480);
+  const [layoutRevision, setLayoutRevision] = useState(0);
+  const estimatedHeight = density === 'compact' ? 44 : density === 'comfortable' ? 76 : 60;
+  // A new result set or density invalidates old measurements. This also drops
+  // the typed buffers immediately instead of retaining heights from searches.
+  const layout = useMemo(
+    () => new DynamicRowLayout(results.length, estimatedHeight),
+    [results, estimatedHeight],
+  );
+
+  const findIndexAtOffset = useCallback(
+    // The generation parameter makes range recalculation explicit after a
+    // ResizeObserver writes measured heights into the stable layout object.
+    (offset: number, layoutGeneration: number) => {
+      void layoutGeneration; // generation is an explicit memo invalidation token.
+      return layout.indexAtOffset(offset);
+    },
+    [layout],
+  );
+
+  const range = useMemo(() => {
+    const overscan = Math.max(360, viewportHeight * 0.75);
+    return {
+      start: Math.max(0, findIndexAtOffset(Math.max(0, scrollTop - overscan), layoutRevision)),
+      end: Math.min(results.length, findIndexAtOffset(scrollTop + viewportHeight + overscan, layoutRevision) + 1),
+    };
+  }, [findIndexAtOffset, layoutRevision, results.length, scrollTop, viewportHeight]);
+  // 键盘从首项跳到末项时不能把两者之间所有行都挂载。视口外的选中项单独
+  // 保留一个 option，layout effect 滚动完成后它会回到正常的可视渲染窗口。
+  const selectedOutsideRange = isSelectedOutsideVirtualRange(results.length, selectedIndex, range);
+
+  const updateViewport = useCallback(() => {
+    if (!listRef.current) return;
+    setViewportHeight(listRef.current.clientHeight);
+  }, []);
+
+  useLayoutEffect(() => {
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    if (listRef.current) observer.observe(listRef.current);
+    return () => observer.disconnect();
+  }, [updateViewport]);
+
+  useLayoutEffect(() => {
+    let active = true;
+    const observer = new ResizeObserver((entries) => {
+      if (!active) return;
+      let changed = false;
+      for (const entry of entries) {
+        const index = Number((entry.target as HTMLElement).dataset.virtualIndex);
+        const height = Math.ceil(entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height);
+        changed = layout.updateHeight(index, height) || changed;
+      }
+      if (changed) setLayoutRevision((previous) => previous + 1);
+    });
+    observerRef.current = observer;
+    listRef.current?.querySelectorAll<HTMLLIElement>('[data-virtual-index]').forEach((element) => observer.observe(element));
+    return () => {
+      active = false;
+      observer.disconnect();
+      observerRef.current = null;
+    };
+  }, [layout]);
+
+  const measureRef = useCallback((element: HTMLLIElement | null) => {
+    const observer = observerRef.current;
+    if (!element || !observer) return;
+    observer.observe(element);
+    return () => observer.unobserve(element);
+  }, []);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || selectedIndex < 0 || selectedIndex >= results.length) return;
+    const itemTop = layout.offsetOf(selectedIndex);
+    const itemBottom = layout.offsetOf(selectedIndex + 1);
+    const visibleBottom = list.scrollTop + list.clientHeight;
+    if (itemTop < list.scrollTop) list.scrollTop = itemTop;
+    else if (itemBottom > visibleBottom) list.scrollTop = itemBottom - list.clientHeight;
+  }, [layout, layoutRevision, results.length, selectedIndex]);
+
+  return (
+    <ul
+      id="search-results"
+      ref={listRef}
+      className={`search-results search-results--virtualized density-${density}`}
+      role="listbox"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <li aria-hidden="true" role="presentation" style={{ height: layout.totalHeight() }} />
+      {results.slice(range.start, range.end).map((result, relativeIndex) => {
+        const index = range.start + relativeIndex;
+        return (
+          <SearchResultRow
+            key={result.path}
+            result={result}
+            index={index}
+            selected={index === selectedIndex}
+            density={density}
+            columns={columns}
+            queryKeywords={queryKeywords}
+            onHover={onHover}
+            onSelect={onSelect}
+            onOpen={onOpen}
+            onContextMenu={onContextMenu}
+            measureRef={measureRef}
+            setSize={results.length}
+            style={{ position: 'absolute', top: layout.offsetOf(index), left: 0, right: 0 }}
+          />
+        );
+      })}
+      {selectedOutsideRange && (
+        <SearchResultRow
+          key={`selected-${results[selectedIndex].path}`}
+          result={results[selectedIndex]}
+          index={selectedIndex}
+          selected
+          density={density}
+          columns={columns}
+          queryKeywords={queryKeywords}
+          onHover={onHover}
+          onSelect={onSelect}
+          onOpen={onOpen}
+          onContextMenu={onContextMenu}
+          measureRef={measureRef}
+          setSize={results.length}
+          style={{ position: 'absolute', top: layout.offsetOf(selectedIndex), left: 0, right: 0 }}
+        />
+      )}
+    </ul>
+  );
+}
 
 // ── 组件主入口 ──────────────────────────────────────────────────
 export default function SearchApp() {
@@ -1320,12 +1487,6 @@ export default function SearchApp() {
     return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
   }, [results, sortField, sortDirection, foldersFirst, groupByType]);
 
-  // 视口渲染窗口保护：限制 DOM 节点挂载量，随键盘选择动态延展，避免海量结果时的 DOM 内存暴涨
-  const renderedResults = useMemo(() => {
-    const limit = Math.max(500, selectedIndex + 50);
-    return sortedResults.slice(0, limit);
-  }, [sortedResults, selectedIndex]);
-
   const totalResultSize = useMemo(() => {
     return sortedResults.reduce((acc, item) => acc + (item.isDirectory ? 0 : (Number(item.size) || 0)), 0);
   }, [sortedResults]);
@@ -1997,7 +2158,7 @@ export default function SearchApp() {
             role="combobox"
             aria-expanded={results.length > 0}
             aria-controls="search-results"
-            aria-activedescendant={results[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
+            aria-activedescendant={sortedResults[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
             spellCheck={false}
           />
           {loading && <span className="search-loading" aria-label={t('common.loading', '正在搜索...')} />}
@@ -2971,23 +3132,18 @@ export default function SearchApp() {
         )}
 
         {sortedResults.length > 0 && (
-          <ul id="search-results" className={`search-results density-${density}`} role="listbox">
-            {renderedResults.map((result, index) => (
-              <SearchResultRow
-                key={result.path}
-                result={result}
-                index={index}
-                selected={index === selectedIndex}
-                density={density}
-                columns={columnLayout}
-                queryKeywords={queryKeywords}
-                onHover={handleRowHover}
-                onSelect={handleRowSelect}
-                onOpen={handleRowOpen}
-                onContextMenu={handleRowContextMenu}
-              />
-            ))}
-          </ul>
+          <VirtualSearchResults
+            key={`${density}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
+            results={sortedResults}
+            selectedIndex={selectedIndex}
+            density={density}
+            columns={columnLayout}
+            queryKeywords={queryKeywords}
+            onHover={handleRowHover}
+            onSelect={handleRowSelect}
+            onOpen={handleRowOpen}
+            onContextMenu={handleRowContextMenu}
+          />
         )}
 
         <footer className="search-footer">

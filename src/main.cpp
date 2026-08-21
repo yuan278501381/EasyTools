@@ -29,9 +29,13 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+
+#include <nlohmann/json.hpp>
 
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
@@ -48,6 +52,7 @@
 #include "core/events/MainThreadDispatcher.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
+#include "core/utils/ShellContextMenuService.h"
 #include "EasyToolsVersion.h"
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
@@ -62,11 +67,15 @@ static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
 static constexpr const wchar_t* WINDOW_TITLE      = L"EasyToolsMessageWindow";
 static constexpr const wchar_t* MUTEX_NAME        = L"Global\\EasyTools_SingleInstance_Mutex";
 static constexpr UINT WM_EASYTOOLS_SHOW_SETTINGS  = WM_APP + 101;
+static constexpr UINT_PTR TIMER_ID_QUICKLOOK_REFRESH = 0x4551;
+static constexpr UINT_PTR TIMER_ID_PERFORMANCE_BASELINE = 0x4552;
 
 // ── 前向声明 ─────────────────────────────────────────────────────────────────
 LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 bool checkSingleInstance();
 bool hasCommandLineFlag(std::wstring_view flag);
+std::optional<std::filesystem::path> commandLinePathValue(std::wstring_view prefix);
+std::optional<std::wstring> commandLineStringValue(std::wstring_view prefix);
 HWND createMessageWindow(HINSTANCE hInstance);
 void initializeSubsystems(HWND hwnd, bool preloadSettings);
 void shutdownSubsystems();
@@ -76,6 +85,48 @@ void preloadSettingsWindow(HINSTANCE hInstance);
 // ── 全局状态 ─────────────────────────────────────────────────────────────────
 static HANDLE g_singleInstanceMutex = nullptr;
 static UINT g_wmTaskbarCreated = 0;
+static std::optional<std::filesystem::path> g_performanceScenarioOutput;
+
+namespace {
+
+bool writePerformanceBaselineSnapshot(const std::filesystem::path& outputPath) {
+    std::error_code error;
+    const auto parent = outputPath.parent_path();
+    if (parent.empty() || !std::filesystem::is_directory(parent, error) || error) {
+        LOG_ERROR("Performance baseline output directory is unavailable: {}", outputPath.string());
+        return false;
+    }
+    nlohmann::json snapshot = {
+        {"schemaVersion", 1},
+        {"processId", GetCurrentProcessId()},
+        {"metrics", easy::core::PerformanceMonitor::instance().getMetricsJson()}
+    };
+    const auto temporary = outputPath.wstring() + L".partial";
+    {
+        std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            LOG_ERROR("Cannot create performance baseline snapshot: {}", outputPath.string());
+            return false;
+        }
+        stream << snapshot.dump(2) << '\n';
+        stream.flush();
+        if (!stream) {
+            stream.close();
+            std::filesystem::remove(temporary, error);
+            LOG_ERROR("Cannot write performance baseline snapshot: {}", outputPath.string());
+            return false;
+        }
+    }
+    std::filesystem::rename(temporary, outputPath, error);
+    if (error) {
+        std::filesystem::remove(temporary, error);
+        LOG_ERROR("Cannot finalize performance baseline snapshot: {}", outputPath.string());
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WinMain — 程序入口
@@ -154,15 +205,37 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - startupBeganAt).count());
 
+    // Dedicated benchmark commands never synthesize input into an existing
+    // user session. Cold-start exits immediately after normal initialization;
+    // search-first-open owns only this freshly launched process and lets the
+    // actual SearchWindow show path publish its own hostShow metric first.
+    if (const auto output = commandLinePathValue(L"--performance-baseline-output=")) {
+        const auto scenario = commandLineStringValue(L"--performance-baseline-scenario=");
+        if (!scenario) {
+            writePerformanceBaselineSnapshot(*output);
+            PostQuitMessage(0);
+        } else if (_wcsicmp(scenario->c_str(), L"search-first-open") == 0) {
+            g_performanceScenarioOutput = *output;
+            easy::ui::SearchWindow::instance().show(hInstance);
+            // SearchWindow::show records search.hostShow synchronously. Keep
+            // the surface visible for one short message-pump turn so its real
+            // HWND/WebView creation work is not skipped, then cleanly hide and
+            // exit the benchmark-owned host.
+            SetTimer(hwndMessage, TIMER_ID_PERFORMANCE_BASELINE, 250, nullptr);
+        } else {
+            LOG_ERROR("Unknown performance baseline scenario: {}",
+                      easy::core::WinUtils::wstringToUtf8(*scenario));
+            PostQuitMessage(1);
+        }
+    }
+
     // 用户主动启动时直接呈现设置；开机自启动使用 --silent 静默驻留托盘。
     if (!silentStart) {
         showSettingsWindow();
+        // 仅用户主动启动时反馈成功；登录自启动的 --silent 必须真正安静。
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"EasyTools 已启动"});
     }
-
-    // 所有核心服务、插件和原生 Overlay 均已完成初始化后再给出成功反馈。
-    // 复用统一 Toast 通道，保持提示克制且不抢焦点。
-    easy::core::EventBus::instance().publish(
-        easy::core::ShowToastEvent{L"EasyTools 已启动"});
 
     LOG_INFO("程序启动完成，进入消息循环");
 
@@ -301,6 +374,42 @@ bool hasCommandLineFlag(std::wstring_view flag) {
     }
     LocalFree(argv);
     return found;
+}
+
+std::optional<std::filesystem::path> commandLinePathValue(std::wstring_view prefix) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return std::nullopt;
+    std::optional<std::filesystem::path> value;
+    for (int index = 1; index < argc; ++index) {
+        std::wstring_view argument(argv[index]);
+        if (argument.size() >= prefix.size() &&
+            _wcsnicmp(argument.data(), prefix.data(), static_cast<int>(prefix.size())) == 0) {
+            const auto rawValue = argument.substr(prefix.size());
+            if (!rawValue.empty()) value = std::filesystem::path(rawValue);
+            break;
+        }
+    }
+    LocalFree(argv);
+    return value;
+}
+
+std::optional<std::wstring> commandLineStringValue(std::wstring_view prefix) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return std::nullopt;
+    std::optional<std::wstring> value;
+    for (int index = 1; index < argc; ++index) {
+        std::wstring_view argument(argv[index]);
+        if (argument.size() >= prefix.size() &&
+            _wcsnicmp(argument.data(), prefix.data(), static_cast<int>(prefix.size())) == 0) {
+            const auto rawValue = argument.substr(prefix.size());
+            if (!rawValue.empty()) value = std::wstring(rawValue);
+            break;
+        }
+    }
+    LocalFree(argv);
+    return value;
 }
 
 HWND createMessageWindow(HINSTANCE hInstance) {
@@ -541,7 +650,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
     // 5. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
     easy::core::KeyboardHook::instance().install();
-    easy::core::KeyboardHook::instance().setKeyInterceptor([](DWORD vkCode, WPARAM wParam) -> bool {
+    easy::core::KeyboardHook::instance().setKeyInterceptor([hwnd](DWORD vkCode, WPARAM wParam) -> bool {
         if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return false;
 
         // 1. 空格键 (Space): 在资源管理器或桌面触发 QuickLook 文件预览
@@ -583,13 +692,8 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         // 3. 方向键联动：在资源管理器中切换选中项时，QuickLook 自动刷新预览内容
         if (vkCode == VK_UP || vkCode == VK_DOWN || vkCode == VK_LEFT || vkCode == VK_RIGHT) {
             if (easy::ui::QuickLookWindow::instance().isVisible()) {
-                easy::core::MainThreadDispatcher::instance().post([]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(35));
-                    auto sel = easy::core::WinUtils::getSelectedExplorerFile();
-                    if (sel.has_value() && *sel != easy::ui::QuickLookWindow::instance().currentFilePath()) {
-                        easy::ui::QuickLookWindow::instance().previewFile(*sel);
-                    }
-                });
+                // 同一 HWND/ID 的 SetTimer 会重置截止时间，形成无阻塞防抖。
+                SetTimer(hwnd, TIMER_ID_QUICKLOOK_REFRESH, 35, nullptr);
             }
         }
 
@@ -616,10 +720,11 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 避免后台常驻 Chromium 进程和数十 MB 内存。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
-    // 预热全局搜索窗口的 WebView2 渲染宿主，确保热键首次呼出瞬间可用。
-    // 托盘微型菜单不预热：它每多驻留一个渲染进程就是三十多 MB，而它由鼠标点击
-    // 触发，本就存在几十毫秒的容忍度，不值得用常驻内存去换。
-    easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
+    // 全局搜索窗口默认按需创建以避免常驻 Chromium 进程；需要极致首开速度的用户
+    // 可显式开启预热。隐藏后 SearchWindow 会请求 WebView2 挂起，释放渲染资源。
+    if (easy::core::ConfigManager::instance().get<bool>("/search/preloadWindow", false)) {
+        easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
+    }
 
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);
@@ -633,6 +738,7 @@ void shutdownSubsystems() {
     easy::ui::QuickLookWindow::instance().destroy();
     easy::ui::TrayWindow::instance().destroy();
     easy::core::PluginManager::instance().shutdownPlugins();
+    easy::core::ShellContextMenuService::instance().shutdown();
     easy::ui::ToastOverlay::instance().shutdown();
     easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
@@ -690,6 +796,25 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     }
 
     if (msg == WM_TIMER) {
+        if (wParam == TIMER_ID_PERFORMANCE_BASELINE) {
+            KillTimer(hwnd, TIMER_ID_PERFORMANCE_BASELINE);
+            easy::ui::SearchWindow::instance().hide();
+            const bool wrote = g_performanceScenarioOutput &&
+                writePerformanceBaselineSnapshot(*g_performanceScenarioOutput);
+            g_performanceScenarioOutput.reset();
+            PostQuitMessage(wrote ? 0 : 1);
+            return 0;
+        }
+        if (wParam == TIMER_ID_QUICKLOOK_REFRESH) {
+            KillTimer(hwnd, TIMER_ID_QUICKLOOK_REFRESH);
+            auto selected = easy::core::WinUtils::getSelectedExplorerFile();
+            auto& quickLook = easy::ui::QuickLookWindow::instance();
+            if (selected.has_value() && quickLook.isVisible() &&
+                *selected != quickLook.currentFilePath()) {
+                quickLook.previewFile(*selected);
+            }
+            return 0;
+        }
         if (wParam == easy::tray::TrayIcon::TIMER_ID_TRAY_RETRY) {
             easy::tray::TrayIcon::instance().ensureCreated(hwnd);
             return 0;

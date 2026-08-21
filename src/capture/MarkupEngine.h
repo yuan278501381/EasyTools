@@ -155,6 +155,11 @@ public:
     /// 重做
     bool redo();
 
+    /// UI affordances must be able to report these without attempting a
+    /// mutation. This keeps disabled toolbar and UIA state truthful.
+    bool canUndo() const noexcept { return !m_elements.empty(); }
+    bool canRedo() const noexcept { return !m_undoStack.empty(); }
+
     /// 清除所有标注
     void clearAll();
 

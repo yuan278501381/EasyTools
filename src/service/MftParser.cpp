@@ -112,6 +112,7 @@ void MftParser::StopListening() {
 }
 
 bool MftParser::Initialize(char driveLetter) {
+    resetStopRequest();
     m_DriveLetter = driveLetter;
     const std::wstring root{static_cast<wchar_t>(driveLetter), L':', L'\\'};
     m_DriveType = GetDriveTypeW(root.c_str());
@@ -198,7 +199,7 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
         m_IndexGeneration.fetch_add(1, std::memory_order_release);
     };
 
-    while (!dirsToScan.empty()) {
+    while (!dirsToScan.empty() && !m_StopRequested.load(std::memory_order_acquire)) {
         auto [currentDir, parentId] = std::move(dirsToScan.back());
         dirsToScan.pop_back();
 
@@ -219,6 +220,7 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
         if (hFind == INVALID_HANDLE_VALUE) continue;
 
         do {
+            if (m_StopRequested.load(std::memory_order_acquire)) break;
             if (findData.cFileName[0] == L'.' && 
                 (findData.cFileName[1] == L'\0' || (findData.cFileName[1] == L'.' && findData.cFileName[2] == L'\0'))) {
                 continue;
@@ -269,6 +271,7 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
 }
 
 void MftParser::EnumerateFiles() {
+    if (m_StopRequested.load(std::memory_order_acquire)) return;
     {
         std::unique_lock lock(m_MapMutex);
         m_Store.clear();
@@ -289,14 +292,16 @@ void MftParser::EnumerateFiles() {
     DWORD bytesReturned = 0;
     int count = 0;
 
-    while (DeviceIoControl(m_hVolume, FSCTL_ENUM_USN_DATA, &med, sizeof(med), buffer, BUF_LEN, &bytesReturned, NULL)) {
+    while (!m_StopRequested.load(std::memory_order_acquire) &&
+           DeviceIoControl(m_hVolume, FSCTL_ENUM_USN_DATA, &med, sizeof(med), buffer, BUF_LEN, &bytesReturned, NULL)) {
         if (bytesReturned <= sizeof(USN)) break;
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
         USN* pUsn = (USN*)buffer;
         PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
         
         std::unique_lock lock(m_MapMutex);
-        while (dwRetBytes >= sizeof(USN_RECORD_V2) &&
+        while (!m_StopRequested.load(std::memory_order_relaxed) &&
+               dwRetBytes >= sizeof(USN_RECORD_V2) &&
                pRecord->RecordLength >= sizeof(USN_RECORD_V2) &&
                pRecord->RecordLength <= dwRetBytes) {
             FileRecordInit record;
@@ -789,4 +794,3 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
 
     return true;
 }
-

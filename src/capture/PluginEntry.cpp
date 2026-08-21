@@ -128,6 +128,8 @@ RecordOptions configuredRecordOptions(const CaptureRegion& region) {
         config.get<int>("/recording/microphoneVolume", 100), 0, 200) / 100.0f;
     options.countdownSeconds = std::clamp(
         config.get<int>("/recording/countdownSeconds", 3), 0, 10);
+    options.experimentalGpuEncoding = config.get<bool>(
+        "/recording/experimentalGpuEncoding", false);
     const auto directory = config.get<std::string>(
         "/recording/saveDirectory", config.get<std::string>("/recording/savePath", ""));
     options.outputPath = timestampedPath(directory, "record_", recordExtension(options.format));
@@ -478,6 +480,7 @@ public:
                 {"systemAudioVolume", config.get<int>("/recording/systemAudioVolume", 100)},
                 {"microphoneVolume", config.get<int>("/recording/microphoneVolume", 100)},
                 {"countdownSeconds", config.get<int>("/recording/countdownSeconds", 3)},
+                {"experimentalGpuEncoding", config.get<bool>("/recording/experimentalGpuEncoding", false)},
                 {"saveDirectory", config.get<std::string>(
                     "/recording/saveDirectory", config.get<std::string>("/recording/savePath", ""))}
             };
@@ -502,6 +505,9 @@ public:
                 {"effectiveFps", stats.effectiveFps},
                 {"adaptiveFrameStep", stats.adaptiveFrameStep},
                 {"performanceLimited", stats.performanceLimited},
+                {"gpuExperimentRequested", stats.gpuExperimentRequested},
+                {"gpuExperimentAvailable", stats.gpuExperimentAvailable},
+                {"gpuExperimentStatus", stats.gpuExperimentStatus},
                 {"stopReason", stats.stopReason},
                 {"fileSizeBytes", stats.fileSizeBytes},
                 {"captureBackend", stats.captureBackend},
@@ -578,13 +584,15 @@ public:
                     (!value.is_number_integer() || value.get<int>() < 0 || value.get<int>() > 200))
                     return {{"success", false}, {"error", "audio volume must be between 0 and 200"}};
                 if ((key == "includeCursor" || key == "showClickEffects" ||
-                     key == "captureSystemAudio" || key == "captureMicrophone") &&
+                     key == "captureSystemAudio" || key == "captureMicrophone" ||
+                     key == "experimentalGpuEncoding") &&
                     !value.is_boolean())
                     return {{"success", false}, {"error", key + " must be boolean"}};
                 if (key != "format" && key != "fps" && key != "bitrate" && key != "saveDirectory" &&
                     key != "countdownSeconds" &&
                     key != "includeCursor" && key != "showClickEffects" &&
                     key != "captureSystemAudio" && key != "captureMicrophone" &&
+                    key != "experimentalGpuEncoding" &&
                     key != "systemAudioDeviceId" && key != "microphoneDeviceId" &&
                     key != "systemAudioVolume" && key != "microphoneVolume")
                     return {{"success", false}, {"error", "unsupported setting: " + key}};

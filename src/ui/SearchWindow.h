@@ -1,4 +1,5 @@
 #pragma once
+#include "ui/WebViewSuspend.h"
 #include <windows.h>
 #include <wrl/client.h>
 #include <string>
@@ -58,6 +59,7 @@ private:
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;
     Microsoft::WRL::ComPtr<ICoreWebView2> m_webView;
+    WebViewSuspendController m_suspendController;
 
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};

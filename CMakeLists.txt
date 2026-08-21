@@ -134,7 +134,7 @@ target_include_directories(EasyCore PUBLIC
 )
 target_link_libraries(EasyCore PUBLIC
     spdlog::spdlog nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} fmt::fmt
-    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp crypt32
+    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp crypt32 uiautomationcore oleaut32
 )
 
 # ── 2. Plugin_Gesture (动态库) ────────────────────────────────────────────────
@@ -185,7 +185,7 @@ easytools_add_version_resource(Plugin_Search "EasyTools Search Plugin" "Plugin_S
 easytools_add_plugin_manifest(Plugin_Search)
 target_compile_definitions(Plugin_Search PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Search PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog advapi32 shell32)
+target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog advapi32 shell32 bcrypt)
 set_target_properties(Plugin_Search PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
 # ── 4. EasyTools Host (可执行文件) ─────────────────────────────────────────────
@@ -249,8 +249,10 @@ if(BUILD_TESTING)
         src/capture/CaptureToolbarLayout.cpp
         src/capture/CursorOverlay.cpp
         src/capture/ScreenRecorder.cpp
+        src/capture/RecordingGpuProbe.cpp
         src/capture/ScrollCapture.cpp
         src/capture/ShortcutHintOverlay.cpp
+        src/ui/WebViewSuspend.cpp
         src/gesture/GestureRecognizer.cpp
         src/gesture/ScopeRule.cpp
         src/gesture/GestureAction.cpp
@@ -272,7 +274,8 @@ if(BUILD_TESTING)
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore
+    target_include_directories(EasyToolsTests PRIVATE "${WEBVIEW2_DIR}/build/native/include")
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)

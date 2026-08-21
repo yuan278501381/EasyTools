@@ -4,6 +4,7 @@
 #include "core/utils/DpiUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewWindowStyle.h"
+#include "ui/WebViewSecurity.h"
 #include <wrl/event.h>
 #include <filesystem>
 #include <fstream>
@@ -240,6 +241,8 @@ void TrayWindow::initializeWebView2() {
                                 settings->put_AreDevToolsEnabled(FALSE);
                             }
 
+                            web_security::applyNavigationPolicy(m_webView.Get());
+
                             // 加载 Tray URL
                             auto exeDir = easy::core::WinUtils::getExeDirectory();
                             auto indexPath = exeDir / L"ui" / L"index.html";
@@ -254,6 +257,7 @@ void TrayWindow::initializeWebView2() {
                                 }
                                 baseUrl = L"https://easytools.local/index.html";
                             } else {
+#ifdef _DEBUG
                                 auto devUrlPath = exeDir.parent_path().parent_path().parent_path() / L"ui" / L".dev-server-url";
                                 if (std::filesystem::exists(devUrlPath, ec)) {
                                     std::ifstream file(devUrlPath);
@@ -263,6 +267,10 @@ void TrayWindow::initializeWebView2() {
                                     }
                                 }
                                 if (baseUrl.empty()) baseUrl = L"http://localhost:5173";
+#else
+                                LOG_ERROR("TrayWindow: 打包 UI 缺失，已拒绝连接开发服务器");
+                                baseUrl = L"https://easytools.local/index.html";
+#endif
                             }
 
                             std::wstring targetUrl = baseUrl;
@@ -302,12 +310,15 @@ void TrayWindow::initializeWebView2() {
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [this, generation](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         try {
+                                            if (!web_security::isTrustedMessageSource(args)) return S_OK;
                                             if (generation != m_generation.load()) return S_OK;
                                             PWSTR messageRaw = nullptr;
                                             if (SUCCEEDED(args->TryGetWebMessageAsString(&messageRaw)) && messageRaw) {
-                                                const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
-                                                CoTaskMemFree(messageRaw);
-                                                const std::string response =
+                                                 const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
+                                                 CoTaskMemFree(messageRaw);
+                                                 if (!web_security::isBridgeMethodAllowed(
+                                                         request, web_security::Surface::Tray)) return S_OK;
+                                                 const std::string response =
                                                     easy::core::MessageBridge::instance().handleMessage(request);
                                                 const std::wstring wideResponse =
                                                     easy::core::WinUtils::utf8ToWstring(response);

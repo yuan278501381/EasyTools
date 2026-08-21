@@ -16,6 +16,10 @@ public:
                     std::function<void(CaptureCompletion)> confirmCb);
     LRESULT handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    /// Invokes the current toolbar item on the overlay UI thread. UI Automation
+    /// providers only post this request; they never touch CaptureState directly.
+    bool invokeToolbarButton(std::size_t index);
+
 private:
     void updateHoverCursor(POINT point);
     HitArea hitTestSelectionBox(POINT point) const;

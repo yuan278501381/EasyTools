@@ -1,4 +1,6 @@
 #include "capture/ShortcutHintOverlay.h"
+#include "core/accessibility/OverlayAnnouncement.h"
+#include "core/accessibility/OverlayUiaProvider.h"
 #include "capture/ShortcutHintStyle.h"
 
 #include "core/config/ConfigManager.h"
@@ -272,6 +274,15 @@ void ShortcutHintOverlay::show(ShortcutHintContext context, POINT anchor) {
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, m_width, m_height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
     render();
+    std::wstring accessibleName = L"快捷键提示：";
+    for (const auto& item : items) {
+        if (accessibleName.size() > 1024) break;
+        if (accessibleName.size() > std::wstring_view(L"快捷键提示：").size()) accessibleName += L"；";
+        accessibleName += item.key;
+        accessibleName += L" ";
+        accessibleName += item.label;
+    }
+    easy::core::accessibility::announceOverlay(m_hwnd, accessibleName);
     m_context = context;
     m_hasContext = true;
 }
@@ -363,6 +374,7 @@ void ShortcutHintOverlay::hide() {
     m_items.clear();
     discardResources();
     if (m_hwnd) {
+        easy::core::accessibility::hideOverlay(m_hwnd);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
@@ -370,6 +382,32 @@ void ShortcutHintOverlay::hide() {
         UnregisterClassW(WindowClass, m_module);
         m_module = nullptr;
     }
+}
+
+std::vector<easy::core::accessibility::OverlayUiaAction>
+ShortcutHintOverlay::accessibilityActions() const {
+    std::vector<easy::core::accessibility::OverlayUiaAction> actions;
+    if (!m_hwnd || m_items.empty()) return actions;
+    RECT window{};
+    if (!GetWindowRect(m_hwnd, &window)) return actions;
+    const float labelGap = ShortcutHintStyle::BaseLabelGap * m_scale;
+    const float itemHeight = ShortcutHintStyle::BaseKeyHeight * m_scale;
+    actions.reserve(m_items.size());
+    for (std::size_t index = 0; index < m_items.size(); ++index) {
+        const auto& item = m_items[index];
+        const LONG left = window.left + static_cast<LONG>(std::lround(item.x));
+        const LONG top = window.top + static_cast<LONG>(std::lround(item.y));
+        const LONG right = left + static_cast<LONG>(std::lround(item.keyWidth + labelGap + item.labelWidth));
+        const LONG bottom = top + static_cast<LONG>(std::lround(itemHeight));
+        actions.push_back({
+            L"EasyTools.ShortcutHint." + std::to_wstring(index),
+            item.item.key + L"：" + item.item.label,
+            L"Contextual keyboard shortcut", item.item.key,
+            {left, top, right, bottom}, true, false,
+            easy::core::accessibility::OverlayUiaActionRole::Text, 0, 0,
+        });
+    }
+    return actions;
 }
 
 LRESULT CALLBACK ShortcutHintOverlay::wndProc(
@@ -380,6 +418,17 @@ LRESULT CALLBACK ShortcutHintOverlay::wndProc(
         const auto create = reinterpret_cast<CREATESTRUCTW*>(lParam);
         overlay = static_cast<ShortcutHintOverlay*>(create->lpCreateParams);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(overlay));
+    }
+    if (message == WM_GETOBJECT) {
+        return easy::core::accessibility::respondToOverlayUiaGetObject(
+            hwnd, wParam, lParam,
+            {L"EasyTools.ShortcutHints", L"Contextual EasyTools keyboard shortcut guide",
+             easy::core::accessibility::OverlayUiaRole::Text, true},
+            overlay ? overlay->accessibilityActions()
+                    : std::vector<easy::core::accessibility::OverlayUiaAction>{});
+    }
+    if (message == WM_NCDESTROY) {
+        easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
     }
     if (overlay && (message == WM_SETTINGCHANGE || message == WM_THEMECHANGED ||
                     message == WM_SYSCOLORCHANGE)) {

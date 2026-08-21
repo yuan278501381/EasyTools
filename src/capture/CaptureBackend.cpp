@@ -248,7 +248,7 @@ public:
         textureDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         textureDesc.SampleDesc.Count = 1;
         textureDesc.Usage = D3D11_USAGE_STAGING;
-        textureDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
+        textureDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         result = m_device->CreateTexture2D(&textureDesc, nullptr, &m_stagingTexture);
         if (FAILED(result)) {
             error = "CreateTexture2D staging surface failed (" + hresultText(result) + ")";
@@ -320,7 +320,7 @@ public:
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
         const HRESULT mapResult = m_context->Map(
-            m_stagingTexture.Get(), 0, D3D11_MAP_READ_WRITE, 0, &mapped);
+            m_stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
         if (FAILED(mapResult)) {
             error = "Map staging surface failed (" + hresultText(mapResult) + ")";
             return false;

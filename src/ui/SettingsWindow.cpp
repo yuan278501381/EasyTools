@@ -20,6 +20,8 @@
 #include "core/config/ConfigManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "ui/WebViewSecurity.h"
+#include "ui/WebViewSuspend.h"
 
 // WebView2 SDK 头文件
 #include <WebView2.h>
@@ -73,12 +75,7 @@ void SettingsWindow::show(HINSTANCE hInstance) {
         m_visible = true;
         
         // 强制刷新 WebView2 尺寸和可见性（防御性编程）
-        if (m_webView) {
-            Microsoft::WRL::ComPtr<ICoreWebView2_3> webView3;
-            if (SUCCEEDED(m_webView.As(&webView3)) && webView3) {
-                webView3->Resume();
-            }
-        }
+        if (m_webView) m_suspendController.resume(m_webView.Get(), "settings");
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
             RECT bounds;
@@ -141,12 +138,7 @@ void SettingsWindow::hide() {
         }
 
         // 挂起 Chromium 渲染管线以释放 GPU/DOM 显存与工作集
-        if (m_webView) {
-            Microsoft::WRL::ComPtr<ICoreWebView2_3> webView3;
-            if (SUCCEEDED(m_webView.As(&webView3)) && webView3) {
-                webView3->TrySuspend(nullptr);
-            }
-        }
+        if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "settings");
         
         LOG_DEBUG("设置窗口已隐藏");
     }
@@ -157,6 +149,7 @@ bool SettingsWindow::isVisible() const {
 }
 
 void SettingsWindow::destroy() {
+    m_suspendController.abandon();
     ++m_generation;
     easy::core::MessageBridge::instance().setEventPusher({});
     if (m_controller) {
@@ -180,6 +173,7 @@ void SettingsWindow::destroy() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool SettingsWindow::createWindow(HINSTANCE hInstance) {
+    m_suspendController.reset();
     // 注册窗口类
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -383,10 +377,13 @@ void SettingsWindow::onWebView2Ready() {
         controller2->put_DefaultBackgroundColor(color);
     }
 
+    web_security::applyNavigationPolicy(m_webView.Get());
+
     // ── 注册 JS → C++ 消息监听 ─────────────────────────────────────────
     m_webView->add_WebMessageReceived(
         Callback<ICoreWebView2WebMessageReceivedEventHandler>(
             [](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                if (!web_security::isTrustedMessageSource(args)) return S_OK;
                 // 关键: C++ 异常绝不能逃逸回 WebView2 的 native 调用栈, 否则进程崩溃。
                 try {
                     LPWSTR messageRaw = nullptr;
@@ -395,6 +392,9 @@ void SettingsWindow::onWebView2Ready() {
                     if (messageRaw) {
                         std::string message = easy::core::WinUtils::wstringToUtf8(messageRaw);
                         CoTaskMemFree(messageRaw);
+
+                        if (!web_security::isBridgeMethodAllowed(
+                                message, web_security::Surface::Settings)) return S_OK;
 
                         std::string response = easy::core::MessageBridge::instance().handleMessage(message);
 
@@ -479,6 +479,13 @@ std::string SettingsWindow::getUIEntryUrl() const {
         return "https://easytools.local/index.html";
     }
 
+#ifndef _DEBUG
+    // Release 构建必须失败关闭。绝不能因为安装文件损坏而连接可能被其他本机进程
+    // 占用的开发端口，同时向该页面暴露原生消息桥。
+    LOG_ERROR("打包 UI 缺失: {}", easy::core::WinUtils::wstringToUtf8(indexPath.wstring()));
+    return "https://easytools.local/index.html";
+#else
+
     // 2. 如果本地不存在，说明是在 C++ 开发模式下运行。尝试读取 Vite 动态端口文件
     auto devUrlPath = exeDir.parent_path().parent_path().parent_path() / L"ui" / L".dev-server-url";
     if (std::filesystem::exists(devUrlPath, ec)) {
@@ -500,6 +507,7 @@ std::string SettingsWindow::getUIEntryUrl() const {
     // 4. 终极降级: 使用开发服务器默认地址
     LOG_WARN("未找到本地 UI 文件及动态端口文件, 尝试连接默认开发服务器 http://localhost:5173");
     return "http://localhost:5173";
+#endif
 }
 
 void SettingsWindow::applyPersistedPlacementIfAny() {

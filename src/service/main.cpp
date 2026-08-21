@@ -11,7 +11,10 @@
 #include <atomic>
 #include <vector>
 #include <future>
+#include <mutex>
+#include <string_view>
 #include <sddl.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -20,6 +23,7 @@
 #include <nlohmann/json.hpp>
 #include "MftParser.h"
 #include "PipeProtocol.h"
+#include "PipeEndpoint.h"
 #include "SearchCancellation.h"
 #include "content/ContentSearchEngine.h"
 #include "db/RunHistoryManager.h"
@@ -35,8 +39,141 @@ std::atomic<bool>     g_IsRunning{false};
 
 std::vector<std::unique_ptr<MftParser>> g_MftParsers;
 
-constexpr const char* SearchPipeName = "\\\\.\\pipe\\EasyToolsSearchPipe";
+// 所有会触碰 MftParser 的后台工作都由服务拥有。服务退出时先请求停止并 join，
+// 再销毁解析器，禁止任何 detached worker 越过对象生命周期。
+std::mutex g_BackgroundJobMutex;
+std::jthread g_RebuildJob;
+std::jthread g_SnapshotJob;
+std::atomic<bool> g_RebuildInProgress{false};
+std::atomic<bool> g_SnapshotInProgress{false};
+std::atomic<int> g_InitialIndexWorkers{0};
+std::atomic<bool> g_AcceptBackgroundJobs{true};
+// The per-user pipe is published before expensive volume work. Until this flag
+// flips, workers return an explicit initializing response and never touch the
+// parser vector while it is being assembled.
+std::atomic<bool> g_SearchIndexReady{false};
+std::jthread g_PipePokeJob;
+
+std::string g_SearchPipeName;
+std::wstring g_SearchClientSid;
 constexpr int NumPipeWorkers = 4;
+
+std::string WStringToString(const std::wstring& wstr);
+
+bool configurePipeEndpoint(DWORD argc, wchar_t** argv) {
+    std::string token;
+    std::wstring sid;
+    for (DWORD index = 0; index < argc; ++index) {
+        const std::wstring_view arg = argv[index] ? argv[index] : L"";
+        constexpr std::wstring_view tokenPrefix = L"--pipe-token=";
+        constexpr std::wstring_view sidPrefix = L"--client-sid=";
+        if (arg.starts_with(tokenPrefix)) {
+            token = WStringToString(std::wstring(arg.substr(tokenPrefix.size())));
+        } else if (arg.starts_with(sidPrefix)) {
+            sid = std::wstring(arg.substr(sidPrefix.size()));
+        }
+    }
+    PSID parsedSid = nullptr;
+    const bool sidValid = !sid.empty() && ConvertStringSidToSidW(sid.c_str(), &parsedSid);
+    if (parsedSid) LocalFree(parsedSid);
+    const auto pipe = easy::service::pipe_endpoint::makePipeName(token);
+    if (!sidValid || !pipe) {
+        spdlog::error("Search service missing or invalid per-user IPC endpoint arguments");
+        return false;
+    }
+    g_SearchPipeName = *pipe;
+    g_SearchClientSid = std::move(sid);
+    return true;
+}
+
+void stopBackgroundJobs() {
+    g_AcceptBackgroundJobs.store(false, std::memory_order_release);
+    for (auto& parser : g_MftParsers) parser->requestStop();
+
+    std::jthread rebuild;
+    std::jthread snapshot;
+    {
+        std::lock_guard lock(g_BackgroundJobMutex);
+        if (g_RebuildJob.joinable()) g_RebuildJob.request_stop();
+        if (g_SnapshotJob.joinable()) g_SnapshotJob.request_stop();
+        rebuild = std::move(g_RebuildJob);
+        snapshot = std::move(g_SnapshotJob);
+    }
+    // jthread 的析构在当前作用域末尾完成 join。此时不持有任务锁，避免工作线程
+    // 在收尾路径更新状态时形成锁反转。
+}
+
+void scheduleSnapshot(std::vector<MftParser*> parsers, std::string_view reason) {
+    if (!g_AcceptBackgroundJobs.load(std::memory_order_acquire) || parsers.empty()) return;
+    std::lock_guard lock(g_BackgroundJobMutex);
+    if (g_SnapshotInProgress.exchange(true, std::memory_order_acq_rel)) return;
+    if (g_SnapshotJob.joinable()) g_SnapshotJob.join();
+
+    g_SnapshotJob = std::jthread(
+        [parsers = std::move(parsers), reason = std::string(reason)](std::stop_token stop) {
+            // 等待初始索引真正完成，而不是猜测固定 5 秒；慢盘和网络盘不会再保存半份快照。
+            while (!stop.stop_requested() && g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            try {
+                if (!stop.stop_requested()) {
+                    const bool ok = easy::service::db::DatabaseManager::instance().saveSnapshot(parsers);
+                    spdlog::info("{} database snapshot {}", reason, ok ? "saved" : "failed");
+                }
+            } catch (const std::exception& e) {
+                spdlog::error("{} database snapshot failed: {}", reason, e.what());
+            } catch (...) {
+                spdlog::error("{} database snapshot failed with unknown exception", reason);
+            }
+            g_SnapshotInProgress.store(false, std::memory_order_release);
+        });
+}
+
+bool scheduleRebuild() {
+    if (!g_IsRunning.load(std::memory_order_acquire) ||
+        !g_AcceptBackgroundJobs.load(std::memory_order_acquire) ||
+        g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) return false;
+
+    std::lock_guard lock(g_BackgroundJobMutex);
+    if (g_RebuildInProgress.exchange(true, std::memory_order_acq_rel)) return false;
+    if (g_RebuildJob.joinable()) g_RebuildJob.join();
+
+    std::vector<MftParser*> parsers;
+    parsers.reserve(g_MftParsers.size());
+    for (auto& parser : g_MftParsers) {
+        parser->resetStopRequest();
+        parsers.push_back(parser.get());
+    }
+    g_RebuildJob = std::jthread([parsers = std::move(parsers)](std::stop_token stop) {
+        std::vector<std::thread> workers;
+        workers.reserve(parsers.size());
+        for (auto* parser : parsers) {
+            workers.emplace_back([parser, stop]() {
+                if (stop.stop_requested()) return;
+                try {
+                    parser->EnumerateFiles();
+                    if (!stop.stop_requested()) parser->StartListening();
+                } catch (const std::exception& e) {
+                    spdlog::error("Rebuild failed on drive {}: {}", parser->getDriveLetter(), e.what());
+                } catch (...) {
+                    spdlog::error("Rebuild failed on drive {} with unknown exception", parser->getDriveLetter());
+                }
+            });
+        }
+        for (auto& worker : workers) if (worker.joinable()) worker.join();
+        try {
+            if (!stop.stop_requested()) {
+                easy::service::db::DatabaseManager::instance().saveSnapshot(parsers);
+            }
+        } catch (const std::exception& e) {
+            spdlog::error("Rebuild snapshot failed: {}", e.what());
+        } catch (...) {
+            spdlog::error("Rebuild snapshot failed with unknown exception");
+        }
+        g_RebuildInProgress.store(false, std::memory_order_release);
+    });
+    return true;
+}
 
 // 主程序退出时会通过管道请求停机。工作线程此刻大多阻塞在 ConnectNamedPipe 上，
 // 单靠清掉运行标志叫不醒它们，还得真的连上来几次。这件事必须交给另一个线程，
@@ -45,10 +182,10 @@ void RequestServiceShutdown() {
     if (!g_IsRunning.exchange(false)) return;
     if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) SetEvent(g_ServiceStopEvent);
 
-    std::thread([]() {
+    g_PipePokeJob = std::jthread([](std::stop_token stop) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-        while (std::chrono::steady_clock::now() < deadline) {
-            HANDLE poke = CreateFileA(SearchPipeName, GENERIC_READ | GENERIC_WRITE, 0,
+        while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline) {
+            HANDLE poke = CreateFileA(g_SearchPipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
                                       nullptr, OPEN_EXISTING, 0, nullptr);
             if (poke == INVALID_HANDLE_VALUE) {
                 // 管道实例全部消失，说明工作线程已经退干净了。
@@ -59,7 +196,7 @@ void RequestServiceShutdown() {
             CloseHandle(poke);
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-    }).detach();
+    });
 }
 
 std::string WStringToString(const std::wstring& wstr) {
@@ -106,7 +243,6 @@ void InitLogger() {
 // --------------------------------------------------------------------------------------
 // Named Pipe Server
 // --------------------------------------------------------------------------------------
-#include <mutex>
 #include <chrono>
 
 nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
@@ -118,23 +254,32 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     uint64_t queryId = 0;
 
     std::string utf8Input = WStringToString(rawInput);
+    if (!g_SearchIndexReady.load(std::memory_order_acquire) ||
+        g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) {
+        bool isShutdownRequest = false;
+        if (!utf8Input.empty() && utf8Input.front() == '{') {
+            try {
+                const auto request = nlohmann::json::parse(utf8Input);
+                isShutdownRequest = request.value("action", "") == "shutdown";
+            } catch (...) {
+                // Invalid requests are also deferred while startup owns the
+                // parser collection, rather than racing initialization.
+            }
+        }
+        if (!isShutdownRequest) {
+            return {{"results", nlohmann::json::array()}, {"available", false},
+                    {"initializing", true}, {"error", "search service initializing"}};
+        }
+    }
     if (!utf8Input.empty() && utf8Input.front() == '{') {
         try {
             auto reqJson = nlohmann::json::parse(utf8Input);
             if (reqJson.contains("action") && reqJson["action"].is_string()) {
                 std::string act = reqJson["action"].get<std::string>();
                 if (act == "rebuild" || act == "reindex") {
-                    for (auto& parser : g_MftParsers) {
-                        MftParser* pRaw = parser.get();
-                        std::thread([pRaw]() {
-                            pRaw->EnumerateFiles();
-                            pRaw->StartListening();
-                            std::vector<MftParser*> allParsers;
-                            for (auto& p : g_MftParsers) allParsers.push_back(p.get());
-                            easy::service::db::DatabaseManager::instance().saveSnapshot(allParsers);
-                        }).detach();
-                    }
-                    return {{"success", true}, {"rebuilding", true}};
+                    const bool started = scheduleRebuild();
+                    return {{"success", started}, {"rebuilding", started},
+                            {"alreadyRunning", !started && g_RebuildInProgress.load()}};
                 }
                 if (act == "catchup" || act == "sync") {
                     bool anyUpdated = false;
@@ -555,30 +700,6 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
 namespace {
 
-constexpr DWORD PipeChunkBytes = 64 * 1024;
-
-bool ReadExact(HANDLE pipe, char* buffer, size_t bytes) {
-    size_t total = 0;
-    while (total < bytes) {
-        const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - total, PipeChunkBytes));
-        DWORD got = 0;
-        if (!ReadFile(pipe, buffer + total, want, &got, nullptr) || got == 0) return false;
-        total += got;
-    }
-    return true;
-}
-
-bool WriteExact(HANDLE pipe, const char* data, size_t bytes) {
-    size_t total = 0;
-    while (total < bytes) {
-        const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - total, PipeChunkBytes));
-        DWORD sent = 0;
-        if (!WriteFile(pipe, data + total, want, &sent, nullptr) || sent == 0) return false;
-        total += sent;
-    }
-    return true;
-}
-
 }  // namespace
 
 void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* pipeSecurity) {
@@ -586,11 +707,11 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
     while (g_IsRunning.load()) {
         HANDLE hPipe = CreateNamedPipeA(
-            SearchPipeName,
+            g_SearchPipeName.c_str(),
             PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_UNLIMITED_INSTANCES,
-            PipeChunkBytes, PipeChunkBytes, 0,
+            frame::IoChunkBytes, frame::IoChunkBytes, 0,
             pipeDescriptor ? pipeSecurity : nullptr
         );
 
@@ -603,7 +724,7 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
         if (connected && g_IsRunning.load()) {
             while (g_IsRunning.load()) {
                 char header[frame::HeaderSize] = {};
-                if (!ReadExact(hPipe, header, sizeof(header))) break;
+                if (!frame::readExact(hPipe, header, sizeof(header))) break;
 
                 uint32_t requestBytes = 0;
                 if (!frame::decodeFrameHeader(header, requestBytes, frame::MaxRequestBytes)) {
@@ -612,7 +733,7 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
                 }
 
                 std::string request(requestBytes, '\0');
-                if (!ReadExact(hPipe, request.data(), requestBytes)) break;
+                if (!frame::readExact(hPipe, request.data(), requestBytes)) break;
 
                 nlohmann::json responseJson = ProcessSearchQuery(StringToWString(request));
                 const std::string response = responseJson.dump();
@@ -623,8 +744,8 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
                 const auto responseHeader =
                     frame::encodeFrameHeader(static_cast<uint32_t>(response.size()));
-                if (!WriteExact(hPipe, responseHeader.data(), responseHeader.size())) break;
-                if (!WriteExact(hPipe, response.data(), response.size())) break;
+                if (!frame::writeExact(hPipe, responseHeader.data(), responseHeader.size())) break;
+                if (!frame::writeExact(hPipe, response.data(), response.size())) break;
             }
         }
         FlushFileBuffers(hPipe);
@@ -635,6 +756,29 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
 void IPCServerThread() {
     spdlog::info("IPC Server Thread started.");
+
+    // Build the DACL before creating any pipe instance. Publishing the endpoint
+    // early avoids SCM/portable duplicate starts, but it must remain private to
+    // the requesting SID even if later disk initialization is slow.
+    PSECURITY_DESCRIPTOR pipeDescriptor = nullptr;
+    SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+    const auto securitySddl = easy::service::pipe_endpoint::makeSecurityDescriptor(g_SearchClientSid);
+    if (!securitySddl || !ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            securitySddl->c_str(), SDDL_REVISION_1, &pipeDescriptor, nullptr)) {
+        const DWORD securityError = GetLastError();
+        spdlog::error("Failed to create restricted named pipe security descriptor: {}", securityError);
+        g_IsRunning.store(false, std::memory_order_release);
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) SetEvent(g_ServiceStopEvent);
+        return;
+    }
+    pipeSecurity.lpSecurityDescriptor = pipeDescriptor;
+
+    std::vector<std::thread> pipeWorkers;
+    pipeWorkers.reserve(NumPipeWorkers);
+    for (int i = 0; i < NumPipeWorkers; ++i) {
+        pipeWorkers.emplace_back(PipeWorkerThread, pipeDescriptor, &pipeSecurity);
+    }
+    spdlog::info("Launched {} restricted named pipe worker(s) before index initialization", NumPipeWorkers);
 
     // 初始化历史与快照数据库管理器
     easy::service::db::RunHistoryManager::instance().init();
@@ -647,8 +791,14 @@ void IPCServerThread() {
         if (!(driveMask & (1u << (drive - 'A')))) continue;
         const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\'};
         UINT driveType = GetDriveTypeW(root.c_str());
-        if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOTE &&
-            driveType != DRIVE_REMOVABLE && driveType != DRIVE_RAMDISK) continue;
+        // 后台服务只自动索引本地固定卷。远程盘/可移动盘可能离线、休眠或在目录枚举
+        // 中无限期阻塞，不能拖慢登录和服务关停；后续应由显式的按需索引入口接入。
+        if (driveType != DRIVE_FIXED) {
+            if (driveType == DRIVE_REMOTE || driveType == DRIVE_REMOVABLE) {
+                spdlog::info("Skipping non-fixed drive {}: during automatic indexing", drive);
+            }
+            continue;
+        }
 
         auto parser = std::make_unique<MftParser>();
         if (parser->Initialize(drive)) {
@@ -670,61 +820,57 @@ void IPCServerThread() {
             if (pRaw->getFileCount() == 0) {
                 anyMissing = true;
                 char drive = pRaw->getDriveLetter();
+                g_InitialIndexWorkers.fetch_add(1, std::memory_order_relaxed);
                 indexThreads.emplace_back([pRaw, drive]() {
-                    pRaw->EnumerateFiles();
-                    pRaw->StartListening();
-                    spdlog::info("Indexed drive {}: (volume was unpopulated in snapshot)", drive);
+                    try {
+                        pRaw->EnumerateFiles();
+                        if (g_IsRunning.load(std::memory_order_acquire)) pRaw->StartListening();
+                        spdlog::info("Indexed drive {}: (volume was unpopulated in snapshot)", drive);
+                    } catch (const std::exception& e) {
+                        spdlog::error("Initial indexing failed on drive {}: {}", drive, e.what());
+                    } catch (...) {
+                        spdlog::error("Initial indexing failed on drive {} with unknown exception", drive);
+                    }
+                    g_InitialIndexWorkers.fetch_sub(1, std::memory_order_release);
                 });
             } else {
                 pRaw->StartListening();
             }
         }
-        if (anyMissing) {
-            std::thread([rawParsers]() {
-                Sleep(5000);
-                easy::service::db::DatabaseManager::instance().saveSnapshot(rawParsers);
-                spdlog::info("Updated complete database snapshot saved to EasyTools.db");
-            }).detach();
-        }
+        if (anyMissing) scheduleSnapshot(rawParsers, "Updated complete");
     } else {
         spdlog::info("No valid database snapshot found, performing full MFT scan and building initial index...");
         for (auto* pRaw : rawParsers) {
             char drive = pRaw->getDriveLetter();
+            g_InitialIndexWorkers.fetch_add(1, std::memory_order_relaxed);
             indexThreads.emplace_back([pRaw, drive]() {
-                pRaw->EnumerateFiles();
-                pRaw->StartListening();
-                spdlog::info("Indexed drive {}:", drive);
+                try {
+                    pRaw->EnumerateFiles();
+                    if (g_IsRunning.load(std::memory_order_acquire)) pRaw->StartListening();
+                    spdlog::info("Indexed drive {}:", drive);
+                } catch (const std::exception& e) {
+                    spdlog::error("Initial indexing failed on drive {}: {}", drive, e.what());
+                } catch (...) {
+                    spdlog::error("Initial indexing failed on drive {} with unknown exception", drive);
+                }
+                g_InitialIndexWorkers.fetch_sub(1, std::memory_order_release);
             });
         }
         // 初始全量索引完成后在后台异步保存快照
-        std::thread([rawParsers]() {
-            Sleep(5000);
-            easy::service::db::DatabaseManager::instance().saveSnapshot(rawParsers);
-            spdlog::info("Initial database snapshot saved to EasyTools.db");
-        }).detach();
+        scheduleSnapshot(rawParsers, "Initial");
     }
     spdlog::info("Search index launched for {} volume(s)", g_MftParsers.size());
-
-    PSECURITY_DESCRIPTOR pipeDescriptor = nullptr;
-    SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
-    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)", SDDL_REVISION_1,
-            &pipeDescriptor, nullptr)) {
-        pipeSecurity.lpSecurityDescriptor = pipeDescriptor;
-    } else {
-        spdlog::error("Failed to create named pipe security descriptor: {}", GetLastError());
-    }
-
-    std::vector<std::thread> pipeWorkers;
-    pipeWorkers.reserve(NumPipeWorkers);
-    for (int i = 0; i < NumPipeWorkers; ++i) {
-        pipeWorkers.emplace_back(PipeWorkerThread, pipeDescriptor, &pipeSecurity);
-    }
-    spdlog::info("Launched {} concurrent named pipe server worker(s)", NumPipeWorkers);
+    g_SearchIndexReady.store(true, std::memory_order_release);
 
     for (auto& w : pipeWorkers) {
         if (w.joinable()) w.join();
     }
+    g_SearchIndexReady.store(false, std::memory_order_release);
+    if (g_PipePokeJob.joinable()) {
+        g_PipePokeJob.request_stop();
+        g_PipePokeJob.join();
+    }
+    stopBackgroundJobs();
     for (auto& t : indexThreads) {
         if (t.joinable()) t.join();
     }
@@ -756,8 +902,6 @@ void WINAPI ServiceCtrlHandler(DWORD CtrlCode) {
 }
 
 void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
-    (void)argc;
-    (void)argv;
     g_StatusHandle = RegisterServiceCtrlHandlerW(SERVICE_NAME, ServiceCtrlHandler);
     if (!g_StatusHandle) return;
 
@@ -770,6 +914,14 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     g_ServiceStatus.dwCheckPoint = 0;
 
     SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+
+    if (!configurePipeEndpoint(argc, argv)) {
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        g_ServiceStatus.dwWin32ExitCode = ERROR_INVALID_PARAMETER;
+        g_ServiceStatus.dwCheckPoint = 1;
+        SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+        return;
+    }
 
     g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!g_ServiceStopEvent) {
@@ -808,22 +960,45 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     spdlog::info("Service stopped successfully.");
 }
 
-// 索引占用数百 MB 内存并独占 USN 日志游标，多开除了浪费别无意义。互斥量在进程
-// 退出时由内核释放，因此崩溃留下的残留不会挡住下一次启动。
-static bool AcquireSingleInstanceLock() {
-    static HANDLE lock = CreateMutexW(nullptr, TRUE, L"Local\\EasyTools_SearchService_Singleton");
-    if (!lock) return true;  // 拿不到互斥量时宁可启动，也不要让搜索彻底不可用
-    return GetLastError() != ERROR_ALREADY_EXISTS;
+// 索引持有 USN 日志游标与内存索引，多开会导致重复扫描和不一致。互斥量在进程
+// 退出时由内核释放，因此崩溃不会留下永久阻塞；创建失败则必须安全失败，不能放行
+// 第二个服务实例。
+enum class SingleInstanceLockResult {
+    Acquired,
+    AlreadyRunning,
+    Failed,
+};
+
+static SingleInstanceLockResult AcquireSingleInstanceLock() {
+    static HANDLE lock = nullptr;
+    lock = CreateMutexW(nullptr, TRUE, L"Local\\EasyTools_SearchService_Singleton");
+    if (!lock) {
+        spdlog::error("Unable to acquire search-service singleton mutex: {}", GetLastError());
+        return SingleInstanceLockResult::Failed;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(lock);
+        lock = nullptr;
+        return SingleInstanceLockResult::AlreadyRunning;
+    }
+    return SingleInstanceLockResult::Acquired;
 }
 
 int main(int argc, char** argv) {
     InitLogger();
-    if (!AcquireSingleInstanceLock()) {
+    const auto lockResult = AcquireSingleInstanceLock();
+    if (lockResult == SingleInstanceLockResult::AlreadyRunning) {
         spdlog::info("Another EasyTools_Service instance is already running, exiting.");
         return 0;
     }
+    if (lockResult == SingleInstanceLockResult::Failed) return 1;
 
     if (argc > 1 && std::string(argv[1]) == "--debug") {
+        int wideArgc = 0;
+        LPWSTR* wideArgv = CommandLineToArgvW(GetCommandLineW(), &wideArgc);
+        const bool configured = wideArgv && configurePipeEndpoint(static_cast<DWORD>(wideArgc), wideArgv);
+        if (wideArgv) LocalFree(wideArgv);
+        if (!configured) return 1;
         spdlog::info("Running in debug mode (Console).");
         g_IsRunning = true;
         std::thread ipcThread(IPCServerThread);
@@ -843,7 +1018,12 @@ int main(int argc, char** argv) {
         DWORD err = GetLastError();
         if (err == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
             // 当非 SCM 服务环境（如便携版、免安装模式或主程序子进程拉起）直接执行时，自动退化为独立后台管道服务进程
-            spdlog::info("Running in standalone background mode (named pipe server).");
+            int wideArgc = 0;
+            LPWSTR* wideArgv = CommandLineToArgvW(GetCommandLineW(), &wideArgc);
+            const bool configured = wideArgv && configurePipeEndpoint(static_cast<DWORD>(wideArgc), wideArgv);
+            if (wideArgv) LocalFree(wideArgv);
+            if (!configured) return 1;
+            spdlog::info("Running in standalone background mode (per-user named pipe server).");
             g_IsRunning = true;
             IPCServerThread();
             return 0;

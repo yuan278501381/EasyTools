@@ -5,8 +5,11 @@
 #include "core/events/EventBus.h"
 #include "capture/CaptureHistory.h"
 #include "capture/ShortcutHintOverlay.h"
+#include "capture/CaptureToolbarAccessibility.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/utils/DpiUtils.h"
+#include "core/accessibility/OverlayAnnouncement.h"
+#include "core/accessibility/OverlayUiaProvider.h"
 
 #include <algorithm>
 #include <chrono>
@@ -25,6 +28,34 @@ double elapsedMilliseconds(std::chrono::steady_clock::time_point started) {
 }  // namespace
 
 namespace easy::capture {
+
+namespace {
+constexpr UINT WM_ACCESSIBILITY_INVOKE_TOOLBAR = WM_APP + 74;
+
+std::vector<easy::core::accessibility::OverlayUiaAction>
+toolbarUiaActions(HWND hwnd, const CaptureState& state) {
+    RECT window{};
+    GetWindowRect(hwnd, &window);
+    std::vector<easy::core::accessibility::OverlayUiaAction> actions;
+    actions.reserve(state.toolbarButtons.size());
+    for (std::size_t index = 0; index < state.toolbarButtons.size(); ++index) {
+        const auto& button = state.toolbarButtons[index];
+        const auto name = toolbarButtonAccessibleName(button);
+        const auto shortcut = toolbarButtonKeyboardShortcut(button);
+        actions.push_back({
+            L"EasyTools.CaptureToolbar." + std::to_wstring(index), name,
+            L"截图工具栏：" + name, shortcut, {
+                window.left + static_cast<LONG>(button.rect.left),
+                window.top + static_cast<LONG>(button.rect.top),
+                window.left + static_cast<LONG>(button.rect.right),
+                window.top + static_cast<LONG>(button.rect.bottom)},
+            isToolbarButtonEnabled(button, state), isToolbarButtonSelected(button, state),
+            easy::core::accessibility::OverlayUiaActionRole::Button,
+            WM_ACCESSIBILITY_INVOKE_TOOLBAR, static_cast<WPARAM>(index)});
+    }
+    return actions;
+}
+}  // namespace
 
 CaptureOverlay& CaptureOverlay::instance() {
     static CaptureOverlay inst;
@@ -172,6 +203,9 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
                  RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
     SetCapture(m_hwnd);
     SetFocus(m_hwnd);
+    easy::core::accessibility::announceOverlay(
+        m_hwnd, L"截图选区。拖动鼠标选择区域；Enter 确认；Esc 取消。"
+    );
     if (options.showShortcutHints) {
         ShortcutHintOverlay::instance().show(
             mode == OverlayMode::RecordRegion
@@ -264,6 +298,9 @@ void CaptureOverlay::startEditPinned(const cv::Mat& image, const CaptureRegion& 
                  RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
     SetCapture(m_hwnd);
     SetFocus(m_hwnd);
+    easy::core::accessibility::announceOverlay(
+        m_hwnd, L"截图标注。使用工具栏完成标注；Enter 确认；Esc 取消。"
+    );
 
     ShortcutHintOverlay::instance().show(ShortcutHintContext::CaptureSelected);
 }
@@ -314,7 +351,8 @@ bool CaptureOverlay::freezeScreen() {
     const BOOL copied = BitBlt(
         hdcMem, 0, 0, w, h, hdcScreen, x, y, SRCCOPY | CAPTUREBLT);
     if (copied) {
-        // 直接引用 DIBSection 零拷贝，保持生命周期安全
+        // cv::Mat 直接引用 DIBSection 的像素；m_frozenBitmap 持有该存储，
+        // 因此在覆盖层关闭前引用始终有效。这里仍包含 BitBlt 的屏幕复制。
         m_state.frozenScreen = cv::Mat(
             h, w, CV_8UC4, pixels, static_cast<size_t>(w) * 4);
         m_frozenBitmap = bitmap;
@@ -373,6 +411,7 @@ void CaptureOverlay::realCancel() {
     // 不保留隐藏的全屏 D2D layered window。实测该窗口在部分 Windows/DWM
     // 组合上会在隐藏后继续消耗接近一个 CPU 核，按次重建的代价远低于常驻耗电。
     if (m_hwnd) {
+        easy::core::accessibility::hideOverlay(m_hwnd);
         ShowWindow(m_hwnd, SW_HIDE);
         m_renderer.releaseWindowResources();
         DestroyWindow(m_hwnd);
@@ -446,6 +485,21 @@ LRESULT CALLBACK CaptureOverlay::staticWndProc(HWND hwnd, UINT msg, WPARAM wPara
     }
     
     if (self) {
+        if (msg == WM_ACCESSIBILITY_INVOKE_TOOLBAR) {
+            self->m_input.invokeToolbarButton(static_cast<std::size_t>(wParam));
+            return 0;
+        }
+        if (msg == WM_GETOBJECT) {
+            return easy::core::accessibility::respondToOverlayUiaGetObject(
+                hwnd, wParam, lParam,
+                {L"EasyTools.CaptureOverlay",
+                 L"Screenshot selection and annotation. Enter confirms. Escape cancels.",
+                 easy::core::accessibility::OverlayUiaRole::Pane, true},
+                 toolbarUiaActions(hwnd, self->m_state));
+        }
+        if (msg == WM_NCDESTROY) {
+            easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
+        }
         if (msg == WM_PAINT) {
             self->m_renderer.render(self->m_state);
             ValidateRect(hwnd, nullptr);

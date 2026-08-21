@@ -41,7 +41,7 @@ struct TrailStyle {
     float fadeOutMs     = 280.0f;   // 随后平滑淡出
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
-    float resultFontSize = 24.0f;   // 结果文字大小 (世界级大气醒目尺寸)
+    float resultFontSize = 24.0f;   // 结果文字大小（会按窗口 DPI 缩放）
 };
 
 class GestureTrailOverlay {

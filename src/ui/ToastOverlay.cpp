@@ -5,6 +5,8 @@
 #include "core/utils/WinUtils.h"
 #include "core/utils/ThemeUtils.h"
 #include "core/config/ConfigManager.h"
+#include "core/accessibility/OverlayAnnouncement.h"
+#include "core/accessibility/OverlayUiaProvider.h"
 
 #include <algorithm>
 #include <cmath>
@@ -88,6 +90,7 @@ void ToastOverlay::setEnabled(bool enabled) {
         KillTimer(m_hwnd, FADE_TIMER_ID);
         KillTimer(m_hwnd, FADE_IN_TIMER_ID);
         ShowWindow(m_hwnd, SW_HIDE);
+        easy::core::accessibility::hideOverlay(m_hwnd);
         std::lock_guard lock(m_mutex);
         m_opacity = 0.0f;
         m_fadingIn = false;
@@ -126,6 +129,8 @@ void ToastOverlay::showToast(const std::string& text) {
 
     render();  // Replace retained layered-window pixels before showing again.
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+    easy::core::accessibility::announceOverlay(
+        m_hwnd, easy::core::WinUtils::utf8ToWstring(text));
     
     if (m_fadingIn) {
         SetTimer(m_hwnd, FADE_IN_TIMER_ID, FADE_INTERVAL_MS, nullptr);
@@ -339,6 +344,11 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
     // 窗口过程兜底：任何 std 异常都不得逃逸到 Win32 派发层（否则 std::terminate 崩溃）。
     try {
         switch (msg) {
+            case WM_GETOBJECT:
+                return easy::core::accessibility::respondToOverlayUiaGetObject(
+                    hwnd, wParam, lParam,
+                    {L"EasyTools.Toast", L"EasyTools notification",
+                     easy::core::accessibility::OverlayUiaRole::Status, true});
             case WM_TIMER: {
                 if (self) {
                     if (wParam == TIMER_ID) {
@@ -362,6 +372,7 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                         if (hide) {
                             KillTimer(hwnd, FADE_TIMER_ID);
                             ShowWindow(hwnd, SW_HIDE);
+                            easy::core::accessibility::hideOverlay(hwnd);
                         } else {
                             self->render();
                         }
@@ -395,6 +406,7 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                 }
                 return 0;
             case WM_DESTROY:
+                easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
                 KillTimer(hwnd, TIMER_ID);
                 KillTimer(hwnd, FADE_TIMER_ID);
                 KillTimer(hwnd, FADE_IN_TIMER_ID);

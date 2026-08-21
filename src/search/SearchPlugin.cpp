@@ -4,18 +4,25 @@
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ShellContextMenuService.h"
 #include "search/ServiceLifetime.h"
+#include "search/ServiceStartupPolicy.h"
 #include "service/PipeProtocol.h"
+#include "service/PipeEndpoint.h"
 #include <windows.h>
+#include <sddl.h>
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <array>
+#include <bcrypt.h>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -23,27 +30,69 @@
 
 namespace {
 
-constexpr const char* SearchPipe = "\\\\.\\pipe\\EasyToolsSearchPipe";
+std::string g_searchPipe;
+std::string g_searchPipeToken;
+std::wstring g_searchClientSid;
 
 // 本进程是否亲手拉起过索引服务。退出时据此决定要不要把它一并带走。
 static std::atomic<bool> g_serviceSpawnedByUs{false};
 
-static bool isServiceProcessRunning() {
-    PROCESSENTRY32W pe32{};
-    pe32.dwSize = sizeof(pe32);
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return false;
-    bool running = false;
-    if (Process32FirstW(snapshot, &pe32)) {
-        do {
-            if (_wcsicmp(pe32.szExeFile, L"EasyTools_Service.exe") == 0) {
-                running = true;
-                break;
-            }
-        } while (Process32NextW(snapshot, &pe32));
+std::optional<std::wstring> currentUserSid() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return std::nullopt;
+    struct TokenGuard { HANDLE value; ~TokenGuard() { if (value) CloseHandle(value); } } guard{token};
+
+    DWORD bytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
+    if (!bytes) return std::nullopt;
+    std::vector<std::byte> buffer(bytes);
+    if (!GetTokenInformation(token, TokenUser, buffer.data(), bytes, &bytes)) return std::nullopt;
+    const auto* user = reinterpret_cast<const TOKEN_USER*>(buffer.data());
+    LPWSTR rawSid = nullptr;
+    if (!ConvertSidToStringSidW(user->User.Sid, &rawSid) || !rawSid) return std::nullopt;
+    std::wstring sid(rawSid);
+    LocalFree(rawSid);
+    return sid;
+}
+
+std::optional<std::string> generatePipeToken() {
+    std::array<unsigned char, easy::service::pipe_endpoint::TokenHexLength / 2> bytes{};
+    if (BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()),
+                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+        return std::nullopt;
     }
-    CloseHandle(snapshot);
-    return running;
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(bytes.size() * 2);
+    for (const unsigned char value : bytes) {
+        result.push_back(hex[value >> 4]);
+        result.push_back(hex[value & 0x0F]);
+    }
+    return result;
+}
+
+bool initializePipeEndpoint() {
+    auto sid = currentUserSid();
+    if (!sid) {
+        LOG_ERROR("SearchPlugin: 无法取得当前用户 SID，拒绝创建搜索 IPC 端点");
+        return false;
+    }
+    auto& config = easy::core::ConfigManager::instance();
+    std::string token = config.get<std::string>("/search/pipeToken", "");
+    if (!easy::service::pipe_endpoint::isValidToken(token)) {
+        auto generated = generatePipeToken();
+        if (!generated || !config.set("/search/pipeToken", *generated)) {
+            LOG_ERROR("SearchPlugin: 无法安全生成或保存搜索 IPC 端点令牌");
+            return false;
+        }
+        token = std::move(*generated);
+    }
+    auto pipe = easy::service::pipe_endpoint::makePipeName(token);
+    if (!pipe) return false;
+    g_searchClientSid = std::move(*sid);
+    g_searchPipeToken = std::move(token);
+    g_searchPipe = std::move(*pipe);
+    return true;
 }
 
 bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
@@ -145,8 +194,145 @@ static bool isServiceManagedByScm() {
     return managed;
 }
 
+enum class ScmEndpointResult {
+    Ready,
+    AllowPortableFallback,
+    Unavailable,
+};
+
+easy::search::ScmServiceState toScmServiceState(DWORD state) noexcept {
+    switch (state) {
+        case SERVICE_STOPPED: return easy::search::ScmServiceState::Stopped;
+        case SERVICE_START_PENDING: return easy::search::ScmServiceState::StartPending;
+        case SERVICE_RUNNING: return easy::search::ScmServiceState::Running;
+        case SERVICE_STOP_PENDING: return easy::search::ScmServiceState::StopPending;
+        default: return easy::search::ScmServiceState::Failed;
+    }
+}
+
+// 等待 SCM 已接受的启动请求完成。服务创建本用户受限端点之前可能需要加载快照或
+// 扫描卷，不能用固定数百毫秒猜测失败并再拉起一个便携服务。
+ScmEndpointResult startScmServiceAndWait(DWORD& error) {
+    error = ERROR_SUCCESS;
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!scm) {
+        error = GetLastError();
+        return error == ERROR_ACCESS_DENIED ? ScmEndpointResult::AllowPortableFallback
+                                            : ScmEndpointResult::Unavailable;
+    }
+    struct ScmGuard { SC_HANDLE value; ~ScmGuard() { if (value) CloseServiceHandle(value); } } scmGuard{scm};
+
+    SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService",
+                                     SERVICE_START | SERVICE_QUERY_STATUS);
+    if (!service) {
+        error = GetLastError();
+        return error == ERROR_SERVICE_DOES_NOT_EXIST ? ScmEndpointResult::AllowPortableFallback
+                                                      : ScmEndpointResult::Unavailable;
+    }
+    struct ServiceGuard { SC_HANDLE value; ~ServiceGuard() { if (value) CloseServiceHandle(value); } } serviceGuard{service};
+
+    SERVICE_STATUS_PROCESS status{};
+    DWORD bytesNeeded = 0;
+    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                              reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+        error = GetLastError();
+        return ScmEndpointResult::Unavailable;
+    }
+
+    bool startExplicitlyFailed = false;
+    auto action = easy::search::decideStartupAction(
+        WaitNamedPipeA(g_searchPipe.c_str(), 1) != FALSE,
+        toScmServiceState(status.dwCurrentState), false);
+    if (action == easy::search::StartupAction::UseEndpoint) return ScmEndpointResult::Ready;
+    if (action == easy::search::StartupAction::StartScmService) {
+        const std::wstring tokenArg = L"--pipe-token=" +
+            easy::core::WinUtils::utf8ToWstring(g_searchPipeToken);
+        const std::wstring sidArg = L"--client-sid=" + g_searchClientSid;
+        const wchar_t* args[] = {tokenArg.c_str(), sidArg.c_str()};
+        if (!StartServiceW(service, static_cast<DWORD>(std::size(args)), args)) {
+            error = GetLastError();
+            // Another EasyTools process can win the StartService race after our
+            // status query. Its SCM service remains the only safe singleton;
+            // never turn this specific result into a portable duplicate.
+            if (error == ERROR_SERVICE_ALREADY_RUNNING) {
+                if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                                          reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+                    error = GetLastError();
+                    return ScmEndpointResult::Unavailable;
+                }
+                action = easy::search::decideStartupAction(
+                    false, toScmServiceState(status.dwCurrentState), false);
+                if (action == easy::search::StartupAction::WaitForScmEndpoint) {
+                    // Continue into the bounded endpoint wait below.
+                } else {
+                    return ScmEndpointResult::Unavailable;
+                }
+            } else {
+                // A stopped service whose start request was rejected has not
+                // become a singleton, so portable mode remains compatible.
+                startExplicitlyFailed = true;
+                action = easy::search::decideStartupAction(false,
+                    easy::search::ScmServiceState::Stopped, startExplicitlyFailed);
+                return action == easy::search::StartupAction::AllowPortableFallback
+                    ? ScmEndpointResult::AllowPortableFallback : ScmEndpointResult::Unavailable;
+            }
+        }
+    } else if (action != easy::search::StartupAction::WaitForScmEndpoint) {
+        error = ERROR_SERVICE_NOT_ACTIVE;
+        return ScmEndpointResult::Unavailable;
+    }
+
+    const ULONGLONG hardDeadline = GetTickCount64() + 120'000; // 有界等待，避免后台桥接线程无限阻塞。
+    DWORD previousCheckpoint = 0;
+    ULONGLONG checkpointDeadline = hardDeadline;
+    auto lastKnownState = toScmServiceState(status.dwCurrentState);
+    while (GetTickCount64() < hardDeadline) {
+        if (WaitNamedPipeA(g_searchPipe.c_str(), 100)) return ScmEndpointResult::Ready;
+        if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                                  reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+            error = GetLastError();
+            return ScmEndpointResult::Unavailable;
+        }
+        const auto state = toScmServiceState(status.dwCurrentState);
+        lastKnownState = state;
+        if (state == easy::search::ScmServiceState::Stopped ||
+            state == easy::search::ScmServiceState::Failed) {
+            error = status.dwWin32ExitCode ? status.dwWin32ExitCode : ERROR_SERVICE_NOT_ACTIVE;
+            return ScmEndpointResult::AllowPortableFallback;
+        }
+        if (state == easy::search::ScmServiceState::StopPending) {
+            error = ERROR_SERVICE_CANNOT_ACCEPT_CTRL;
+            return ScmEndpointResult::Unavailable;
+        }
+        // SCM 的 checkpoint 有推进时，按照 WaitHint 延长当前阶段等待；没有推进
+        // 则不能无限延长，防止损坏的服务永久占用客户端请求。
+        if (status.dwCheckPoint != previousCheckpoint) {
+            previousCheckpoint = status.dwCheckPoint;
+            const DWORD waitHint = (std::clamp)(status.dwWaitHint,
+                                                static_cast<DWORD>(1'000),
+                                                static_cast<DWORD>(30'000));
+            checkpointDeadline = (std::min)(hardDeadline, GetTickCount64() + waitHint * 2ull);
+        } else if (GetTickCount64() >= checkpointDeadline) {
+            error = ERROR_TIMEOUT;
+            return ScmEndpointResult::Unavailable;
+        }
+        const DWORD sleepMs = (std::clamp)(status.dwWaitHint / 10,
+                                            static_cast<DWORD>(100),
+                                            static_cast<DWORD>(1'000));
+        Sleep(sleepMs);
+    }
+    // Since the service publishes the authenticated pipe before indexing, a
+    // still-running SCM instance that never creates *this* tokenized endpoint
+    // is not merely slow. It belongs to a different user/session or was started
+    // with stale credentials; surface that boundary explicitly.
+    error = easy::search::isScmEndpointIdentityConflict(lastKnownState, false, true)
+        ? ERROR_NOT_SUPPORTED : ERROR_TIMEOUT;
+    return ScmEndpointResult::Unavailable;
+}
+
 static bool ensureSearchServiceRunning() {
-    if (WaitNamedPipeA(SearchPipe, 100)) {
+    if (g_searchPipe.empty()) return false;
+    if (WaitNamedPipeA(g_searchPipe.c_str(), 100)) {
         return true;
     }
 
@@ -155,36 +341,42 @@ static bool ensureSearchServiceRunning() {
     static std::mutex launchMutex;
     std::lock_guard<std::mutex> launchGuard(launchMutex);
 
-    if (WaitNamedPipeA(SearchPipe, 100)) {
-        return true;
-    }
-
-    if (isServiceProcessRunning()) {
-        return WaitNamedPipeA(SearchPipe, 1500) != FALSE;
-    }
-
-    // 1. 尝试通过 SCM 启动 Windows 服务 (如果已注册服务)
-    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (scm) {
-        SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_START | SERVICE_QUERY_STATUS);
-        if (service) {
-            SERVICE_STATUS_PROCESS ssp{};
-            DWORD bytesNeeded = 0;
-            if (QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded)) {
-                if (ssp.dwCurrentState != SERVICE_RUNNING && ssp.dwCurrentState != SERVICE_START_PENDING) {
-                    StartServiceW(service, 0, nullptr);
-                }
-            }
-            CloseServiceHandle(service);
+    // 进程内 mutex 只能串行当前插件实例；同一用户连续启动两个 EasyTools
+    // 进程时仍可能同时拉起服务。令牌已是每用户不可预测值，因此可安全地作为
+    // Local 命名 mutex 的组成部分，不暴露固定全局对象名给其他会话猜测。
+    const std::wstring launchMutexName = L"Local\\EasyToolsSearchLaunch-" +
+        easy::core::WinUtils::utf8ToWstring(g_searchPipeToken);
+    HANDLE processLaunchMutex = CreateMutexW(nullptr, FALSE, launchMutexName.c_str());
+    if (!processLaunchMutex) return false;
+    struct LaunchMutexGuard {
+        HANDLE value;
+        bool locked = false;
+        ~LaunchMutexGuard() {
+            if (locked) ReleaseMutex(value);
+            if (value) CloseHandle(value);
         }
-        CloseServiceHandle(scm);
+    } processLaunchGuard{processLaunchMutex};
+    const DWORD waitResult = WaitForSingleObject(processLaunchMutex, 10'000);
+    if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_ABANDONED) {
+        SetLastError(waitResult == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
+        return false;
     }
+    processLaunchGuard.locked = true;
 
-    if (WaitNamedPipeA(SearchPipe, 500)) {
+    if (WaitNamedPipeA(g_searchPipe.c_str(), 100)) {
         return true;
     }
 
-    // 2. 尝试寻找同目录下的 EasyTools_Service.exe 作为独立后台进程自启动
+    DWORD scmError = ERROR_SUCCESS;
+    const auto scmResult = startScmServiceAndWait(scmError);
+    if (scmResult == ScmEndpointResult::Ready) return true;
+    if (scmResult == ScmEndpointResult::Unavailable) {
+        SetLastError(scmError);
+        LOG_WARN("SearchPlugin: SCM 服务未提供当前用户端点，拒绝启动第二个索引进程, error={}", scmError);
+        return false;
+    }
+
+    // SCM 明确不存在、无法启动或已停止后，才允许便携进程回退。
     wchar_t modulePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
     std::filesystem::path exeDir = std::filesystem::path(modulePath).parent_path();
@@ -196,16 +388,30 @@ static bool ensureSearchServiceRunning() {
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
         PROCESS_INFORMATION pi{};
-        std::wstring cmd = L"\"" + serviceExe.wstring() + L"\"";
+        std::wstring cmd = L"\"" + serviceExe.wstring() + L"\" --pipe-token=" +
+            easy::core::WinUtils::utf8ToWstring(g_searchPipeToken) + L" --client-sid=" + g_searchClientSid;
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
             g_serviceSpawnedByUs.store(true);
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
+        } else {
+            // Preserve the launch failure. WaitNamedPipe below has its own error
+            // path and must not hide a malformed executable/ACL/creation error.
+            const DWORD launchError = GetLastError();
+            SetLastError(launchError);
+            return false;
         }
+    } else {
+        const DWORD missingServiceError = ec ? static_cast<DWORD>(ec.value()) : ERROR_FILE_NOT_FOUND;
+        SetLastError(missingServiceError);
+        return false;
     }
 
-    return WaitNamedPipeA(SearchPipe, 3000) != FALSE;
+    if (WaitNamedPipeA(g_searchPipe.c_str(), 3000)) return true;
+    const DWORD pipeWaitError = GetLastError();
+    SetLastError(pipeWaitError);
+    return false;
 }
 
 // autoStart 为 false 时，服务没在跑就直接放弃本次调用。历史记录、数据库统计这类
@@ -214,7 +420,11 @@ static bool ensureSearchServiceRunning() {
 std::optional<std::string> querySearchService(const std::string& query, DWORD& error,
                                               bool autoStart = true) {
     error = ERROR_SUCCESS;
-    if (!WaitNamedPipeA(SearchPipe, autoStart ? 1000 : 1)) {
+    if (g_searchPipe.empty()) {
+        error = ERROR_ACCESS_DENIED;
+        return std::nullopt;
+    }
+    if (!WaitNamedPipeA(g_searchPipe.c_str(), autoStart ? 1000 : 1)) {
         if (!autoStart) {
             error = ERROR_SERVICE_NOT_ACTIVE;
             return std::nullopt;
@@ -225,11 +435,11 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
         }
     }
 
-    HANDLE pipe = CreateFileA(SearchPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+    HANDLE pipe = CreateFileA(g_searchPipe.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                               OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) {
-        if (WaitNamedPipeA(SearchPipe, 1500)) {
-            pipe = CreateFileA(SearchPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+        if (WaitNamedPipeA(g_searchPipe.c_str(), 1500)) {
+            pipe = CreateFileA(g_searchPipe.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                                OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
         }
     }
@@ -311,6 +521,7 @@ public:
 
     bool initialize() override {
         LOG_INFO("SearchPlugin: 初始化搜索引擎");
+        if (!initializePipeEndpoint()) return false;
 
         auto& mb = easy::core::MessageBridge::instance();
         
@@ -335,7 +546,11 @@ public:
             if (response) {
                 try {
                     auto result = nlohmann::json::parse(*response);
-                    result["available"] = true;
+                    // The service may deliberately expose its authenticated
+                    // endpoint before disk/index initialization completes.
+                    // Preserve that explicit state instead of presenting an
+                    // empty initializing index as a healthy search result.
+                    result["available"] = !result.value("initializing", false);
                     return result;
                 } catch (...) {
                     LOG_ERROR("SearchPlugin: 无法解析 JSON 结果");
@@ -344,11 +559,17 @@ public:
                 LOG_WARN("SearchPlugin: 管道调用超时或返回空, error={}", pipeError);
             }
 
-            bool isAlive = (pipeError == ERROR_TIMEOUT || isServiceProcessRunning());
+            // A process named EasyTools_Service.exe can belong to another user,
+            // session, or stale token. Only a timeout/busy result from this
+            // per-user endpoint can be reported as a currently busy service.
+            const bool isAlive = pipeError == ERROR_TIMEOUT || pipeError == ERROR_PIPE_BUSY;
+            const char* statusError = pipeError == ERROR_NOT_SUPPORTED
+                ? "search service is attached to another Windows user or session"
+                : (isAlive ? "search service busy" : "search service unavailable");
             return {
                 {"results", nlohmann::json::array()},
                 {"available", isAlive},
-                {"error", isAlive ? "search service busy" : "search service unavailable"}
+                {"error", statusError}
             };
         });
 
@@ -466,132 +687,8 @@ public:
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-
-            std::thread([widePath = std::move(widePath)]() {
-                HWND hwndSearch = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-                if (hwndSearch) SetPropW(hwndSearch, L"EasyTools_ShellMenuActive", (HANDLE)1);
-
-                HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-                PIDLIST_ABSOLUTE pidl = nullptr;
-                HRESULT hr = SHParseDisplayName(widePath.c_str(), nullptr, &pidl, 0, nullptr);
-                if (FAILED(hr) || !pidl) {
-                    if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-                    if (SUCCEEDED(hrCom)) CoUninitialize();
-                    return;
-                }
-
-                IShellFolder* pParentFolder = nullptr;
-                PCUITEMID_CHILD pidlChild = nullptr;
-                hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
-                if (FAILED(hr) || !pParentFolder) {
-                    CoTaskMemFree(pidl);
-                    if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-                    if (SUCCEEDED(hrCom)) CoUninitialize();
-                    return;
-                }
-
-                IContextMenu* pContextMenu = nullptr;
-                hr = pParentFolder->GetUIObjectOf(nullptr, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
-                if (SUCCEEDED(hr) && pContextMenu) {
-                    HMENU hMenu = CreatePopupMenu();
-                    if (hMenu) {
-                        pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
-                        POINT pt = { 0, 0 };
-                        GetCursorPos(&pt);
-
-                        static const wchar_t* CLASS_NAME = L"EasyTools_ShellMenuWnd_Plugin";
-                        static thread_local IContextMenu2* t_pcm2 = nullptr;
-                        static thread_local IContextMenu3* t_pcm3 = nullptr;
-
-                        pContextMenu->QueryInterface(IID_IContextMenu2, (void**)&t_pcm2);
-                        pContextMenu->QueryInterface(IID_IContextMenu3, (void**)&t_pcm3);
-
-                        WNDCLASSEXW wc{};
-                        wc.cbSize = sizeof(wc);
-                        wc.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) -> LRESULT {
-                            if (t_pcm3) {
-                                LRESULT lres = 0;
-                                if (SUCCEEDED(t_pcm3->HandleMenuMsg2(msg, wp, lp, &lres))) {
-                                    return lres;
-                                }
-                            }
-                            if (t_pcm2) {
-                                if (SUCCEEDED(t_pcm2->HandleMenuMsg(msg, wp, lp))) {
-                                    return 0;
-                                }
-                            }
-                            switch (msg) {
-                                case WM_INITMENUPOPUP:
-                                case WM_DRAWITEM:
-                                case WM_MEASUREITEM:
-                                case WM_MENUCHAR:
-                                    return 0;
-                                default:
-                                    return DefWindowProcW(hwnd, msg, wp, lp);
-                            }
-                        };
-                        wc.hInstance = GetModuleHandleW(nullptr);
-                        wc.lpszClassName = CLASS_NAME;
-                        RegisterClassExW(&wc);
-
-                        HWND helperWnd = CreateWindowExW(
-                            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-                            CLASS_NAME, L"",
-                            WS_POPUP,
-                            pt.x, pt.y, 0, 0,
-                            nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
-                        );
-
-                        if (helperWnd) {
-                            SetForegroundWindow(helperWnd);
-                        }
-
-                        UINT cmd = TrackPopupMenuEx(
-                            hMenu,
-                            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
-                            pt.x, pt.y,
-                            helperWnd ? helperWnd : GetForegroundWindow(),
-                            nullptr
-                        );
-
-                        if (cmd >= 1) {
-                            CMINVOKECOMMANDINFOEX info{};
-                            info.cbSize = sizeof(info);
-                            info.fMask = CMIC_MASK_UNICODE;
-                            info.hwnd = helperWnd;
-                            info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
-                            info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
-                            info.nShow = SW_SHOWNORMAL;
-                            pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
-                        }
-
-                        if (t_pcm3) { t_pcm3->Release(); t_pcm3 = nullptr; }
-                        if (t_pcm2) { t_pcm2->Release(); t_pcm2 = nullptr; }
-
-                        if (helperWnd && IsWindow(helperWnd)) {
-                            DestroyWindow(helperWnd);
-                        }
-                        DestroyMenu(hMenu);
-                    }
-                    pContextMenu->Release();
-                }
-
-                pParentFolder->Release();
-                CoTaskMemFree(pidl);
-
-                if (hwndSearch && IsWindow(hwndSearch)) {
-                    SetForegroundWindow(hwndSearch);
-                    SetFocus(hwndSearch);
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                if (hwndSearch && IsWindow(hwndSearch)) {
-                    RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-                }
-                if (SUCCEEDED(hrCom)) CoUninitialize();
-            }).detach();
-
-            return {{"success", true}};
+            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath);
+            return {{"success", started}, {"busy", !started}};
         });
 
         mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {
@@ -635,8 +732,7 @@ public:
         // 说明用户要用搜索。需要拉起时走 search.warmup。
         mb.registerHandler("search.getServiceStatus", [](const nlohmann::json&) -> nlohmann::json {
             return {
-                {"available", WaitNamedPipeA(SearchPipe, 1) != FALSE},
-                {"pipeName", SearchPipe}
+                {"available", !g_searchPipe.empty() && WaitNamedPipeA(g_searchPipe.c_str(), 1) != FALSE}
             };
         });
 

@@ -1,12 +1,16 @@
-import { StrictMode, Component } from 'react'
+/* eslint-disable react-refresh/only-export-components -- application entrypoint owns stable lazy surface boundaries */
+import { StrictMode, Component, Suspense, lazy } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './i18n/config'
-import App from './App.tsx'
-import SearchApp from './SearchApp.tsx'
-import TrayApp from './TrayApp.tsx'
-import QuickLookApp from './QuickLookApp.tsx'
+
+// 每个 WebView 表面只解析自己的组件树。生产构建会为这些动态入口保留独立
+// chunk；WebView2 的虚拟主机映射会从同一 ui 目录安全加载它们。
+const SettingsApp = lazy(() => import('./App.tsx'))
+const SearchApp = lazy(() => import('./SearchApp.tsx'))
+const TrayApp = lazy(() => import('./TrayApp.tsx'))
+const QuickLookApp = lazy(() => import('./QuickLookApp.tsx'))
 
 class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {
@@ -82,7 +86,9 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      {isTray ? <TrayApp /> : (isSearch ? <SearchApp /> : (isQuickLook ? <QuickLookApp /> : <App />))}
+      <Suspense fallback={<div role="status" aria-live="polite" className="surface-loading">正在加载…</div>}>
+        {isTray ? <TrayApp /> : (isSearch ? <SearchApp /> : (isQuickLook ? <QuickLookApp /> : <SettingsApp />))}
+      </Suspense>
     </ErrorBoundary>
   </StrictMode>,
 )

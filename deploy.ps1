@@ -17,7 +17,7 @@ param (
     [switch]$Quick = $false,             # 极速增量开发模式 (跳过 npm ci，复用 node_modules 直奔编译与测试)
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
     [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
-    [switch]$Coverage = $false,          # 强制启用 100% 代码覆盖率分析 (OpenCppCoverage)
+    [switch]$Coverage = $false,          # 启用 C++ 代码覆盖率分析与防回退门禁 (OpenCppCoverage)
     [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
 
@@ -77,7 +77,7 @@ if (Test-Path "ui/package.json") {
             Write-Log "⚡ 极速模式: 复用本地 node_modules 依赖" "INFO"
         }
 
-        foreach ($Command in @("lint", "i18n-check", "css-check", "build")) {
+        foreach ($Command in @("lint", "i18n-check", "css-check", "test", "build")) {
             Write-Log "执行 npm run $Command..."
             npm run $Command
             if ($LASTEXITCODE -ne 0) {
@@ -213,7 +213,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Log "C++ 编译完成。" "SUCCESS"
 
 # ------------------------------------------------------------------------------
-# 4.5 运行单元测试与 100% 代码覆盖率分析 (失败则中断流水线)
+# 4.5 运行单元测试与代码覆盖率防回退分析 (失败则中断流水线)
 # ------------------------------------------------------------------------------
 if (-not $SkipTests) {
     $OpenCppCoverageExe = $null
@@ -224,7 +224,7 @@ if (-not $SkipTests) {
     }
 
     if ($Coverage -or $OpenCppCoverageExe) {
-        Write-Log "运行 C++ 单元测试与 100% 代码覆盖率严苛分析..."
+        Write-Log "运行 C++ 单元测试与代码覆盖率防回退分析..."
         $CoverageReportDir = Join-Path $ScriptDir "coverage_report"
         if (-not (Test-Path $CoverageReportDir)) { New-Item -ItemType Directory -Path $CoverageReportDir | Out-Null }
 
@@ -241,6 +241,15 @@ if (-not $SkipTests) {
                                   -- $TestExe --gtest_output="xml:$CoverageReportDir\junit.xml"
             if ($LASTEXITCODE -ne 0) {
                 throw "单元测试与代码覆盖率分析执行失败！退出码: $LASTEXITCODE"
+            }
+            $CoberturaPath = Join-Path $CoverageReportDir "cobertura.xml"
+            if (Test-Path $CoberturaPath) {
+                [xml]$CoverageXml = Get-Content $CoberturaPath
+                $LineRate = [double]$CoverageXml.coverage.'line-rate'
+                if ($LineRate -lt 0.30) {
+                    throw "C++ 行覆盖率 $([math]::Round($LineRate * 100, 2))% 低于 30% 防回退门禁"
+                }
+                Write-Log "C++ 行覆盖率: $([math]::Round($LineRate * 100, 2))% (门禁 >= 30%)" "SUCCESS"
             }
             Write-Log "代码覆盖率报告与 GTest JUnit 报表已生成: $CoverageReportDir" "SUCCESS"
         } else {

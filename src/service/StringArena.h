@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <stdexcept>
 #include <vector>
 
 namespace easy::service {
@@ -40,7 +41,7 @@ public:
         const size_t needed = text.size();
         if (needed > BlockChars) {
             if (m_blocks.size() + 1 >= MaxBlocks) {
-                return 0; // 防御性保护：到达 8GiB 逻辑偏移寻址上界
+                throw std::length_error("StringArena logical address space exhausted");
             }
             // Oversized strings get a block to themselves so that the logical
             // offset of the next block stays collision-free.
@@ -55,7 +56,7 @@ public:
 
         if (m_blockUsed + needed > BlockChars) {
             if (m_blocks.size() >= MaxBlocks) {
-                return 0; // 防御性保护
+                throw std::length_error("StringArena logical address space exhausted");
             }
             m_blocks.push_back(std::make_unique<wchar_t[]>(BlockChars));
             m_blockUsed = 0;

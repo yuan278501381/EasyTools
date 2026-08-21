@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <psapi.h>
+#include <TraceLoggingProvider.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -16,6 +17,17 @@
 #include <sstream>
 
 namespace easy::core {
+
+namespace {
+
+// Stable provider identity for WPR/PerfView collection. TraceLogging emits no
+// payload work when no ETW session enables this provider.
+TRACELOGGING_DEFINE_PROVIDER(
+    g_easyToolsPerformanceProvider,
+    "EasyTools.Performance",
+    (0x92c5838f, 0x961b, 0x4d7d, 0x8c, 0x31, 0x38, 0xa1, 0xe9, 0x2a, 0x13, 0x7b));
+
+}  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PerfMetrics
@@ -54,6 +66,12 @@ nlohmann::json PerfMetrics::toJson() const {
         };
     }
     j["latencies"] = std::move(latencyJson);
+
+    nlohmann::json counterJson = nlohmann::json::object();
+    for (const auto& [name, value] : counters) {
+        counterJson[name] = value;
+    }
+    j["counters"] = std::move(counterJson);
     return j;
 }
 
@@ -116,6 +134,12 @@ void PerformanceMonitor::start(int intervalMs) {
     }
     m_lastSampleTime = GetTickCount64();
 
+    // Registration is intentionally best-effort: performance observability
+    // must never prevent the productivity host from starting.
+    if (TraceLoggingRegister(g_easyToolsPerformanceProvider) == ERROR_SUCCESS) {
+        m_etwRegistered.store(true, std::memory_order_release);
+    }
+
     m_sampleThread = std::thread(&PerformanceMonitor::sampleLoop, this);
     LOG_INFO("PerformanceMonitor: 启动, 采样间隔={}ms", m_intervalMs);
 }
@@ -125,6 +149,9 @@ void PerformanceMonitor::stop() {
     m_wakeCv.notify_all();
     if (m_sampleThread.joinable()) {
         m_sampleThread.join();
+    }
+    if (m_etwRegistered.exchange(false, std::memory_order_acq_rel)) {
+        TraceLoggingUnregister(g_easyToolsPerformanceProvider);
     }
     if (wasRunning) LOG_INFO("PerformanceMonitor: 已停止");
 }
@@ -136,27 +163,68 @@ PerfMetrics PerformanceMonitor::getMetrics() const {
     return metrics;
 }
 
+nlohmann::json PerformanceMonitor::getMetricsJson() const {
+    return getMetrics().toJson();
+}
+
 void PerformanceMonitor::recordLatency(const std::string& subsystem, double ms) {
     if (subsystem.empty() || subsystem.size() > 128 || !std::isfinite(ms) || ms < 0.0) return;
-    std::lock_guard lock(m_mutex);
-    if (subsystem == "screenshot") {
-        m_currentMetrics.screenshotLatencyMs = ms;
-    } else if (subsystem == "gesture") {
-        m_currentMetrics.gestureLatencyMs = ms;
-    } else if (subsystem == "ui_render") {
-        m_currentMetrics.uiRenderLatencyMs = ms;
+    bool accepted = false;
+    {
+        std::lock_guard lock(m_mutex);
+        if (subsystem == "screenshot") {
+            m_currentMetrics.screenshotLatencyMs = ms;
+        } else if (subsystem == "gesture") {
+            m_currentMetrics.gestureLatencyMs = ms;
+        } else if (subsystem == "ui_render") {
+            m_currentMetrics.uiRenderLatencyMs = ms;
+        }
+        auto series = m_latencySamples.find(subsystem);
+        if (series == m_latencySamples.end()) {
+            if (m_latencySamples.size() >= MAX_NAMED_LATENCY_SERIES) return;
+            series = m_latencySamples.emplace(subsystem, std::deque<double>{}).first;
+        }
+        auto& samples = series->second;
+        samples.push_back(ms);
+        if (samples.size() > MAX_LATENCY_SAMPLES) samples.pop_front();
+        ++m_latencySampleCounts[subsystem];
+        accepted = true;
     }
-    auto& samples = m_latencySamples[subsystem];
-    samples.push_back(ms);
-    if (samples.size() > MAX_LATENCY_SAMPLES) samples.pop_front();
-    ++m_latencySampleCounts[subsystem];
+    if (!accepted) return;
+    if (m_etwRegistered.load(std::memory_order_acquire) &&
+        TraceLoggingProviderEnabled(g_easyToolsPerformanceProvider, 0, 0)) {
+        TraceLoggingWrite(g_easyToolsPerformanceProvider, "Latency",
+            TraceLoggingString(subsystem.c_str(), "Subsystem"),
+            TraceLoggingFloat64(ms, "Milliseconds"));
+    }
     LOG_TRACE("PerformanceMonitor: 记录延迟 [{}] = {:.2f} ms", subsystem, ms);
 }
 
 void PerformanceMonitor::recordPluginInit(const std::string& pluginName, double ms) {
+    if (pluginName.empty() || pluginName.size() > 128 || !std::isfinite(ms) || ms < 0.0) return;
     std::lock_guard lock(m_mutex);
+    if (!m_currentMetrics.pluginInitMs.contains(pluginName) &&
+        m_currentMetrics.pluginInitMs.size() >= MAX_PLUGIN_INIT_METRICS) {
+        return;
+    }
     m_currentMetrics.pluginInitMs[pluginName] = ms;
     LOG_DEBUG("PerformanceMonitor: 插件初始化 [{}] = {:.2f} ms", pluginName, ms);
+}
+
+void PerformanceMonitor::recordCounter(const std::string& name, std::uint64_t value) {
+    if (name.empty() || name.size() > 128) return;
+    {
+        std::lock_guard lock(m_mutex);
+        if (!m_counters.contains(name) && m_counters.size() >= MAX_NAMED_COUNTERS) return;
+        m_counters[name] = value;
+        m_currentMetrics.counters = m_counters;
+    }
+    if (m_etwRegistered.load(std::memory_order_acquire) &&
+        TraceLoggingProviderEnabled(g_easyToolsPerformanceProvider, 0, 0)) {
+        TraceLoggingWrite(g_easyToolsPerformanceProvider, "Counter",
+            TraceLoggingString(name.c_str(), "Name"),
+            TraceLoggingUInt64(value, "Value"));
+    }
 }
 
 std::vector<PerfMetrics> PerformanceMonitor::getHistory(int count) const {
@@ -205,6 +273,7 @@ void PerformanceMonitor::sampleOnce() {
         metrics.uiRenderLatencyMs   = m_currentMetrics.uiRenderLatencyMs;
         metrics.pluginInitMs        = m_currentMetrics.pluginInitMs;
         metrics.latencies           = latencySummariesLocked();
+        metrics.counters            = m_counters;
 
         m_currentMetrics = metrics;
 
@@ -212,6 +281,15 @@ void PerformanceMonitor::sampleOnce() {
         if (static_cast<int>(m_history.size()) > MAX_HISTORY) {
             m_history.erase(m_history.begin());
         }
+    }
+    if (m_etwRegistered.load(std::memory_order_acquire) &&
+        TraceLoggingProviderEnabled(g_easyToolsPerformanceProvider, 0, 0)) {
+        TraceLoggingWrite(g_easyToolsPerformanceProvider, "ProcessSample",
+            TraceLoggingFloat64(metrics.privateMemoryMB, "PrivateMemoryMB"),
+            TraceLoggingFloat64(metrics.memoryMB, "WorkingSetMB"),
+            TraceLoggingUInt32(metrics.gdiObjectCount, "GdiObjects"),
+            TraceLoggingUInt32(metrics.userObjectCount, "UserObjects"),
+            TraceLoggingUInt32(metrics.handleCount, "Handles"));
     }
 }
 

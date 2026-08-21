@@ -1,7 +1,7 @@
 # EasyTools UI
 
 EasyTools 的 React 19 + TypeScript 设置、搜索和托盘界面。生产构建由
-`vite-plugin-singlefile` 合并为单个 `dist/index.html`，由原生 WebView2
+Vite 会输出带内容哈希的多文件 chunk，由原生 WebView2
 容器通过 `https://easytools.local/` 虚拟域加载；前后端通过带请求 ID、
 超时和错误回传的消息桥通信。
 

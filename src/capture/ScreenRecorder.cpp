@@ -414,7 +414,31 @@ void ScreenRecorder::recordingLoop() {
         monitor.recordLatency("recording.conversion", snapshot.conversionLatencyMs);
         monitor.recordLatency("recording.encode", snapshot.encodeLatencyMs);
         monitor.recordLatency("recording.pipeline", snapshot.pipelineLatencyMs);
+        monitor.recordCounter("recording.outputFrames",
+                              static_cast<std::uint64_t>(snapshot.frameCount));
+        monitor.recordCounter("recording.droppedFrames",
+                              static_cast<std::uint64_t>(snapshot.droppedFrameCount));
     };
+
+    // Probe only on the recorder-owned worker and only for the explicit
+    // experiment flag. The result is diagnostics for a future backend; this
+    // recording session remains on the initialized CPU conversion/FFmpeg path.
+    if (m_options.experimentalGpuEncoding) {
+        const auto probe = probeRecordingGpuPath();
+        {
+            std::lock_guard lock(m_statsMutex);
+            m_stats.gpuExperimentRequested = true;
+            m_stats.gpuExperimentAvailable = probe.canExperiment();
+            m_stats.gpuExperimentStatus = probe.canExperiment()
+                ? "capability detected; CPU fallback remains active"
+                : (!probe.d3d11Error.empty() ? probe.d3d11Error
+                   : (!probe.mediaFoundationError.empty() ? probe.mediaFoundationError
+                      : probe.ffmpegError));
+        }
+        LOG_INFO("GPU encoding experiment probe: d3d11={}, featureLevel=0x{:X}, mfMft={}, ffmpegD3d11va={}; CPU pipeline retained",
+                 probe.d3d11Available, probe.d3d11FeatureLevel,
+                 probe.mediaFoundationHardwareMftAvailable, probe.ffmpegD3d11vaCompiled);
+    }
 
     // 线程入口兜底: 任何 std 异常(如全屏帧缓冲 std::bad_alloc、日志 std::format 抛错)若逃逸出
     // 线程函数会直接 std::terminate 整个进程。这里全程兜底, 异常时干净停止录制。

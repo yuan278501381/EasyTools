@@ -100,6 +100,15 @@
   --key-tooltip-text: #ffffff;
 }
 
+.surface-loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  color: var(--text-primary, CanvasText);
+  background: var(--bg-primary, Canvas);
+  font: 500 14px/1.5 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
 /* ── 亮色主题 (毛玻璃化亮色) ────────────────────────────────────────────── */
 [data-theme="light"] {
   --primary: #7c3aed;
@@ -342,6 +351,13 @@ textarea,
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }
 

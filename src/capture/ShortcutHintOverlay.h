@@ -5,6 +5,8 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 
+#include "core/accessibility/OverlayUiaProvider.h"
+
 #include <string>
 #include <vector>
 
@@ -57,6 +59,7 @@ private:
                 int& width, int& height);
     void render();
     void discardResources();
+    std::vector<easy::core::accessibility::OverlayUiaAction> accessibilityActions() const;
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd = nullptr;

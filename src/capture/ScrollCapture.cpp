@@ -10,11 +10,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/ScrollCapture.h"
+#include "capture/ScrollCaptureStorage.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 
 #include <opencv2/imgproc.hpp>
+#include <fstream>
+#include <system_error>
+#include <limits>
 
 namespace easy::capture {
 
@@ -35,7 +39,8 @@ void ScrollCapture::start(const ScrollCaptureOptions& options) {
 
     easy::core::TraceId::Scope scope;
     m_options = options;
-    m_segments.clear();
+    clearStorage();
+    m_terminalError.clear();
     m_lastFrame.release();
     m_frameCount = 0;
     m_completionDelivered = false;
@@ -81,7 +86,8 @@ void ScrollCapture::shutdown() {
     if (m_scrollThread.joinable()) m_scrollThread.join();
     m_progressCb = nullptr;
     m_completionCb = nullptr;
-    m_segments.clear();
+    clearStorage();
+    m_terminalError.clear();
     m_lastFrame.release();
     if (m_captureBackend) m_captureBackend->shutdown();
     m_captureBackend.reset();
@@ -95,6 +101,7 @@ void ScrollCapture::captureCurrentFrame() {
     auto frame = captureRegion(m_options.captureRect);
     if (!frame.empty()) {
         appendFrame(frame);
+        if (!m_running.load() && !m_terminalError.empty()) deliverCompletion(m_terminalError);
     }
 }
 
@@ -125,6 +132,7 @@ void ScrollCapture::autoScrollLoop() {
         }
 
         appendFrame(frame);
+        if (!m_running.load()) break;
 
         // 模拟鼠标滚轮滚动
         RECT& r = m_options.captureRect;
@@ -161,7 +169,7 @@ void ScrollCapture::autoScrollLoop() {
 
     m_running = false;
     SetCursorPos(originalCursor.x, originalCursor.y);
-    deliverCompletion();
+    deliverCompletion(m_terminalError);
     } catch (const std::exception& e) {
         m_running = false;
         SetCursorPos(originalCursor.x, originalCursor.y);
@@ -177,18 +185,65 @@ void ScrollCapture::autoScrollLoop() {
 
 void ScrollCapture::appendFrame(const cv::Mat& frame) {
     if (frame.empty()) return;
+    int offset = 0;
     if (m_lastFrame.empty()) {
-        m_segments.push_back(frame.clone());
+        offset = 0;
     } else {
-        int offset = findStitchOffset(m_lastFrame, frame);
+        offset = findStitchOffset(m_lastFrame, frame);
         if (offset <= 0 || offset >= frame.rows) {
             offset = frame.rows * std::clamp(m_options.overlapPercent, 0, 95) / 100;
         }
-        const int remaining = frame.rows - offset;
-        if (remaining > 0) {
-            m_segments.push_back(frame(cv::Rect(0, offset, frame.cols, remaining)).clone());
-        }
     }
+
+    const int remaining = frame.rows - offset;
+    if (remaining <= 0) return;
+    const std::size_t rowBytes = static_cast<std::size_t>(frame.cols) * frame.elemSize();
+    if (rowBytes == 0 || static_cast<std::size_t>(remaining) >
+            (std::numeric_limits<std::size_t>::max)() / rowBytes) {
+        m_terminalError = "长截图尺寸超出可表示范围";
+        m_running.store(false, std::memory_order_release);
+        return;
+    }
+    const std::size_t additionalBytes = static_cast<std::size_t>(remaining) * rowBytes;
+    if (m_options.maxOutputBytes > 0 &&
+        (additionalBytes > m_options.maxOutputBytes ||
+         m_segmentBytes > m_options.maxOutputBytes - additionalBytes)) {
+        m_terminalError = "长截图已达到安全内存上限，已保留当前结果";
+        m_running.store(false, std::memory_order_release);
+        LOG_WARN("长截图达到字节预算: current={} MiB, next={} MiB, limit={} MiB",
+                 m_segmentBytes / (1024 * 1024), additionalBytes / (1024 * 1024),
+                 m_options.maxOutputBytes / (1024 * 1024));
+        return;
+    }
+    const cv::Mat segment = frame(cv::Rect(0, offset, frame.cols, remaining)).clone();
+    if (m_segmentWidth == 0) {
+        m_segmentWidth = segment.cols;
+        m_segmentType = segment.type();
+    }
+    if (segment.cols != m_segmentWidth || segment.type() != m_segmentType) {
+        m_terminalError = "长截图帧格式发生变化，已安全停止";
+        m_running.store(false, std::memory_order_release);
+        return;
+    }
+
+    // 一旦分段超过小型暂存额度，将已有数据和后续分段放进仅当前用户可见的
+    // 临时文件。最终回调仍返回 cv::Mat，因而最终成图本身不可省略；但不会再
+    // 同时保留近一整张输出大小的源分段，显著降低峰值私有内存。
+    const bool mustSpill = !m_spilledSegments.empty() ||
+        (m_options.maxInMemoryStagingBytes > 0 &&
+         (additionalBytes > m_options.maxInMemoryStagingBytes ||
+          m_residentSegmentBytes > m_options.maxInMemoryStagingBytes - additionalBytes));
+    if (mustSpill) {
+        if (!spillResidentSegments() || !appendSpilledSegment(segment)) {
+            m_terminalError = "长截图临时存储不可用，已安全停止";
+            m_running.store(false, std::memory_order_release);
+            return;
+        }
+    } else {
+        m_segments.push_back(segment);
+        m_residentSegmentBytes += additionalBytes;
+    }
+    m_segmentBytes += additionalBytes;
     // cv::Mat is reference counted and the captured frame is immutable here;
     // retaining it avoids another full-frame copy on every scroll step.
     m_lastFrame = frame;
@@ -199,15 +254,145 @@ void ScrollCapture::appendFrame(const cv::Mat& frame) {
     }
 }
 
+bool ScrollCapture::spillResidentSegments() {
+    if (!m_spilledSegments.empty()) return true;
+    std::filesystem::path stagingDirectory = m_options.stagingDirectory;
+    if (stagingDirectory.empty()) {
+        wchar_t tempDirectory[MAX_PATH]{};
+        const DWORD tempLength = GetTempPathW(MAX_PATH, tempDirectory);
+        if (tempLength == 0 || tempLength >= MAX_PATH) return false;
+        stagingDirectory = tempDirectory;
+    }
+    std::error_code directoryError;
+    if (!std::filesystem::is_directory(stagingDirectory, directoryError) || directoryError) return false;
+    wchar_t temporaryName[MAX_PATH]{};
+    if (!GetTempFileNameW(stagingDirectory.c_str(), L"EZT", 0, temporaryName)) return false;
+    const std::filesystem::path spillPath = temporaryName;
+    std::uint64_t writeOffset = 0;
+    std::vector<SpilledSegment> records;
+
+    // GetTempFileName 已经创建了文件；使用 truncate 以移除其占位内容。
+    std::ofstream output(spillPath, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        std::error_code error;
+        std::filesystem::remove(spillPath, error);
+        return false;
+    }
+    for (const cv::Mat& segment : m_segments) {
+        if (!segment.isContinuous()) {
+            output.close();
+            std::error_code error;
+            std::filesystem::remove(spillPath, error);
+            return false;
+        }
+        const std::size_t bytes = segment.total() * segment.elemSize();
+        if (!scroll_storage::writeMat(output, segment)) {
+            output.close();
+            std::error_code error;
+            std::filesystem::remove(spillPath, error);
+            return false;
+        }
+        records.push_back({writeOffset, segment.rows});
+        writeOffset += bytes;
+    }
+    output.close();
+    if (!output) {
+        std::error_code error;
+        std::filesystem::remove(spillPath, error);
+        return false;
+    }
+    // 只有整个内存批次落盘成功后才切换存储所有权；错误时仍保留原始内存分段，
+    // completion 可以交付已安全保留的图像而不会读到半写入的记录。
+    m_spillPath = spillPath;
+    m_spilledSegments = std::move(records);
+    m_spillWriteOffset = writeOffset;
+    m_segments.clear();
+    m_residentSegmentBytes = 0;
+    return true;
+}
+
+bool ScrollCapture::appendSpilledSegment(const cv::Mat& segment) {
+    if (m_spillPath.empty() || !segment.isContinuous()) return false;
+    const std::size_t bytes = segment.total() * segment.elemSize();
+    std::ofstream output(m_spillPath, std::ios::binary | std::ios::app);
+    if (!output) return false;
+    if (!scroll_storage::writeMat(output, segment)) return false;
+    output.close();
+    if (!output) return false;
+    m_spilledSegments.push_back({m_spillWriteOffset, segment.rows});
+    m_spillWriteOffset += bytes;
+    return true;
+}
+
+void ScrollCapture::clearStorage() {
+    m_segments.clear();
+    m_segmentBytes = 0;
+    m_residentSegmentBytes = 0;
+    m_spilledSegments.clear();
+    m_spillWriteOffset = 0;
+    m_segmentWidth = 0;
+    m_segmentType = -1;
+    if (!m_spillPath.empty()) {
+        std::error_code error;
+        std::filesystem::remove(m_spillPath, error);
+        if (error) LOG_WARN("无法删除长截图临时文件: {}", error.message());
+        m_spillPath.clear();
+    }
+}
+
 cv::Mat ScrollCapture::buildStitchedImage() const {
-    if (m_segments.empty()) return {};
-    cv::Mat stitched;
-    cv::vconcat(m_segments, stitched);
+    if (m_segments.empty() && m_spilledSegments.empty()) return {};
+    if (m_spilledSegments.empty()) {
+        cv::Mat stitched;
+        cv::vconcat(m_segments, stitched);
+        return stitched;
+    }
+    if (m_segmentWidth <= 0 || m_segmentType < 0 || m_spillPath.empty()) return {};
+    std::uint64_t totalRows = 0;
+    for (const auto& segment : m_spilledSegments) totalRows += static_cast<std::uint64_t>(segment.rows);
+    if (totalRows == 0 || totalRows > static_cast<std::uint64_t>((std::numeric_limits<int>::max)())) return {};
+    cv::Mat stitched(static_cast<int>(totalRows), m_segmentWidth, m_segmentType);
+    std::ifstream input(m_spillPath, std::ios::binary);
+    if (!input) return {};
+    const std::size_t rowBytes = static_cast<std::size_t>(m_segmentWidth) * stitched.elemSize();
+    int destinationRow = 0;
+    for (const auto& segment : m_spilledSegments) {
+        input.seekg(static_cast<std::streamoff>(segment.offset), std::ios::beg);
+        for (int row = 0; row < segment.rows; ++row) {
+            if (!scroll_storage::readExact(input, stitched.ptr(destinationRow + row), rowBytes)) return {};
+        }
+        destinationRow += segment.rows;
+    }
     return stitched;
 }
 
 cv::Mat ScrollCapture::buildRecentPreview(int maxRows) const {
-    if (m_segments.empty() || maxRows <= 0) return {};
+    if ((m_segments.empty() && m_spilledSegments.empty()) || maxRows <= 0) return {};
+    if (!m_spilledSegments.empty()) {
+        if (m_segmentWidth <= 0 || m_segmentType < 0 || m_spillPath.empty()) return {};
+        int rowsToRead = 0;
+        for (auto it = m_spilledSegments.rbegin(); it != m_spilledSegments.rend() && rowsToRead < maxRows; ++it) {
+            rowsToRead += std::min(it->rows, maxRows - rowsToRead);
+        }
+        if (rowsToRead <= 0) return {};
+        cv::Mat preview(rowsToRead, m_segmentWidth, m_segmentType);
+        std::ifstream input(m_spillPath, std::ios::binary);
+        if (!input) return {};
+        const std::size_t rowBytes = static_cast<std::size_t>(m_segmentWidth) * preview.elemSize();
+        int destinationRow = rowsToRead;
+        int remaining = rowsToRead;
+        for (auto it = m_spilledSegments.rbegin(); it != m_spilledSegments.rend() && remaining > 0; ++it) {
+            const int take = std::min(it->rows, remaining);
+            destinationRow -= take;
+            const std::uint64_t sourceOffset = it->offset + static_cast<std::uint64_t>(it->rows - take) * rowBytes;
+            input.seekg(static_cast<std::streamoff>(sourceOffset), std::ios::beg);
+            for (int row = 0; row < take; ++row) {
+            if (!scroll_storage::readExact(input, preview.ptr(destinationRow + row), rowBytes)) return {};
+            }
+            remaining -= take;
+        }
+        return preview;
+    }
     std::vector<cv::Mat> pieces;
     int remaining = maxRows;
     for (auto it = m_segments.rbegin(); it != m_segments.rend() && remaining > 0; ++it) {
@@ -227,8 +412,9 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
     ScrollCaptureResult result;
     result.frameCount = m_frameCount;
     result.errorMessage = error;
-    if (error.empty()) result.stitchedImage = buildStitchedImage();
-    result.success = error.empty() && !result.stitchedImage.empty();
+    // 达到预算或中途降级时也交付已经安全拼接的部分，避免用户的长时间操作归零。
+    if (!m_segments.empty() || !m_spilledSegments.empty()) result.stitchedImage = buildStitchedImage();
+    result.success = !result.stitchedImage.empty();
     if (!result.success && result.errorMessage.empty()) {
         result.errorMessage = m_frameCount == 0 ? "没有捕获到任何帧" : "图像拼接失败";
     }
@@ -239,7 +425,8 @@ void ScrollCapture::deliverCompletion(const std::string& error) {
         LOG_INFO("长截图拼接完成: {}x{}, 帧数={}", result.stitchedImage.cols,
                  result.stitchedImage.rows, result.frameCount);
     }
-    m_segments.clear();
+    clearStorage();
+    m_terminalError.clear();
     m_lastFrame.release();
 }
 

@@ -8,6 +8,8 @@
 #include "capture/ScrollCaptureOverlay.h"
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/CaptureToolbarLayout.h"
+#include "capture/CaptureToolbarAccessibility.h"
+#include "core/accessibility/OverlayAnnouncement.h"
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
@@ -240,7 +242,28 @@ void CaptureInput::rebuildToolbarButtons(const D2D1_RECT_F& selectionRect) {
                           m_renderer->getRenderTarget()->GetSize());
 }
 
+bool CaptureInput::invokeToolbarButton(std::size_t index) {
+    if (!m_state || !m_renderer ||
+        (m_state->state != OverlayState::Selected && m_state->state != OverlayState::Marking)) {
+        return false;
+    }
+    rebuildToolbarButtons(currentSelectionRect());
+    if (index >= m_state->toolbarButtons.size()) return false;
+
+    // Copy before execution: confirm/cancel callbacks may synchronously change
+    // the overlay state and invalidate the backing vector.
+    const ToolbarButton button = m_state->toolbarButtons[index];
+    executeToolbarCommand(button);
+    if (m_renderer) m_renderer->invalidate();
+    return true;
+}
+
 void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
+    // CaptureInput only receives window messages on the overlay UI thread. The
+    // announcement therefore never calls UIA/Win32 from a hook or worker
+    // thread, and remains invisible to sighted users.
+    easy::core::accessibility::announceOverlay(
+        m_hwnd, toolbarButtonAccessibleName(button));
     if (m_state->activeElement) {
         m_state->activeElement->isActive = false;
         m_state->activeElement->isEditing = false;

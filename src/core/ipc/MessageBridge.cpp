@@ -9,17 +9,20 @@
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ShellContextMenuService.h"
 #include "core/stats/StatsManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/events/EventBus.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <utility>
@@ -30,6 +33,11 @@
 namespace {
 
 using json = nlohmann::json;
+constexpr size_t MaxBridgeMessageBytes = 1024 * 1024;
+
+std::string bridgeErrorResponse(int id, int code, std::string_view message) {
+    return json{{"id", id}, {"error", {{"code", code}, {"message", std::string(message)}}}}.dump();
+}
 
 std::optional<std::filesystem::path> choosePath(bool save, bool folder = false) {
     IFileDialog* dialog = nullptr;
@@ -190,6 +198,10 @@ size_t MessageBridge::unregisterHandlersByPrefix(const std::string& prefix) {
 std::string MessageBridge::handleMessage(const std::string& messageJson) {
     TraceId::Scope scope;
     int id = 0;
+    if (messageJson.size() > MaxBridgeMessageBytes) {
+        LOG_WARN("拒绝过大的 IPC 消息: {} bytes", messageJson.size());
+        return bridgeErrorResponse(id, -32600, "Request exceeds 1 MiB limit");
+    }
     try {
         auto request = json::parse(messageJson);
         id = request.value("id", 0);
@@ -371,6 +383,12 @@ void MessageBridge::markMethodAsync(const std::string& method) {
 
 void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResponder responder) {
     if (!responder) return;
+
+    if (messageJson.size() > MaxBridgeMessageBytes) {
+        LOG_WARN("拒绝过大的异步 IPC 消息: {} bytes", messageJson.size());
+        responder(bridgeErrorResponse(0, -32600, "Request exceeds 1 MiB limit"));
+        return;
+    }
 
     int id = 0;
     bool runAsync = false;
@@ -607,7 +625,6 @@ void MessageBridge::registerBuiltinHandlers() {
         for (const auto& item : catalog) {
             if (std::find(installedList.begin(), installedList.end(), item.id) != installedList.end() &&
                 existingIds.find(item.id) == existingIds.end()) {
-                const bool enabled = config.get<bool>("/plugins/" + item.id + "/enabled", true);
                 plugins.push_back({
                     {"id", item.id},
                     {"name", item.name},
@@ -616,11 +633,11 @@ void MessageBridge::registerBuiltinHandlers() {
                     {"abiVersion", item.abiVersion},
                     {"capabilities", item.capabilities},
                     {"permissions", item.permissions},
-                    {"enabled", enabled},
-                    {"active", enabled},
+                    {"enabled", false},
+                    {"active", false},
                     {"restartRequired", false},
-                    {"state", enabled ? "running" : "disabled"},
-                    {"error", ""}
+                    {"state", "unavailable"},
+                    {"error", "扩展包尚未安装；旧版仅记录了目录状态"}
                 });
             }
         }
@@ -636,11 +653,10 @@ void MessageBridge::registerBuiltinHandlers() {
         const bool enabled = params["enabled"].get<bool>();
 
         if (isExtensionInstalled(id)) {
-            ConfigManager::instance().set("/plugins/" + id + "/enabled", enabled);
             return {
-                {"success", true},
+                {"success", false},
                 {"restartRequired", false},
-                {"error", ""}
+                {"error", "扩展市场安装器尚未开放，无法启用未加载的扩展包"}
             };
         }
 
@@ -673,6 +689,7 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"permissions", item.permissions},
                 {"downloadUrl", item.downloadUrl},
                 {"installed", isExtensionInstalled(item.id)},
+                {"available", false},
                 {"featured", item.featured}
             });
         }
@@ -684,12 +701,11 @@ void MessageBridge::registerBuiltinHandlers() {
         if (id.empty()) {
             return {{"success", false}, {"error", "plugin id is required"}};
         }
-        markExtensionInstalled(id, true);
         return {
-            {"success", true},
+            {"success", false},
             {"id", id},
             {"restartRequired", false},
-            {"message", "Plugin package installed successfully and enabled."}
+            {"error", "扩展市场当前为预览目录，安全安装与签名校验完成前不会伪装安装成功"}
         };
     });
 
@@ -1044,132 +1060,8 @@ void MessageBridge::registerBuiltinHandlers() {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-
-        std::thread([wide = std::move(wide)]() {
-            HWND hwndSearch = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (hwndSearch) SetPropW(hwndSearch, L"EasyTools_ShellMenuActive", (HANDLE)1);
-
-            HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            HRESULT hr = SHParseDisplayName(wide.c_str(), nullptr, &pidl, 0, nullptr);
-            if (FAILED(hr) || !pidl) {
-                if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-                if (SUCCEEDED(hrCom)) CoUninitialize();
-                return;
-            }
-
-            IShellFolder* pParentFolder = nullptr;
-            PCUITEMID_CHILD pidlChild = nullptr;
-            hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pParentFolder, &pidlChild);
-            if (FAILED(hr) || !pParentFolder) {
-                CoTaskMemFree(pidl);
-                if (hwndSearch) RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-                if (SUCCEEDED(hrCom)) CoUninitialize();
-                return;
-            }
-
-            IContextMenu* pContextMenu = nullptr;
-            hr = pParentFolder->GetUIObjectOf(nullptr, 1, &pidlChild, IID_IContextMenu, nullptr, (void**)&pContextMenu);
-            if (SUCCEEDED(hr) && pContextMenu) {
-                HMENU hMenu = CreatePopupMenu();
-                if (hMenu) {
-                    pContextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
-                    POINT pt = { 0, 0 };
-                    GetCursorPos(&pt);
-
-                    static const wchar_t* CLASS_NAME = L"EasyTools_ShellMenuWnd";
-                    static thread_local IContextMenu2* t_pcm2 = nullptr;
-                    static thread_local IContextMenu3* t_pcm3 = nullptr;
-
-                    pContextMenu->QueryInterface(IID_IContextMenu2, (void**)&t_pcm2);
-                    pContextMenu->QueryInterface(IID_IContextMenu3, (void**)&t_pcm3);
-
-                    WNDCLASSEXW wc{};
-                    wc.cbSize = sizeof(wc);
-                    wc.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) -> LRESULT {
-                        if (t_pcm3) {
-                            LRESULT lres = 0;
-                            if (SUCCEEDED(t_pcm3->HandleMenuMsg2(msg, wp, lp, &lres))) {
-                                return lres;
-                            }
-                        }
-                        if (t_pcm2) {
-                            if (SUCCEEDED(t_pcm2->HandleMenuMsg(msg, wp, lp))) {
-                                return 0;
-                            }
-                        }
-                        switch (msg) {
-                            case WM_INITMENUPOPUP:
-                            case WM_DRAWITEM:
-                            case WM_MEASUREITEM:
-                            case WM_MENUCHAR:
-                                return 0;
-                            default:
-                                return DefWindowProcW(hwnd, msg, wp, lp);
-                        }
-                    };
-                    wc.hInstance = GetModuleHandleW(nullptr);
-                    wc.lpszClassName = CLASS_NAME;
-                    RegisterClassExW(&wc);
-
-                    HWND helperWnd = CreateWindowExW(
-                        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-                        CLASS_NAME, L"",
-                        WS_POPUP,
-                        pt.x, pt.y, 0, 0,
-                        nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
-                    );
-
-                    if (helperWnd) {
-                        SetForegroundWindow(helperWnd);
-                    }
-
-                    UINT cmd = TrackPopupMenuEx(
-                        hMenu,
-                        TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
-                        pt.x, pt.y,
-                        helperWnd ? helperWnd : GetForegroundWindow(),
-                        nullptr
-                    );
-
-                    if (cmd >= 1) {
-                        CMINVOKECOMMANDINFOEX info{};
-                        info.cbSize = sizeof(info);
-                        info.fMask = CMIC_MASK_UNICODE;
-                        info.hwnd = helperWnd;
-                        info.lpVerb = (LPCSTR)MAKEINTRESOURCEA(cmd - 1);
-                        info.lpVerbW = (LPCWSTR)MAKEINTRESOURCEW(cmd - 1);
-                        info.nShow = SW_SHOWNORMAL;
-                        pContextMenu->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
-                    }
-
-                    if (t_pcm3) { t_pcm3->Release(); t_pcm3 = nullptr; }
-                    if (t_pcm2) { t_pcm2->Release(); t_pcm2 = nullptr; }
-
-                    if (helperWnd && IsWindow(helperWnd)) {
-                        DestroyWindow(helperWnd);
-                    }
-                    DestroyMenu(hMenu);
-                }
-                pContextMenu->Release();
-            }
-
-            pParentFolder->Release();
-            CoTaskMemFree(pidl);
-
-            if (hwndSearch && IsWindow(hwndSearch)) {
-                SetForegroundWindow(hwndSearch);
-                SetFocus(hwndSearch);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            if (hwndSearch && IsWindow(hwndSearch)) {
-                RemovePropW(hwndSearch, L"EasyTools_ShellMenuActive");
-            }
-            if (SUCCEEDED(hrCom)) CoUninitialize();
-        }).detach();
-
-        return {{"success", true}};
+        const bool started = ShellContextMenuService::instance().showAsync(wide);
+        return {{"success", started}, {"busy", !started}};
     });
     registerHandler("app.checkForUpdates", [](const json&) -> json {
         const bool started = UpdateChecker::instance().checkAsync(true);

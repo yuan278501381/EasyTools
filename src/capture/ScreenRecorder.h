@@ -16,6 +16,7 @@
 #include "capture/CaptureBackend.h"
 #include "capture/CursorOverlay.h"
 #include "capture/AudioCapture.h"
+#include "capture/RecordingGpuProbe.h"
 
 #include <windows.h>
 #include <string>
@@ -64,6 +65,9 @@ struct RecordOptions {
     float systemAudioVolume = 1.0f;
     float microphoneVolume = 1.0f;
     int countdownSeconds = 3;          // 0 = 立即开始
+    // Opt-in diagnostics only. No current release session switches away from
+    // the proven CPU frame/encoder path when this is true.
+    bool experimentalGpuEncoding = false;
 };
 
 /// 录制统计
@@ -99,6 +103,9 @@ struct RecordStats {
     double effectiveFps = 0.0;
     int adaptiveFrameStep = 1;
     bool performanceLimited = false;
+    bool gpuExperimentRequested = false;
+    bool gpuExperimentAvailable = false;
+    std::string gpuExperimentStatus;
     std::string stopReason;
 };
 
@@ -112,6 +119,7 @@ struct RecordingCapabilities {
     std::vector<CaptureBackendInfo> captureBackends;
     std::vector<EncoderCapability> encoders;
     std::vector<AudioDeviceInfo> audioDevices;
+    RecordingGpuProbe gpuEncoding;
 };
 
 /// 状态变化回调

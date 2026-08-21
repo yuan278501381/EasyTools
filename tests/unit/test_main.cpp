@@ -9,11 +9,17 @@
 //   • PinyinEngine / SearchExpression (Everything 语法) / ContentSearchEngine
 //   • DpiUtils / Lua 沙箱安全与权限持久化 / 截图、录屏与长截图 Smoke 测试
 //
-// 由 deploy.ps1 在 CMake 构建后统一执行，并通过 OpenCppCoverage 进行 100% 覆盖率分析。
+// 由 deploy.ps1 在 CMake 构建后统一执行，并通过 OpenCppCoverage 生成防回退覆盖率报告。
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <windows.h>
+#include <sddl.h>
+// WIN32_LEAN_AND_MEAN removes COM declarations from windows.h. UI Automation
+// MIDL headers need them before their forward declarations.
+#include <ole2.h>
+#include <UIAutomation.h>
 
 #include "gesture/GestureRecognizer.h"
 #include "gesture/GestureAction.h"
@@ -28,13 +34,19 @@
 #include "capture/CursorOverlay.h"
 #include "capture/ScreenRecorder.h"
 #include "capture/ScrollCapture.h"
+#include "capture/ScrollCaptureStorage.h"
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/ShortcutHintStyle.h"
 #include "keycast/KeycastStyle.h"
 #include "ocr/OcrResultStyle.h"
 #include "ui/ToastStyle.h"
+#include "ui/WebViewOriginPolicy.h"
+#include "ui/WebViewSuspend.h"
+#include "service/PipeEndpoint.h"
 #include "ui/WebViewWindowStyle.h"
 #include "capture/CaptureToolbarLayout.h"
+#include "capture/CaptureToolbarAccessibility.h"
+#include "core/accessibility/OverlayUiaProvider.h"
 #include "core/config/ConfigManager.h"
 #include "core/events/EventBus.h"
 #include "core/hotkey/HotkeyManager.h"
@@ -50,6 +62,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/lua/LuaEngine.h"
 #include "search/ServiceLifetime.h"
+#include "search/ServiceStartupPolicy.h"
 #include "service/PinyinEngine.h"
 #include "service/PipeProtocol.h"
 #include "service/SearchCancellation.h"
@@ -80,6 +93,7 @@
 #include <future>
 #include <initializer_list>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1306,6 +1320,7 @@ TEST(PerformanceMonitorTest, MicrosecondTimer) {
         monitor.recordLatency("unit.latency", static_cast<double>(value));
     }
     monitor.recordLatency("unit.latency", -1.0); // invalid samples are ignored
+    monitor.recordCounter("unit.absoluteCounter", 42);
     const auto metrics = monitor.getMetrics();
     const auto summary = metrics.latencies.find("unit.latency");
     EXPECT_TRUE(summary != metrics.latencies.end());
@@ -1316,6 +1331,18 @@ TEST(PerformanceMonitorTest, MicrosecondTimer) {
         EXPECT_DOUBLE_EQ(summary->second.p95Ms, 95.0);
         EXPECT_DOUBLE_EQ(summary->second.maxMs, 100.0);
     }
+    EXPECT_EQ(metrics.counters.at("unit.absoluteCounter"), 42u);
+    const auto serialized = monitor.getMetricsJson();
+    EXPECT_TRUE(serialized.contains("latencies"));
+    EXPECT_TRUE(serialized["latencies"].contains("unit.latency"));
+    const std::string oversizedMetricName(129, 'x');
+    monitor.recordCounter(oversizedMetricName, 1);
+    monitor.recordPluginInit("unit.plugin", 12.0);
+    monitor.recordPluginInit("unit.invalid", -1.0);
+    const auto validatedMetrics = monitor.getMetrics();
+    EXPECT_FALSE(validatedMetrics.counters.contains(oversizedMetricName));
+    EXPECT_DOUBLE_EQ(validatedMetrics.pluginInitMs.at("unit.plugin"), 12.0);
+    EXPECT_FALSE(validatedMetrics.pluginInitMs.contains("unit.invalid"));
 
     monitor.start(60'000);
     easy::core::PerfMetrics sampled;
@@ -1330,6 +1357,26 @@ TEST(PerformanceMonitorTest, MicrosecondTimer) {
     const auto stopMs = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - stopStarted).count();
     EXPECT_LT(stopMs, 250.0);
+}
+
+TEST(PerformanceMonitorTest, RejectsUnboundedDiagnosticCardinality) {
+    auto& monitor = easy::core::PerformanceMonitor::instance();
+    for (int index = 0; index < 96; ++index) {
+        const auto suffix = std::to_string(index);
+        monitor.recordLatency("capacity.latency." + suffix, static_cast<double>(index));
+        monitor.recordCounter("capacity.counter." + suffix, static_cast<std::uint64_t>(index));
+        monitor.recordPluginInit("capacity.plugin." + suffix, static_cast<double>(index));
+    }
+    const auto metrics = monitor.getMetrics();
+    EXPECT_LE(metrics.latencies.size(), 64u);
+    EXPECT_LE(metrics.counters.size(), 64u);
+    EXPECT_LE(metrics.pluginInitMs.size(), 64u);
+    // Existing names remain updateable after the cap; capacity protection must
+    // not make a healthy, long-lived series permanently stale.
+    monitor.recordCounter("capacity.counter.0", 999);
+    const auto refreshed = monitor.getMetrics();
+    const auto counter = refreshed.counters.find("capacity.counter.0");
+    if (counter != refreshed.counters.end()) EXPECT_EQ(counter->second, 999u);
 }
 
 // -----------------------------------------------------------------------------
@@ -1657,6 +1704,17 @@ TEST(ScrollCaptureTest, BoundedPreviewAndStitching) {
     easy::capture::ScrollCaptureOptions options;
     options.mode = easy::capture::ScrollMode::Manual;
     options.captureRect = { 0, 0, 64, 64 };
+    // Do not merely infer that the spill path ran from the byte budget.  Use a
+    // dedicated directory so this test proves both the successful disk-backed
+    // round trip and cleanup of the sensitive temporary pixels afterwards.
+    const auto stagingDirectory = std::filesystem::temp_directory_path() /
+        (L"EasyToolsScrollCaptureSuccess_" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code stagingError;
+    std::filesystem::remove_all(stagingDirectory, stagingError);
+    ASSERT_TRUE(std::filesystem::create_directories(stagingDirectory, stagingError));
+    options.stagingDirectory = stagingDirectory;
+    // 强制走磁盘暂存：验证交付时能按顺序回读拼接，且不是只覆盖内存路径。
+    options.maxInMemoryStagingBytes = 1;
     capture.start(options);
     EXPECT_TRUE(capture.isRunning());
 
@@ -1671,9 +1729,316 @@ TEST(ScrollCaptureTest, BoundedPreviewAndStitching) {
     EXPECT_EQ(progressCalls, 2);
     EXPECT_LE(largestPreviewRows, 128);
     capture.shutdown();
+    EXPECT_TRUE(std::filesystem::is_empty(stagingDirectory, stagingError));
+
+    easy::capture::ScrollCaptureResult bounded;
+    capture.setCompletionCallback([&](const easy::capture::ScrollCaptureResult& result) {
+        bounded = result;
+    });
+    options.maxOutputBytes = 1;
+    capture.start(options);
+    capture.captureCurrentFrame();
+    EXPECT_FALSE(capture.isRunning());
+    EXPECT_FALSE(bounded.success);
+    EXPECT_NE(bounded.errorMessage.find("内存上限"), std::string::npos);
+    capture.shutdown();
+
+    std::filesystem::remove_all(stagingDirectory, stagingError);
 
     // 重置测试工厂钩子
     easy::capture::setCaptureBackendFactoryForTesting(nullptr);
+}
+
+TEST(ScrollCaptureTest, FailedBackendStartupDoesNotPoisonNextSession) {
+    easy::capture::setCaptureBackendFactoryForTesting([]() {
+        return easy::capture::createMemoryCaptureBackend(easy::capture::CapturePixelFormat::Bgr24);
+    });
+
+    auto& capture = easy::capture::ScrollCapture::instance();
+    easy::capture::ScrollCaptureResult failed;
+    int completionCount = 0;
+    capture.setCompletionCallback([&](const easy::capture::ScrollCaptureResult& result) {
+        ++completionCount;
+        failed = result;
+    });
+
+    easy::capture::ScrollCaptureOptions invalid;
+    invalid.mode = easy::capture::ScrollMode::Manual;
+    invalid.captureRect = {0, 0, 0, 0};
+    capture.start(invalid);
+    EXPECT_FALSE(capture.isRunning());
+    EXPECT_EQ(completionCount, 1);
+    EXPECT_FALSE(failed.success);
+    EXPECT_FALSE(failed.errorMessage.empty());
+    capture.stop();
+    EXPECT_EQ(completionCount, 1);
+
+    easy::capture::ScrollCaptureResult recovered;
+    capture.setCompletionCallback([&](const easy::capture::ScrollCaptureResult& result) {
+        recovered = result;
+    });
+    easy::capture::ScrollCaptureOptions valid;
+    valid.mode = easy::capture::ScrollMode::Manual;
+    valid.captureRect = {0, 0, 32, 32};
+    valid.maxInMemoryStagingBytes = 1;
+    capture.start(valid);
+    ASSERT_TRUE(capture.isRunning());
+    capture.captureCurrentFrame();
+    capture.stop();
+    EXPECT_TRUE(recovered.success);
+    EXPECT_EQ(recovered.frameCount, 1);
+
+    capture.shutdown();
+    easy::capture::setCaptureBackendFactoryForTesting(nullptr);
+}
+
+TEST(ScrollCaptureTest, DiskStagingFailureDeliversSafePartialFailureAndRecovers) {
+    using namespace easy::capture;
+    setCaptureBackendFactoryForTesting([]() {
+        return createMemoryCaptureBackend(CapturePixelFormat::Bgr24);
+    });
+
+    const auto nonDirectory = std::filesystem::temp_directory_path() /
+        (L"EasyToolsScrollCaptureStagingFile_" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code error;
+    std::filesystem::remove(nonDirectory, error);
+    { std::ofstream marker(nonDirectory, std::ios::binary); ASSERT_TRUE(marker.good()); }
+
+    auto& capture = ScrollCapture::instance();
+    ScrollCaptureResult failed;
+    capture.setCompletionCallback([&](const ScrollCaptureResult& result) { failed = result; });
+    ScrollCaptureOptions invalid;
+    invalid.mode = ScrollMode::Manual;
+    invalid.captureRect = {0, 0, 32, 32};
+    invalid.maxInMemoryStagingBytes = 1;
+    invalid.stagingDirectory = nonDirectory;
+    capture.start(invalid);
+    ASSERT_TRUE(capture.isRunning());
+    capture.captureCurrentFrame();
+    EXPECT_FALSE(capture.isRunning());
+    EXPECT_FALSE(failed.success);
+    EXPECT_NE(failed.errorMessage.find("临时存储"), std::string::npos);
+    capture.shutdown();
+
+    std::filesystem::remove(nonDirectory, error);
+    ScrollCaptureResult recovered;
+    capture.setCompletionCallback([&](const ScrollCaptureResult& result) { recovered = result; });
+    invalid.stagingDirectory.clear();
+    capture.start(invalid);
+    ASSERT_TRUE(capture.isRunning());
+    capture.captureCurrentFrame();
+    capture.stop();
+    EXPECT_TRUE(recovered.success);
+    capture.shutdown();
+    setCaptureBackendFactoryForTesting(nullptr);
+}
+
+namespace {
+class ShortWriteBuffer final : public std::streambuf {
+protected:
+    std::streamsize xsputn(const char*, std::streamsize count) override {
+        return count > 0 ? count - 1 : 0;
+    }
+    int_type overflow(int_type) override { return traits_type::eof(); }
+};
+}  // namespace
+
+TEST(ScrollCaptureStorageTest, RejectsPartialWritesAndTruncatedReads) {
+    cv::Mat segment(2, 3, CV_8UC3, cv::Scalar(7, 11, 13));
+    ShortWriteBuffer shortWrite;
+    std::ostream failedOutput(&shortWrite);
+    EXPECT_FALSE(easy::capture::scroll_storage::writeMat(failedOutput, segment));
+
+    std::istringstream complete("abcdef", std::ios::binary);
+    std::array<char, 6> bytes{};
+    EXPECT_TRUE(easy::capture::scroll_storage::readExact(complete, bytes.data(), bytes.size()));
+    EXPECT_EQ(std::string(bytes.data(), bytes.size()), "abcdef");
+
+    std::istringstream truncated("abc", std::ios::binary);
+    EXPECT_FALSE(easy::capture::scroll_storage::readExact(truncated, bytes.data(), bytes.size()));
+}
+
+TEST(WebViewSecurityTest, TrustsOnlyPackagedOriginInRelease) {
+    using easy::ui::web_security::isTrustedUri;
+    EXPECT_TRUE(isTrustedUri(L"https://easytools.local/index.html#/search"));
+    EXPECT_TRUE(isTrustedUri(L"https://easytools.local/"));
+    EXPECT_FALSE(isTrustedUri(L"https://easytools.local.evil.example/"));
+    EXPECT_FALSE(isTrustedUri(L"file:///C:/temp/index.html"));
+    EXPECT_FALSE(isTrustedUri(L"javascript:alert(1)"));
+#ifndef _DEBUG
+    EXPECT_FALSE(isTrustedUri(L"http://localhost:5173"));
+    EXPECT_FALSE(isTrustedUri(L"http://127.0.0.1:5173"));
+#endif
+}
+
+TEST(WebViewSecurityTest, RejectsOversizedBridgePayload) {
+    EXPECT_TRUE(easy::ui::web_security::isBridgeMessageSizeAcceptable(
+        easy::ui::web_security::MaxBridgeMessageBytes));
+    EXPECT_FALSE(easy::ui::web_security::isBridgeMessageSizeAcceptable(
+        easy::ui::web_security::MaxBridgeMessageBytes + 1));
+}
+
+TEST(WebViewSuspendTest, DistinguishesRefusalFromFailure) {
+    using easy::ui::WebViewSuspendOutcome;
+    EXPECT_EQ(easy::ui::classifyWebViewSuspendCompletion(S_OK, TRUE),
+              WebViewSuspendOutcome::Suspended);
+    EXPECT_EQ(easy::ui::classifyWebViewSuspendCompletion(S_OK, FALSE),
+              WebViewSuspendOutcome::Refused);
+    EXPECT_EQ(easy::ui::classifyWebViewSuspendCompletion(E_FAIL, FALSE),
+              WebViewSuspendOutcome::Failed);
+}
+
+TEST(WebViewSuspendTest, LateSuspendCompletionResumesOnlyWhenSurfaceWasShownAgain) {
+    using Outcome = easy::ui::WebViewSuspendOutcome;
+    EXPECT_TRUE(easy::ui::shouldResumeAfterSuspendCompletion(
+        Outcome::Suspended, false, false));
+    EXPECT_FALSE(easy::ui::shouldResumeAfterSuspendCompletion(
+        Outcome::Suspended, true, false));
+    EXPECT_FALSE(easy::ui::shouldResumeAfterSuspendCompletion(
+        Outcome::Suspended, false, true));
+    EXPECT_FALSE(easy::ui::shouldResumeAfterSuspendCompletion(
+        Outcome::Refused, false, false));
+    EXPECT_FALSE(easy::ui::shouldResumeAfterSuspendCompletion(
+        Outcome::Failed, false, false));
+}
+
+TEST(WebViewSuspendTest, ControllerFailsClosedForAbsentWebViewAndCanBeRecreated) {
+    easy::ui::WebViewSuspendController controller;
+    EXPECT_EQ(controller.requestSuspend(nullptr, "unit"), E_POINTER);
+    EXPECT_EQ(controller.resume(nullptr, "unit"), E_POINTER);
+
+    // Destruction invalidates late callbacks. A later native-window generation
+    // receives a fresh state rather than inheriting the previous generation's
+    // cancellation flag.
+    controller.abandon();
+    controller.reset();
+    EXPECT_EQ(controller.requestSuspend(nullptr, "unit-recreated"), E_POINTER);
+    EXPECT_EQ(controller.resume(nullptr, "unit-recreated"), E_POINTER);
+}
+
+TEST(PipeEndpointTest, RequiresOpaqueTokenAndBuildsPerUserDescriptor) {
+    using namespace easy::service::pipe_endpoint;
+    EXPECT_FALSE(isValidToken("easytools"));
+    EXPECT_FALSE(isValidToken(std::string(TokenHexLength, 'g')));
+    const std::string token(TokenHexLength, 'a');
+    EXPECT_TRUE(isValidToken(token));
+    ASSERT_TRUE(makePipeName(token).has_value());
+    EXPECT_NE(makePipeName(token)->find(token), std::string::npos);
+    EXPECT_FALSE(makePipeName("invalid").has_value());
+    ASSERT_TRUE(makeSecurityDescriptor(L"S-1-5-21-1-2-3-1001").has_value());
+    EXPECT_FALSE(makeSecurityDescriptor(L"").has_value());
+}
+
+TEST(PipeEndpointTest, RestrictedDescriptorAllowsCurrentUserEndpoint) {
+    using namespace easy::service::pipe_endpoint;
+    HANDLE token = nullptr;
+    ASSERT_TRUE(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
+    struct TokenCloser { HANDLE value; ~TokenCloser() { if (value) CloseHandle(value); } } tokenCloser{token};
+    DWORD bytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
+    ASSERT_GT(bytes, 0u);
+    std::vector<std::byte> tokenInfo(bytes);
+    ASSERT_TRUE(GetTokenInformation(token, TokenUser, tokenInfo.data(), bytes, &bytes));
+    auto* user = reinterpret_cast<TOKEN_USER*>(tokenInfo.data());
+    LPWSTR sidText = nullptr;
+    ASSERT_TRUE(ConvertSidToStringSidW(user->User.Sid, &sidText));
+    struct SidFreer { LPWSTR value; ~SidFreer() { if (value) LocalFree(value); } } sidFreer{sidText};
+
+    const auto sddl = makeSecurityDescriptor(sidText);
+    ASSERT_TRUE(sddl.has_value());
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    ASSERT_TRUE(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        sddl->c_str(), SDDL_REVISION_1, &descriptor, nullptr));
+    struct DescriptorFreer { PSECURITY_DESCRIPTOR value; ~DescriptorFreer() { if (value) LocalFree(value); } } descriptorFreer{descriptor};
+    SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
+    const std::wstring name = L"\\\\.\\pipe\\EasyToolsAclTest-" +
+        std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+    HANDLE pipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        1, 128, 128, 0, &security);
+    ASSERT_NE(pipe, INVALID_HANDLE_VALUE);
+    struct PipeCloser { HANDLE value; ~PipeCloser() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); } } pipeCloser{pipe};
+
+    std::atomic<bool> connected{false};
+    std::thread client([&] {
+        HANDLE clientPipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (clientPipe != INVALID_HANDLE_VALUE) {
+            connected = true;
+            CloseHandle(clientPipe);
+        }
+    });
+    const BOOL connectedByConnect = ConnectNamedPipe(pipe, nullptr);
+    const DWORD connectError = connectedByConnect ? ERROR_SUCCESS : GetLastError();
+    EXPECT_TRUE(connectedByConnect || connectError == ERROR_PIPE_CONNECTED);
+    client.join();
+    EXPECT_TRUE(connected.load());
+    DisconnectNamedPipe(pipe);
+
+    const auto invalidSddl = makeSecurityDescriptor(L"not-a-windows-sid");
+    ASSERT_TRUE(invalidSddl.has_value());
+    PSECURITY_DESCRIPTOR invalidDescriptor = nullptr;
+    EXPECT_FALSE(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        invalidSddl->c_str(), SDDL_REVISION_1, &invalidDescriptor, nullptr));
+    if (invalidDescriptor) LocalFree(invalidDescriptor);
+}
+
+TEST(PipeEndpointTest, DescriptorRejectsAnUnlistedCurrentUser) {
+    using namespace easy::service::pipe_endpoint;
+    // A syntactically valid but deliberately unrelated SID permits verifying
+    // the actual Windows access check without creating or depending on a
+    // second local account in CI.
+    const auto sddl = makeSecurityDescriptor(L"S-1-5-21-424242-424243-424244-424245");
+    ASSERT_TRUE(sddl.has_value());
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    ASSERT_TRUE(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        sddl->c_str(), SDDL_REVISION_1, &descriptor, nullptr));
+    struct DescriptorFreer { PSECURITY_DESCRIPTOR value; ~DescriptorFreer() { if (value) LocalFree(value); } } descriptorFreer{descriptor};
+    SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
+    const std::wstring name = L"\\\\.\\pipe\\EasyToolsAclDenyTest-" +
+        std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+    HANDLE pipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        1, 128, 128, 0, &security);
+    ASSERT_NE(pipe, INVALID_HANDLE_VALUE);
+    struct PipeCloser { HANDLE value; ~PipeCloser() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); } } pipeCloser{pipe};
+
+    SetLastError(ERROR_SUCCESS);
+    HANDLE client = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_EQ(client, INVALID_HANDLE_VALUE);
+    EXPECT_EQ(GetLastError(), ERROR_ACCESS_DENIED);
+}
+
+TEST(SearchServiceStartupPolicyTest, ScmStateNeverCausesPrematurePortableDuplicate) {
+    using easy::search::ScmServiceState;
+    using easy::search::StartupAction;
+    using easy::search::decideStartupAction;
+
+    EXPECT_EQ(decideStartupAction(true, ScmServiceState::Running, false),
+              StartupAction::UseEndpoint);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Missing, false),
+              StartupAction::AllowPortableFallback);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Stopped, false),
+              StartupAction::StartScmService);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Stopped, true),
+              StartupAction::AllowPortableFallback);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::StartPending, false),
+              StartupAction::WaitForScmEndpoint);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::Running, false),
+              StartupAction::WaitForScmEndpoint);
+    // A concurrent StartService can become Running after the caller's initial
+    // status query; that state must still wait, never spawn portable mode.
+    EXPECT_NE(decideStartupAction(false, ScmServiceState::Running, false),
+              StartupAction::AllowPortableFallback);
+    EXPECT_EQ(decideStartupAction(false, ScmServiceState::StopPending, false),
+              StartupAction::ReportUnavailable);
+    EXPECT_TRUE(easy::search::isScmEndpointIdentityConflict(
+        ScmServiceState::Running, false, true));
+    EXPECT_FALSE(easy::search::isScmEndpointIdentityConflict(
+        ScmServiceState::StartPending, false, true));
+    EXPECT_FALSE(easy::search::isScmEndpointIdentityConflict(
+        ScmServiceState::Running, true, true));
 }
 
 // -----------------------------------------------------------------------------
@@ -1768,6 +2133,18 @@ TEST(ScreenRecorderTest, FrameEncodingSmoke) {
 
     // 重置测试工厂钩子
     easy::capture::setCaptureBackendFactoryForTesting(nullptr);
+}
+
+TEST(RecordingGpuProbeTest, RequiresD3d11AndAtLeastOneHardwareBackend) {
+    easy::capture::RecordingGpuProbe probe;
+    EXPECT_FALSE(probe.canExperiment());
+    probe.d3d11Available = true;
+    EXPECT_FALSE(probe.canExperiment());
+    probe.mediaFoundationHardwareMftAvailable = true;
+    EXPECT_TRUE(probe.canExperiment());
+    probe.mediaFoundationHardwareMftAvailable = false;
+    probe.ffmpegD3d11vaCompiled = true;
+    EXPECT_TRUE(probe.canExperiment());
 }
 
 // -----------------------------------------------------------------------------
@@ -2035,6 +2412,184 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
                           desktop500);
     EXPECT_EQ(extreme.toolbarButtons.size(), 25u);
     check_toolbar_inside_surface(extreme, desktop500);
+}
+
+TEST(CaptureToolbarTest, AccessibilitySemanticsReflectActualState) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.state = OverlayState::Selected;
+    state.currentTool = MarkupTool::Arrow;
+    state.currentColor = MarkupColor::Blue();
+
+    ToolbarButton arrow;
+    arrow.command = ToolbarCommand::SelectTool;
+    arrow.tool = MarkupTool::Arrow;
+    EXPECT_EQ(toolbarButtonAccessibleName(arrow), L"箭头标注");
+    EXPECT_TRUE(isToolbarButtonSelected(arrow, state));
+    EXPECT_TRUE(isToolbarButtonEnabled(arrow, state));
+
+    ToolbarButton blue;
+    blue.command = ToolbarCommand::SelectColor;
+    blue.color = MarkupColor::Blue();
+    EXPECT_EQ(toolbarButtonAccessibleName(blue), L"标注颜色");
+    EXPECT_TRUE(isToolbarButtonSelected(blue, state));
+
+    ToolbarButton undo;
+    undo.command = ToolbarCommand::Undo;
+    EXPECT_EQ(toolbarButtonKeyboardShortcut(undo), L"Ctrl+Z");
+    EXPECT_FALSE(isToolbarButtonEnabled(undo, state));
+    ToolbarButton redo;
+    redo.command = ToolbarCommand::Redo;
+    EXPECT_FALSE(isToolbarButtonEnabled(redo, state));
+
+    ToolbarButton confirm;
+    confirm.command = ToolbarCommand::Confirm;
+    EXPECT_EQ(toolbarButtonKeyboardShortcut(confirm), L"Enter");
+    state.state = OverlayState::Idle;
+    EXPECT_FALSE(isToolbarButtonEnabled(confirm, state));
+}
+
+namespace {
+constexpr UINT WM_EASYTOOLS_UIA_TEST_INVOKE = WM_APP + 0x4B1;
+
+struct UiaTestSurface {
+    HWND hwnd = nullptr;
+    int invokeCount = 0;
+};
+
+LRESULT CALLBACK uiaTestSurfaceProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* surface = reinterpret_cast<UiaTestSurface*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        surface = static_cast<UiaTestSurface*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(surface));
+        if (surface) surface->hwnd = hwnd;
+    }
+    if (message == WM_GETOBJECT) {
+        using namespace easy::core::accessibility;
+        return respondToOverlayUiaGetObject(hwnd, wParam, lParam,
+            {L"EasyTools.TestOverlay", L"Automated UI Automation test surface", OverlayUiaRole::Pane, true},
+            {{L"EasyTools.TestOverlay.confirm", L"Confirm capture", L"Confirm the test capture",
+              L"Enter", {40, 60, 220, 104}, true, true, OverlayUiaActionRole::Button,
+              WM_EASYTOOLS_UIA_TEST_INVOKE, 0}});
+    }
+    if (message == WM_EASYTOOLS_UIA_TEST_INVOKE) {
+        if (surface) ++surface->invokeCount;
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+class UiaTestWindow final {
+public:
+    explicit UiaTestWindow(UiaTestSurface* surface) {
+        static const ATOM atom = [] {
+            WNDCLASSW windowClass{};
+            windowClass.hInstance = GetModuleHandleW(nullptr);
+            windowClass.lpszClassName = L"EasyTools.UiaProviderTestSurface";
+            windowClass.lpfnWndProc = uiaTestSurfaceProc;
+            return RegisterClassW(&windowClass);
+        }();
+        if (!atom && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return;
+        hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"EasyTools.UiaProviderTestSurface",
+            L"EasyTools UIA test", WS_POPUP, 40, 60, 180, 44,
+            nullptr, nullptr, GetModuleHandleW(nullptr), surface);
+        if (hwnd) ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+
+    ~UiaTestWindow() { if (hwnd && IsWindow(hwnd)) DestroyWindow(hwnd); }
+    HWND hwnd = nullptr;
+};
+
+class CoApartment final {
+public:
+    CoApartment() : result(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
+    ~CoApartment() { if (SUCCEEDED(result)) CoUninitialize(); }
+    HRESULT result;
+};
+}  // namespace
+
+TEST(OverlayUiaProviderTest, ExposesActionPropertiesAndMarshalsInvokeToOwnerWindow) {
+    // This uses a real UI Automation client against a real HWND rather than
+    // testing helper structs in isolation. It covers the WM_GETOBJECT route,
+    // child semantics, physical bounds, and the no-UI-work-on-provider-thread
+    // invariant of Invoke (the action arrives as a posted window message).
+    CoApartment apartment;
+    if (FAILED(apartment.result) && apartment.result != RPC_E_CHANGED_MODE) {
+        GTEST_SKIP() << "COM apartment unavailable: 0x" << std::hex << apartment.result;
+    }
+
+    UiaTestSurface surface;
+    UiaTestWindow window(&surface);
+    ASSERT_NE(window.hwnd, nullptr);
+
+    IUIAutomation* automation = nullptr;
+    HRESULT result = CoCreateInstance(CLSID_CUIAutomation8, nullptr, CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(&automation));
+    if (FAILED(result)) {
+        GTEST_SKIP() << "UI Automation client unavailable: 0x" << std::hex << result;
+    }
+    struct AutomationReleaser { IUIAutomation* value; ~AutomationReleaser() { if (value) value->Release(); } } automationReleaser{automation};
+
+    IUIAutomationElement* root = nullptr;
+    result = automation->ElementFromHandle(window.hwnd, &root);
+    if (FAILED(result) || !root) {
+        GTEST_SKIP() << "UI Automation cannot inspect this desktop: 0x" << std::hex << result;
+    }
+    struct ElementReleaser { IUIAutomationElement* value; ~ElementReleaser() { if (value) value->Release(); } } rootReleaser{root};
+
+    BSTR rootId = nullptr;
+    ASSERT_TRUE(SUCCEEDED(root->get_CurrentAutomationId(&rootId)));
+    EXPECT_STREQ(rootId, L"EasyTools.TestOverlay");
+    SysFreeString(rootId);
+
+    IUIAutomationCondition* condition = nullptr;
+    ASSERT_TRUE(SUCCEEDED(automation->CreateTrueCondition(&condition)));
+    struct ConditionReleaser { IUIAutomationCondition* value; ~ConditionReleaser() { if (value) value->Release(); } } conditionReleaser{condition};
+    IUIAutomationElement* action = nullptr;
+    ASSERT_TRUE(SUCCEEDED(root->FindFirst(TreeScope_Children, condition, &action)));
+    ASSERT_NE(action, nullptr);
+    struct ActionReleaser { IUIAutomationElement* value; ~ActionReleaser() { if (value) value->Release(); } } actionReleaser{action};
+
+    BSTR name = nullptr;
+    ASSERT_TRUE(SUCCEEDED(action->get_CurrentName(&name)));
+    EXPECT_STREQ(name, L"Confirm capture");
+    SysFreeString(name);
+    BOOL enabled = FALSE;
+    EXPECT_TRUE(SUCCEEDED(action->get_CurrentIsEnabled(&enabled)));
+    EXPECT_TRUE(enabled);
+    BSTR shortcut = nullptr;
+    ASSERT_TRUE(SUCCEEDED(action->get_CurrentAcceleratorKey(&shortcut)));
+    EXPECT_STREQ(shortcut, L"Enter");
+    SysFreeString(shortcut);
+    VARIANT selected{};
+    ASSERT_TRUE(SUCCEEDED(action->GetCurrentPropertyValue(UIA_SelectionItemIsSelectedPropertyId, &selected)));
+    EXPECT_EQ(selected.vt, VT_BOOL);
+    EXPECT_EQ(selected.boolVal, VARIANT_TRUE);
+    VariantClear(&selected);
+    tagRECT bounds{};
+    ASSERT_TRUE(SUCCEEDED(action->get_CurrentBoundingRectangle(&bounds)));
+    EXPECT_EQ(bounds.left, 40);
+    EXPECT_EQ(bounds.top, 60);
+    EXPECT_EQ(bounds.right, 220);
+    EXPECT_EQ(bounds.bottom, 104);
+
+    IUIAutomationInvokePattern* invoke = nullptr;
+    ASSERT_TRUE(SUCCEEDED(action->GetCurrentPatternAs(UIA_InvokePatternId,
+        IID_PPV_ARGS(&invoke))));
+    ASSERT_NE(invoke, nullptr);
+    struct InvokeReleaser { IUIAutomationInvokePattern* value; ~InvokeReleaser() { if (value) value->Release(); } } invokeReleaser{invoke};
+    EXPECT_TRUE(SUCCEEDED(invoke->Invoke()));
+    MSG message{};
+    while (PeekMessageW(&message, window.hwnd, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    EXPECT_EQ(surface.invokeCount, 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -2748,6 +3303,70 @@ TEST(PipeProtocolTest, RequestLimitIsTighterThanResponseLimit) {
     EXPECT_TRUE(frame::fitsInFrame(frame::MaxRequestBytes, frame::MaxRequestBytes));
     EXPECT_FALSE(frame::fitsInFrame(frame::MaxRequestBytes + 1, frame::MaxRequestBytes));
     EXPECT_FALSE(frame::fitsInFrame(0));
+}
+
+TEST(PipeProtocolIntegrationTest, ByteStreamRoundTripsDeliberatelyFragmentedFrame) {
+    namespace frame = easy::service::pipe;
+    const std::wstring name = L"\\\\.\\pipe\\EasyToolsPipeProtocolIntegration-" +
+        std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+    HANDLE serverPipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        1, frame::IoChunkBytes, frame::IoChunkBytes, 0, nullptr);
+    ASSERT_NE(serverPipe, INVALID_HANDLE_VALUE);
+    struct ServerPipeCloser { HANDLE value; ~ServerPipeCloser() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); } } serverCloser{serverPipe};
+
+    // Connect before starting the server thread. ConnectNamedPipe will then
+    // return ERROR_PIPE_CONNECTED, exercising the race that occurs when a
+    // portable client wins the connection race against a newly published pipe.
+    HANDLE clientPipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(clientPipe, INVALID_HANDLE_VALUE) << GetLastError();
+    struct ClientPipeCloser { HANDLE value; ~ClientPipeCloser() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); } } clientCloser{clientPipe};
+
+    std::atomic<bool> serverOk{false};
+    std::thread server([&] {
+        const BOOL connected = ConnectNamedPipe(serverPipe, nullptr) ? TRUE :
+            (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (!connected) return;
+        char header[frame::HeaderSize]{};
+        if (!frame::readExact(serverPipe, header, sizeof(header))) return;
+        std::uint32_t bytes = 0;
+        if (!frame::decodeFrameHeader(header, bytes, frame::MaxRequestBytes)) return;
+        std::string request(bytes, '\0');
+        if (!frame::readExact(serverPipe, request.data(), request.size()) || request != "fragmented request") return;
+        const std::string response = R"({"ok":true,"source":"pipe"})";
+        const auto responseHeader = frame::encodeFrameHeader(static_cast<std::uint32_t>(response.size()));
+        if (!frame::writeExact(serverPipe, responseHeader.data(), responseHeader.size())) return;
+        if (!frame::writeExact(serverPipe, response.data(), response.size())) return;
+        serverOk.store(true, std::memory_order_release);
+    });
+
+    const std::string request = "fragmented request";
+    const auto requestHeader = frame::encodeFrameHeader(static_cast<std::uint32_t>(request.size()));
+    auto writeByteByByte = [clientPipe](const char* bytes, std::size_t count) {
+        for (std::size_t index = 0; index < count; ++index) {
+            DWORD written = 0;
+            if (!WriteFile(clientPipe, bytes + index, 1, &written, nullptr) || written != 1) return false;
+        }
+        return true;
+    };
+    EXPECT_TRUE(writeByteByByte(requestHeader.data(), requestHeader.size()));
+    EXPECT_TRUE(writeByteByByte(request.data(), request.size()));
+
+    char responseHeader[frame::HeaderSize]{};
+    std::uint32_t responseBytes = 0;
+    const bool gotHeader = frame::readExact(clientPipe, responseHeader, sizeof(responseHeader));
+    EXPECT_TRUE(gotHeader);
+    const bool validHeader = gotHeader && frame::decodeFrameHeader(responseHeader, responseBytes);
+    EXPECT_TRUE(validHeader);
+    std::string response(validHeader ? responseBytes : 0, '\0');
+    const bool gotPayload = validHeader && frame::readExact(clientPipe, response.data(), response.size());
+    EXPECT_TRUE(gotPayload);
+    if (gotPayload) EXPECT_EQ(response, R"({"ok":true,"source":"pipe"})");
+    clientCloser.value = INVALID_HANDLE_VALUE;
+    CloseHandle(clientPipe);
+    server.join();
+    EXPECT_TRUE(serverOk.load(std::memory_order_acquire));
 }
 
 // -----------------------------------------------------------------------------

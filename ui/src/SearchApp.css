@@ -85,8 +85,8 @@ html[data-surface="search"] #root {
     display: flex;
     flex-direction: column;
     background: var(--search-bg);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--search-border);
     border-radius: 14px;
     box-shadow: var(--search-shadow);
@@ -379,8 +379,8 @@ html[data-surface="search"] #root {
     padding: 6px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
     z-index: 100;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -752,6 +752,15 @@ html[data-surface="search"] #root {
     padding: 0;
     overflow-y: auto;
     border-top: 1px solid var(--search-item-border);
+}
+
+.search-results--virtualized {
+    position: relative;
+    padding: 0 !important;
+}
+
+.search-results--virtualized > .search-result-item {
+    box-sizing: border-box;
 }
 
 .search-results::-webkit-scrollbar {
@@ -1359,8 +1368,8 @@ html[data-surface="search"] #root {
     border-radius: 12px;
     box-shadow: 0 12px 36px rgba(0, 0, 0, 0.32);
     z-index: 1000;
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     animation: popoverSlide 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     overflow: hidden;
 }
@@ -2456,8 +2465,8 @@ html[data-surface="search"] #root {
     min-width: 235px;
     max-width: 320px;
     background: var(--bg-elevated, #242730);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--search-item-border, rgba(255, 255, 255, 0.12));
     border-radius: 10px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
@@ -2706,5 +2715,3 @@ html[data-surface="search"] #root {
     opacity: 0.45;
     cursor: not-allowed;
 }
-
-

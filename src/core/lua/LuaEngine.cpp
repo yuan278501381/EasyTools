@@ -186,6 +186,10 @@ HttpResult httpRequest(const std::wstring& method, const std::string& url, const
     HINTERNET hSession = WinHttpOpen(L"EasyTools/0.1", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) return result;
+    constexpr int NativeCallTimeoutMs = 5000;
+    constexpr std::size_t MaxHttpResponseBytes = 4ull * 1024ull * 1024ull;
+    WinHttpSetTimeouts(hSession, NativeCallTimeoutMs, NativeCallTimeoutMs,
+                       NativeCallTimeoutMs, NativeCallTimeoutMs);
 
     HINTERNET hConnect = WinHttpConnect(hSession, host, uc.nPort, 0);
     HINTERNET hRequest = nullptr;
@@ -218,6 +222,12 @@ HttpResult httpRequest(const std::wstring& method, const std::string& url, const
             do {
                 avail = 0;
                 if (!WinHttpQueryDataAvailable(hRequest, &avail) || avail == 0) break;
+                if (result.body.size() > MaxHttpResponseBytes ||
+                    static_cast<std::size_t>(avail) > MaxHttpResponseBytes - result.body.size()) {
+                    LOG_WARN("[Lua] http 响应超过 {} 字节上限: {}", MaxHttpResponseBytes, url);
+                    result.body.clear();
+                    break;
+                }
                 std::string chunk(avail, '\0');
                 DWORD read = 0;
                 if (WinHttpReadData(hRequest, chunk.data(), avail, &read) && read > 0) {
@@ -378,7 +388,7 @@ bool LuaEngine::authorizeAndExecute(const std::string& script,
             else if (p == "fs") prompt += L"  • 读写本地磁盘文件 (高风险)\n";
             else if (p == "http") prompt += L"  • 发起网络 HTTP 请求 (高风险)\n";
         }
-        prompt += L"\n是否信任并授权该脚本执行？(选择「是」将记住您的授权)";
+        prompt += L"\n是否信任并授权该脚本执行？(选择「是」将在本次运行期间记住授权)";
 
         int choice = MessageBoxW(nullptr, prompt.c_str(), title.c_str(),
                                  MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
@@ -579,7 +589,7 @@ void LuaEngine::bindShell(sol::table& easy) {
         buf.push_back(L'\0');
         if (CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-            if (wait) WaitForSingleObject(pi.hProcess, 30000);
+            if (wait) WaitForSingleObject(pi.hProcess, 5000);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             return true;

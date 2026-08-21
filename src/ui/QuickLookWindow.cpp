@@ -5,6 +5,7 @@
 #include "core/utils/WinUtils.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewWindowStyle.h"
+#include "ui/WebViewSecurity.h"
 #include <WebView2.h>
 #include <wrl/event.h>
 #include <dwmapi.h>
@@ -399,17 +400,22 @@ void QuickLookWindow::initializeWebView2() {
                                 COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
                         }
 
+                        web_security::applyNavigationPolicy(m_webView.Get());
+
                         // JS -> C++ IPC Message Bridge
                         m_webView->add_WebMessageReceived(
                             Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                 [this](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                    if (!web_security::isTrustedMessageSource(args)) return S_OK;
                                     try {
                                         LPWSTR msgRaw = nullptr;
                                         args->TryGetWebMessageAsString(&msgRaw);
                                         if (msgRaw) {
-                                            std::string message = easy::core::WinUtils::wstringToUtf8(msgRaw);
-                                            CoTaskMemFree(msgRaw);
-                                            std::string response = easy::core::MessageBridge::instance().handleMessage(message);
+                                             std::string message = easy::core::WinUtils::wstringToUtf8(msgRaw);
+                                             CoTaskMemFree(msgRaw);
+                                             if (!web_security::isBridgeMethodAllowed(
+                                                     message, web_security::Surface::QuickLook)) return S_OK;
+                                             std::string response = easy::core::MessageBridge::instance().handleMessage(message);
                                             std::wstring wResponse = easy::core::WinUtils::utf8ToWstring(response);
                                             sender->PostWebMessageAsString(wResponse.c_str());
                                         }
@@ -436,6 +442,7 @@ void QuickLookWindow::initializeWebView2() {
                             ).Get(), &token);
 
                         std::string targetUrl = "https://easytools.local/index.html?quicklook=1";
+#ifdef _DEBUG
                         auto devUrlPath = easy::core::WinUtils::getExeDirectory().parent_path().parent_path().parent_path() / L"ui" / L".dev-server-url";
                         std::error_code ec;
                         if (std::filesystem::exists(devUrlPath, ec)) {
@@ -445,6 +452,7 @@ void QuickLookWindow::initializeWebView2() {
                                 targetUrl = u + "?quicklook=1";
                             }
                         }
+#endif
                         std::wstring wUrl = easy::core::WinUtils::utf8ToWstring(targetUrl);
                         m_webView->Navigate(wUrl.c_str());
                         return S_OK;
@@ -467,6 +475,20 @@ LRESULT CALLBACK QuickLookWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam
                 if (IsWindowVisible(hwnd)) {
                     self->m_controller->put_IsVisible(TRUE);
                 }
+            }
+            return 0;
+        }
+        case WM_DPICHANGED: {
+            if (const auto* suggested = reinterpret_cast<RECT*>(lParam)) {
+                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                             suggested->right - suggested->left,
+                             suggested->bottom - suggested->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if (self && self->m_controller) {
+                RECT bounds{};
+                GetClientRect(hwnd, &bounds);
+                self->m_controller->put_Bounds(bounds);
             }
             return 0;
         }

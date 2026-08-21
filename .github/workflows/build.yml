@@ -20,7 +20,9 @@ jobs:
   build-and-deploy:
     name: Build EasyTools (Windows x64)
     runs-on: windows-latest
-    timeout-minutes: 35
+    # 冷缓存下 FFmpeg + OpenCV 的首次 vcpkg 构建已实测超过 46 分钟；缓存命中
+    # 时仍会很快完成，但不能让可复现的冷构建被错误超时中断。
+    timeout-minutes: 75
 
     permissions:
       id-token: write
@@ -34,31 +36,31 @@ jobs:
 
     steps:
       - name: 检出代码 (Checkout Code)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: 导出 vcpkg 缓存后端变量 (Export vcpkg cache env)
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: 配置 Sccache 编译器级极速缓存 (Setup Sccache)
-        uses: mozilla/sccache-action@v0.0.9
+        uses: mozilla/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         with:
           version: "v0.8.2"
 
       - name: 配置 Node.js 环境 (Setup Node.js)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: 'ui/package-lock.json'
 
       - name: 配置 Vcpkg 二进制归档缓存 (Setup Vcpkg Binary Archives Cache)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             C:\Users\runneradmin\AppData\Local\vcpkg\archives
@@ -80,6 +82,11 @@ jobs:
         run: |
           .\deploy.ps1 -Configuration Release -Coverage
 
+      - name: 审计生产依赖漏洞 (Audit Production Dependencies)
+        shell: pwsh
+        working-directory: ui
+        run: npm audit --omit=dev --audit-level=high
+
       - name: 统计 Sccache 命中率 (Show Sccache Stats)
         shell: pwsh
         if: always()
@@ -89,7 +96,7 @@ jobs:
           }
 
       - name: 归档代码覆盖率报告 (Upload Code Coverage Report)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: EasyTools-CodeCoverage-Report
@@ -97,8 +104,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # The collector is intentionally not run in normal CI: real screenshot,
+      # multi-DPI overlay and 60-second recording measurements require an
+      # interactive desktop and a declared hardware matrix. When a dedicated
+      # Windows performance job or manually-dispatched runner writes artifacts,
+      # keep the raw ETL/CSV/machine metadata rather than publishing claims.
+      - name: 归档性能基线原始工件 (Upload Performance Baseline Artifacts)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: EasyTools-PerformanceBaseline
+          path: artifacts/performance-baseline/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: 上传构建产物 (Upload Build Artifacts)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: EasyTools-Release-x64
           path: |
@@ -108,7 +129,7 @@ jobs:
           retention-days: 7
 
       - name: 生成安全构建溯源证明 (Attest Build Provenance)
-        uses: actions/attest-build-provenance@v4.1.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: 'deploy_dist/**'
 
@@ -141,7 +162,7 @@ jobs:
 
       - name: 自动发布到 GitHub Releases (Auto-Publish to GitHub Releases)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: EasyTools ${{ github.ref_name }} (Windows x64)
           files: |

@@ -14,6 +14,9 @@
 #ifndef EASYTOOLS_SERVICE_PIPEPROTOCOL_H
 #define EASYTOOLS_SERVICE_PIPEPROTOCOL_H
 
+#include <windows.h>
+
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +31,35 @@ inline constexpr std::uint32_t MaxFrameBytes = 64u * 1024u * 1024u;
 
 /// 请求帧上限。请求只是一段查询 JSON，远小于响应。
 inline constexpr std::uint32_t MaxRequestBytes = 64u * 1024u;
+
+/// Windows named pipes are byte streams; a single ReadFile/WriteFile is not a
+/// frame operation. Keep the completion loops beside the framing contract so
+/// every endpoint handles fragmented I/O identically.
+inline constexpr DWORD IoChunkBytes = 64u * 1024u;
+
+inline bool readExact(HANDLE pipe, char* buffer, std::size_t bytes) noexcept {
+    if (pipe == INVALID_HANDLE_VALUE || !buffer || bytes == 0) return false;
+    std::size_t total = 0;
+    while (total < bytes) {
+        const DWORD wanted = static_cast<DWORD>((std::min<std::size_t>)(bytes - total, IoChunkBytes));
+        DWORD received = 0;
+        if (!ReadFile(pipe, buffer + total, wanted, &received, nullptr) || received == 0) return false;
+        total += received;
+    }
+    return true;
+}
+
+inline bool writeExact(HANDLE pipe, const char* data, std::size_t bytes) noexcept {
+    if (pipe == INVALID_HANDLE_VALUE || !data || bytes == 0) return false;
+    std::size_t total = 0;
+    while (total < bytes) {
+        const DWORD wanted = static_cast<DWORD>((std::min<std::size_t>)(bytes - total, IoChunkBytes));
+        DWORD sent = 0;
+        if (!WriteFile(pipe, data + total, wanted, &sent, nullptr) || sent == 0) return false;
+        total += sent;
+    }
+    return true;
+}
 
 /// 将净荷长度编码为小端长度前缀。
 inline std::array<char, HeaderSize> encodeFrameHeader(std::uint32_t payloadBytes) noexcept {

@@ -4,14 +4,18 @@
 #include "core/config/ConfigManager.h"
 #include "core/events/MainThreadDispatcher.h"
 #include "core/utils/DpiUtils.h"
+#include "core/stats/PerformanceMonitor.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewWindowStyle.h"
+#include "ui/WebViewSecurity.h"
+#include "ui/WebViewSuspend.h"
 #include <WebView2.h>
 #include <wrl/event.h>
 #include <filesystem>
 #include <fstream>
 #include <utility>
 #include <algorithm>
+#include <chrono>
 #include "core/utils/WinUtils.h"
 
 using namespace Microsoft::WRL;
@@ -105,6 +109,13 @@ void SearchWindow::preload(HINSTANCE hInstance) {
 }
 
 void SearchWindow::show(HINSTANCE hInstance) {
+    const auto showStarted = std::chrono::steady_clock::now();
+    const auto recordShown = [&showStarted]() {
+        easy::core::PerformanceMonitor::instance().recordLatency(
+            "search.hostShow",
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - showStarted).count());
+    };
     m_showTimeTick = GetTickCount64();
     warmUpSearchService();
     if (m_hwnd && IsWindow(m_hwnd)) {
@@ -119,6 +130,7 @@ void SearchWindow::show(HINSTANCE hInstance) {
             if (m_webView) {
                 m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
             }
+            recordShown();
             return;
         }
         updatePlacement();
@@ -126,6 +138,7 @@ void SearchWindow::show(HINSTANCE hInstance) {
         SetForegroundWindow(m_hwnd);
         SetFocus(m_hwnd);
         m_visible = true;
+        if (m_webView) m_suspendController.resume(m_webView.Get(), "search");
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
             m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
@@ -133,6 +146,7 @@ void SearchWindow::show(HINSTANCE hInstance) {
         if (m_webView) {
             m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
         }
+        recordShown();
         return;
     }
 
@@ -146,6 +160,7 @@ void SearchWindow::show(HINSTANCE hInstance) {
     SetForegroundWindow(m_hwnd);
     SetFocus(m_hwnd);
     m_visible = true;
+    recordShown();
 }
 
 void SearchWindow::hide() {
@@ -153,6 +168,7 @@ void SearchWindow::hide() {
     ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
     if (m_controller) m_controller->put_IsVisible(FALSE);
+    if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "search");
 }
 
 bool SearchWindow::isVisible() const {
@@ -160,6 +176,7 @@ bool SearchWindow::isVisible() const {
 }
 
 void SearchWindow::destroy() {
+    m_suspendController.abandon();
     m_webView = nullptr;
     m_controller = nullptr;
     m_environment = nullptr;
@@ -173,6 +190,7 @@ void SearchWindow::destroy() {
 }
 
 bool SearchWindow::createWindow(HINSTANCE hInstance) {
+    m_suspendController.reset();
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -320,6 +338,8 @@ void SearchWindow::initializeWebView2() {
                                 }
                             }
 
+                            web_security::applyNavigationPolicy(m_webView.Get());
+
                             // ── 动态获取 UI 基础地址 ──────────────────────────────────────────
                             auto exeDir = easy::core::WinUtils::getExeDirectory();
                             auto indexPath = exeDir / L"ui" / L"index.html";
@@ -327,6 +347,7 @@ void SearchWindow::initializeWebView2() {
                             if (std::filesystem::exists(indexPath, ec)) {
                                 baseUrl = L"https://easytools.local/index.html";
                             } else {
+#ifdef _DEBUG
                                 auto devUrlPath = exeDir.parent_path().parent_path().parent_path() / L"ui" / L".dev-server-url";
                                 if (std::filesystem::exists(devUrlPath, ec)) {
                                     std::ifstream file(devUrlPath);
@@ -336,6 +357,10 @@ void SearchWindow::initializeWebView2() {
                                     }
                                 }
                                 if (baseUrl.empty()) baseUrl = L"http://localhost:5173";
+#else
+                                LOG_ERROR("SearchWindow: 打包 UI 缺失，已拒绝连接开发服务器");
+                                baseUrl = L"https://easytools.local/index.html";
+#endif
                             }
 
                             // Load the search URL
@@ -368,11 +393,14 @@ void SearchWindow::initializeWebView2() {
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [this, generation](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         try {
+                                            if (!web_security::isTrustedMessageSource(args)) return S_OK;
                                             if (generation != m_generation.load()) return S_OK;
                                             PWSTR messageRaw = nullptr;
                                             if (SUCCEEDED(args->TryGetWebMessageAsString(&messageRaw)) && messageRaw) {
-                                                const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
-                                                CoTaskMemFree(messageRaw);
+                                                 const std::string request = easy::core::WinUtils::wstringToUtf8(messageRaw);
+                                                 CoTaskMemFree(messageRaw);
+                                                 if (!web_security::isBridgeMethodAllowed(
+                                                         request, web_security::Surface::Search)) return S_OK;
                                                 // 搜索类请求要跨进程等待索引服务。同步执行会冻结 WebView2 的
                                                 // UI 线程，让搜索框在整个等待期间无法接收键盘输入，因此改为
                                                 // 在线程池中处理，完成后再回到 UI 线程投递响应。

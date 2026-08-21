@@ -18,6 +18,8 @@
 #include "core/utils/WinUtils.h"
 #include "core/utils/ThemeUtils.h"
 #include "core/config/ConfigManager.h"
+#include "core/accessibility/OverlayAnnouncement.h"
+#include "core/accessibility/OverlayUiaProvider.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,6 +47,7 @@ int snapUp(int value, int grid) {
 }  // namespace
 
 static constexpr const wchar_t* OVERLAY_CLASS = L"EasyTools_GestureOverlay";
+static constexpr UINT WM_GESTURE_ACCESSIBILITY_RESULT = WM_APP + 73;
 
 GestureTrailOverlay& GestureTrailOverlay::instance() {
     static GestureTrailOverlay inst;
@@ -353,7 +356,7 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 轨迹操作 (全部为非阻塞极速操作，耗时 < 0.005ms)
+// 轨迹操作：避免同步 I/O；实际耗时应通过 PerformanceMonitor 在目标设备上测量。
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
@@ -458,6 +461,12 @@ void GestureTrailOverlay::endTrail(const std::string& resultText) {
     // live setRecognized(true) 没走到，Toast 不能因此被关掉。
     if (!resultText.empty() && resultText != "•••") {
         m_isRecognized.store(true, std::memory_order_relaxed);
+        // endTrail may run on the low-level mouse-hook path. Do not synchronously
+        // call a window API here; hand the accessibility update to the HWND's
+        // owning thread instead.
+        if (m_toastHwnd) {
+            PostMessageW(m_toastHwnd, WM_GESTURE_ACCESSIBILITY_RESULT, 0, 0);
+        }
     }
     if (hasPoints) {
         m_wantVisible.store(true, std::memory_order_release);
@@ -1241,6 +1250,32 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
 
     switch (msg) {
 
+        case WM_GETOBJECT:
+            if (self && hwnd == self->m_toastHwnd) {
+                return easy::core::accessibility::respondToOverlayUiaGetObject(
+                    hwnd, wParam, lParam,
+                    {L"EasyTools.GestureResult", L"Recognized mouse gesture result",
+                     easy::core::accessibility::OverlayUiaRole::Text, true});
+            }
+            return easy::core::accessibility::respondToOverlayUiaGetObject(
+                hwnd, wParam, lParam,
+                {L"EasyTools.GestureTrail", L"Mouse gesture trail",
+                 easy::core::accessibility::OverlayUiaRole::Pane, false});
+
+        case WM_GESTURE_ACCESSIBILITY_RESULT:
+            if (self && hwnd == self->m_toastHwnd) {
+                std::string result;
+                {
+                    std::lock_guard lock(self->m_trailMutex);
+                    result = self->m_resultText;
+                }
+                if (!result.empty()) {
+                    easy::core::accessibility::announceOverlay(
+                        hwnd, easy::core::WinUtils::utf8ToWstring(result));
+                }
+            }
+            return 0;
+
         case WM_DISPLAYCHANGE: {
             if (self) {
                 self->m_virtualX = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -1253,6 +1288,10 @@ LRESULT CALLBACK GestureTrailOverlay::overlayWndProc(HWND hwnd, UINT msg, WPARAM
 
         case WM_NCHITTEST:
             return HTTRANSPARENT;
+
+        case WM_NCDESTROY:
+            easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
 
         default:
             return DefWindowProcW(hwnd, msg, wParam, lParam);

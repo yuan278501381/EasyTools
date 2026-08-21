@@ -12,12 +12,12 @@
 [![C++20](https://img.shields.io/badge/C++-20-00599C.svg?logo=c%2B%2B)](https://en.cppreference.com/w/cpp/20)
 [![Direct2D](https://img.shields.io/badge/DirectX-Direct2D%20%2F%20DXGI-0078D7.svg)](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal)
 [![React 19](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)](https://react.dev/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64%20%2F%20ARM64)-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
-[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen.svg)](#-代码覆盖率与质量门禁)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
+[![Coverage](https://img.shields.io/badge/Coverage-measured%20in%20CI-yellow.svg)](#-代码覆盖率与质量门禁)
 [![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)](https://github.com/yuan278501381/easyTools/actions)
 
 <p align="center">
-  <strong>一款极致轻量、亚毫秒级响应、具备世界级交互美学与极客易用度的 Windows 现代化桌面效率全家桶</strong>
+  <strong>一款追求低干扰交互、可靠响应与 High-DPI 体验的 Windows 现代化桌面效率工具集</strong>
 </p>
 
 [🚀 快速开始](#-快速开始-quick-start) • [✨ 全功能特性详解](#-全功能特性详解) • [⌨️ 快捷键与手势速查](#-快捷键与手势速查) • [🏗️ 架构与内存收缩体系](#-架构与极致内存收缩体系) • [🛠️ 源码构建与开发](#-从源码构建与开发) • [📄 开源协议与署名](#-开源许可证与作者署名)
@@ -30,13 +30,13 @@
 
 **EasyTools** 是一款专为开发者、设计师、极客与追求极致操作效率的 Windows 用户量身打造的现代化效率软件。
 
-项目采用 **C++20 原生内核 + Direct2D / DXGI / WASAPI** 与 **React 19 + TypeScript + WebView2** 的现代化混合架构，将原生底层的高性能、零延迟硬件加速，与现代前端界面的丝滑流畅、主题定制和高分屏自适应完美融为一体。
+项目采用 **C++20 原生内核 + Direct2D / DXGI / WASAPI** 与 **React 19 + TypeScript + WebView2** 的现代化混合架构，结合原生系统能力、现代前端界面和 Per-Monitor DPI 适配。具体性能与资源占用会随硬件、Windows 版本和启用插件而变化，应以基准结果为准。
 
 ### 🌟 核心设计原则
-1. **🚀 极限性能 (Extreme Performance)**：1000Hz 鼠标钩子零延迟、Direct2D 亚毫秒渲染、DXGI GPU 零拷贝 4K 录屏、NTFS MFT 毫秒级全盘秒搜；
-2. **💡 世界级易用性 (Human-Centered UX)**：每一个功能都以人类易用度为核心考量，提供清晰的 HUD 视觉反馈、肌肉记忆级盲操手势、上下文按键提示与全要素 High-DPI 缩放自适应；
+1. **🚀 极限性能 (Extreme Performance)**：低开销鼠标钩子、Direct2D 轨迹渲染、DXGI 桌面捕获与硬件编码器优先的 4K 录屏、NTFS MFT 快速全盘搜索；
+2. **💡 以人为中心的易用性 (Human-Centered UX)**：提供 HUD 视觉反馈、手势操作、上下文按键提示与 High-DPI 缩放适配，并持续依据可访问性和用户反馈改进；
 3. **🧠 极限轻量与物理内存收缩 (Memory Trim & Deep Sleep)**：遵循“冷路径退场修剪，热操作期间绝不修剪”原则，重型任务结束后自动释放物理工作集，闲置时自动挂起 Chromium 渲染管线；
-4. **🛡️ 质量红线与 100% 代码覆盖 (100% Code Coverage)**：核心逻辑与算法 100% 覆盖率门禁，杜绝死代码与暗病。
+4. **🛡️ 可持续质量门禁**：Release 构建可使用 OpenCppCoverage 生成当前工作树的 C++ 行覆盖率；覆盖率会随编译器、构建配置和测试集变化，发布前应以 CI 归档的 Cobertura 报告为准。CI 设有 30% 的最低防回退门槛，并持续提高关键生命周期、录屏与捕获路径覆盖率。
 
 ---
 
@@ -69,9 +69,9 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 ### 1. 🖱️ 智能鼠标手势引擎 (Smart Mouse Gestures)
 > **告别繁琐按键，一划即达。**
 
-- **极速 Direct2D 流光轨迹**：按住鼠标右键（或自定义触发键）在屏幕任意位置绘制，轨迹带亚毫秒级流光跟随效果；
+- **Direct2D 鼠标轨迹**：按住鼠标右键（或自定义触发键）在屏幕任意位置绘制，轨迹提供低干扰的视觉跟随；实际延迟以性能基准为准；
 - **全新大气 HUD 视觉规范**：粗圆角纯白边框（2.6px）、半透明石墨深灰底板、24px 大气醒目粗体排版，松手执行时底板自然点亮为当前全局主题色；
-- **300 点滑窗缓冲无积压**：长达 15 秒作画 Direct2D 单帧耗时稳定在 0.1ms 以下，彻底根除轨迹卡顿与滞后积压；
+- **300 点滑窗缓冲**：限制轨迹缓存规模并避免无界内存增长；不同设备上的帧耗时和流畅度需通过性能基准验证；
 - **调侃超时反馈机制**：画满 15 秒未松手时常驻展示红底 3 个饱满圆滑大白点（`••••`），直到用户主动松手才优雅淡出；普通未匹配手势保持灰色流光且 Toast 静默；
 - **原子性按键分发系统**：按下与释放单次系统调用原子提交，杜绝修饰键（Ctrl/Alt/Win）残留粘滞与幽灵按键叠加；
 - **多维度动作库**：支持导航（前进/后退/刷新）、标签页控制（新建/关闭/恢复/切换）、窗口管理（最大化/最小化/还原/关闭窗口/显示桌面/任务视图）、启动截图、运行外部程序及执行自定义 Lua 脚本；
@@ -88,9 +88,9 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 ---
 
 ### 3. 📸 智能屏幕截图与桌面置顶贴图 (Capture & Desktop Pin)
-> **多屏 DPI 完美对齐，像素级标注与灵活贴图。**
+> **面向多屏 DPI 的截图标注与灵活贴图。**
 
-- **多显示器与 High-DPI 全链路自适应**：跨屏捕获、混合缩放（100%~500%）无畸变，光标与选区物理坐标毫秒级精准对齐；
+- **多显示器与 High-DPI 适配**：支持 100%～500% 缩放和混合 DPI 场景；跨屏捕获、光标与选区对齐仍需在目标设备组合上验证；
 - **窗口与元素智能吸附**：自动探测窗口边界、菜单控件、对话框元素，一键吸附选中；
 - **像素级专业标注工具箱**：矩形、圆形、箭头、自由画笔、马赛克/高斯模糊、序号步骤球、荧光笔、自定义文字与实时屏幕取色器；
 - **桌面置顶贴图 (Pin)**：将截图或剪贴板图片/文字瞬间钉在桌面最上层，支持滚轮缩放、透明度调节、拖拽移动与快速保存，对照写代码、比对文档极度便捷；
@@ -107,9 +107,9 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 ---
 
 ### 5. 🎥 4K 超清屏幕录制 (4K Ultra-HD Screen Recorder)
-> **GPU 零拷贝极速捕获，双通道音频独立混音。**
+> **DXGI 高速桌面捕获、硬件编码器优先，双通道音频独立混音。**
 
-- **DXGI Desktop Duplication 硬件加速**：直接从显存获取桌面帧，极低 CPU 与内存占用，60FPS / 120FPS 丝滑不丢帧；
+- **DXGI Desktop Duplication 硬件加速**：优先使用桌面捕获硬件路径，并保留兼容性回退；CPU、内存、帧率与掉帧表现以实测基准为准；
 - **WASAPI 双通道独立混音**：系统声音（扬声器）与人声（麦克风）独立采集，支持 0%–200% 实时增益微调与一键独立静音（S/M）；
 - **光标增强与点击涟漪**：可开关光标录制与鼠标点击扩散视觉反馈，录屏教程与演示更加直观；
 - **丰富格式编码支持**：支持 MP4 (H.264/AAC)、HEVC (H.265)、WebM (VP9/Opus) 与高质量动图 GIF；
@@ -117,11 +117,11 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 
 ---
 
-### 6. 🔍 毫秒级全盘极速搜索 (NTFS MFT Search Engine)
+### 6. 🔍 NTFS MFT 文件搜索 (NTFS MFT Search Engine)
 > **千万级文件，瞬间触达。**
 
 - **USN Journal / MFT 底层极速索引**：无需像传统搜索耗时数小时建库，后台极速解析 NTFS 文件系统主文件表；
-- **极简极速搜索浮窗**：默认快捷键 <kbd>Alt</kbd> + <kbd>Space</kbd> 瞬时呼出，随输随搜，毫秒级响应；
+- **搜索浮窗**：默认快捷键 <kbd>Alt</kbd> + <kbd>Space</kbd> 呼出，支持随输随搜；响应时间取决于索引状态、磁盘和查询条件；
 - **Everything 级高级搜索语法**：
   - 通配符支持（`*`, `?`）；
   - 多词并列搜索（空格分隔）；
@@ -133,7 +133,7 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 ---
 
 ### 7. 🔤 Windows 原生离线 OCR 文字提取 (Offline OCR)
-> **本地运算，毫秒级识别，绝无隐私泄露。**
+> **优先在本地处理；识别耗时和数据流向取决于用户启用的功能与配置。**
 
 - 基于 Windows 10/11 原生 `Windows.Media.Ocr` 离线引擎，无需联网即可提取屏幕中的文字、代码与表格；
 - 识别后即刻在结果窗口中展示，支持一键复制到剪贴板，支持行内快速编辑与二次检索。
@@ -153,7 +153,7 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 > **效率软件自身的消耗必须无限趋近于零。**
 
 - **冷路径退场修剪**：遵循“冷路径退场修剪，热操作期间绝不修剪”原则。在截图/录屏/OCR 等重型任务结束后自动归还大内存对象并调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
-- **WebView2 深度休眠**：设置/搜索窗口隐藏时自动调用 `TrySuspend()` 挂起 Chromium 渲染管线，闲置内存占用仅数十兆；
+- **WebView2 深度休眠**：设置/搜索窗口隐藏时自动调用 `TrySuspend()` 请求挂起 Chromium 渲染管线；实际内存占用会随 WebView2 运行时、已打开表面和系统环境变化，应以性能基准测量为准；
 - **插件化物理隔离**：手势、截图标注、全盘搜索、按键回显均采用独立 DLL 插件化解耦，可按需启停，停用模块不注册任何系统钩子或后台线程。
 
 ---
@@ -174,7 +174,7 @@ pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
 | **区域截图** | <kbd>Alt</kbd> + <kbd>A</kbd> | 唤起智能选区截图标注与贴图 |
 | **滚动长截图** | <kbd>Alt</kbd> + <kbd>S</kbd> | 智能滚动捕获超长页面 |
 | **屏幕录制** | <kbd>Alt</kbd> + <kbd>R</kbd> | 开启 4K / 高清区域录屏，支持声音混音 |
-| **快速搜索** | <kbd>Alt</kbd> + <kbd>Space</kbd> | 呼出全盘文件毫秒级极速搜索框 |
+| **快速搜索** | <kbd>Alt</kbd> + <kbd>Space</kbd> | 呼出全盘文件搜索框 |
 | **设置中心** | <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | 打开 EasyTools 控制面板与个性化配置 |
 
 > 💡 *所有全局快捷键均可在「设置 → 通用设置」中自由修改或禁用。*
@@ -213,15 +213,15 @@ EasyTools.exe (主宿主进程 / WebView2 UI / 事件主循环)
 │   ├── Plugin_Search.dll        NTFS 搜索客户端、IPC 管道桥接
 │   └── Plugin_Keycast.dll       按键实时回显、热力统计
 ├── EasyTools_Service.exe        机器级 NTFS / MFT 极速文件索引服务
-└── ui/index.html                React 19 单文件高内聚前端生产资源
+└── ui/index.html + assets/      React 19 按表面拆分的本地生产资源
 ```
 
 ### 2. 核心架构亮点
 
-1. **单 Environment 多窗口复用**：设置窗口、搜索浮窗与托盘菜单共享同一个 WebView2 浏览器环境，避免重复加载 Chromium 运行时，节省数百兆内存；
+1. **单 Environment 多窗口复用**：设置窗口、搜索浮窗与托盘菜单共享同一个 WebView2 浏览器环境，减少重复初始化；具体内存收益需在目标设备上通过基准验证；
 2. **冷路径退场修剪与深度休眠**：窗口隐藏时通过 `ICoreWebView2_3::TrySuspend()` 挂起 Chromium 渲染管线，并在截图/录屏/OCR 等重型任务结束后主动调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
 3. **原子性按键投递模型**：快捷键执行在单次 `SendInput` 调用中原子性提交完整 Down + Up 序列，彻底杜绝多线程环境下的按键粘滞与幽灵按键叠加；
-4. **全链路 Per-Monitor V2 High-DPI 适配**：屏幕缩放、字号排版、内边距、圆角与点击命中区域在多显示器混合 DPI 场景下完美自适应。
+4. **Per-Monitor V2 High-DPI 适配**：主要窗口与原生 Overlay 会跟随显示器 DPI 更新屏幕缩放、字号、间距与点击区域，并持续补齐混合 DPI 边界场景。
 
 ---
 
@@ -229,7 +229,7 @@ EasyTools.exe (主宿主进程 / WebView2 UI / 事件主循环)
 
 ### 环境准备
 
-- **操作系统**：Windows 10 / 11 (x64 或 ARM64)
+- **操作系统**：Windows 10 / 11 x64（ARM64 尚未进入正式 CI 与发布矩阵）
 - **编译工具链**：Visual Studio 2022 (安装 `C++ 桌面开发` 组件，支持 C++20 标准)
 - **脚本引擎**：PowerShell 7+ (pwsh)
 - **前端环境**：Node.js 20+ 及 npm

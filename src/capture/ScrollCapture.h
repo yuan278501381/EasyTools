@@ -18,8 +18,10 @@
 #include <string>
 #include <functional>
 #include <atomic>
+#include <cstddef>
 #include <thread>
 #include <memory>
+#include <filesystem>
 
 #include "capture/CaptureBackend.h"
 
@@ -37,6 +39,14 @@ struct ScrollCaptureOptions {
     int scrollDelayMs = 300;        // 每次滚动后等待（毫秒）
     int scrollAmount = 3;           // 每次滚动行数（WM_MOUSEWHEEL delta 倍数）
     int maxFrames = 50;             // 最大帧数（防止无限滚动）
+    std::size_t maxOutputBytes = 256ull * 1024ull * 1024ull; // 最终图像字节预算
+    // 采集分段在内存中的上限。超过后以原始像素分段写入当前用户的临时目录，
+    // 完成时顺序回读，避免同时持有整套分段和最终拼接图。
+    std::size_t maxInMemoryStagingBytes = 32ull * 1024ull * 1024ull;
+    // Empty selects the current user's Windows temp directory. Tests and
+    // managed hosts may supply an existing private directory to make disk-full
+    // and permission failures deterministic; it is never created implicitly.
+    std::filesystem::path stagingDirectory;
     int overlapPercent = 20;        // 相邻帧重叠区域百分比
     RECT captureRect{};             // 截图区域（屏幕坐标）
 };
@@ -105,11 +115,27 @@ private:
     cv::Mat buildStitchedImage() const;
     cv::Mat buildRecentPreview(int maxRows) const;
     void deliverCompletion(const std::string& error = {});
+    bool spillResidentSegments();
+    bool appendSpilledSegment(const cv::Mat& segment);
+    void clearStorage();
+
+    struct SpilledSegment {
+        std::uint64_t offset = 0;
+        int rows = 0;
+    };
 
     std::atomic<bool> m_running{false};
     std::thread m_scrollThread;
     ScrollCaptureOptions m_options;
     std::vector<cv::Mat> m_segments;
+    std::size_t m_segmentBytes = 0;
+    std::size_t m_residentSegmentBytes = 0;
+    std::vector<SpilledSegment> m_spilledSegments;
+    std::filesystem::path m_spillPath;
+    std::uint64_t m_spillWriteOffset = 0;
+    int m_segmentWidth = 0;
+    int m_segmentType = -1;
+    std::string m_terminalError;
     cv::Mat m_lastFrame;
     std::unique_ptr<ICaptureBackend> m_captureBackend;
     int m_frameCount = 0;

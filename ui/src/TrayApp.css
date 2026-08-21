@@ -45,8 +45,8 @@ html[data-surface="tray"] #root {
   display: flex;
   flex-direction: column;
   background: var(--tray-bg);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(18px) saturate(165%);
+  -webkit-backdrop-filter: blur(18px) saturate(165%);
   border: 1px solid var(--tray-border);
   border-radius: var(--tray-radius);
   padding: 5px;

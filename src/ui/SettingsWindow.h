@@ -14,6 +14,7 @@
 #define EASYTOOLS_UI_SETTINGSWINDOW_H
 
 #include "ui/WebViewWindowStyle.h"
+#include "ui/WebViewSuspend.h"
 
 #include <windows.h>
 #include <string>
@@ -114,6 +115,7 @@ private:
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;
     Microsoft::WRL::ComPtr<ICoreWebView2> m_webView;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
+    WebViewSuspendController m_suspendController;
 };
 
 }  // namespace easy::ui

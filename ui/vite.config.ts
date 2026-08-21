@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import { viteSingleFile } from 'vite-plugin-singlefile'
 import fs from 'fs'
 import path from 'path'
 
@@ -27,7 +26,24 @@ function writeDevServerUrl(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), viteSingleFile(), writeDevServerUrl()],
+  plugins: [react(), writeDevServerUrl()],
+  build: {
+    // 保持表面入口的动态边界：Search/Tray/QuickLook 不再与设置中心一起被
+    // 内联到首屏脚本。文件均由 easytools.local 虚拟主机从本地 ui 目录加载。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+            return 'react';
+          }
+          if (id.includes('node_modules/i18next/') || id.includes('node_modules/react-i18next/') ||
+              id.includes('node_modules/i18next-browser-languagedetector/')) {
+            return 'i18n';
+          }
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0', // 监听 0.0.0.0 以在终端展示物料局域网 IP
     strictPort: false // 允许端口被占用时动态递增选择新端口

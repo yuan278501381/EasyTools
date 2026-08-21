@@ -60,6 +60,10 @@ struct PerfMetrics {
     // Bounded rolling summaries for every named latency probe.
     std::unordered_map<std::string, LatencySummary> latencies;
 
+    // Absolute counters (for example recording dropped frames). Unlike latency
+    // samples these retain their meaning across monitor sampling intervals.
+    std::unordered_map<std::string, std::uint64_t> counters;
+
     // 采样时间
     std::string timestamp;
 
@@ -99,11 +103,19 @@ public:
     /// 获取最新性能指标
     PerfMetrics getMetrics() const;
 
+    /// Serialized snapshot for process boundaries such as the opt-in benchmark
+    /// runner. Keeping serialization behind the exported monitor avoids
+    /// exposing non-DLL-exported PerfMetrics methods to host/plugin binaries.
+    nlohmann::json getMetricsJson() const;
+
     /// 记录子系统延迟（由各模块主动上报）
     void recordLatency(const std::string& subsystem, double ms);
 
     /// 记录插件初始化耗时
     void recordPluginInit(const std::string& pluginName, double ms);
+
+    /// Records an absolute subsystem counter for diagnostics/ETW baselines.
+    void recordCounter(const std::string& name, std::uint64_t value);
 
     /// 获取历史指标（最近 N 条采样）
     std::vector<PerfMetrics> getHistory(int count = 30) const;
@@ -129,6 +141,9 @@ private:
     std::unordered_map<std::string, LatencySummary> latencySummariesLocked() const;
 
     std::atomic<bool> m_running{false};
+    // ETW is optional and event writes are skipped completely unless provider
+    // registration succeeded and a consumer enabled it.
+    std::atomic<bool> m_etwRegistered{false};
     std::thread m_sampleThread;
     int m_intervalMs = 2000;
     std::condition_variable m_wakeCv;
@@ -139,8 +154,15 @@ private:
     std::vector<PerfMetrics> m_history;
     static constexpr int MAX_HISTORY = 120;  // 最多保留 120 条（4 分钟 @ 2秒间隔）
     static constexpr std::size_t MAX_LATENCY_SAMPLES = 256;
+    // Metric names can originate in optional plugins. Bound the number of
+    // distinct series as well as each series' sample count so diagnostics do
+    // not become an unbounded resident-memory sink in a long-running host.
+    static constexpr std::size_t MAX_NAMED_LATENCY_SERIES = 64;
+    static constexpr std::size_t MAX_NAMED_COUNTERS = 64;
+    static constexpr std::size_t MAX_PLUGIN_INIT_METRICS = 64;
     std::unordered_map<std::string, std::deque<double>> m_latencySamples;
     std::unordered_map<std::string, std::uint64_t> m_latencySampleCounts;
+    std::unordered_map<std::string, std::uint64_t> m_counters;
     std::chrono::steady_clock::time_point m_startedAt{};
 
     // CPU 计算用的上一次采样值
