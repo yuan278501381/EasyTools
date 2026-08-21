@@ -185,7 +185,6 @@ bool isAcceptedGestureHitWindow(HWND hwnd, POINT pt) noexcept {
     return gestureHitTestAcceptsWindow(
         IsWindowVisible(root) != FALSE,
         isGesturePassThroughWindow(root),
-        isEasyToolsUiWindow(root),
         isWindowCloaked(root),
         windowContainsPoint(root, pt));
 }
@@ -203,9 +202,9 @@ BOOL CALLBACK enumGestureHitProc(HWND hwnd, LPARAM lp) {
     return FALSE;
 }
 
-HWND firstExternalWindow(HWND a, HWND b, HWND c) noexcept {
+HWND firstUsableGestureTarget(HWND a, HWND b, HWND c) noexcept {
     for (HWND h : {asLiveWindow(a), asLiveWindow(b), asLiveWindow(c)}) {
-        if (h && !isEasyToolsUiWindow(h)) return h;
+        if (h && !isGesturePassThroughWindow(h)) return h;
     }
     return nullptr;
 }
@@ -237,8 +236,8 @@ void pulseForegroundUnlock() noexcept {
 
 bool activateTargetWindow(HWND targetHwnd, bool allowWait) noexcept {
     targetHwnd = asLiveWindow(targetHwnd);
-    if (!targetHwnd || isEasyToolsUiWindow(targetHwnd)) {
-        LOG_WARN("手势目标窗口不可用或属于 EasyTools UI: {}", describeWindow(targetHwnd));
+    if (!targetHwnd || isGesturePassThroughWindow(targetHwnd)) {
+        LOG_WARN("手势目标窗口不可用或属于覆盖层: {}", describeWindow(targetHwnd));
         return false;
     }
 
@@ -289,7 +288,7 @@ bool activateTargetWindow(HWND targetHwnd, bool allowWait) noexcept {
 } // namespace
 
 void* resolveGestureKeyTarget(void* candidate, void* gestureStart, void* previousForeground) noexcept {
-    HWND resolved = firstExternalWindow(
+    HWND resolved = firstUsableGestureTarget(
         static_cast<HWND>(candidate),
         static_cast<HWND>(gestureStart),
         static_cast<HWND>(previousForeground));
@@ -322,8 +321,8 @@ void KeyStroke::send(void* targetWindowPtr) const {
     }
 
     HWND targetHwnd = asLiveWindow(static_cast<HWND>(targetWindowPtr));
-    if (isEasyToolsUiWindow(targetHwnd) || isGesturePassThroughWindow(targetHwnd)) {
-        LOG_WARN("拒绝向 EasyTools UI 注入按键: keys={}, target={}",
+    if (isGesturePassThroughWindow(targetHwnd)) {
+        LOG_WARN("拒绝向手势覆盖层注入按键: keys={}, target={}",
                  toString(), describeWindow(targetHwnd));
         targetHwnd = nullptr;
     }

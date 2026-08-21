@@ -160,16 +160,46 @@ inline bool isGestureOverlayClassName(std::wstring_view cls) noexcept {
     return cls == L"EasyTools_GestureOverlay";
 }
 
+inline bool isGesturePassThroughClassName(std::wstring_view cls) noexcept {
+    return isGestureOverlayClassName(cls) || cls == L"EasyTools_ToastOverlay";
+}
+
 /// 从覆盖层往下找真实窗口时，不可见、覆盖层、几何上不含该点的候选都跳过。
 inline bool gestureHitTestShouldSkipCandidate(bool visible, bool overlayClass,
                                               bool containsPoint) noexcept {
     return !visible || overlayClass || !containsPoint;
 }
 
-/// 手势作用窗口：必须可见、未遮罩，且不是 EasyTools 自己的设置/覆盖层。
-inline bool gestureHitTestAcceptsWindow(bool visible, bool passThrough, bool easyToolsUi,
+/// 手势命中窗口：跳过轨迹/Toast 这类穿透覆盖层，但设置窗、搜索窗仍是合法目标。
+inline bool gestureHitTestAcceptsWindow(bool visible, bool passThrough,
                                         bool cloaked, bool containsPoint) noexcept {
-    return visible && !passThrough && !easyToolsUi && !cloaked && containsPoint;
+    return visible && !passThrough && !cloaked && containsPoint;
+}
+
+enum class GestureTargetMode : unsigned char {
+    UnderPointer = 0,
+    Foreground = 1,
+};
+
+inline GestureTargetMode parseGestureTargetMode(std::string_view value) noexcept {
+    return value == "foreground" ? GestureTargetMode::Foreground
+                                 : GestureTargetMode::UnderPointer;
+}
+
+inline const char* gestureTargetModeKey(GestureTargetMode mode) noexcept {
+    return mode == GestureTargetMode::Foreground ? "foreground" : "underPointer";
+}
+
+/// 0=起点下方, 1=终点下方, 2=前台窗口, -1=放弃。
+/// underPointer 不用前台窗口兜底，否则画在设置窗上会打到背后的 Chrome。
+inline int pickGestureTargetSlot(GestureTargetMode mode,
+                                 bool startOk, bool endOk, bool foregroundOk) noexcept {
+    if (mode == GestureTargetMode::Foreground) {
+        return foregroundOk ? 2 : -1;
+    }
+    if (startOk) return 0;
+    if (endOk) return 1;
+    return -1;
 }
 
 /// Alt+F4 应直接向目标窗口投递关闭，而不是再合成按键（覆盖层抢前台时 SendInput 会打空）。

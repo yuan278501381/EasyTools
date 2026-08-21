@@ -208,6 +208,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
         paused: false,
         triggerButton: 'right',
         trailVisible: true,
+        targetMode: 'underPointer',
       };
 
     case 'gesture.getScopeRules':

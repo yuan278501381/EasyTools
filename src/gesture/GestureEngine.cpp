@@ -213,6 +213,15 @@ void GestureEngine::setAutoBypassFullscreen(bool enable) {
     LOG_INFO("手势全屏自动免打扰状态: enable={}", enable);
 }
 
+void GestureEngine::setTargetMode(const std::string& mode) {
+    m_targetMode.store(parseGestureTargetMode(mode), std::memory_order_release);
+    LOG_INFO("手势目标窗口模式: {}", targetMode());
+}
+
+std::string GestureEngine::targetMode() const {
+    return gestureTargetModeKey(m_targetMode.load(std::memory_order_acquire));
+}
+
 void GestureEngine::setProfile(const std::string& name, const GestureProfile& profile) {
     std::unique_lock lock(m_profileMutex);
     m_profiles.insert_or_assign(name, profile);
@@ -360,11 +369,24 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     // 松手后的输入线程会把 overlay 沉底再穿透选窗。
     m_gestureStartPt = { event.position.x, event.position.y };
     m_gestureEndPt = m_gestureStartPt;
-    HWND fg = GetForegroundWindow();
-    m_previousForeground = static_cast<HWND>(resolveGestureKeyTarget(
-        fg, event.foregroundWindow, m_lastExternalWindow));
-    if (m_previousForeground) m_lastExternalWindow = m_previousForeground;
-    m_gestureStartWindow = m_previousForeground;
+    auto rootIfLive = [](HWND hwnd) -> HWND {
+        if (!hwnd || !IsWindow(hwnd)) return nullptr;
+        HWND root = GetAncestor(hwnd, GA_ROOT);
+        return root ? root : hwnd;
+    };
+    auto skipPassThrough = [](HWND hwnd) -> HWND {
+        if (!hwnd) return nullptr;
+        wchar_t cls[256] = {};
+        GetClassNameW(hwnd, cls, 256);
+        return isGesturePassThroughClassName(cls) ? nullptr : hwnd;
+    };
+    HWND fg = skipPassThrough(rootIfLive(GetForegroundWindow()));
+    m_previousForeground = fg;
+    // 钩子里禁止 EnumWindows。按下时覆盖层通常还没盖住起点，WindowFromPoint 即可。
+    HWND under = skipPassThrough(rootIfLive(WindowFromPoint(m_gestureStartPt)));
+    if (under && !IsWindowVisible(under)) under = nullptr;
+    m_gestureStartWindow = under ? under : fg;
+    if (m_gestureStartWindow) m_lastExternalWindow = m_gestureStartWindow;
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_fallbackProfile = getProfile("default");
@@ -482,7 +504,6 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     m_liveMatchTick = 0;
     HWND startWindow = m_gestureStartWindow;
     HWND previousForeground = m_previousForeground;
-    HWND lastExternal = m_lastExternalWindow;
     const POINT startPt = m_gestureStartPt;
     const POINT endPt = { event.position.x, event.position.y };
     m_gestureEndPt = endPt;
@@ -559,32 +580,43 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         // SendKeys / 内置窗口命令必须在收到这次鼠标输入的 UI 线程上执行：
         // 后台 worker 没有前台权限，开机后设置窗抢焦点时 Ctrl+W 会打空。
         // Lua / 外部程序仍走后台队列，避免卡住 WH_MOUSE_LL。
-        // 优先用手势起点窗口：松手时光标压在 TOPMOST 轨迹上，WindowFromPoint 会命中 overlay。
-        // 钩子里的 HWND 只是兜底：overlay 仍 TOPMOST 时选窗经常是 null。
-        // 真正命中在输入线程 yieldZOrder 之后做。
-        HWND keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
-            startWindow, previousForeground, lastExternal));
+        HWND keyTarget = nullptr;
+        const auto targetMode = m_targetMode.load(std::memory_order_acquire);
+        if (targetMode == GestureTargetMode::Foreground) {
+            keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
+                previousForeground, nullptr, nullptr));
+        } else {
+            keyTarget = static_cast<HWND>(resolveGestureKeyTarget(
+                startWindow, nullptr, nullptr));
+        }
 
         if (gestureActionNeedsInputThread(action->type)) {
             GestureAction act = *action;
             const std::string traceId = m_gestureTraceId;
             if (!easy::core::MainThreadDispatcher::instance().postDeferred(
-                    [this, act, startPt, endPt, keyTarget, lastExternal, previousForeground, startWindow, traceId]() {
+                    [this, act, startPt, endPt, keyTarget, previousForeground, startWindow, targetMode, traceId]() {
                     easy::core::TraceId::setCurrent(traceId);
                     GestureTrailOverlay::instance().yieldZOrderForInput();
-                    HWND hwnd = static_cast<HWND>(resolveGestureKeyTarget(
-                        windowFromPointSkippingGestureOverlay(startPt.x, startPt.y),
-                        windowFromPointSkippingGestureOverlay(endPt.x, endPt.y),
-                        startWindow));
-                    if (!hwnd) {
-                        hwnd = static_cast<HWND>(resolveGestureKeyTarget(
-                            keyTarget, previousForeground, lastExternal));
-                    }
+                    HWND underStart = static_cast<HWND>(
+                        windowFromPointSkippingGestureOverlay(startPt.x, startPt.y));
+                    HWND underEnd = static_cast<HWND>(
+                        windowFromPointSkippingGestureOverlay(endPt.x, endPt.y));
+                    const int slot = pickGestureTargetSlot(
+                        targetMode,
+                        underStart != nullptr,
+                        underEnd != nullptr,
+                        previousForeground != nullptr);
+                    HWND hwnd = nullptr;
+                    if (slot == 0) hwnd = underStart;
+                    else if (slot == 1) hwnd = underEnd;
+                    else if (slot == 2) hwnd = previousForeground;
+                    if (!hwnd) hwnd = keyTarget;
                     if (hwnd) {
                         std::lock_guard lock(m_mutex);
                         m_lastExternalWindow = hwnd;
                     }
-                    LOG_INFO("手势选窗: start=({},{}) end=({},{}) hwnd=0x{:X}",
+                    LOG_INFO("手势选窗: mode={} start=({},{}) end=({},{}) hwnd=0x{:X}",
+                             gestureTargetModeKey(targetMode),
                              startPt.x, startPt.y, endPt.x, endPt.y,
                              reinterpret_cast<uintptr_t>(hwnd));
                     LOG_INFO("手势动作开始执行(输入线程): action={}, type={}, targetHwnd=0x{:X}",
@@ -605,12 +637,11 @@ void GestureEngine::endTracking(const MouseEvent& event) {
             enqueueAction(*action, m_gestureTraceId, keyTarget);
         }
     } else {
-        // 未绑定：轨迹仍淡出，卡片标明未绑定，避免「画了却没反应」
+        // 未绑定：轨迹保持灰色并淡出即可，不再弹出「未绑定」卡片。
         LOG_INFO("未找到手势映射: fullCode={}, bareCode={}", fullCode, bareCode);
         if (m_trailVisible.load()) {
-            std::string missLabel;
-            if (!result->toArrowString().empty()) missLabel = "未绑定";
-            GestureTrailOverlay::instance().endTrail(missLabel);
+            GestureTrailOverlay::instance().setRecognized(false);
+            GestureTrailOverlay::instance().endTrail();
         }
     }
 
@@ -753,6 +784,7 @@ void GestureEngine::loadFromConfig() {
     setTriggerButton(config.get<std::string>("/gesture/triggerButton", "right"));
     setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
     setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", false));
+    setTargetMode(config.get<std::string>("/gesture/targetMode", "underPointer"));
 
     // 加载 Profile
     std::unordered_map<std::string, GestureProfile> loadedProfiles;
@@ -801,7 +833,8 @@ bool GestureEngine::saveToConfig() {
             {"enabled", !m_paused.load()},
             {"triggerButton", triggerButton()},
             {"trailVisible", m_trailVisible.load()},
-            {"autoBypassFullscreen", m_autoBypassFullscreen.load()}
+            {"autoBypassFullscreen", m_autoBypassFullscreen.load()},
+            {"targetMode", targetMode()}
         }}
     }, "/gesture");
 

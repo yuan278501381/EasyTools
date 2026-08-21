@@ -73,8 +73,9 @@ interface GestureState {
   paused: boolean;
   triggerButton: string;
   trailVisible: boolean;
-  autoBypassFullscreen?: boolean;
-  trailColorMode?: 'auto' | 'custom';
+    autoBypassFullscreen?: boolean;
+    targetMode?: 'underPointer' | 'foreground';
+    trailColorMode?: 'auto' | 'custom';
   trailColor?: string;
   trailWidth?: number;
   trailOutlineWidth?: number;
@@ -104,6 +105,7 @@ export const GesturePage: FC = () => {
   const [enabled, setEnabled] = useState(true);
   const [trailVisible, setTrailVisible] = useState(true);
   const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(false);
+  const [targetMode, setTargetMode] = useState<'underPointer' | 'foreground'>('underPointer');
   const [scribbleCancel, setScribbleCancel] = useState(true);
   const [inFlightCompass, setInFlightCompass] = useState(true);
   const [triggerButton, setTriggerButton] = useState('right');
@@ -174,6 +176,7 @@ export const GesturePage: FC = () => {
         setTriggerButton(state.triggerButton ?? 'right');
         setTrailVisible(state.trailVisible ?? true);
         setAutoBypassFullscreen(state.autoBypassFullscreen ?? false);
+        setTargetMode(state.targetMode === 'foreground' ? 'foreground' : 'underPointer');
         setTrailColorMode(state.trailColorMode ?? 'auto');
         setTrailColor(state.trailColor ?? '#8B5CF6');
         setTrailWidth(state.trailWidth ?? 4.0);
@@ -514,6 +517,20 @@ export const GesturePage: FC = () => {
     }
   };
 
+  const handleTargetModeChange = async (value: string) => {
+    const next = value === 'foreground' ? 'foreground' : 'underPointer';
+    const previous = targetMode;
+    setTargetMode(next);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { targetMode: next });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
+    } catch (err) {
+      setTargetMode(previous);
+      console.error('Failed to update gesture target mode:', err);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
   const handleToggleScribbleCancel = async (checked: boolean) => {
     setScribbleCancel(checked);
     try {
@@ -820,6 +837,17 @@ export const GesturePage: FC = () => {
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
           />
+          <SettingRow label={tr('gesture.targetMode')} description={tr('gesture.targetModeDesc')}>
+            <Select
+              id="gesture-target-mode"
+              value={targetMode}
+              onChange={handleTargetModeChange}
+              options={[
+                { value: 'underPointer', label: tr('gesture.targetModeUnderPointer') },
+                { value: 'foreground', label: tr('gesture.targetModeForeground') },
+              ]}
+            />
+          </SettingRow>
           <Toggle
             id="gesture-scribble-cancel"
             label={tr('gesture.scribbleCancel')}

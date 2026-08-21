@@ -144,7 +144,7 @@ export const Sidebar: FC<SidebarProps> = ({
       {/* ── Logo ──────────────────────────────────────────────────── */}
       <div className="sidebar__logo">
         <span className="sidebar__logo-icon">
-          <EasyToolsBolt size={24} fill="var(--primary)" />
+          <EasyToolsBolt size={32} fill="var(--primary)" />
         </span>
         <span className="sidebar__logo-text">EasyTools</span>
       </div>

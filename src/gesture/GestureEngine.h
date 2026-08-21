@@ -16,6 +16,7 @@
 #include "gesture/GestureAction.h"
 #include "gesture/GestureProfile.h"
 #include "gesture/ScopeRule.h"
+#include "gesture/GestureInputPolicy.h"
 
 #include <memory>
 #include <unordered_map>
@@ -70,6 +71,10 @@ public:
     /// 全屏应用/游戏自动免打扰开关
     void setAutoBypassFullscreen(bool enable);
     bool autoBypassFullscreen() const { return m_autoBypassFullscreen.load(); }
+
+    /// 手势作用窗口：起点下方，或当前前台窗口。
+    void setTargetMode(const std::string& mode);
+    std::string targetMode() const;
 
     /// 当前状态
     GestureState state() const { return m_state.load(); }
@@ -146,9 +151,10 @@ private:
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_trailVisible{true};
     std::atomic<bool> m_autoBypassFullscreen{false};
-    HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口
-    HWND m_previousForeground = nullptr;  // 手势开始前的前台窗口（排除 EasyTools UI）
-    HWND m_lastExternalWindow = nullptr;  // 最近一次命中的外部窗口，设置窗抢焦点时的兜底
+    std::atomic<GestureTargetMode> m_targetMode{GestureTargetMode::UnderPointer};
+    HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口（含设置窗）
+    HWND m_previousForeground = nullptr;  // 手势开始时的前台窗口（跳过覆盖层）
+    HWND m_lastExternalWindow = nullptr;  // 最近一次命中的目标窗口
     POINT m_gestureStartPt{};
     POINT m_gestureEndPt{};
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行

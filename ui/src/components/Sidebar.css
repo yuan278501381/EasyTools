@@ -24,8 +24,17 @@
 }
 
 .sidebar__logo-icon {
-  font-size: 1.6rem;
-  filter: drop-shadow(0 0 8px var(--primary-glow));
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  filter: none;
+}
+
+.sidebar__logo-icon img {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
 }
 
 .sidebar__logo-text {

@@ -436,16 +436,27 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_TRUE(isGestureOverlayClassName(L"EasyTools_GestureOverlay"));
     EXPECT_FALSE(isGestureOverlayClassName(L"EasyTools_SettingsWindow"));
     EXPECT_FALSE(isGestureOverlayClassName(L"Chrome_WidgetWin_1"));
+    EXPECT_TRUE(isGesturePassThroughClassName(L"EasyTools_GestureOverlay"));
+    EXPECT_TRUE(isGesturePassThroughClassName(L"EasyTools_ToastOverlay"));
+    EXPECT_FALSE(isGesturePassThroughClassName(L"EasyTools_SettingsWindow"));
     EXPECT_TRUE(gestureHitTestShouldSkipCandidate(false, false, true));
     EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, true, true));
     EXPECT_TRUE(gestureHitTestShouldSkipCandidate(true, false, false));
     EXPECT_FALSE(gestureHitTestShouldSkipCandidate(true, false, true));
-    EXPECT_TRUE(gestureHitTestAcceptsWindow(true, false, false, false, true));
-    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, true, false, false, true));
-    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, true, false, true));
-    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, false, true, true));
-    EXPECT_FALSE(gestureHitTestAcceptsWindow(false, false, false, false, true));
-    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, false, false, false));
+    EXPECT_TRUE(gestureHitTestAcceptsWindow(true, false, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, true, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, true, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(false, false, false, true));
+    EXPECT_FALSE(gestureHitTestAcceptsWindow(true, false, false, false));
+    EXPECT_EQ(parseGestureTargetMode("foreground"), GestureTargetMode::Foreground);
+    EXPECT_EQ(parseGestureTargetMode("underPointer"), GestureTargetMode::UnderPointer);
+    EXPECT_EQ(parseGestureTargetMode("nope"), GestureTargetMode::UnderPointer);
+    EXPECT_STREQ(gestureTargetModeKey(GestureTargetMode::Foreground), "foreground");
+    EXPECT_EQ(pickGestureTargetSlot(GestureTargetMode::UnderPointer, true, true, true), 0);
+    EXPECT_EQ(pickGestureTargetSlot(GestureTargetMode::UnderPointer, false, true, true), 1);
+    EXPECT_EQ(pickGestureTargetSlot(GestureTargetMode::UnderPointer, false, false, true), -1);
+    EXPECT_EQ(pickGestureTargetSlot(GestureTargetMode::Foreground, true, true, true), 2);
+    EXPECT_EQ(pickGestureTargetSlot(GestureTargetMode::Foreground, true, true, false), -1);
     EXPECT_TRUE(keyStrokeShouldPostClose(MOD_ALT, VK_F4));
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_ALT | MOD_CONTROL, VK_F4));
     EXPECT_FALSE(keyStrokeShouldPostClose(MOD_CONTROL, 'W'));
@@ -655,8 +666,8 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     HWND external = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"t",
                                     WS_POPUP, 0, 0, 8, 8, nullptr, nullptr,
                                     GetModuleHandleW(nullptr), nullptr);
-    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, nullptr), nullptr);
-    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, external), external);
+    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, nullptr), settings);
+    EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, external), settings);
     EXPECT_EQ(resolveGestureKeyTarget(overlay, external, settings), external);
     KeyStroke::fromString("Alt+F4").send(external);
     KeyStroke::fromString("").send(nullptr);
