@@ -465,6 +465,44 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_TRUE(keyStrokeShouldDismissEasyToolsUi(MOD_ALT, VK_F4));
     EXPECT_FALSE(keyStrokeShouldDismissEasyToolsUi(MOD_CONTROL | MOD_SHIFT, 'W'));
     EXPECT_FALSE(keyStrokeShouldDismissEasyToolsUi(MOD_CONTROL, 'T'));
+    EXPECT_TRUE(keyStrokeIsCtrlW(MOD_CONTROL, 'W'));
+    EXPECT_FALSE(keyStrokeIsCtrlW(MOD_CONTROL | MOD_SHIFT, 'W'));
+    EXPECT_TRUE(classNameStartsWith(L"Chrome_WidgetWin_1", L"Chrome_WidgetWin"));
+    EXPECT_FALSE(classNameStartsWith(L"OrpheusBrowserHost", L"Chrome_WidgetWin"));
+    EXPECT_TRUE(isTabbedBrowserClassName(L"Chrome_WidgetWin_1"));
+    EXPECT_TRUE(isTabbedBrowserClassName(L"Chrome_WidgetWin_0"));
+    EXPECT_TRUE(isTabbedBrowserClassName(L"MozillaWindowClass"));
+    EXPECT_TRUE(isTabbedBrowserClassName(L"CabinetWClass"));
+    EXPECT_FALSE(isTabbedBrowserClassName(L"OrpheusBrowserHost"));
+    EXPECT_FALSE(isTabbedBrowserClassName(L"Qt51514QWindowIcon"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"Chrome_WidgetWin_1"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"OrpheusBrowserHost"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"CefBrowserWindow"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"Qt51514QWindowIcon"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"ApplicationFrameWindow"));
+    EXPECT_TRUE(isProductivityToolkitClassName(L"EasyTools_SettingsWindow"));
+    EXPECT_FALSE(isProductivityToolkitClassName(L"UnityWndClass"));
+    EXPECT_TRUE(shouldAutoBypassFullscreenGestures(true, false));
+    EXPECT_FALSE(shouldAutoBypassFullscreenGestures(true, true));
+    EXPECT_FALSE(shouldAutoBypassFullscreenGestures(false, false));
+    EXPECT_FALSE(overlayPresentShouldForceTopmost(true, false));
+    EXPECT_FALSE(overlayPresentShouldForceTopmost(true, true));
+    EXPECT_TRUE(overlayPresentShouldForceTopmost(false, false));
+    EXPECT_FALSE(overlayPresentShouldForceTopmost(false, true));
+    EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_ALT, VK_F4, L"Chrome_WidgetWin_1"));
+    EXPECT_FALSE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"Chrome_WidgetWin_1"));
+    EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"OrpheusBrowserHost"));
+    EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"Qt51514QWindowIcon"));
+    EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"EasyTools_SettingsWindow"));
+    EXPECT_FALSE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'T', L"OrpheusBrowserHost"));
+    EXPECT_EQ(resolveCloseableWindow(nullptr), nullptr);
+    EXPECT_FALSE(windowStillAcceptsClose(false, true));
+    EXPECT_FALSE(windowStillAcceptsClose(true, false));
+    EXPECT_TRUE(windowStillAcceptsClose(true, true));
+    EXPECT_FALSE(closeShouldSendKeyFallback(true, false));
+    EXPECT_TRUE(closeShouldSendKeyFallback(true, true));
+    EXPECT_FALSE(closeShouldSendKeyFallback(false, true));
+    EXPECT_GT(kCloseObserveTimeoutMs, 0u);
 }
 
 TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
@@ -673,11 +711,70 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, nullptr), settings);
     EXPECT_EQ(resolveGestureKeyTarget(overlay, settings, external), settings);
     EXPECT_EQ(resolveGestureKeyTarget(overlay, external, settings), external);
-    KeyStroke::fromString("Alt+F4").send(external);
     KeyStroke::fromString("").send(nullptr);
     if (overlay) DestroyWindow(overlay);
     if (settings) DestroyWindow(settings);
     if (external && IsWindow(external)) DestroyWindow(external);
+
+    auto pumpPostedClose = [](HWND hwnd) {
+        PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        MSG msg{};
+        while (PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    };
+
+    WNDCLASSEXW acceptWc{};
+    acceptWc.cbSize = sizeof(acceptWc);
+    acceptWc.lpfnWndProc = DefWindowProcW;
+    acceptWc.hInstance = GetModuleHandleW(nullptr);
+    acceptWc.lpszClassName = L"EasyTools_TestAcceptClose";
+    RegisterClassExW(&acceptWc);
+    HWND accept = CreateWindowExW(WS_EX_TOOLWINDOW, L"EasyTools_TestAcceptClose", L"accept",
+                                  WS_POPUP | WS_VISIBLE, 0, 0, 16, 16, nullptr, nullptr,
+                                  GetModuleHandleW(nullptr), nullptr);
+    ASSERT_TRUE(accept != nullptr);
+    EXPECT_EQ(resolveCloseableWindow(accept), accept);
+    pumpPostedClose(accept);
+    EXPECT_FALSE(IsWindow(accept));
+    EXPECT_FALSE(closeShouldSendKeyFallback(
+        true, windowStillAcceptsClose(IsWindow(accept) != FALSE, false)));
+
+    static auto swallowProc = [](HWND h, UINT m, WPARAM w, LPARAM l) -> LRESULT {
+        if (m == WM_CLOSE || (m == WM_SYSCOMMAND && w == SC_CLOSE)) return 0;
+        return DefWindowProcW(h, m, w, l);
+    };
+    WNDCLASSEXW swallowWc{};
+    swallowWc.cbSize = sizeof(swallowWc);
+    swallowWc.lpfnWndProc = swallowProc;
+    swallowWc.hInstance = GetModuleHandleW(nullptr);
+    swallowWc.lpszClassName = L"EasyTools_TestSwallowClose";
+    RegisterClassExW(&swallowWc);
+    HWND swallow = CreateWindowExW(WS_EX_TOOLWINDOW, L"EasyTools_TestSwallowClose", L"swallow",
+                                   WS_POPUP | WS_VISIBLE, 0, 0, 16, 16, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
+    ASSERT_TRUE(swallow != nullptr);
+    pumpPostedClose(swallow);
+    EXPECT_TRUE(IsWindow(swallow));
+    EXPECT_TRUE(closeShouldSendKeyFallback(
+        true, windowStillAcceptsClose(IsWindow(swallow) != FALSE,
+                                      IsWindowVisible(swallow) != FALSE)));
+    DestroyWindow(swallow);
+
+    HWND owner = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"owner",
+                                 WS_POPUP, 0, 0, 24, 24, nullptr, nullptr,
+                                 GetModuleHandleW(nullptr), nullptr);
+    HWND owned = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"owned",
+                                 WS_POPUP, 0, 0, 16, 16, owner, nullptr,
+                                 GetModuleHandleW(nullptr), nullptr);
+    ASSERT_TRUE(owner != nullptr);
+    ASSERT_TRUE(owned != nullptr);
+    EXPECT_EQ(resolveCloseableWindow(owned), owner);
+    if (owned) DestroyWindow(owned);
+    if (owner) DestroyWindow(owner);
+
     EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::SendKeys));
     EXPECT_TRUE(gestureActionNeedsInputThread(ActionType::BuiltinCommand));
     EXPECT_FALSE(gestureActionNeedsInputThread(ActionType::LuaScript));
@@ -780,15 +877,28 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     dispatcher.execute(BuiltinCommand::TakeScreenshot, nullptr);
     EXPECT_TRUE(screenshotCalled.load());
 
-    // 验证多媒体命令与虚拟桌面在无有效目标窗口与伪窗口上下文下均能稳定分发，不发生异常
-    dispatcher.execute(BuiltinCommand::MediaNext, nullptr);
-    dispatcher.execute(BuiltinCommand::MediaPrev, nullptr);
-    dispatcher.execute(BuiltinCommand::MediaPlayPause, nullptr);
-    dispatcher.execute(BuiltinCommand::VolumeUp, nullptr);
-    dispatcher.execute(BuiltinCommand::VolumeDown, nullptr);
-    dispatcher.execute(BuiltinCommand::VolumeMute, nullptr);
-    dispatcher.execute(BuiltinCommand::PrevVirtualDesktop, nullptr);
-    dispatcher.execute(BuiltinCommand::NextVirtualDesktop, nullptr);
+    // 多媒体 / 虚拟桌面 / 锁屏必须先挂 Mock。默认实现是全局 SendInput 或
+    // LockWorkStation，部署跑 CTest 时会暂停播放器、静音、切桌面甚至锁屏。
+    const std::vector<BuiltinCommand> systemWideCmds = {
+        BuiltinCommand::MediaNext,
+        BuiltinCommand::MediaPrev,
+        BuiltinCommand::MediaPlayPause,
+        BuiltinCommand::VolumeUp,
+        BuiltinCommand::VolumeDown,
+        BuiltinCommand::VolumeMute,
+        BuiltinCommand::PrevVirtualDesktop,
+        BuiltinCommand::NextVirtualDesktop,
+        BuiltinCommand::ShowDesktop,
+        BuiltinCommand::SwitchDesktop,
+        BuiltinCommand::TaskView,
+        BuiltinCommand::LockScreen,
+    };
+    for (auto cmd : systemWideCmds) {
+        std::atomic<bool> called{false};
+        dispatcher.registerHandler(cmd, [&called]() { called = true; });
+        dispatcher.execute(cmd, nullptr);
+        EXPECT_TRUE(called.load());
+    }
     dispatcher.clearHandlers();
 }
 
@@ -1570,6 +1680,9 @@ TEST(WinUtilsTest, FullscreenDetection) {
     // 空句柄或无效句柄返回 false
     EXPECT_FALSE(easy::core::WinUtils::isWindowFullscreen(nullptr));
     EXPECT_FALSE(easy::core::WinUtils::isWindowFullscreen((HWND)(uintptr_t)0x12345678));
+    EXPECT_FALSE(easy::core::WinUtils::isWindowProcessElevated(nullptr));
+    EXPECT_FALSE(easy::core::WinUtils::isWindowHigherIntegrity(nullptr));
+    EXPECT_FALSE(easy::core::WinUtils::queryProcessElevated(nullptr));
 
     HWND overlay = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"EasyTools affinity test",

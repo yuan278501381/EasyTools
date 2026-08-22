@@ -267,7 +267,12 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
     try {
         std::lock_guard lock(m_mutex);
 
-        if (m_paused.load()) return false;
+        if (m_paused.load()) {
+            if (event.type == MouseEventType::RightDown || event.type == MouseEventType::MiddleDown) {
+                LOG_INFO("手势引擎已暂停，放行触发键");
+            }
+            return false;
+        }
 
         switch (m_state.load()) {
             case GestureState::Idle:
@@ -287,10 +292,20 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
                     std::string exeName;
                     std::string className;
 
-                    // 全屏免打扰模式：检测前台窗口是否处于全屏独占状态
+                    // 全屏几何判定本身很轻；类名 / OpenProcess 完整性查询绝不进按下热路径。
+                    // 只有确实铺满显示器时才取类名，区分游戏独占全屏与 CEF/Electron/Qt。
                     if (m_autoBypassFullscreen.load() && easy::core::WinUtils::isWindowFullscreen(hwnd)) {
-                        LOG_INFO("前台窗口处于全屏模式，手势引擎自动放行: hwnd=0x{:X}", reinterpret_cast<uintptr_t>(hwnd));
-                        return false;
+                        const std::wstring classWide = hwnd
+                            ? easy::core::WinUtils::getWindowClassName(hwnd) : std::wstring{};
+                        className = easy::core::WinUtils::wstringToUtf8(classWide);
+                        if (shouldAutoBypassFullscreenGestures(
+                                true, isProductivityToolkitClassName(classWide))) {
+                            LOG_INFO("前台窗口处于全屏独占，手势引擎自动放行: hwnd=0x{:X} class={}",
+                                     reinterpret_cast<uintptr_t>(hwnd), className);
+                            return false;
+                        }
+                        LOG_INFO("全屏但是生产力窗口，继续手势: hwnd=0x{:X} class={}",
+                                 reinterpret_cast<uintptr_t>(hwnd), className);
                     }
 
                     // 绝大多数用户没有例外规则。只有确实需要匹配时才跨进程查询
@@ -615,10 +630,13 @@ void GestureEngine::endTracking(const MouseEvent& event) {
                         std::lock_guard lock(m_mutex);
                         m_lastExternalWindow = hwnd;
                     }
-                    LOG_INFO("手势选窗: mode={} start=({},{}) end=({},{}) hwnd=0x{:X}",
+                    LOG_INFO("手势选窗: mode={} start=({},{}) end=({},{}) hwnd=0x{:X} class={} exe={}",
                              gestureTargetModeKey(targetMode),
                              startPt.x, startPt.y, endPt.x, endPt.y,
-                             reinterpret_cast<uintptr_t>(hwnd));
+                             reinterpret_cast<uintptr_t>(hwnd),
+                             hwnd ? easy::core::WinUtils::wstringToUtf8(
+                                        easy::core::WinUtils::getWindowClassName(hwnd)) : "",
+                             hwnd ? easy::core::WinUtils::getProcessNameFromWindow(hwnd) : "");
                     LOG_INFO("手势动作开始执行(输入线程): action={}, type={}, targetHwnd=0x{:X}",
                              act.name, static_cast<int>(act.type),
                              reinterpret_cast<uintptr_t>(hwnd));

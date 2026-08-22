@@ -84,6 +84,9 @@ public:
     /// 注入按键前暂时让出 TOPMOST，避免覆盖层挡住目标窗口取得前台。
     void yieldZOrderForInput();
 
+    /// 新一笔轨迹开始时把覆盖层拉回 TOPMOST 组（沉底后 WS_EX_TOPMOST 位可能仍在）。
+    void raiseZOrderForDraw();
+
     /// 重新根据全局配置与主题加载画笔颜色
     void reloadThemeColors();
 
@@ -149,6 +152,7 @@ private:
     DWORD m_fadeStartTick = 0;
     std::atomic<bool> m_fadeClockStarted{false};
     std::atomic<bool> m_themeDirty{true};
+    std::atomic<bool> m_zOrderYielded{false};
 
     // 专用异步渲染引擎
     std::jthread m_renderThread;

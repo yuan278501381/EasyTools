@@ -133,9 +133,10 @@ std::string describeWindow(HWND hwnd) {
     if (!root) root = hwnd;
     DWORD pid = 0;
     GetWindowThreadProcessId(root, &pid);
-    return std::format("0x{:X} class={} pid={}",
+    return std::format("0x{:X} class={} exe={} pid={}",
                        reinterpret_cast<uintptr_t>(root),
                        easy::core::WinUtils::wstringToUtf8(windowClassName(root)),
+                       easy::core::WinUtils::getProcessNameFromWindow(root),
                        pid);
 }
 
@@ -163,6 +164,35 @@ HWND asLiveWindow(HWND hwnd) noexcept {
     if (!hwnd || !IsWindow(hwnd)) return nullptr;
     HWND root = GetAncestor(hwnd, GA_ROOT);
     return root ? root : hwnd;
+}
+
+void postCloseWindow(HWND hwnd) noexcept {
+    HWND closeTarget = resolveCloseableWindow(hwnd);
+    if (!closeTarget) return;
+    PostMessageW(closeTarget, WM_SYSCOMMAND, SC_CLOSE, 0);
+    PostMessageW(closeTarget, WM_CLOSE, 0, 0);
+    LOG_INFO("关闭窗口已投递: {}", describeWindow(closeTarget));
+}
+
+/// 冷路径：投递后观察窗口是否已经消失。同线程窗靠 PeekMessage 收 WM_CLOSE，
+/// 跨进程窗靠短睡眠等对方消息循环。仍在则返回 true（需要补按键）。
+bool postedCloseStillPending(HWND hwnd, DWORD timeoutMs) noexcept {
+    if (!hwnd) return false;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(timeoutMs);
+    while (windowStillAcceptsClose(IsWindow(hwnd) != FALSE, IsWindowVisible(hwnd) != FALSE)) {
+        MSG msg{};
+        while (PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        if (!windowStillAcceptsClose(IsWindow(hwnd) != FALSE, IsWindowVisible(hwnd) != FALSE)) {
+            return false;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return false;
 }
 
 bool isWindowCloaked(HWND hwnd) noexcept {
@@ -344,19 +374,39 @@ void KeyStroke::send(void* targetWindowPtr) const {
         return;
     }
 
-    if (!isGlobalKey(virtualKey) && targetHwnd &&
-        (keyStrokeShouldPostClose(modifiers, virtualKey) ||
-         (isEasyToolsUiWindow(targetHwnd) &&
-          keyStrokeShouldDismissEasyToolsUi(modifiers, virtualKey)))) {
-        PostMessageW(targetHwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
-        PostMessageW(targetHwnd, WM_CLOSE, 0, 0);
-        LOG_INFO("关闭窗口已投递: {}", describeWindow(targetHwnd));
-        return;
+    uint8_t sendMods = modifiers;
+    uint16_t sendVk = virtualKey;
+    bool closing = !isGlobalKey(virtualKey) && targetHwnd &&
+        keyStrokeShouldCloseWindow(modifiers, virtualKey, windowClassName(targetHwnd));
+    if (closing) {
+        HWND closeTarget = resolveCloseableWindow(targetHwnd);
+        if (closeTarget) targetHwnd = closeTarget;
+        if (easy::core::WinUtils::isWindowHigherIntegrity(targetHwnd)) {
+            LOG_WARN("目标窗口完整性更高，关闭可能被 UIPI 拦截: {}", describeWindow(targetHwnd));
+        }
+        postCloseWindow(targetHwnd);
+        const bool stillPending = postedCloseStillPending(targetHwnd, kCloseObserveTimeoutMs);
+        if (!closeShouldSendKeyFallback(true, stillPending)) {
+            LOG_INFO("关闭已生效，不再补发 Alt+F4: {}", describeWindow(targetHwnd));
+            return;
+        }
+        sendMods = MOD_ALT;
+        sendVk = VK_F4;
+        LOG_INFO("关闭投递后窗口仍在，补发 Alt+F4: {}", describeWindow(targetHwnd));
+    } else if (!isGlobalKey(virtualKey) && targetHwnd &&
+               easy::core::WinUtils::isWindowHigherIntegrity(targetHwnd)) {
+        LOG_WARN("目标窗口完整性更高，按键注入可能被 UIPI 拦截: keys={}, target={}",
+                 toString(), describeWindow(targetHwnd));
     }
 
     // 非全局键先把输入焦点切到目标窗口，再原子发送。切不过则放弃，避免 Ctrl+W 打进前台的设置页。
-    if (!isGlobalKey(virtualKey) && targetHwnd) {
+    if (!isGlobalKey(sendVk) && targetHwnd) {
         if (!activateTargetWindow(targetHwnd, /*allowWait=*/true)) {
+            if (closing) {
+                LOG_WARN("未能激活目标窗口，仅保留已投递的关闭消息: target={}",
+                         describeWindow(targetHwnd));
+                return;
+            }
             LOG_WARN("未能激活目标窗口，放弃注入: keys={}, target={}, fg={}",
                      toString(), describeWindow(targetHwnd), describeWindow(GetForegroundWindow()));
             return;
@@ -391,16 +441,16 @@ void KeyStroke::send(void* targetWindowPtr) const {
 
     // 按下修饰键
     for (auto [mod, vk] : kMods) {
-        if (modifiers & mod) addKey(vk, /*up=*/false);
+        if (sendMods & mod) addKey(vk, /*up=*/false);
     }
     // 按下主键
-    addKey(virtualKey, /*up=*/false);
+    addKey(sendVk, /*up=*/false);
 
     // 释放主键
-    addKey(virtualKey, /*up=*/true);
+    addKey(sendVk, /*up=*/true);
     // 逆序释放修饰键
     for (auto it = kMods.rbegin(); it != kMods.rend(); ++it) {
-        if (modifiers & it->first) addKey(it->second, /*up=*/true);
+        if (sendMods & it->first) addKey(it->second, /*up=*/true);
     }
 
     // 原子性提交整组按键

@@ -360,6 +360,7 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
+    raiseZOrderForDraw();
     m_trailEpoch.fetch_add(1, std::memory_order_acq_rel);
     m_hideRequested.store(false, std::memory_order_release);
     m_wantVisible.store(false, std::memory_order_release);
@@ -503,6 +504,19 @@ void GestureTrailOverlay::yieldZOrderForInput() {
     };
     lower(m_hwnd);
     lower(m_toastHwnd);
+    m_zOrderYielded.store(true, std::memory_order_release);
+}
+
+void GestureTrailOverlay::raiseZOrderForDraw() {
+    auto raise = [](HWND hwnd) {
+        if (hwnd && IsWindow(hwnd)) {
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+    };
+    raise(m_hwnd);
+    raise(m_toastHwnd);
+    m_zOrderYielded.store(false, std::memory_order_release);
 }
 
 void GestureTrailOverlay::applyHideOnRenderThread() {
@@ -588,11 +602,11 @@ bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int 
         LOG_WARN("手势覆盖层提交失败: {}x{} error={}", width, height, err);
         return false;
     }
-    // 两个分层窗口都已位于 TOPMOST 组时不要逐帧重新插队。旧逻辑每帧先把轨迹
-    // 提到最前，再把 Toast 提到最前；二者重叠时会在两次提交之间短暂交换层级，
-    // 肉眼表现为闪烁。仅在输入动作暂时沉底后才恢复 TOPMOST。
+    // HWND_BOTTOM 沉底后 WS_EX_TOPMOST 位经常还在，旧逻辑会跳过插队，轨迹画在
+    // 最大化 Electron / CEF 窗下面。沉底过就必须无条件回到 TOPMOST 组。
     const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    if ((exStyle & WS_EX_TOPMOST) == 0) {
+    const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
+    if (overlayPresentShouldForceTopmost((exStyle & WS_EX_TOPMOST) != 0, yielded)) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }

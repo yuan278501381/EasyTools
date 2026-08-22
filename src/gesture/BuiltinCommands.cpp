@@ -120,10 +120,7 @@ void BuiltinCommandDispatcher::execute(BuiltinCommand cmd, void* targetWindowPtr
     switch (cmd) {
         // ── 窗口管理 (精准作用于鼠标下方目标窗口) ─────────────────────────
         case BuiltinCommand::CloseWindow: {
-            if (HWND h = resolveTargetWindow(targetWindowPtr)) {
-                PostMessageW(h, WM_SYSCOMMAND, SC_CLOSE, 0);
-                PostMessageW(h, WM_CLOSE, 0, 0);
-            }
+            sendCombo(MOD_ALT, VK_F4, targetWindowPtr);
             break;
         }
         case BuiltinCommand::MaximizeWindow: {

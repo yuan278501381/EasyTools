@@ -286,6 +286,8 @@ public:
     /// 自动排除桌面、任务栏等系统特殊窗口
     static bool isWindowFullscreen(HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) return false;
+        HWND root = GetAncestor(hwnd, GA_ROOT);
+        if (root) hwnd = root;
 
         // 排除桌面和 Shell 窗口
         if (hwnd == GetDesktopWindow() || hwnd == GetShellWindow()) return false;
@@ -316,6 +318,38 @@ public:
                 rcWindow.top <= mi.rcMonitor.top &&
                 rcWindow.right >= mi.rcMonitor.right &&
                 rcWindow.bottom >= mi.rcMonitor.bottom);
+    }
+
+    static bool queryProcessElevated(HANDLE process) {
+        if (!process) return false;
+        HANDLE token = nullptr;
+        if (!OpenProcessToken(process, TOKEN_QUERY, &token)) return false;
+        TOKEN_ELEVATION elev{};
+        DWORD ret = 0;
+        const bool ok = GetTokenInformation(token, TokenElevation, &elev, sizeof(elev), &ret) != FALSE;
+        CloseHandle(token);
+        return ok && elev.TokenIsElevated != 0;
+    }
+
+    static bool isCurrentProcessElevated() {
+        return queryProcessElevated(GetCurrentProcess());
+    }
+
+    static bool isWindowProcessElevated(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) return false;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (!pid) return false;
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!process) return false;
+        const bool elevated = queryProcessElevated(process);
+        CloseHandle(process);
+        return elevated;
+    }
+
+    /// 目标进程完整性高于本进程时，覆盖层无法盖住该窗，PostMessage / SendInput 会被 UIPI 丢掉。
+    static bool isWindowHigherIntegrity(HWND hwnd) {
+        return isWindowProcessElevated(hwnd) && !isCurrentProcessElevated();
     }
 
     /// 获取当前活动资源管理器（Explorer）或桌面所选中的文件/文件夹完整物理路径

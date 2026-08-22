@@ -208,11 +208,76 @@ inline bool keyStrokeShouldPostClose(uint8_t modifiers, uint16_t virtualKey) noe
     return withoutAlt == 0 && (modifiers & MOD_ALT) != 0 && virtualKey == VK_F4;
 }
 
+inline bool keyStrokeIsCtrlW(uint8_t modifiers, uint16_t virtualKey) noexcept {
+    const uint8_t withoutCtrl = static_cast<uint8_t>(modifiers & ~static_cast<uint8_t>(MOD_CONTROL));
+    return withoutCtrl == 0 && (modifiers & MOD_CONTROL) != 0 && virtualKey == 'W';
+}
+
+inline bool classNameStartsWith(std::wstring_view cls, std::wstring_view prefix) noexcept {
+    return cls.size() >= prefix.size() && cls.substr(0, prefix.size()) == prefix;
+}
+
+/// Chrome / Edge / Firefox / 资源管理器 / Electron IDE 把 Ctrl+W 当成关标签。
+inline bool isTabbedBrowserClassName(std::wstring_view cls) noexcept {
+    return classNameStartsWith(cls, L"Chrome_WidgetWin") ||
+           cls == L"MozillaWindowClass" ||
+           cls == L"CabinetWClass";
+}
+
+/// CEF / Electron / Qt / UWP 等生产力宿主：即使无边框铺满屏幕，也不应按游戏全屏免打扰。
+inline bool isProductivityToolkitClassName(std::wstring_view cls) noexcept {
+    if (isTabbedBrowserClassName(cls) || isEasyToolsUiClassName(cls)) return true;
+    if (cls == L"OrpheusBrowserHost" || cls == L"CefBrowserWindow" ||
+        cls == L"ApplicationFrameWindow") {
+        return true;
+    }
+    return classNameStartsWith(cls, L"Qt");
+}
+
+/// 仅对真正的全屏独占（游戏/播放器）免打扰；IDE / 浏览器 / CEF / Qt 全屏继续手势。
+inline bool shouldAutoBypassFullscreenGestures(bool isFullscreen,
+                                               bool isProductivityClass) noexcept {
+    return isFullscreen && !isProductivityClass;
+}
+
+/// 沉底让路期间不要把覆盖层拉回来；丢失 TOPMOST 位且未沉底时才补插队。
+/// 下一笔 beginTrail 会无条件 raise，不依赖这个 exstyle 位。
+inline bool overlayPresentShouldForceTopmost(bool hasTopmostExStyle,
+                                             bool yieldedBelow) noexcept {
+    return !yieldedBelow && !hasTopmostExStyle;
+}
+
 /// 画在 EasyTools 自己的设置/搜索窗上时，关闭标签页应关掉该窗口，而不是把 Ctrl+W 打进 WebView。
 inline bool keyStrokeShouldDismissEasyToolsUi(uint8_t modifiers, uint16_t virtualKey) noexcept {
     if (keyStrokeShouldPostClose(modifiers, virtualKey)) return true;
-    const uint8_t withoutCtrl = static_cast<uint8_t>(modifiers & ~static_cast<uint8_t>(MOD_CONTROL));
-    return withoutCtrl == 0 && (modifiers & MOD_CONTROL) != 0 && virtualKey == 'W';
+    return keyStrokeIsCtrlW(modifiers, virtualKey);
+}
+
+/// Alt+F4 一律关窗。Ctrl+W 只在无标签页的宿主（网易云 Orpheus、微信 Qt 等）升格为关窗。
+inline bool keyStrokeShouldCloseWindow(uint8_t modifiers, uint16_t virtualKey,
+                                       std::wstring_view className) noexcept {
+    if (keyStrokeShouldPostClose(modifiers, virtualKey)) return true;
+    if (!keyStrokeIsCtrlW(modifiers, virtualKey)) return false;
+    if (isEasyToolsUiClassName(className)) return true;
+    return !isTabbedBrowserClassName(className);
+}
+
+/// 关窗目标走 owner 链：CEF 内嵌宿主往往是顶层窗，真正该关的是 GA_ROOTOWNER。
+inline HWND resolveCloseableWindow(HWND hwnd) noexcept {
+    if (!hwnd || !IsWindow(hwnd)) return nullptr;
+    HWND ownerRoot = GetAncestor(hwnd, GA_ROOTOWNER);
+    return ownerRoot ? ownerRoot : hwnd;
+}
+
+inline constexpr DWORD kCloseObserveTimeoutMs = 40;
+
+inline bool windowStillAcceptsClose(bool isWindow, bool isVisible) noexcept {
+    return isWindow && isVisible;
+}
+
+/// 已投递关闭且窗口还在，才补发 Alt+F4，避免 Chrome 一类宿主被关两次。
+inline bool closeShouldSendKeyFallback(bool posted, bool stillAcceptsClose) noexcept {
+    return posted && stillAcceptsClose;
 }
 
 }  // namespace easy::gesture
