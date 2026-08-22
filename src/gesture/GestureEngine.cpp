@@ -12,6 +12,7 @@
 #include "core/events/MainThreadDispatcher.h"
 
 #include <algorithm>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -402,6 +403,16 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
     if (under && !IsWindowVisible(under)) under = nullptr;
     m_gestureStartWindow = under ? under : fg;
     if (m_gestureStartWindow) m_lastExternalWindow = m_gestureStartWindow;
+    if (m_gestureStartWindow) {
+        wchar_t startCls[256] = {};
+        GetClassNameW(m_gestureStartWindow, startCls, 256);
+        const LONG_PTR startEx = GetWindowLongPtrW(m_gestureStartWindow, GWL_EXSTYLE);
+        LOG_INFO("手势追踪开始: pos=({},{}) hwnd=0x{:X} class={} compositorSurface={}",
+                 event.position.x, event.position.y,
+                 reinterpret_cast<uintptr_t>(m_gestureStartWindow),
+                 easy::core::WinUtils::wstringToUtf8(std::wstring(startCls)),
+                 windowUsesCompositorSurface(startEx));
+    }
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_fallbackProfile = getProfile("default");

@@ -26,6 +26,11 @@
 #include <utility>
 #include <climits>
 
+#include <dcomp.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
+#include <dwmapi.h>
+
 using namespace Microsoft::WRL;
 
 namespace easy::gesture {
@@ -246,6 +251,7 @@ void GestureTrailOverlay::shutdown() {
         DestroyWindow(m_helperOwnerHwnd);
         m_helperOwnerHwnd = nullptr;
     }
+    releaseCompositorLocked();
     m_visible.store(false);
     LOG_DEBUG("手势轨迹覆盖层已关闭");
 }
@@ -570,6 +576,8 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
         m_oldBitmap = selected;
     }
     m_memoryBitmap = bmp;
+    m_memoryBits = bits;
+    m_memoryPitch = width * 4;
     m_originX = x;
     m_originY = y;
     m_width = width;
@@ -588,6 +596,13 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
 bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int y,
                                                int width, int height) {
     if (!hwnd || !memDC || width <= 0 || height <= 0) return false;
+    const bool toast = (hwnd == m_toastHwnd);
+    const void* bits = toast ? m_toastBits : m_memoryBits;
+    const int pitch = toast ? m_toastPitch : m_memoryPitch;
+    if (m_compositorReady && bits && pitch > 0 &&
+        presentCompositorLocked(hwnd, bits, pitch, x, y, width, height)) {
+        return true;
+    }
     HDC hdcScreen = GetDC(nullptr);
     if (!hdcScreen) return false;
     POINT ptSrc = {0, 0};
@@ -631,6 +646,8 @@ void GestureTrailOverlay::releaseToastSurfaceLocked() {
         DeleteObject(m_toastBitmap);
         m_toastBitmap = nullptr;
     }
+    m_toastBits = nullptr;
+    m_toastPitch = 0;
     if (m_toastDC) {
         DeleteDC(m_toastDC);
         m_toastDC = nullptr;
@@ -671,6 +688,8 @@ bool GestureTrailOverlay::ensureToastSurfaceLocked(int width, int height) {
         m_toastOldBitmap = selected;
     }
     m_toastBitmap = bmp;
+    m_toastBits = bits;
+    m_toastPitch = width * 4;
     m_toastWidth = width;
     m_toastHeight = height;
     return true;
@@ -768,7 +787,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     );
 
     m_hwnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
+            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         OVERLAY_CLASS,
         L"EasyTools Gesture Trail",
         WS_POPUP,
@@ -794,7 +814,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     m_height = 0;
 
     m_toastHwnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
+            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         OVERLAY_CLASS,
         L"EasyTools Gesture Toast",
         WS_POPUP,
@@ -815,7 +836,172 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     } else {
         LOG_WARN("创建手势结果卡片窗口失败，轨迹仍可绘制");
     }
+
+    if (!ensureCompositorLocked()) {
+        const LONG_PTR layeredEx = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
+                                   WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        if (m_hwnd) SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, layeredEx);
+        if (m_toastHwnd) SetWindowLongPtrW(m_toastHwnd, GWL_EXSTYLE, layeredEx);
+        LOG_WARN("手势覆盖层改用 Layered 回退（无法压过 Electron 合成器）");
+    } else {
+        const MARGINS margins{-1, -1, -1, -1};
+        if (m_hwnd) DwmExtendFrameIntoClientArea(m_hwnd, &margins);
+        if (m_toastHwnd) DwmExtendFrameIntoClientArea(m_toastHwnd, &margins);
+        LOG_INFO("手势覆盖层使用 DirectComposition 呈现");
+    }
     return true;
+}
+
+bool GestureTrailOverlay::ensureCompositorLocked() {
+    if (m_compositorReady && m_dcompDevice && m_trailDcompTarget) return true;
+    releaseCompositorLocked();
+    if (!m_hwnd) return false;
+
+    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+    const D3D_FEATURE_LEVEL levels[] = {
+        D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0
+    };
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d;
+    HRESULT hr = D3D11CreateDevice(
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        levels, ARRAYSIZE(levels), D3D11_SDK_VERSION, d3d.GetAddressOf(), &featureLevel, nullptr);
+    if (FAILED(hr)) {
+        hr = D3D11CreateDevice(
+            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            nullptr, 0, D3D11_SDK_VERSION, d3d.GetAddressOf(), &featureLevel, nullptr);
+    }
+    if (FAILED(hr) || !d3d) return false;
+
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    if (FAILED(d3d.As(&dxgiDevice)) || !dxgiDevice) return false;
+
+    Microsoft::WRL::ComPtr<IDCompositionDevice> dcomp;
+    hr = DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(dcomp.GetAddressOf()));
+    if (FAILED(hr) || !dcomp) return false;
+
+    Microsoft::WRL::ComPtr<IDCompositionTarget> trailTarget;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> trailVisual;
+    if (FAILED(dcomp->CreateTargetForHwnd(m_hwnd, TRUE, trailTarget.GetAddressOf())) ||
+        FAILED(dcomp->CreateVisual(trailVisual.GetAddressOf())) ||
+        FAILED(trailTarget->SetRoot(trailVisual.Get()))) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDCompositionTarget> toastTarget;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> toastVisual;
+    if (m_toastHwnd) {
+        if (FAILED(dcomp->CreateTargetForHwnd(m_toastHwnd, TRUE, toastTarget.GetAddressOf())) ||
+            FAILED(dcomp->CreateVisual(toastVisual.GetAddressOf())) ||
+            FAILED(toastTarget->SetRoot(toastVisual.Get()))) {
+            return false;
+        }
+    }
+
+    m_d3dDevice = std::move(d3d);
+    m_dcompDevice = std::move(dcomp);
+    m_trailDcompTarget = std::move(trailTarget);
+    m_trailDcompVisual = std::move(trailVisual);
+    m_toastDcompTarget = std::move(toastTarget);
+    m_toastDcompVisual = std::move(toastVisual);
+    m_compositorReady = true;
+    return true;
+}
+
+void GestureTrailOverlay::releaseCompositorSurfacesLocked() {
+    if (m_trailDcompVisual) m_trailDcompVisual->SetContent(nullptr);
+    if (m_toastDcompVisual) m_toastDcompVisual->SetContent(nullptr);
+    m_trailDcompSurface.Reset();
+    m_toastDcompSurface.Reset();
+    m_trailDcompW = 0;
+    m_trailDcompH = 0;
+    m_toastDcompW = 0;
+    m_toastDcompH = 0;
+}
+
+void GestureTrailOverlay::releaseCompositorLocked() {
+    releaseCompositorSurfacesLocked();
+    m_trailDcompVisual.Reset();
+    m_toastDcompVisual.Reset();
+    m_trailDcompTarget.Reset();
+    m_toastDcompTarget.Reset();
+    m_dcompDevice.Reset();
+    m_d3dDevice.Reset();
+    m_compositorReady = false;
+}
+
+bool GestureTrailOverlay::presentCompositorLocked(HWND hwnd, const void* bits, int pitch,
+                                                  int x, int y, int width, int height) {
+    if (!m_compositorReady || !m_dcompDevice || !m_d2dFactory || !hwnd || !bits ||
+        pitch <= 0 || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    const bool toast = (hwnd == m_toastHwnd);
+    auto& visual = toast ? m_toastDcompVisual : m_trailDcompVisual;
+    auto& surface = toast ? m_toastDcompSurface : m_trailDcompSurface;
+    int& surfW = toast ? m_toastDcompW : m_trailDcompW;
+    int& surfH = toast ? m_toastDcompH : m_trailDcompH;
+    if (!visual) return false;
+
+    if (!surface || surfW != width || surfH != height) {
+        surface.Reset();
+        if (FAILED(m_dcompDevice->CreateSurface(
+                static_cast<UINT>(width), static_cast<UINT>(height),
+                DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED,
+                surface.GetAddressOf())) || !surface) {
+            return false;
+        }
+        if (FAILED(visual->SetContent(surface.Get()))) return false;
+        surfW = width;
+        surfH = height;
+    }
+
+    POINT offset{};
+    Microsoft::WRL::ComPtr<IDXGISurface> dxgiSurf;
+    if (FAILED(surface->BeginDraw(nullptr, IID_PPV_ARGS(dxgiSurf.GetAddressOf()), &offset)) ||
+        !dxgiSurf) {
+        return false;
+    }
+
+    const D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
+    if (FAILED(m_d2dFactory->CreateDxgiSurfaceRenderTarget(
+            dxgiSurf.Get(), rtProps, rt.GetAddressOf())) || !rt) {
+        surface->EndDraw();
+        return false;
+    }
+
+    const D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bmp;
+    if (FAILED(rt->CreateBitmap(
+            D2D1::SizeU(static_cast<UINT32>(width), static_cast<UINT32>(height)),
+            bits, static_cast<UINT32>(pitch), bp, bmp.GetAddressOf())) || !bmp) {
+        surface->EndDraw();
+        return false;
+    }
+
+    rt->BeginDraw();
+    rt->Clear(D2D1::ColorF(0, 0, 0, 0));
+    const float ox = static_cast<float>(offset.x);
+    const float oy = static_cast<float>(offset.y);
+    rt->DrawBitmap(bmp.Get(), D2D1::RectF(ox, oy, ox + static_cast<float>(width),
+                                          oy + static_cast<float>(height)));
+    if (FAILED(rt->EndDraw())) {
+        surface->EndDraw();
+        return false;
+    }
+    if (FAILED(surface->EndDraw())) return false;
+
+    const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
+    SetWindowPos(hwnd, yielded ? HWND_BOTTOM : HWND_TOPMOST, x, y, width, height,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (!yielded && !IsWindowVisible(hwnd)) {
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+    return SUCCEEDED(m_dcompDevice->Commit());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -985,6 +1171,8 @@ void GestureTrailOverlay::releaseD2DResourcesLocked() {
         DeleteObject(m_memoryBitmap);
         m_memoryBitmap = nullptr;
     }
+    m_memoryBits = nullptr;
+    m_memoryPitch = 0;
     if (m_memoryDC) {
         DeleteDC(m_memoryDC);
         m_memoryDC = nullptr;

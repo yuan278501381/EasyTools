@@ -11,6 +11,7 @@
 | 关窗被吞 | 轨迹和 toast 都有，窗口还在 | 先向 `GA_ROOTOWNER` 投 `WM_SYSCOMMAND/SC_CLOSE` + `WM_CLOSE`，观察最多 40ms；窗口仍在才补 `Alt+F4` |
 | 无标签宿主收到 Ctrl+W | `↓→` 显示「关闭标签页」但应用没有标签 | `Chrome_WidgetWin*` / Firefox / 资源管理器继续 `Ctrl+W`；CEF（`OrpheusBrowserHost`）、`Qt*`、EasyTools 自己的窗升格为关窗 |
 | 轨迹沉底后不可见 | 最大化 Electron/CEF 上看不到笔迹和 toast | 注入前 `HWND_BOTTOM` 让路；**下一笔** `beginTrail` 无条件 `HWND_TOPMOST`。沉底期间不把覆盖层拉回来 |
+| Electron 合成器盖住分层窗 | Antigravity IDE 一类 `WS_EX_NOREDIRECTIONBITMAP` 窗上看不到轨迹，动作其实可能已经识别 | 覆盖层改走 DirectComposition 呈现，进入同一合成器；失败时回退 Layered |
 | 全屏免打扰误伤 | IDE / 浏览器 F11 或无边框最大化时既无轨迹也无动作 | 仅无标题栏且铺满物理显示器的窗口才可能免打扰；生产力工具包类名一律继续手势 |
 
 完整性（UIPI）只在**松手后的输入线程**查询并打日志，禁止出现在 `WH_MOUSE_LL` 按下回调里。

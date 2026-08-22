@@ -15,6 +15,9 @@
 #include <windows.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <dcomp.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #include <wrl/client.h>
 #include <vector>
 #include <string>
@@ -113,6 +116,11 @@ private:
     bool fitSurface(int left, int top, int right, int bottom);
     bool recreateBitmapLocked(int x, int y, int width, int height);
     bool presentLayeredLocked(HWND hwnd, HDC memDC, int x, int y, int width, int height);
+    bool ensureCompositorLocked();
+    bool presentCompositorLocked(HWND hwnd, const void* bits, int pitch,
+                                 int x, int y, int width, int height);
+    void releaseCompositorSurfacesLocked();
+    void releaseCompositorLocked();
     bool ensureToastSurfaceLocked(int width, int height);
     bool presentToastLocked(const std::string& resultText, bool recognized, bool excessive,
                             int toastCenterX, int toastCenterY, float toastScale);
@@ -188,11 +196,28 @@ private:
     HDC m_memoryDC = nullptr;
     HBITMAP m_memoryBitmap = nullptr;
     HBITMAP m_oldBitmap = nullptr;
+    void* m_memoryBits = nullptr;
+    int m_memoryPitch = 0;
     int m_width = 0;
     int m_height = 0;
     HDC m_toastDC = nullptr;
     HBITMAP m_toastBitmap = nullptr;
     HBITMAP m_toastOldBitmap = nullptr;
+    void* m_toastBits = nullptr;
+    int m_toastPitch = 0;
+    bool m_compositorReady = false;
+    Microsoft::WRL::ComPtr<ID3D11Device> m_d3dDevice;
+    Microsoft::WRL::ComPtr<IDCompositionDevice> m_dcompDevice;
+    Microsoft::WRL::ComPtr<IDCompositionTarget> m_trailDcompTarget;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> m_trailDcompVisual;
+    Microsoft::WRL::ComPtr<IDCompositionSurface> m_trailDcompSurface;
+    int m_trailDcompW = 0;
+    int m_trailDcompH = 0;
+    Microsoft::WRL::ComPtr<IDCompositionTarget> m_toastDcompTarget;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> m_toastDcompVisual;
+    Microsoft::WRL::ComPtr<IDCompositionSurface> m_toastDcompSurface;
+    int m_toastDcompW = 0;
+    int m_toastDcompH = 0;
     int m_toastOriginX = 0;
     int m_toastOriginY = 0;
     int m_toastWidth = 0;

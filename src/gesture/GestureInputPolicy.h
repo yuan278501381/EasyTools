@@ -17,6 +17,10 @@
 #include <string_view>
 #include <string>
 
+#ifndef WS_EX_NOREDIRECTIONBITMAP
+#define WS_EX_NOREDIRECTIONBITMAP 0x00200000L
+#endif
+
 namespace easy::gesture {
 
 /// 当前触发模式下，这个按下事件是否应当开始一笔手势。
@@ -238,6 +242,12 @@ inline bool isProductivityToolkitClassName(std::wstring_view cls) noexcept {
 inline bool shouldAutoBypassFullscreenGestures(bool isFullscreen,
                                                bool isProductivityClass) noexcept {
     return isFullscreen && !isProductivityClass;
+}
+
+/// Chromium / Electron 用 WS_EX_NOREDIRECTIONBITMAP 走 DirectComposition。
+/// 普通 UpdateLayeredWindow 分层窗即使 TOPMOST，也会被合成到这类窗口下面。
+inline bool windowUsesCompositorSurface(LONG_PTR exStyle) noexcept {
+    return (exStyle & WS_EX_NOREDIRECTIONBITMAP) != 0;
 }
 
 /// 沉底让路期间不要把覆盖层拉回来；丢失 TOPMOST 位且未沉底时才补插队。

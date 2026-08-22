@@ -489,6 +489,10 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_FALSE(overlayPresentShouldForceTopmost(true, true));
     EXPECT_TRUE(overlayPresentShouldForceTopmost(false, false));
     EXPECT_FALSE(overlayPresentShouldForceTopmost(false, true));
+    EXPECT_TRUE(windowUsesCompositorSurface(WS_EX_NOREDIRECTIONBITMAP));
+    EXPECT_TRUE(windowUsesCompositorSurface(WS_EX_NOREDIRECTIONBITMAP | WS_EX_APPWINDOW));
+    EXPECT_FALSE(windowUsesCompositorSurface(WS_EX_LAYERED | WS_EX_TOPMOST));
+    EXPECT_FALSE(windowUsesCompositorSurface(0));
     EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_ALT, VK_F4, L"Chrome_WidgetWin_1"));
     EXPECT_FALSE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"Chrome_WidgetWin_1"));
     EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"OrpheusBrowserHost"));

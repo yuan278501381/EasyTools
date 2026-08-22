@@ -144,7 +144,7 @@ easytools_add_plugin_manifest(Plugin_Gesture)
 target_compile_definitions(Plugin_Gesture PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Gesture PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Gesture PRIVATE EasyCore
-    d2d1 dwrite windowscodecs user32 shell32 shcore dwmapi
+    d2d1 dwrite windowscodecs user32 shell32 shcore dwmapi dcomp d3d11 dxgi
 )
 set_target_properties(Plugin_Gesture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
