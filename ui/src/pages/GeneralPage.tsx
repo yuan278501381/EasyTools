@@ -16,6 +16,8 @@ import './GeneralPage.css';
 
 interface GeneralSettings {
   autoStart: boolean;
+  runAsAdmin: boolean;
+  elevated?: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
   language: string;
@@ -44,6 +46,8 @@ const ACCENT_PRESETS = [
 export const GeneralPage: FC = () => {
   const [settings, setSettings] = useState<GeneralSettings>({
     autoStart: false,
+    runAsAdmin: false,
+    elevated: false,
     minimizeToTray: true,
     checkUpdates: true,
     language: 'auto',
@@ -52,6 +56,7 @@ export const GeneralPage: FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [refreshingHotkeys, setRefreshingHotkeys] = useState(false);
+  const [isRestartingElevated, setIsRestartingElevated] = useState(false);
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [accent, setAccent] = useState<string>(() => {
     try {
@@ -128,6 +133,42 @@ export const GeneralPage: FC = () => {
       toast.error(t('general.toastSaveFailed'), { description: String(error) });
     }
   }, [i18n, settings, t]);
+
+  const handleToggleRunAsAdmin = async (checked: boolean) => {
+    if (isRestartingElevated) return;
+    const previous = settings.runAsAdmin;
+    setSettings(prev => ({ ...prev, runAsAdmin: checked }));
+    try {
+      const persist = await bridgeRequest<OperationResult>('general.updateSettings', { runAsAdmin: checked });
+      if (!persist.success) throw new Error(persist.error || t('general.toastSaveFailed'));
+
+      if (checked && !settings.elevated) {
+        setIsRestartingElevated(true);
+        const result = await bridgeRequest<OperationResult & { alreadyElevated?: boolean }>(
+          'app.restartElevated',
+        );
+        if (result.alreadyElevated) {
+          setSettings(prev => ({ ...prev, elevated: true }));
+          setIsRestartingElevated(false);
+          return;
+        }
+        if (!result.success) {
+          setIsRestartingElevated(false);
+          toast.error(result.cancelled ? t('general.runAsAdminCancelled') : t('general.runAsAdminFailed'));
+        }
+        return;
+      }
+
+      if (!checked && settings.elevated) {
+        setIsRestartingElevated(true);
+        await bridgeRequest('app.restart');
+      }
+    } catch (error) {
+      setSettings(prev => ({ ...prev, runAsAdmin: previous }));
+      setIsRestartingElevated(false);
+      toast.error(t('general.toastSaveFailed'), { description: String(error) });
+    }
+  };
 
   // ── 数据管理操作 ─────────────────────────────────────────────────────────
   const handleExportConfig = async () => {
@@ -254,6 +295,14 @@ export const GeneralPage: FC = () => {
             description={t('general.autoStartDesc')}
             checked={settings.autoStart}
             onChange={(v) => updateSetting('autoStart', v)}
+          />
+          <Toggle
+            id="runAsAdmin"
+            label={t('general.runAsAdmin')}
+            description={settings.elevated ? t('general.runAsAdminActive') : t('general.runAsAdminDesc')}
+            checked={settings.runAsAdmin}
+            onChange={handleToggleRunAsAdmin}
+            disabled={isRestartingElevated}
           />
           <Toggle
             id="minimizeToTray"

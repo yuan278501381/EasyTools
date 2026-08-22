@@ -914,6 +914,7 @@ void MessageBridge::registerBuiltinHandlers() {
         return {
             {"autoStart", config.get<bool>("/general/autoStart", false)},
             {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)},
+            {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
             {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},

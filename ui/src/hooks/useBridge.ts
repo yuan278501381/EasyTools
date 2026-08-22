@@ -239,7 +239,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
 
     case 'general.getSettings':
       return {
-        language: 'zh-CN', autoStart: false, runAsAdmin: false, theme: 'light',
+        language: 'zh-CN', autoStart: false, runAsAdmin: false, elevated: false, theme: 'light',
         logLevel: 'info', minimizeToTray: true, checkUpdates: true,
       };
 
