@@ -1,6 +1,6 @@
 {
   "name": "easytools",
-  "version-string": "1.0.7",
+  "version-string": "1.0.0",
   "description": "High-performance desktop productivity toolkit",
   "builtin-baseline": "8cdd1410ea4e2b65c7e5176e63237240460886a6",
   "supports": "windows & x64",

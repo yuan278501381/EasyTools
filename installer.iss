@@ -1,6 +1,6 @@
 [Defines]
 #ifndef EasyToolsVersion
-  #define EasyToolsVersion "1.0.7"
+  #define EasyToolsVersion "1.0.0"
 #endif
 
 [Setup]
