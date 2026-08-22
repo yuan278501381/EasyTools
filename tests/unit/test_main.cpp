@@ -2498,6 +2498,10 @@ TEST(DpiUtilsTest, HighDpiSharedMetrics) {
     EXPECT_TRUE(toast100.cx == 600 && toast100.cy == 80);
     EXPECT_TRUE(toast150.cx == 900 && toast150.cy == 120);
     EXPECT_TRUE(toast200.cx == 1200 && toast200.cy == 160);
+    EXPECT_EQ(easy::ui::ToastStyle::originYForWorkArea(0, 1080, 80, 48), 952);
+    EXPECT_EQ(easy::ui::ToastStyle::originYForWorkArea(0, 80, 80, 48), 0);
+    EXPECT_EQ(easy::ui::ToastStyle::originYForWorkArea(100, 200, 0, 48), 100);
+    EXPECT_GT(easy::ui::ToastStyle::StrokeWidth, 1.5f);
 
     const SIZE keycast150 = easy::keycast::KeycastStyle::windowSizeForDpi(144);
     EXPECT_TRUE(keycast150.cx == 1200 && keycast150.cy == 240);

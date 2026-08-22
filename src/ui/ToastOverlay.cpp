@@ -3,8 +3,6 @@
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
-#include "core/utils/ThemeUtils.h"
-#include "core/config/ConfigManager.h"
 #include "core/accessibility/OverlayAnnouncement.h"
 #include "core/accessibility/OverlayUiaProvider.h"
 
@@ -153,12 +151,10 @@ bool ToastOverlay::createResources() {
         m_renderTarget->SetDpi(96.0f, 96.0f);
 
         if (m_renderTarget) {
-            const auto accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
-            const auto rgb = easy::core::getAccentColorRGB(accent);
             // 背景: 圆角深色半透明
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.16f, 0.92f), &m_bgBrush);
-            // 边框: 当前主题强调色
-            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(rgb.r, rgb.g, rgb.b, 0.85f), &m_strokeBrush);
+            // 边框: 白色加粗，启动通知在浅色/深色桌面上都够清楚
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_strokeBrush);
             // 文字: 白色
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_textBrush);
         }
@@ -252,8 +248,9 @@ void ToastOverlay::updatePlacement() {
     const int width = easy::core::dpi::scaleMetric(ToastStyle::BaseWidth, m_dpiScale);
     const int height = easy::core::dpi::scaleMetric(ToastStyle::BaseHeight, m_dpiScale);
     const int x = work.left + ((work.right - work.left) - width) / 2;
-    const int y = work.top + easy::core::dpi::scaleMetric(
-        ToastStyle::BaseTopMargin, m_dpiScale);
+    const int y = ToastStyle::originYForWorkArea(
+        work.top, work.bottom, height,
+        easy::core::dpi::scaleMetric(ToastStyle::BaseBottomMargin, m_dpiScale));
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, width, height,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     m_updatingPlacement = false;
@@ -309,8 +306,9 @@ void ToastOverlay::render() {
         D2D1_ROUNDED_RECT roundedRect = D2D1::RoundedRect(
             bgRect, 8.0f * m_dpiScale, 8.0f * m_dpiScale);
         m_renderTarget->FillRoundedRectangle(roundedRect, m_bgBrush.Get());
+        m_strokeBrush->SetOpacity(alpha);
         m_renderTarget->DrawRoundedRectangle(
-            roundedRect, m_strokeBrush.Get(), 1.5f * m_dpiScale);
+            roundedRect, m_strokeBrush.Get(), ToastStyle::StrokeWidth * m_dpiScale);
 
         m_textBrush->SetOpacity(alpha);
         m_renderTarget->DrawTextW(
