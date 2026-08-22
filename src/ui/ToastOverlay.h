@@ -36,6 +36,7 @@ private:
     bool ensureSurface(int width, int height);
     void releaseSurface();
     void updatePlacement();
+    void hideNow();
 
     HWND m_hwnd = nullptr;
     bool m_enabled = true;
@@ -48,7 +49,6 @@ private:
     UINT_PTR m_timerId = 0;
     float m_opacity = 0.0f;
     float m_animScale = 1.0f; // For subtle pop-up animation
-    bool m_fadingOut = false;
     bool m_fadingIn = false;
 
     // D2D 资源

@@ -16,7 +16,6 @@ namespace easy::ui {
 
 static constexpr const wchar_t* TOAST_CLASS = L"EasyTools_ToastOverlay";
 static constexpr UINT_PTR TIMER_ID = 1;
-static constexpr UINT_PTR FADE_TIMER_ID = 2;
 static constexpr UINT_PTR FADE_IN_TIMER_ID = 3;
 static constexpr int HIDE_TIMEOUT_MS = 2000;
 static constexpr int FADE_INTERVAL_MS = 16;
@@ -72,7 +71,6 @@ void ToastOverlay::shutdown() {
     discardResources();
     if (m_hwnd) {
         KillTimer(m_hwnd, TIMER_ID);
-        KillTimer(m_hwnd, FADE_TIMER_ID);
         KillTimer(m_hwnd, FADE_IN_TIMER_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
@@ -84,16 +82,20 @@ void ToastOverlay::shutdown() {
 void ToastOverlay::setEnabled(bool enabled) {
     m_enabled = enabled;
     if (!enabled && m_hwnd) {
-        KillTimer(m_hwnd, TIMER_ID);
-        KillTimer(m_hwnd, FADE_TIMER_ID);
-        KillTimer(m_hwnd, FADE_IN_TIMER_ID);
-        ShowWindow(m_hwnd, SW_HIDE);
-        easy::core::accessibility::hideOverlay(m_hwnd);
-        std::lock_guard lock(m_mutex);
-        m_opacity = 0.0f;
-        m_fadingIn = false;
-        m_fadingOut = false;
+        hideNow();
     }
+}
+
+void ToastOverlay::hideNow() {
+    if (!m_hwnd) return;
+    KillTimer(m_hwnd, TIMER_ID);
+    KillTimer(m_hwnd, FADE_IN_TIMER_ID);
+    ShowWindow(m_hwnd, SW_HIDE);
+    easy::core::accessibility::hideOverlay(m_hwnd);
+    std::lock_guard lock(m_mutex);
+    m_opacity = 0.0f;
+    m_animScale = 1.0f;
+    m_fadingIn = false;
 }
 
 bool ToastOverlay::isEnabled() const {
@@ -108,21 +110,17 @@ void ToastOverlay::showToast(const std::string& text) {
     {
         std::lock_guard lock(m_mutex);
         m_displayText = text;
-        if (!m_fadingOut && m_opacity > 0.0f && !m_fadingIn) {
-            // Already fully visible, just refresh timer
+        if (m_opacity > 0.0f && !m_fadingIn) {
             m_opacity = 1.0f;
             m_animScale = 1.0f;
         } else {
-            // Start fresh animation
             m_opacity = 0.0f;
             m_animScale = 0.9f;
             m_fadingIn = true;
         }
-        m_fadingOut = false;
     }
 
     KillTimer(m_hwnd, TIMER_ID);
-    KillTimer(m_hwnd, FADE_TIMER_ID);
     KillTimer(m_hwnd, FADE_IN_TIMER_ID);
 
     render();  // Replace retained layered-window pixels before showing again.
@@ -350,30 +348,7 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             case WM_TIMER: {
                 if (self) {
                     if (wParam == TIMER_ID) {
-                        KillTimer(hwnd, TIMER_ID);
-                        self->m_fadingOut = true;
-                        SetTimer(hwnd, FADE_TIMER_ID, FADE_INTERVAL_MS, nullptr);
-                    } else if (wParam == FADE_TIMER_ID) {
-                        // 关键修复：先在锁内更新动画状态并取快照，释放锁后再 render()。
-                        // render() 内部会再次锁 m_mutex；若在持锁状态下调用，会递归锁非递归
-                        // std::mutex，MSVC 抛 "resource deadlock would occur" 并崩溃。
-                        bool hide = false;
-                        {
-                            std::lock_guard lock(self->m_mutex);
-                            self->m_opacity -= 0.05f;
-                            self->m_animScale += 0.01f; // fade out with slight scale up
-                            if (self->m_opacity <= 0.0f) {
-                                self->m_opacity = 0.0f;
-                                hide = true;
-                            }
-                        }
-                        if (hide) {
-                            KillTimer(hwnd, FADE_TIMER_ID);
-                            ShowWindow(hwnd, SW_HIDE);
-                            easy::core::accessibility::hideOverlay(hwnd);
-                        } else {
-                            self->render();
-                        }
+                        self->hideNow();
                     } else if (wParam == FADE_IN_TIMER_ID) {
                         bool done = false;
                         {
@@ -406,7 +381,6 @@ LRESULT CALLBACK ToastOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             case WM_DESTROY:
                 easy::core::accessibility::disconnectOverlayUiaProvider(hwnd);
                 KillTimer(hwnd, TIMER_ID);
-                KillTimer(hwnd, FADE_TIMER_ID);
                 KillTimer(hwnd, FADE_IN_TIMER_ID);
                 return 0;
         }
