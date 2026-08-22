@@ -50,6 +50,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/events/EventBus.h"
 #include "core/hotkey/HotkeyManager.h"
+#include "core/hotkey/HotkeyPolicy.h"
 #include "core/hotkey/KeyboardHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/plugin/PluginManifest.h"
@@ -60,6 +61,7 @@
 #include "core/utils/DpiUtils.h"
 #include "core/utils/ThemeUtils.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ElevationPolicy.h"
 #include "core/lua/LuaEngine.h"
 #include "search/ServiceLifetime.h"
 #include "search/ServiceStartupPolicy.h"
@@ -493,6 +495,25 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_TRUE(windowUsesCompositorSurface(WS_EX_NOREDIRECTIONBITMAP | WS_EX_APPWINDOW));
     EXPECT_FALSE(windowUsesCompositorSurface(WS_EX_LAYERED | WS_EX_TOPMOST));
     EXPECT_FALSE(windowUsesCompositorSurface(0));
+    EXPECT_EQ(classifyProcessIntegrityQuery(false, false, false, false, false),
+              ProcessIntegrityRelation::Unknown);
+    EXPECT_EQ(classifyProcessIntegrityQuery(true, false, false, false, false),
+              ProcessIntegrityRelation::Higher);
+    EXPECT_EQ(classifyProcessIntegrityQuery(true, false, false, false, true),
+              ProcessIntegrityRelation::Unknown);
+    EXPECT_EQ(classifyProcessIntegrityQuery(true, true, true, false, false),
+              ProcessIntegrityRelation::SameOrLower);
+    EXPECT_EQ(classifyProcessIntegrityQuery(true, true, true, true, false),
+              ProcessIntegrityRelation::Higher);
+    EXPECT_EQ(classifyProcessIntegrityQuery(true, true, true, true, true),
+              ProcessIntegrityRelation::SameOrLower);
+    EXPECT_FALSE(lowLevelHookCanObserveTarget(ProcessIntegrityRelation::Higher));
+    EXPECT_TRUE(lowLevelHookCanObserveTarget(ProcessIntegrityRelation::SameOrLower));
+    EXPECT_TRUE(lowLevelHookCanObserveTarget(ProcessIntegrityRelation::Unknown));
+    EXPECT_TRUE(shouldWarnGestureIntegrityBlocked(ProcessIntegrityRelation::Higher, false));
+    EXPECT_FALSE(shouldWarnGestureIntegrityBlocked(ProcessIntegrityRelation::Higher, true));
+    EXPECT_FALSE(shouldWarnGestureIntegrityBlocked(ProcessIntegrityRelation::SameOrLower, false));
+    EXPECT_FALSE(shouldWarnGestureIntegrityBlocked(ProcessIntegrityRelation::Unknown, false));
     EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_ALT, VK_F4, L"Chrome_WidgetWin_1"));
     EXPECT_FALSE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"Chrome_WidgetWin_1"));
     EXPECT_TRUE(keyStrokeShouldCloseWindow(MOD_CONTROL, 'W', L"OrpheusBrowserHost"));
@@ -1163,6 +1184,39 @@ TEST(HotkeyParserTest, ExpressionParsing) {
 // -----------------------------------------------------------------------------
 // 7. 快捷键管理器禁用态与生命周期测试套件
 // -----------------------------------------------------------------------------
+TEST(ElevationPolicyTest, RestartAndStartupActions) {
+    using easy::core::ElevationRestartAction;
+    EXPECT_EQ(easy::core::elevationRestartAfterSetting(true, false),
+              ElevationRestartAction::Elevate);
+    EXPECT_EQ(easy::core::elevationRestartAfterSetting(false, true),
+              ElevationRestartAction::DropElevation);
+    EXPECT_EQ(easy::core::elevationRestartAfterSetting(true, true),
+              ElevationRestartAction::None);
+    EXPECT_EQ(easy::core::elevationRestartAfterSetting(false, false),
+              ElevationRestartAction::None);
+    EXPECT_TRUE(easy::core::shouldAutoElevateOnStartup(true, false, false));
+    EXPECT_FALSE(easy::core::shouldAutoElevateOnStartup(true, true, false));
+    EXPECT_FALSE(easy::core::shouldAutoElevateOnStartup(false, false, false));
+    EXPECT_FALSE(easy::core::shouldAutoElevateOnStartup(true, false, true));
+}
+
+TEST(HotkeyPolicyTest, RecordingPauseArmsOnlyWhileRecording) {
+    using easy::core::HotkeyArmScope;
+    EXPECT_EQ(easy::core::hotkeyArmScopeForName("Record Pause"), HotkeyArmScope::WhileRecording);
+    EXPECT_EQ(easy::core::hotkeyArmScopeForName("Screenshot"), HotkeyArmScope::Always);
+    EXPECT_TRUE(easy::core::hotkeyShouldBeArmed(HotkeyArmScope::Always, false));
+    EXPECT_FALSE(easy::core::hotkeyShouldBeArmed(HotkeyArmScope::WhileRecording, false));
+    EXPECT_TRUE(easy::core::hotkeyShouldBeArmed(HotkeyArmScope::WhileRecording, true));
+    EXPECT_TRUE(easy::core::isEditorCommandPaletteChord(MOD_CONTROL | MOD_SHIFT, 'P'));
+    EXPECT_TRUE(easy::core::isEditorCommandPaletteChord(MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 'P'));
+    EXPECT_FALSE(easy::core::isEditorCommandPaletteChord(MOD_CONTROL | MOD_SHIFT, 'R'));
+    EXPECT_FALSE(easy::core::isEditorCommandPaletteChord(MOD_CONTROL, 'P'));
+    EXPECT_FALSE(easy::core::hotkeyLooksExternallyConflicted(true, false, false));
+    EXPECT_TRUE(easy::core::hotkeyLooksExternallyConflicted(true, true, false));
+    EXPECT_FALSE(easy::core::hotkeyLooksExternallyConflicted(true, true, true));
+    EXPECT_FALSE(easy::core::hotkeyLooksExternallyConflicted(false, true, false));
+}
+
 TEST(HotkeyManagerTest, DisabledHotkeyLifecycle) {
     auto& manager = easy::core::HotkeyManager::instance();
     constexpr const char* name = "Unit Test Disabled Hotkey";
@@ -1178,6 +1232,16 @@ TEST(HotkeyManagerTest, DisabledHotkeyLifecycle) {
         EXPECT_FALSE(entry->registered);
         EXPECT_EQ(entry->def.toString(), "");
     }
+
+    EXPECT_TRUE(manager.setHotkeyArmed(name, false));
+    entries = manager.getAllHotkeys();
+    entry = std::find_if(entries.begin(), entries.end(), [](const auto& candidate) {
+        return candidate.name == name;
+    });
+    ASSERT_TRUE(entry != entries.end());
+    EXPECT_FALSE(entry->armed);
+    EXPECT_FALSE(entry->conflict);
+    EXPECT_TRUE(manager.setHotkeyArmed(name, true));
 
     EXPECT_TRUE(manager.clearHotkey(name));
     EXPECT_EQ(calls.load(), 0);

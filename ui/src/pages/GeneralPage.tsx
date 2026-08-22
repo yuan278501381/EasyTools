@@ -235,8 +235,10 @@ export const GeneralPage: FC = () => {
   };
 
   const internalConflictsCount = hotkeys.filter(h => h.conflictType === 'internal').length;
-  const externalConflictsCount = hotkeys.filter(h => h.conflictType === 'external' || (h.registered === false && Boolean(h.shortcut))).length;
-  const activeCount = hotkeys.filter(h => h.registered && !h.conflict && Boolean(h.shortcut)).length;
+  const externalConflictsCount = hotkeys.filter(h =>
+    h.conflictType === 'external' || (h.registered === false && Boolean(h.shortcut) && h.armed !== false)).length;
+  const activeCount = hotkeys.filter(h =>
+    Boolean(h.shortcut) && !h.conflict && (h.registered || h.armed === false)).length;
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
@@ -387,7 +389,8 @@ export const GeneralPage: FC = () => {
             <div className="general-page__hotkey-list">
               {hotkeys.map((hk) => {
                 const isInternal = hk.conflictType === 'internal';
-                const isExternal = hk.conflictType === 'external' || (hk.registered === false && Boolean(hk.shortcut));
+                const isExternal = hk.conflictType === 'external' ||
+                  (hk.registered === false && Boolean(hk.shortcut) && hk.armed !== false);
 
                 return (
                   <div

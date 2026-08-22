@@ -6,6 +6,7 @@
 #include "core/hotkey/HotkeyManager.h"
 #include "core/events/EventBus.h"
 #include "core/events/MainThreadDispatcher.h"
+#include "core/utils/WinUtils.h"
 #include "gesture/GestureEngine.h"
 #include "gesture/MouseHook.h"
 #include "gesture/BuiltinCommands.h"
@@ -280,7 +281,9 @@ public:
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 4.0f)},
-                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)}
+                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
+                {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
+                {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)}
             };
         });
 

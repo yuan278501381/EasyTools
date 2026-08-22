@@ -9,9 +9,11 @@
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
+#include "core/events/EventBus.h"
 #include "core/events/MainThreadDispatcher.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,6 +90,7 @@ bool GestureEngine::start() {
         return false;
     }
     hook.setPaused(m_paused.load());
+    installForegroundWatch();
 
     // 初始化手势轨迹覆盖层
     auto& trail = GestureTrailOverlay::instance();
@@ -106,6 +109,7 @@ bool GestureEngine::start() {
 }
 
 void GestureEngine::stop() {
+    uninstallForegroundWatch();
     auto& hook = MouseHook::instance();
     hook.setFaultCallback(nullptr);
     hook.setEventCallback(nullptr);
@@ -121,7 +125,91 @@ void GestureEngine::stop() {
     }
     GestureTrailOverlay::instance().shutdown();
     m_state = GestureState::Idle;
+    {
+        std::lock_guard lock(m_integrityWarnMutex);
+        m_warnedIntegrityPids.clear();
+    }
     LOG_INFO("手势引擎已停止");
+}
+
+void CALLBACK GestureEngine::foregroundWinEventProc(
+    HWINEVENTHOOK, DWORD event, HWND hwnd, LONG, LONG, DWORD, DWORD) {
+    if (event != EVENT_SYSTEM_FOREGROUND || !hwnd) return;
+    instance().inspectForegroundIntegrity(hwnd);
+}
+
+void GestureEngine::installForegroundWatch() {
+    auto install = [this]() {
+        if (m_foregroundHook) return;
+        m_foregroundHook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            nullptr, &GestureEngine::foregroundWinEventProc,
+            0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        if (!m_foregroundHook) {
+            LOG_WARN("无法监视前台窗口，高完整性窗口将不会提示手势不可用");
+            return;
+        }
+        if (HWND fg = GetForegroundWindow()) {
+            inspectForegroundIntegrity(fg);
+        }
+    };
+    auto& dispatcher = easy::core::MainThreadDispatcher::instance();
+    if (dispatcher.isOwnerThread()) {
+        install();
+        return;
+    }
+    if (!dispatcher.post(std::move(install))) {
+        LOG_WARN("无法在主线程安装前台窗口监视");
+    }
+}
+
+void GestureEngine::uninstallForegroundWatch() {
+    auto uninstall = [this]() {
+        if (!m_foregroundHook) return;
+        UnhookWinEvent(m_foregroundHook);
+        m_foregroundHook = nullptr;
+    };
+    auto& dispatcher = easy::core::MainThreadDispatcher::instance();
+    if (dispatcher.isOwnerThread()) {
+        uninstall();
+        return;
+    }
+    dispatcher.post(std::move(uninstall));
+}
+
+void GestureEngine::inspectForegroundIntegrity(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return;
+
+    wchar_t cls[256] = {};
+    GetClassNameW(hwnd, cls, 256);
+    if (isEasyToolsUiClassName(cls) || isGesturePassThroughClassName(cls)) return;
+
+    const auto access = easy::core::WinUtils::queryWindowProcessAccess(hwnd);
+    const auto rel = classifyProcessIntegrityQuery(
+        access.queryLimitedOk,
+        access.queryInformationOk,
+        access.tokenQueryOk,
+        access.tokenElevated,
+        easy::core::WinUtils::isCurrentProcessElevated());
+    if (!shouldWarnGestureIntegrityBlocked(rel, false)) return;
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (!pid) return;
+    {
+        std::lock_guard lock(m_integrityWarnMutex);
+        if (!m_warnedIntegrityPids.insert(pid).second) return;
+    }
+
+    LOG_WARN("前台窗口完整性更高，低完整性 WH_MOUSE_LL 收不到事件: hwnd=0x{:X} class={} pid={}",
+             reinterpret_cast<uintptr_t>(hwnd),
+             easy::core::WinUtils::wstringToUtf8(cls),
+             pid);
+
+    const wchar_t* message = easy::core::WinUtils::isSystemLanguageChinese()
+        ? L"当前窗口权限更高，鼠标手势无法作用。请在设置里以管理员身份重启 EasyTools。"
+        : L"This window runs at a higher privilege level, so mouse gestures cannot observe it. Restart EasyTools as administrator from Settings.";
+    easy::core::EventBus::instance().publish(easy::core::ShowToastEvent{message});
 }
 
 bool GestureEngine::setPaused(bool paused) {

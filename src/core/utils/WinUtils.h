@@ -335,21 +335,58 @@ public:
         return queryProcessElevated(GetCurrentProcess());
     }
 
-    static bool isWindowProcessElevated(HWND hwnd) {
-        if (!hwnd || !IsWindow(hwnd)) return false;
+    struct WindowProcessQuery {
+        bool queryLimitedOk = false;
+        bool queryInformationOk = false;
+        bool tokenQueryOk = false;
+        bool tokenElevated = false;
+    };
+
+    /// 探测对本窗口进程的查询权限。勿在 WH_MOUSE_LL 热路径调用。
+    static WindowProcessQuery queryWindowProcessAccess(HWND hwnd) {
+        WindowProcessQuery q;
+        if (!hwnd || !IsWindow(hwnd)) return q;
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
-        if (!pid) return false;
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (!process) return false;
-        const bool elevated = queryProcessElevated(process);
-        CloseHandle(process);
-        return elevated;
+        if (!pid) return q;
+
+        HANDLE limited = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        q.queryLimitedOk = limited != nullptr;
+
+        HANDLE full = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+        q.queryInformationOk = full != nullptr;
+
+        HANDLE tokenSource = full ? full : limited;
+        if (tokenSource) {
+            HANDLE token = nullptr;
+            if (OpenProcessToken(tokenSource, TOKEN_QUERY, &token)) {
+                q.tokenQueryOk = true;
+                TOKEN_ELEVATION elev{};
+                DWORD ret = 0;
+                if (GetTokenInformation(token, TokenElevation, &elev, sizeof(elev), &ret)) {
+                    q.tokenElevated = elev.TokenIsElevated != 0;
+                }
+                CloseHandle(token);
+            }
+        }
+        if (full) CloseHandle(full);
+        if (limited) CloseHandle(limited);
+        return q;
     }
 
-    /// 目标进程完整性高于本进程时，覆盖层无法盖住该窗，PostMessage / SendInput 会被 UIPI 丢掉。
+    static bool isWindowProcessElevated(HWND hwnd) {
+        return queryWindowProcessAccess(hwnd).tokenElevated;
+    }
+
+    /// 目标完整性更高时，Medium IL 的 WH_MOUSE_LL 收不到事件，PostMessage / SendInput 会被 UIPI 丢掉。
+    /// QUERY_LIMITED 成功但 TOKEN_QUERY 被拒，也视为更高完整性（管理员窗常见）。
     static bool isWindowHigherIntegrity(HWND hwnd) {
-        return isWindowProcessElevated(hwnd) && !isCurrentProcessElevated();
+        const auto q = queryWindowProcessAccess(hwnd);
+        if (!q.queryLimitedOk) return false;
+        if (!q.queryInformationOk || !q.tokenQueryOk) {
+            return !isCurrentProcessElevated();
+        }
+        return q.tokenElevated && !isCurrentProcessElevated();
     }
 
     /// 获取当前活动资源管理器（Explorer）或桌面所选中的文件/文件夹完整物理路径

@@ -209,6 +209,8 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
         triggerButton: 'right',
         trailVisible: true,
         targetMode: 'underPointer',
+        elevated: false,
+        runAsAdmin: false,
       };
 
     case 'gesture.getScopeRules':
@@ -237,7 +239,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
 
     case 'general.getSettings':
       return {
-        language: 'zh-CN', autoStart: false, theme: 'light',
+        language: 'zh-CN', autoStart: false, runAsAdmin: false, theme: 'light',
         logLevel: 'info', minimizeToTray: true, checkUpdates: true,
       };
 
@@ -346,6 +348,8 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
     case 'radialmenu.updateItems':
     case 'hotkey.rebind':
     case 'config.set':
+    case 'app.restart':
+    case 'app.restartElevated':
       return { success: true };
 
     default:

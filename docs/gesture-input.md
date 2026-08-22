@@ -11,10 +11,12 @@
 | 关窗被吞 | 轨迹和 toast 都有，窗口还在 | 先向 `GA_ROOTOWNER` 投 `WM_SYSCOMMAND/SC_CLOSE` + `WM_CLOSE`，观察最多 40ms；窗口仍在才补 `Alt+F4` |
 | 无标签宿主收到 Ctrl+W | `↓→` 显示「关闭标签页」但应用没有标签 | `Chrome_WidgetWin*` / Firefox / 资源管理器继续 `Ctrl+W`；CEF（`OrpheusBrowserHost`）、`Qt*`、EasyTools 自己的窗升格为关窗 |
 | 轨迹沉底后不可见 | 最大化 Electron/CEF 上看不到笔迹和 toast | 注入前 `HWND_BOTTOM` 让路；**下一笔** `beginTrail` 无条件 `HWND_TOPMOST`。沉底期间不把覆盖层拉回来 |
-| Electron 合成器盖住分层窗 | Antigravity IDE 一类 `WS_EX_NOREDIRECTIONBITMAP` 窗上看不到轨迹，动作其实可能已经识别 | 覆盖层改走 DirectComposition 呈现，进入同一合成器；失败时回退 Layered |
+| Electron 合成器盖住分层窗 | 同一类 Chromium 窗上看不到轨迹，动作其实可能已经识别 | 覆盖层改走 DirectComposition 呈现，进入同一合成器；失败时回退 Layered |
 | 全屏免打扰误伤 | IDE / 浏览器 F11 或无边框最大化时既无轨迹也无动作 | 仅无标题栏且铺满物理显示器的窗口才可能免打扰；生产力工具包类名一律继续手势 |
+| 更高完整性窗口 | 轨迹、toast、动作全无，日志里也没有「手势追踪开始」 | Medium IL 的 `WH_MOUSE_LL` 收不到 High IL 窗口上的鼠标。前台切换时用 `EVENT_SYSTEM_FOREGROUND` 探测并 Toast。`/general/runAsAdmin` 打开后立即 UAC 提权，之后每次启动自动提权。不按应用名特判 |
+| 全局热键抢走命令面板 | IDE 里 Ctrl+Shift+P 没反应（录屏暂停默认占了这个和弦） | `Record Pause` 只在录屏会话里 `RegisterHotKey`；平时卸下，编辑器收回组合键 |
 
-完整性（UIPI）只在**松手后的输入线程**查询并打日志，禁止出现在 `WH_MOUSE_LL` 按下回调里。
+完整性查询禁止出现在 `WH_MOUSE_LL` 按下回调里。`QUERY_LIMITED` 成功但 `QUERY_INFORMATION` / `TOKEN_QUERY` 被拒，视为目标完整性更高（令牌读不到时不能只看 `TokenIsElevated`）。
 
 ## 热路径预算
 
@@ -56,6 +58,6 @@ PostMessage SC_CLOSE + WM_CLOSE
 
 ## 相关文件
 
-- `src/gesture/GestureInputPolicy.h` — `keyStrokeShouldCloseWindow`、`isProductivityToolkitClassName`、`shouldAutoBypassFullscreenGestures`、`overlayPresentShouldForceTopmost`、`closeShouldSendKeyFallback`
-- `src/core/utils/WinUtils.h` — `isWindowFullscreen`（先 `GA_ROOT`）、`isWindowHigherIntegrity`
+- `src/gesture/GestureInputPolicy.h` — `keyStrokeShouldCloseWindow`、`isProductivityToolkitClassName`、`shouldAutoBypassFullscreenGestures`、`overlayPresentShouldForceTopmost`、`closeShouldSendKeyFallback`、`classifyProcessIntegrityQuery`
+- `src/core/utils/WinUtils.h` — `isWindowFullscreen`（先 `GA_ROOT`）、`queryWindowProcessAccess`、`isWindowHigherIntegrity`
 - `src/gesture/GestureTrailOverlay.cpp` — `yieldZOrderForInput` / `raiseZOrderForDraw`

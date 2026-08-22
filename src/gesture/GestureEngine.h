@@ -29,6 +29,7 @@
 #include <shared_mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 
 namespace easy::gesture {
 
@@ -140,6 +141,13 @@ private:
     /// 根据当前前台窗口查找适用的 Profile
     std::optional<GestureProfile> resolveProfile(HWND hwnd) const;
 
+    void installForegroundWatch();
+    void uninstallForegroundWatch();
+    void inspectForegroundIntegrity(HWND hwnd);
+    static void CALLBACK foregroundWinEventProc(
+        HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+        LONG idObject, LONG idChild, DWORD eventThread, DWORD eventTime);
+
     // 组件
     GestureRecognizer m_recognizer;
     ScopeRuleEngine m_scopeRules;
@@ -191,6 +199,10 @@ private:
     std::condition_variable_any m_actionCv;
     std::deque<ActionJob> m_actionQueue;
     std::jthread m_actionWorker;
+
+    HWINEVENTHOOK m_foregroundHook = nullptr;
+    std::mutex m_integrityWarnMutex;
+    std::unordered_set<DWORD> m_warnedIntegrityPids;
 };
 
 }  // namespace easy::gesture

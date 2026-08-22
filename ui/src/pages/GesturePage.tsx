@@ -77,8 +77,10 @@ interface GestureState {
     targetMode?: 'underPointer' | 'foreground';
     trailColorMode?: 'auto' | 'custom';
   trailColor?: string;
-  trailWidth?: number;
+    trailWidth?: number;
   trailOutlineWidth?: number;
+  elevated?: boolean;
+  runAsAdmin?: boolean;
 }
 
 const TRAIL_COLOR_PRESETS = [
@@ -113,6 +115,9 @@ export const GesturePage: FC = () => {
   const [trailColor, setTrailColor] = useState('#8B5CF6');
   const [trailWidth, setTrailWidth] = useState(4.0);
   const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
+  const [elevated, setElevated] = useState(false);
+  const [runAsAdmin, setRunAsAdmin] = useState(false);
+  const [isRestartingElevated, setIsRestartingElevated] = useState(false);
   
   // Profiles & Rules
   const [profiles, setProfiles] = useState<Record<string, GestureProfileData>>({
@@ -181,6 +186,8 @@ export const GesturePage: FC = () => {
         setTrailColor(state.trailColor ?? '#8B5CF6');
         setTrailWidth(state.trailWidth ?? 4.0);
         setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
+        setElevated(state.elevated ?? false);
+        setRunAsAdmin(state.runAsAdmin ?? false);
 
         const pMap: Record<string, GestureProfileData> = {};
         if (Array.isArray(profileList)) {
@@ -517,6 +524,42 @@ export const GesturePage: FC = () => {
     }
   };
 
+  const handleToggleRunAsAdmin = async (checked: boolean) => {
+    if (isRestartingElevated) return;
+    const previous = runAsAdmin;
+    setRunAsAdmin(checked);
+    try {
+      const persist = await bridgeRequest<OperationResult>('general.updateSettings', { runAsAdmin: checked });
+      if (!persist.success) throw new Error(persist.error || tr('gesture.saveFailed'));
+
+      if (checked && !elevated) {
+        setIsRestartingElevated(true);
+        const result = await bridgeRequest<OperationResult & { cancelled?: boolean; alreadyElevated?: boolean }>(
+          'app.restartElevated',
+        );
+        if (result.alreadyElevated) {
+          setElevated(true);
+          setIsRestartingElevated(false);
+          return;
+        }
+        if (!result.success) {
+          setIsRestartingElevated(false);
+          toast.error(result.cancelled ? tr('gesture.restartAsAdminCancelled') : tr('gesture.restartAsAdminFailed'));
+        }
+        return;
+      }
+
+      if (!checked && elevated) {
+        setIsRestartingElevated(true);
+        await bridgeRequest('app.restart');
+      }
+    } catch (err) {
+      setRunAsAdmin(previous);
+      setIsRestartingElevated(false);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
   const handleTargetModeChange = async (value: string) => {
     const next = value === 'foreground' ? 'foreground' : 'underPointer';
     const previous = targetMode;
@@ -836,6 +879,14 @@ export const GesturePage: FC = () => {
             description={tr('gesture.autoBypassFullscreenDesc')}
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
+          />
+          <Toggle
+            id="gesture-run-as-admin"
+            label={tr('gesture.runAsAdmin')}
+            description={elevated ? tr('gesture.alreadyElevated') : tr('gesture.runAsAdminDesc')}
+            checked={runAsAdmin}
+            onChange={handleToggleRunAsAdmin}
+            disabled={isRestartingElevated}
           />
           <SettingRow label={tr('gesture.targetMode')} description={tr('gesture.targetModeDesc')}>
             <Select

@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "core/hotkey/HotkeyManager.h"
+#include "core/hotkey/HotkeyPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
@@ -144,14 +145,14 @@ bool HotkeyManager::registerHotkey(const std::string& name, const HotkeyDef& def
 
     int id = generateId();
     if (def.virtualKey == 0) {
-        m_hotkeys.emplace(name, HotkeyEntry{id, def, name, std::move(callback), false});
+        m_hotkeys.emplace(name, HotkeyEntry{id, def, name, std::move(callback), false, true});
         LOG_INFO("快捷键已禁用: name={}", name);
         return true;
     }
     UINT mods = static_cast<UINT>(def.modifiers) | MOD_NOREPEAT;
 
     const bool registered = RegisterHotKey(m_hwnd, id, mods, def.virtualKey) != FALSE;
-    HotkeyEntry entry{id, def, name, std::move(callback), registered};
+    HotkeyEntry entry{id, def, name, std::move(callback), registered, true};
     m_hotkeys[name] = std::move(entry);
     if (!registered) {
         DWORD err = GetLastError();
@@ -194,9 +195,19 @@ bool HotkeyManager::rebindHotkey(const std::string& name, const HotkeyDef& newDe
 
     const auto oldDef = it->second.def;
     const bool oldRegistered = it->second.registered;
+    const bool armed = it->second.armed;
     if (oldRegistered) {
         UnregisterHotKey(m_hwnd, it->second.id);
         m_idToName.erase(it->second.id);
+        it->second.registered = false;
+    }
+
+    if (!armed) {
+        it->second.def = newDef;
+        it->second.registered = false;
+        LOG_INFO("快捷键重绑定成功（会话外不占用）: name={}, {} → {}",
+                 name, oldDef.toString(), newDef.toString());
+        return true;
     }
 
     // 注册新的
@@ -231,6 +242,49 @@ bool HotkeyManager::clearHotkey(const std::string& name) {
     it->second.registered = false;
     LOG_INFO("快捷键已禁用: name={}", name);
     return true;
+}
+
+bool HotkeyManager::setHotkeyArmed(const std::string& name, bool armed) {
+    std::lock_guard lock(m_mutex);
+    auto it = m_hotkeys.find(name);
+    if (it == m_hotkeys.end()) {
+        LOG_WARN("尝试武装不存在的快捷键: name={}", name);
+        return false;
+    }
+
+    it->second.armed = armed;
+    if (it->second.def.virtualKey == 0) {
+        it->second.registered = false;
+        return true;
+    }
+
+    if (!armed) {
+        if (it->second.registered) {
+            if (m_hwnd) UnregisterHotKey(m_hwnd, it->second.id);
+            m_idToName.erase(it->second.id);
+            it->second.registered = false;
+            LOG_INFO("快捷键已卸下，交还给前台应用: name={}, def={}", name, it->second.def.toString());
+        }
+        return true;
+    }
+
+    if (it->second.registered) return true;
+    if (!m_hwnd) {
+        it->second.registered = false;
+        return false;
+    }
+
+    UINT mods = static_cast<UINT>(it->second.def.modifiers) | MOD_NOREPEAT;
+    const bool ok = RegisterHotKey(m_hwnd, it->second.id, mods, it->second.def.virtualKey) != FALSE;
+    it->second.registered = ok;
+    if (ok) {
+        m_idToName[it->second.id] = name;
+        LOG_INFO("快捷键已重新占用: name={}, def={}", name, it->second.def.toString());
+    } else {
+        LOG_ERROR("重新占用快捷键失败: name={}, def={}, error={}",
+                  name, it->second.def.toString(), GetLastError());
+    }
+    return ok;
 }
 
 bool HotkeyManager::isConflict(const HotkeyDef& def) const {
@@ -334,7 +388,8 @@ std::vector<HotkeyEntry> HotkeyManager::getAllHotkeys() const {
                     }
                 }
                 item.conflictWith = "与插件/功能 [" + others + "] 冲突";
-            } else if (!item.registered) {
+            } else if (hotkeyLooksExternallyConflicted(
+                           item.def.virtualKey != 0, item.armed, item.registered)) {
                 // 外部冲突 (被其它第三方软件占用)
                 item.conflict = true;
                 item.conflictType = "external";

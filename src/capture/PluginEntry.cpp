@@ -5,6 +5,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
+#include "core/hotkey/HotkeyPolicy.h"
 #include "core/events/EventBus.h"
 #include "core/events/MainThreadDispatcher.h"
 #include "capture/ScreenCapture.h"
@@ -136,9 +137,18 @@ RecordOptions configuredRecordOptions(const CaptureRegion& region) {
     return options;
 }
 
+void armRecordPauseHotkey(RecordState state) {
+    easy::core::HotkeyManager::instance().setHotkeyArmed(
+        "Record Pause",
+        easy::core::hotkeyShouldBeArmed(
+            easy::core::HotkeyArmScope::WhileRecording,
+            state != RecordState::Idle));
+}
+
 void configureRecorderStateCallback() {
     ScreenRecorder::instance().setStateCallback([](RecordState state, const RecordStats& stats) {
         easy::core::MainThreadDispatcher::instance().post([state, stats]() {
+            armRecordPauseHotkey(state);
             auto& indicator = RecordingIndicator::instance();
             if (state == RecordState::Idle) {
                 indicator.hide();
@@ -387,6 +397,8 @@ public:
         hotkeys.registerHotkey("Record Pause", configuredHotkey("Record Pause", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'P'}), []() {
             toggleRecordingPauseWithFeedback();
         });
+        armRecordPauseHotkey(ScreenRecorder::instance().state());
+        configureRecorderStateCallback();
         hotkeys.registerHotkey("OCR", configuredHotkey("OCR", {easy::core::ModKey::Ctrl | easy::core::ModKey::Shift, 'O'}), []() {
             triggerOcrCapture();
         });

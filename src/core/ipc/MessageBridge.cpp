@@ -830,6 +830,7 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"name", entry.name},
                 {"shortcut", entry.def.toString()},
                 {"registered", entry.registered},
+                {"armed", entry.armed},
                 {"conflict", entry.conflict},
                 {"conflictType", entry.conflictType},
                 {"conflictWith", entry.conflictWith}
@@ -912,6 +913,7 @@ void MessageBridge::registerBuiltinHandlers() {
         auto& config = ConfigManager::instance();
         return {
             {"autoStart", config.get<bool>("/general/autoStart", false)},
+            {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
             {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},
@@ -923,7 +925,7 @@ void MessageBridge::registerBuiltinHandlers() {
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
         static const std::unordered_set<std::string> boolKeys = {
-            "autoStart", "minimizeToTray", "checkUpdates", "keycastEnabled"
+            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled"
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};

@@ -11,6 +11,7 @@ export interface HotkeyEntry {
   name: string;
   shortcut: string;
   registered?: boolean;
+  armed?: boolean;
   conflict?: boolean;
   conflictType?: 'none' | 'internal' | 'external' | 'invalid' | string;
   conflictWith?: string;
@@ -46,9 +47,21 @@ export const HotkeyStatusBadge: FC<HotkeyStatusBadgeProps> = ({
     );
   }
 
+  const armed = entry?.armed !== false;
   const isInternal = conflictType === 'internal';
-  const isExternal = conflictType === 'external' || (registered === false && Boolean(shortcut));
-  const isActive = (registered !== false) && !entry?.conflict && !isInternal && !isExternal;
+  const isExternal = conflictType === 'external' ||
+    (registered === false && Boolean(shortcut) && armed);
+  const isSessionOnly = Boolean(shortcut) && !armed && !isInternal && conflictType !== 'external';
+  const isActive = (registered !== false) && armed && !entry?.conflict && !isInternal && !isExternal;
+
+  if (isSessionOnly) {
+    return (
+      <span className="hotkey-badge badge-active" title={t('general.shortcutRecordingOnly')}>
+        <CheckCircle2 size={12} />
+        <span>{t('general.shortcutRecordingOnly')}</span>
+      </span>
+    );
+  }
 
   if (isInternal) {
     return (

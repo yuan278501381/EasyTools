@@ -40,6 +40,7 @@
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
+#include "core/utils/ElevationPolicy.h"
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/hotkey/KeyboardHook.h"
@@ -126,6 +127,50 @@ bool writePerformanceBaselineSnapshot(const std::filesystem::path& outputPath) {
     return true;
 }
 
+void releaseSingleInstanceMutex() {
+    if (!g_singleInstanceMutex) return;
+    CloseHandle(g_singleInstanceMutex);
+    g_singleInstanceMutex = nullptr;
+}
+
+std::wstring buildRestartParameters(bool includeWindowPos) {
+    std::wstring params = L"--restart-pid=" + std::to_wstring(GetCurrentProcessId());
+    if (hasCommandLineFlag(L"--silent")) {
+        params += L" --silent";
+    }
+    if (!includeWindowPos) return params;
+
+    auto& settingsWnd = easy::ui::SettingsWindow::instance();
+    if (settingsWnd.isVisible() && settingsWnd.hwnd() && IsWindow(settingsWnd.hwnd())) {
+        RECT rc{};
+        if (GetWindowRect(settingsWnd.hwnd(), &rc)) {
+            params += L" --window-pos=" + std::to_wstring(rc.left) + L"," +
+                      std::to_wstring(rc.top) + L"," +
+                      std::to_wstring(rc.right - rc.left) + L"," +
+                      std::to_wstring(rc.bottom - rc.top);
+        }
+    }
+    return params;
+}
+
+bool launchElevatedSuccessor(bool includeWindowPos) {
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
+
+    const std::wstring params = buildRestartParameters(includeWindowPos);
+    SHELLEXECUTEINFOW sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exePath;
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&sei)) return false;
+    if (sei.hProcess) CloseHandle(sei.hProcess);
+    releaseSingleInstanceMutex();
+    return true;
+}
+
 }  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,6 +226,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         CloseHandle(g_singleInstanceMutex);
         g_singleInstanceMutex = nullptr;
         return 1;
+    }
+
+    const bool elevateSuppressed = hasCommandLineFlag(L"--no-elevate") ||
+        commandLinePathValue(L"--performance-baseline-output=").has_value();
+    if (easy::core::shouldAutoElevateOnStartup(
+            easy::core::ConfigManager::instance().get<bool>("/general/runAsAdmin", false),
+            easy::core::WinUtils::isCurrentProcessElevated(),
+            elevateSuppressed)) {
+        if (launchElevatedSuccessor(false)) {
+            LOG_INFO("已按设置拉起管理员实例，当前进程退出");
+            easy::core::ConfigManager::instance().shutdown();
+            easy::core::PerformanceMonitor::instance().stop();
+            easy::core::Logger::shutdown();
+            CoUninitialize();
+            return 0;
+        }
+        LOG_WARN("自动提权被取消或失败，以普通权限继续运行");
     }
 
     // ── 6. 创建隐藏消息窗口 ─────────────────────────────────────────────
@@ -589,10 +651,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             }
 
             // 预先释放互斥锁句柄，为新实例让路
-            if (g_singleInstanceMutex) {
-                CloseHandle(g_singleInstanceMutex);
-                g_singleInstanceMutex = nullptr;
-            }
+            releaseSingleInstanceMutex();
 
             STARTUPINFOW si{};
             si.cb = sizeof(si);
@@ -601,6 +660,22 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
                 CloseHandle(pi.hProcess);
                 CloseHandle(pi.hThread);
             }
+        }
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("app.restartElevated", [hwnd](const nlohmann::json&) -> nlohmann::json {
+        if (easy::core::WinUtils::isCurrentProcessElevated()) {
+            return {{"success", true}, {"alreadyElevated", true}};
+        }
+        if (!launchElevatedSuccessor(true)) {
+            const DWORD err = GetLastError();
+            return {
+                {"success", false},
+                {"cancelled", err == ERROR_CANCELLED},
+                {"error", err == ERROR_CANCELLED ? "uac cancelled" : "failed to start elevated process"}
+            };
         }
         PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return {{"success", true}};

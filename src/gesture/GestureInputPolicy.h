@@ -290,6 +290,42 @@ inline bool closeShouldSendKeyFallback(bool posted, bool stillAcceptsClose) noex
     return posted && stillAcceptsClose;
 }
 
+/// 目标进程相对本进程的完整性。Medium 钩子看不到 High/System 窗口上的鼠标。
+enum class ProcessIntegrityRelation : unsigned char {
+    SameOrLower = 0,
+    Higher = 1,
+    Unknown = 2,
+};
+
+/// QUERY_LIMITED 对同用户进程通常成功；QUERY_INFORMATION / TOKEN_QUERY
+/// 在目标完整性更高时会被 UIPI 拒绝（ACCESS_DENIED）。令牌里的 elevated
+/// 只有 token 查询成功时才可信。
+inline ProcessIntegrityRelation classifyProcessIntegrityQuery(
+    bool queryLimitedOk,
+    bool queryInformationOk,
+    bool tokenQueryOk,
+    bool targetTokenElevated,
+    bool selfElevated) noexcept {
+    if (!queryLimitedOk) return ProcessIntegrityRelation::Unknown;
+    if (!queryInformationOk || !tokenQueryOk) {
+        return selfElevated ? ProcessIntegrityRelation::Unknown
+                            : ProcessIntegrityRelation::Higher;
+    }
+    if (targetTokenElevated && !selfElevated) {
+        return ProcessIntegrityRelation::Higher;
+    }
+    return ProcessIntegrityRelation::SameOrLower;
+}
+
+inline bool lowLevelHookCanObserveTarget(ProcessIntegrityRelation rel) noexcept {
+    return rel != ProcessIntegrityRelation::Higher;
+}
+
+inline bool shouldWarnGestureIntegrityBlocked(ProcessIntegrityRelation rel,
+                                              bool easyToolsUi) noexcept {
+    return rel == ProcessIntegrityRelation::Higher && !easyToolsUi;
+}
+
 }  // namespace easy::gesture
 
 #endif  // EASYTOOLS_GESTURE_GESTUREINPUTPOLICY_H

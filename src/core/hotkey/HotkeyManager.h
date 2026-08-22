@@ -70,7 +70,8 @@ struct HotkeyEntry {
     HotkeyDef def;              // 快捷键定义
     std::string name;           // 人类可读名称 (如 "截图", "暂停手势")
     HotkeyCallback callback;    // 触发回调
-    bool registered = false;    // false = 已禁用或当前组合键被占用
+    bool registered = false;    // false = 已禁用、会话外卸下，或当前组合键被占用
+    bool armed = true;          // false = 会话外主动不占用系统热键
     bool conflict = false;      // 是否存在冲突
     std::string conflictType = "none"; // "none" | "internal" | "external"
     std::string conflictWith;   // 冲突关联说明
@@ -99,6 +100,9 @@ public:
     /// Disable a binding while retaining its name and callback so it can be
     /// re-enabled from settings without restarting the plugin.
     bool clearHotkey(const std::string& name);
+
+    /// 会话外卸下/重新占用系统热键。卸下后设置页仍显示绑定，前台应用能收到该组合键。
+    bool setHotkeyArmed(const std::string& name, bool armed);
 
     /// 检查快捷键是否已被占用
     bool isConflict(const HotkeyDef& def) const;
