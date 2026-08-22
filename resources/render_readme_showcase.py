@@ -151,7 +151,7 @@ async def render_banner():
     <div class="text-content">
       <div class="brand-title">
         <span>EasyTools</span>
-        <span class="version-tag">v1.0.6</span>
+        <span class="version-tag">v1.0.7</span>
       </div>
       <p class="subtitle">The Ultimate Windows Productivity Suite</p>
     </div>
