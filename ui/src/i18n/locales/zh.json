@@ -133,6 +133,9 @@
     "advanced": "高级选项",
     "logLevel": "日志级别",
     "logLevelDesc": "设置诊断日志的输出详细程度",
+    "openLogDir": "日志目录",
+    "openLogDirDesc": "打开系统诊断日志与故障排查记录所在文件夹",
+    "openLogDirBtn": "打开日志目录",
     "toastSaveSuccess": "设置已自动保存",
     "toastSaveDesc": "已更新: {{key}}",
     "toastSaveFailed": "保存失败",
@@ -455,6 +458,7 @@
     "replaceSimilarTracks": "替换所有相似手势轨迹",
     "replaceSimilarHint1": "将相似手势轨迹统一为相同值，有助于减少误操作并提升性能",
     "replaceSimilarHint2": "如果一个目标有多个相同手势，则只有最后一个有效",
+    "replaceSimilarHintAuto": "若存在相同轨迹将自动覆盖，保持操作唯一性",
     "gestureCode": "手势绘制",
     "gestureDraw": "绘制手势",
     "gestureCodeRequired": "请在画板中绘制或选择手势",
@@ -767,6 +771,7 @@
     "search": "文件搜索",
     "resumeGesture": "恢复手势",
     "pauseGesture": "暂停手势",
+    "restartElevated": "以管理员身份重启",
     "exit": "退出"
   }
 }

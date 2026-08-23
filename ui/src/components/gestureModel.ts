@@ -80,41 +80,84 @@ export const CODE_TO_ARROWS: Record<string, string> = {
   LU: '↖', RU: '↗', LD: '↙', RD: '↘',
 };
 
-/** 把方向编码 (如 "Middle+L", "Ctrl+U-R", "LU") 渲染为箭头串, 用于实时预览与无障碍提示。 */
+export interface ParsedGestureCode {
+  isMiddle: boolean;
+  hasCtrl: boolean;
+  hasAlt: boolean;
+  hasShift: boolean;
+  bareCode: string;
+}
+
+export function parseGestureCode(code: string): ParsedGestureCode {
+  let upper = (code || '').trim().toUpperCase();
+  let hasCtrl = false;
+  let hasAlt = false;
+  let hasShift = false;
+  let isMiddle = false;
+
+  let matched = true;
+  while (matched) {
+    matched = false;
+    if (upper.startsWith('CTRL+')) {
+      hasCtrl = true;
+      upper = upper.slice(5);
+      matched = true;
+    } else if (upper.startsWith('ALT+')) {
+      hasAlt = true;
+      upper = upper.slice(4);
+      matched = true;
+    } else if (upper.startsWith('SHIFT+')) {
+      hasShift = true;
+      upper = upper.slice(6);
+      matched = true;
+    } else if (upper.startsWith('MIDDLE+')) {
+      isMiddle = true;
+      upper = upper.slice(7);
+      matched = true;
+    }
+  }
+  return { isMiddle, hasCtrl, hasAlt, hasShift, bareCode: upper };
+}
+
+export function assembleGestureCode(params: {
+  isMiddle?: boolean;
+  hasCtrl?: boolean;
+  hasAlt?: boolean;
+  hasShift?: boolean;
+  bareCode: string;
+}): string {
+  let prefix = '';
+  if (params.hasCtrl) prefix += 'Ctrl+';
+  if (params.hasAlt) prefix += 'Alt+';
+  if (params.hasShift) prefix += 'Shift+';
+  if (params.isMiddle) prefix += 'Middle+';
+  return prefix + (params.bareCode || '').toUpperCase();
+}
+
+/** 把方向编码 (如 "Middle+L", "Ctrl+U-R", "Ctrl+Middle+R") 渲染为箭头串, 用于实时预览与无障碍提示。 */
 export function codeToArrows(code: string): string {
   if (!code) return '';
+  const { isMiddle, hasCtrl, hasAlt, hasShift, bareCode } = parseGestureCode(code);
   let prefix = '';
-  let upper = code.trim().toUpperCase();
+  if (hasCtrl) prefix += 'Ctrl+';
+  if (hasAlt) prefix += 'Alt+';
+  if (hasShift) prefix += 'Shift+';
+  if (isMiddle) prefix += '[中键] ';
 
-  if (upper.startsWith('MIDDLE+')) {
-    prefix = '[中键] ';
-    upper = upper.slice(7);
-  }
-  if (upper.startsWith('CTRL+')) {
-    prefix = 'Ctrl+' + prefix;
-    upper = upper.slice(5);
-  }
-  if (upper.startsWith('ALT+')) {
-    prefix = 'Alt+' + prefix;
-    upper = upper.slice(4);
-  }
-  if (upper.startsWith('SHIFT+')) {
-    prefix = 'Shift+' + prefix;
-    upper = upper.slice(6);
-  }
+  if (!bareCode) return prefix.trim();
 
-  if (upper.includes('-')) {
-    return prefix + upper.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
+  if (bareCode.includes('-')) {
+    return prefix + bareCode.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
   }
-  if (CODE_TO_ARROWS[upper]) {
-    return prefix + CODE_TO_ARROWS[upper];
+  if (CODE_TO_ARROWS[bareCode]) {
+    return prefix + CODE_TO_ARROWS[bareCode];
   }
   // 逐字符解析 (如 "DR" -> "↓ →")
-  const chars = upper.split('');
+  const chars = bareCode.split('');
   if (chars.length > 0 && chars.every((c) => CODE_TO_ARROWS[c])) {
     return prefix + chars.map((c) => CODE_TO_ARROWS[c]).join(' ');
   }
-  return prefix + upper;
+  return prefix + bareCode;
 }
 
 export const GESTURE_CODE_PATTERN = /^((Middle|Ctrl|Alt|Shift)\+)*[UDLR]{1,3}(-[UDLR]{1,3})*$/i;

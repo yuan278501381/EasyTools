@@ -113,7 +113,7 @@ export const GesturePage: FC = () => {
   const [triggerButton, setTriggerButton] = useState('both');
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#8B5CF6');
-  const [trailWidth, setTrailWidth] = useState(4.0);
+  const [trailWidth, setTrailWidth] = useState(2.5);
   const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
   const [elevated, setElevated] = useState(false);
   const [runAsAdmin, setRunAsAdmin] = useState(false);
@@ -184,7 +184,7 @@ export const GesturePage: FC = () => {
         setTargetMode(state.targetMode === 'foreground' ? 'foreground' : 'underPointer');
         setTrailColorMode(state.trailColorMode ?? 'auto');
         setTrailColor(state.trailColor ?? '#8B5CF6');
-        setTrailWidth(state.trailWidth ?? 4.0);
+        setTrailWidth(state.trailWidth ?? 2.5);
         setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
         setElevated(state.elevated ?? false);
         setRunAsAdmin(state.runAsAdmin ?? false);

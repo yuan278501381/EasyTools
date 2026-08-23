@@ -1,95 +1,95 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * GestureEditorModal — 新增 / 编辑手势映射
+ * GestureEditorModal — 手势动作编辑器弹窗 (World-Class Interactive Gesture Editor)
  *
- * 字段随动作类型变化:
- *   0 快捷键   → keyStroke (HotkeyInput)
- *   1 Lua 脚本 → luaScript (多行)
- *   2 内置命令 → builtinCmd (下拉)
- *   3 运行程序 → programPath + programArgs
+ * 核心交互架构:
+ *   - 零认知负荷: 无冗长说明文字，界面高度紧凑，一屏尽览
+ *   - 一体化手势控制舱: 触发按键 (右键/中键) 与键盘修饰键 (Ctrl/Shift/Alt) 实时联动
+ *   - 紧凑网格动作表单: 动作名称 + 类型与参数 2 列并排，最大化垂直空间利用率
+ *   - 替换相似手势设置: 智能检测冲突并提供一键覆盖
+ *   - 录制免打扰保护: 挂载时通知后端进入 recordingMode，拦截所有手势动作触发
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useRef, useEffect, type FC } from 'react';
-import { Modal, Field, Button, Select, TextInput, Toggle } from './UIKit';
+import { useState, useEffect, useRef, type FC } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  VolumeX,
+  Lightbulb,
+} from 'lucide-react';
+import { Modal, Field, TextInput, Select, Toggle, Button } from './UIKit';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { GestureDrawCanvas } from './GestureDrawCanvas';
 import { GestureStrokePreview } from './GestureStrokePreview';
-import { useTranslation } from 'react-i18next';
-import { Zap, VolumeX, Sliders, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 import {
   type GestureMapping,
   ACTION_TYPE_KEYS,
   BUILTIN_COMMAND_KEYS,
   GESTURE_CODE_PATTERN,
   codeToArrows,
+  parseGestureCode,
+  assembleGestureCode,
 } from './gestureModel';
 import { bridgeRequest } from '../hooks/useBridge';
 import './GestureEditorModal.css';
 
-let gMappingCounter = 0;
-function generateMappingId(code: string): string {
-  gMappingCounter = (gMappingCounter + 1) % 1000000;
-  return `gm_${code.replace(/[^a-zA-Z0-9]/g, '_')}_${gMappingCounter}`;
-}
-
-function emptyMapping(): GestureMapping {
-  return { gestureCode: '', action: { type: 0, name: '', keyStroke: '' } };
-}
-
 interface Props {
-  /** 编辑时传入原映射; 新增时传 null。组件按 key 条件挂载, 故无需 open prop。 */
-  initial: GestureMapping | null;
-  /** 现有的全部编码, 用于冲突检测 */
+  mapping?: GestureMapping | null;
+  initial?: GestureMapping | null;
   existingCodes?: string[];
-  /** 现有的全部映射完整列表, 用于精准定位冲突名称 */
   existingMappings?: GestureMapping[];
-  /** 从表格特性徽章或动作类型点击进入时的聚焦目标 */
   initialFocusTarget?: 'instant' | 'silent' | 'action_type' | 'action_detail' | 'hotkey' | 'lua' | 'builtin' | 'program' | null;
   onSave: (mapping: GestureMapping) => void;
   onClose: () => void;
 }
 
-export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existingMappings, initialFocusTarget, onSave, onClose }) => {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState<GestureMapping>(() =>
-    initial ? structuredClone(initial) : emptyMapping());
+const DEFAULT_MAPPING: GestureMapping = {
+  gestureCode: '',
+  enabled: true,
+  instantExecute: false,
+  silentToast: false,
+  action: {
+    type: 0,
+    name: '',
+  },
+};
 
-  const isEdit = initial !== null;
-  const initialId = initial?.id ?? '';
-  const initialCode = initial?.gestureCode?.trim().toUpperCase() ?? '';
-  const code = draft.gestureCode.trim().toUpperCase();
-  const [advancedOpen, setAdvancedOpen] = useState(
-    Boolean(initial?.instantExecute || initial?.silentToast || (initialFocusTarget === 'instant' || initialFocusTarget === 'silent'))
-  );
-  const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
+export const GestureEditorModal: FC<Props> = ({
+  mapping,
+  initial,
+  existingCodes,
+  existingMappings,
+  initialFocusTarget,
+  onSave,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const initialMap = mapping ?? initial ?? null;
+
+  const [draft, setDraft] = useState<GestureMapping>(() => ({
+    ...(initialMap ?? DEFAULT_MAPPING),
+    action: { ...(initialMap?.action ?? DEFAULT_MAPPING.action) },
+  }));
+
+  const initialCode = (initialMap?.gestureCode ?? '').trim().toUpperCase();
+  const initialId = initialMap?.id;
+  const isEdit = Boolean(initialMap);
+
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialFocusTarget));
+  const [replaceSimilarTracks, setReplaceSimilarTracks] = useState(true);
+
+  const actionTypeRef = useRef<HTMLDivElement>(null);
+  const actionDetailRef = useRef<HTMLDivElement>(null);
   const advancedRef = useRef<HTMLDivElement>(null);
   const instantCardRef = useRef<HTMLDivElement>(null);
   const silentCardRef = useRef<HTMLDivElement>(null);
-  const actionTypeRef = useRef<HTMLDivElement>(null);
-  const actionDetailRef = useRef<HTMLDivElement>(null);
 
-  // 从表格特性徽章或类型标签点击进入时，自动展开高级设置或平滑滚动并原生聚焦到对应输入控件
-  useEffect(() => {
-    if (initialFocusTarget) {
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          if (initialFocusTarget === 'instant') {
-            instantCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          } else if (initialFocusTarget === 'silent') {
-            silentCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          } else if (initialFocusTarget === 'action_type') {
-            actionTypeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            actionTypeRef.current?.querySelector('select')?.focus();
-          } else if (initialFocusTarget === 'action_detail' || initialFocusTarget === 'hotkey' || initialFocusTarget === 'lua' || initialFocusTarget === 'builtin' || initialFocusTarget === 'program') {
-            actionDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            const input = actionDetailRef.current?.querySelector('input, textarea, select, [tabindex="0"]') as HTMLElement | null;
-            input?.focus();
-          }
-        }, 100);
-      });
-    }
-  }, [initialFocusTarget]);
+  const code = draft.gestureCode.trim().toUpperCase();
+  const currentTrigger = code.includes('MIDDLE+') ? 'middle' : 'right';
 
-  // 当手势录制/编辑弹窗挂载时，通知后端开启录制模式，临时放行系统全局鼠标拦截，绝不误执行手势命令
+  // 弹窗挂载时开启录制免打扰保护模式，关闭时自动恢复全局拦截
   useEffect(() => {
     void bridgeRequest('gesture.setRecordingMode', { recording: true });
     return () => {
@@ -101,7 +101,6 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     const next = !advancedOpen;
     setAdvancedOpen(next);
     if (next) {
-      // 自动平滑滚动入焦，优雅将展开的新选项推入视口中心
       requestAnimationFrame(() => {
         setTimeout(() => {
           advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -110,7 +109,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     }
   };
 
-  // ── 校验与智能冲突识别 ──────────────────────────────────────────────────
+  // 校验与智能冲突识别
   let codeError = '';
   if (!code) {
     codeError = t('gestureEditor.gestureCodeRequired', '请在上方画板绘制手势或选择预设');
@@ -120,37 +119,38 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
 
   // 检测是否与其它已有手势存在编码冲突
   const conflictingMapping = (existingMappings ?? []).find(
-    (m) => m.gestureCode.trim().toUpperCase() === code &&
-           (m.id && initialId ? m.id !== initialId : m.gestureCode.trim().toUpperCase() !== initialCode)
+    (m) =>
+      m.gestureCode.trim().toUpperCase() === code &&
+      (m.id && initialId ? m.id !== initialId : m.gestureCode.trim().toUpperCase() !== initialCode)
   );
 
   const isDuplicateOfOther = Boolean(
     conflictingMapping ||
-    ((existingCodes ?? []).map(c => c.trim().toUpperCase()).includes(code) && code !== initialCode)
+      ((existingCodes ?? []).map((c) => c.trim().toUpperCase()).includes(code) && code !== initialCode)
   );
 
-  // 冲突提示信息 (友好琥珀色提示，保存时将无缝覆盖原动作)
-  const conflictWarning = isDuplicateOfOther && !codeError
-    ? (conflictingMapping?.action?.name
+  const conflictWarning =
+    isDuplicateOfOther && !codeError
+      ? conflictingMapping?.action?.name
         ? t('gestureEditor.gestureConflictOverwriteNamed', {
             name: conflictingMapping.action.name,
             code: `「${codeToArrows(code)}」`,
-            defaultValue: `手势「${codeToArrows(code)}」当前已绑定到「${conflictingMapping.action.name}」，保存将自动替换原手势。`
+            defaultValue: `手势「${codeToArrows(code)}」当前已绑定到「${conflictingMapping.action.name}」，保存将自动替换原手势。`,
           })
         : t('gestureEditor.gestureConflictOverwrite', {
             code: `「${codeToArrows(code)}」`,
-            defaultValue: `手势「${codeToArrows(code)}」已存在，保存将自动替换原手势。`
-          }))
-    : '';
+            defaultValue: `手势「${codeToArrows(code)}」已存在，保存将自动替换原手势。`,
+          })
+      : '';
 
-  // 前缀冲突 (非阻塞警告)
-  const allOtherCodes = (existingMappings ? existingMappings.map(m => m.gestureCode) : (existingCodes ?? []))
-    .map(c => c.trim().toUpperCase())
-    .filter(c => c !== initialCode && c !== code);
+  const allOtherCodes = (existingMappings ? existingMappings.map((m) => m.gestureCode) : (existingCodes ?? []))
+    .map((c) => c.trim().toUpperCase())
+    .filter((c) => c !== initialCode && c !== code);
 
-  const prefixConflicts = code && !codeError && !conflictWarning
-    ? allOtherCodes.filter((c) => (c.startsWith(code) || code.startsWith(c)) && c !== code)
-    : [];
+  const prefixConflicts =
+    code && !codeError && !conflictWarning
+      ? allOtherCodes.filter((c) => (c.startsWith(code) || code.startsWith(c)) && c !== code)
+      : [];
 
   const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired', '请填写动作名称');
   const canSave = !codeError && !nameError;
@@ -160,7 +160,6 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
 
   const handleSave = () => {
     if (!canSave) return;
-    // 按类型裁剪掉无关字段, 避免向后端发送脏数据
     const tVal = draft.action.type;
     const action: GestureMapping['action'] = {
       type: tVal,
@@ -188,37 +187,36 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     const clean = newCode.trim().toUpperCase();
     setDraft((prev) => {
       const isCleanEmpty = !prev.action.name.trim();
-      const presets: Record<string, { name: string; type: number; keyStroke?: string; builtinCmd?: number; desc?: string }> = {
-        'L': { name: '后退', type: 0, keyStroke: 'Alt+Left', desc: '网页/浏览器/文件管理器后退' },
-        'R': { name: '前进', type: 0, keyStroke: 'Alt+Right', desc: '网页/浏览器/文件管理器前进' },
+      const presets: Record<
+        string,
+        { name: string; type: number; keyStroke?: string; builtinCmd?: number; desc?: string }
+      > = {
+        L: { name: '后退', type: 0, keyStroke: 'Alt+Left', desc: '网页/资源管理器后退' },
+        R: { name: '前进', type: 0, keyStroke: 'Alt+Right', desc: '网页/资源管理器前进' },
         'MIDDLE+L': { name: '上一曲', type: 0, keyStroke: 'MediaPrev', desc: '全局多媒体上一曲' },
         'MIDDLE+R': { name: '下一曲', type: 0, keyStroke: 'MediaNext', desc: '全局多媒体下一曲' },
-        'U': { name: '最大化/还原', type: 2, builtinCmd: 2, desc: '最大化或还原当前窗口' },
-        'D': { name: '最小化', type: 2, builtinCmd: 3, desc: '最小化当前窗口' },
-        'D-R': { name: '关闭标签页', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页或文档' },
-        'R-D': { name: '恢复关闭的标签页', type: 0, keyStroke: 'Ctrl+Shift+T', desc: '重新打开最近关闭的标签页 (如 Chrome/Edge 恢复标签)' },
-        'D-L': { name: '关闭窗口', type: 0, keyStroke: 'Alt+F4', desc: '关闭当前活动窗口或应用程序' },
-        'R-U': { name: '任务视图', type: 0, keyStroke: 'Win+Tab', desc: '打开 Windows 任务视图' },
-        'U-R': { name: '下一个标签页', type: 0, keyStroke: 'Ctrl+Tab', desc: '切换到下一个标签页' },
-        'U-L': { name: '上一个标签页', type: 0, keyStroke: 'Ctrl+Shift+Tab', desc: '切换到上一个标签页' },
-        'D-U': { name: '刷新', type: 0, keyStroke: 'F5', desc: '刷新页面' },
-        'U-D': { name: '新建标签页', type: 0, keyStroke: 'Ctrl+T', desc: '新建标签页' },
-        'L-D': { name: '显示桌面', type: 0, keyStroke: 'Win+D', desc: '一键显示/隐藏桌面' },
-        'D-R-D': { name: '屏幕截图', type: 0, keyStroke: 'Win+Shift+S', desc: '唤起屏幕截图工具' },
+        U: { name: '最大化/还原', type: 2, builtinCmd: 2, desc: '最大化或还原当前窗口' },
+        D: { name: '最小化', type: 2, builtinCmd: 3, desc: '最小化当前窗口' },
+        'D-R': { name: '关闭标签页', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页' },
+        'R-D': { name: '恢复关闭的标签页', type: 0, keyStroke: 'Ctrl+Shift+T', desc: '恢复最近关闭的标签页' },
+        'D-L': { name: '关闭窗口', type: 0, keyStroke: 'Alt+F4', desc: '退出当前应用程序窗口' },
+        'D-U': { name: '刷新页面', type: 0, keyStroke: 'F5', desc: '重新加载当前页面' },
+        'L-D': { name: '显示桌面', type: 2, builtinCmd: 5, desc: '最小化所有窗口并显示桌面' },
+        'D-R-D': { name: '快速截屏', type: 2, builtinCmd: 10, desc: '启动 EasyTools 智能截屏' },
       };
 
-      if (!isEdit && isCleanEmpty && presets[clean]) {
-        const p = presets[clean];
+      const matched = presets[clean];
+      if (matched && isCleanEmpty) {
         return {
           ...prev,
           gestureCode: newCode,
           action: {
             ...prev.action,
-            name: p.name,
-            type: p.type,
-            keyStroke: p.keyStroke ?? '',
-            builtinCmd: p.builtinCmd,
-            description: p.desc,
+            name: matched.name,
+            type: matched.type,
+            keyStroke: matched.keyStroke,
+            builtinCmd: matched.builtinCmd,
+            description: matched.desc,
           },
         };
       }
@@ -226,21 +224,19 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     });
   };
 
-  const currentTrigger: 'right' | 'middle' = code.startsWith('MIDDLE+') ? 'middle' : 'right';
-
   const handleTriggerChange = (targetTrigger: 'right' | 'middle') => {
-    const bareCode = code.replace(/^((MIDDLE|CTRL|ALT|SHIFT)\+)+/g, '');
-    let modPrefix = '';
-    if (code.includes('CTRL+')) modPrefix += 'Ctrl+';
-    if (code.includes('ALT+')) modPrefix += 'Alt+';
-    if (code.includes('SHIFT+')) modPrefix += 'Shift+';
-
-    const prefix = targetTrigger === 'middle' ? 'Middle+' : '';
-    const newCode = prefix + modPrefix + bareCode;
+    const parsed = parseGestureCode(draft.gestureCode);
+    const newCode = assembleGestureCode({
+      isMiddle: targetTrigger === 'middle',
+      hasCtrl: parsed.hasCtrl,
+      hasShift: parsed.hasShift,
+      hasAlt: parsed.hasAlt,
+      bareCode: parsed.bareCode,
+    });
     handleGestureCodeChange(newCode);
   };
 
-  const [replaceSimilarTracks, setReplaceSimilarTracks] = useState(true);
+  const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
 
   return (
     <Modal
@@ -249,65 +245,37 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('common.save')}</Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" onClick={handleSave} disabled={!canSave}>
+            {t('common.save')}
+          </Button>
         </>
       }
     >
-      {/* 录制手势说明与指引 (WGestures 2 风格) */}
-      <div className="gesture-record-instructions">
-        <div className="gesture-record-instructions__title">
-          {t('gestureEditor.guidePrompt', '使用一种合适的触发方式，在屏幕/画板上画出手势，对应的符号会显示在下方。')}
-        </div>
-        <ul className="gesture-record-instructions__list">
-          <li>{t('gestureEditor.guideNote1', '按下一个或多个键 "修饰" 绘制中的手势，会使之成为不同手势；键盘按键 (Ctrl / Alt / Shift) 也可以作为修饰键')}</li>
-          <li>{t('gestureEditor.guideNote2', '触发方式 ◐ (鼠标右键) 或 ◓ (鼠标中键/滚轮) 直接在画板上滑动即可实时录制')}</li>
-        </ul>
-      </div>
-
-      <Field
-        label={t('gestureEditor.triggerButton', '触发按键 (手势触发来源)')}
-        hint={t('gestureEditor.triggerButtonHint', '选择通过按住鼠标右键还是滚轮中键来发起此手势')}
-      >
-        <div className="gesture-trigger-segmented">
-          <button
-            type="button"
-            className={`gesture-trigger-btn ${currentTrigger === 'right' ? 'active' : ''}`}
-            onClick={() => handleTriggerChange('right')}
-          >
-            <span className="gesture-trigger-indicator">◐</span>
-            <div className="gesture-trigger-info">
-              <span className="gesture-trigger-name">{t('gestureEditor.triggerRight', '鼠标右键 (默认)')}</span>
-              <span className="gesture-trigger-desc">{t('gestureEditor.triggerRightDesc', '按住鼠标右键滑动 · 最便捷常用')}</span>
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`gesture-trigger-btn ${currentTrigger === 'middle' ? 'active' : ''}`}
-            onClick={() => handleTriggerChange('middle')}
-          >
-            <span className="gesture-trigger-indicator">◓</span>
-            <div className="gesture-trigger-info">
-              <span className="gesture-trigger-name">{t('gestureEditor.triggerMiddle', '鼠标中键 (滚轮)')}</span>
-              <span className="gesture-trigger-desc">{t('gestureEditor.triggerMiddleDesc', '按住滚轮滑动 · 切歌/多媒体专属')}</span>
-            </div>
-          </button>
-        </div>
-      </Field>
-
       <Field
         label={t('gestureEditor.gestureDraw')}
         error={codeError}
-        hint={prefixConflicts.length ? t('gestureEditor.prefixConflict', { codes: prefixConflicts.map((c) => `「${codeToArrows(c)}」`).join(', ') }) : t('gestureEditor.gestureDrawHint')}
+        hint={
+          prefixConflicts.length
+            ? t('gestureEditor.prefixConflict', {
+                codes: prefixConflicts.map((c) => `「${codeToArrows(c)}」`).join(', '),
+              })
+            : undefined
+        }
       >
         <GestureDrawCanvas
           value={draft.gestureCode}
           onChange={handleGestureCodeChange}
           triggerButton={currentTrigger}
+          onTriggerButtonChange={handleTriggerChange}
         />
         {code && (
           <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t('gestureEditor.recognizedGesture')}:</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              {t('gestureEditor.recognizedGesture')}:
+            </span>
             <GestureStrokePreview code={code} width={64} height={38} autoAnimate />
             <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--primary)' }}>
               {codeToArrows(code)}
@@ -322,95 +290,97 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
         )}
       </Field>
 
-      {/* 替换所有相似手势轨迹配置卡片 (用户选项) */}
+      <Field label={t('gestureEditor.actionName')} error={nameError}>
+        <TextInput
+          value={draft.action.name}
+          onChange={(v: string) => setAction({ name: v })}
+          placeholder={t('gestureEditor.actionNamePlaceholder')}
+        />
+      </Field>
+
+      {/* 动作类型与参数配置 (紧凑 2 列并排网格) */}
+      <div className="gesture-action-config-grid">
+        <div ref={actionTypeRef}>
+          <Field label={t('gestureEditor.actionType')}>
+            <Select
+              value={String(draft.action.type)}
+              options={ACTION_TYPE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
+              onChange={(v: string) => setAction({ type: Number(v) })}
+            />
+          </Field>
+        </div>
+
+        <div ref={actionDetailRef}>
+          {draft.action.type === 0 && (
+            <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
+              <HotkeyRecorder
+                id="gesture-hotkey-recorder"
+                value={draft.action.keyStroke ?? ''}
+                onChange={(v: string) => setAction({ keyStroke: v })}
+              />
+            </Field>
+          )}
+
+          {draft.action.type === 1 && (
+            <Field label={t('gestureEditor.luaScript')} hint={t('gestureEditor.luaScriptHint')}>
+              <TextInput
+                multiline
+                value={draft.action.luaScript ?? ''}
+                onChange={(v: string) => setAction({ luaScript: v })}
+                placeholder={'easy.shell.open("https://example.com")'}
+              />
+            </Field>
+          )}
+
+          {draft.action.type === 2 && (
+            <Field label={t('gestureEditor.builtinCommand')}>
+              <Select
+                value={String(draft.action.builtinCmd ?? 0)}
+                options={BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) }))}
+                onChange={(v: string) => setAction({ builtinCmd: Number(v) })}
+              />
+            </Field>
+          )}
+
+          {draft.action.type === 3 && (
+            <>
+              <Field label={t('gestureEditor.programPath')}>
+                <TextInput
+                  value={draft.action.programPath ?? ''}
+                  onChange={(v: string) => setAction({ programPath: v })}
+                  placeholder="C:\\Windows\\System32\\notepad.exe"
+                />
+              </Field>
+              <Field label={t('gestureEditor.programArgs')} hint={t('gestureEditor.programArgsHint')}>
+                <TextInput
+                  value={draft.action.programArgs ?? ''}
+                  onChange={(v: string) => setAction({ programArgs: v })}
+                />
+              </Field>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 替换所有相似手势轨迹配置卡片 */}
       <div className="gesture-replace-tracks-card">
         <label className="gesture-replace-tracks-label">
           <input
             type="checkbox"
             className="gesture-replace-tracks-checkbox"
             checked={replaceSimilarTracks}
-            onChange={(e) => setReplaceSimilarTracks(e.target.checked)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReplaceSimilarTracks(e.target.checked)}
           />
           <span className="gesture-replace-tracks-title">
             {t('gestureEditor.replaceSimilarTracks', '替换所有相似手势轨迹')}
           </span>
+          <span className="gesture-replace-tracks-subtitle">
+            ({t('gestureEditor.replaceSimilarHintAuto', '若存在相同轨迹将自动覆盖，保持操作唯一性')})
+          </span>
         </label>
-        <ul className="gesture-replace-tracks-hints">
-          <li>{t('gestureEditor.replaceSimilarHint1', '将相似手势轨迹统一为相同值，有助于减少误操作并提升性能')}</li>
-          <li>{t('gestureEditor.replaceSimilarHint2', '如果一个目标有多个相同手势，则只有最后一个有效')}</li>
-        </ul>
       </div>
 
-      <Field label={t('gestureEditor.actionName')} error={nameError}>
-        <TextInput
-          value={draft.action.name}
-          onChange={(v) => setAction({ name: v })}
-          placeholder={t('gestureEditor.actionNamePlaceholder')}
-        />
-      </Field>
-
-      <div ref={actionTypeRef}>
-        <Field label={t('gestureEditor.actionType')}>
-          <Select
-            value={String(draft.action.type)}
-            options={ACTION_TYPE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
-            onChange={(v) => setAction({ type: Number(v) })}
-          />
-        </Field>
-      </div>
-
-      <div ref={actionDetailRef}>
-        {draft.action.type === 0 && (
-          <Field label={t('gestureEditor.hotkey')} hint={t('gestureEditor.hotkeyHint')}>
-            <HotkeyRecorder
-              id="gesture-hotkey-recorder"
-              value={draft.action.keyStroke ?? ''}
-              onChange={(v) => setAction({ keyStroke: v })}
-            />
-          </Field>
-        )}
-
-        {draft.action.type === 1 && (
-          <Field label={t('gestureEditor.luaScript')} hint={t('gestureEditor.luaScriptHint')}>
-            <TextInput
-              multiline
-              value={draft.action.luaScript ?? ''}
-              onChange={(v) => setAction({ luaScript: v })}
-              placeholder={'easy.shell.open("https://example.com")'}
-            />
-          </Field>
-        )}
-
-        {draft.action.type === 2 && (
-          <Field label={t('gestureEditor.builtinCommand')}>
-            <Select
-              value={String(draft.action.builtinCmd ?? 0)}
-              options={BUILTIN_COMMAND_KEYS.map((key, i) => ({ value: String(i), label: t(key) }))}
-              onChange={(v) => setAction({ builtinCmd: Number(v) })}
-            />
-          </Field>
-        )}
-
-        {draft.action.type === 3 && (
-          <>
-            <Field label={t('gestureEditor.programPath')}>
-              <TextInput
-                value={draft.action.programPath ?? ''}
-                onChange={(v) => setAction({ programPath: v })}
-                placeholder="C:\\Windows\\System32\\notepad.exe"
-              />
-            </Field>
-            <Field label={t('gestureEditor.programArgs')} hint={t('gestureEditor.programArgsHint')}>
-              <TextInput
-                value={draft.action.programArgs ?? ''}
-                onChange={(v) => setAction({ programArgs: v })}
-              />
-            </Field>
-          </>
-        )}
-      </div>
-
-      {/* ── 高级执行特性折叠面板 ────────────────────────────────────── */}
+      {/* 高级执行特性折叠面板 */}
       <div ref={advancedRef} className="gesture-editor-advanced-wrapper">
         <button
           type="button"
@@ -433,7 +403,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
 
         {advancedOpen && (
           <div className="gesture-editor-advanced-content">
-            {/* 卡片 1: 即时执行 */}
+            {/* 即时执行 */}
             <div
               ref={instantCardRef}
               className={`gesture-scenario-card ${draft.instantExecute ? 'gesture-scenario-card--active' : ''} ${initialFocusTarget === 'instant' ? 'gesture-scenario-card--focused' : ''}`}
@@ -455,7 +425,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
                   <Toggle
                     id="gesture-instant-execute-toggle"
                     checked={draft.instantExecute ?? false}
-                    onChange={(checked) => setDraft((d) => ({ ...d, instantExecute: checked }))}
+                    onChange={(checked: boolean) => setDraft((d) => ({ ...d, instantExecute: checked }))}
                   />
                 </div>
               </div>
@@ -465,7 +435,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
               </div>
             </div>
 
-            {/* 卡片 2: 静默模式 */}
+            {/* 静默模式 */}
             <div
               ref={silentCardRef}
               className={`gesture-scenario-card ${draft.silentToast ? 'gesture-scenario-card--active' : ''} ${initialFocusTarget === 'silent' ? 'gesture-scenario-card--focused' : ''}`}
@@ -487,7 +457,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
                   <Toggle
                     id="gesture-silent-toast-toggle"
                     checked={draft.silentToast ?? false}
-                    onChange={(checked) => setDraft((d) => ({ ...d, silentToast: checked }))}
+                    onChange={(checked: boolean) => setDraft((d) => ({ ...d, silentToast: checked }))}
                   />
                 </div>
               </div>
@@ -502,3 +472,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     </Modal>
   );
 };
+
+function generateMappingId(code: string): string {
+  return `custom-${code.toLowerCase().replace(/[^a-z0-9]/g, '_')}-${Date.now().toString(36)}`;
+}

@@ -78,6 +78,7 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     m_showTimeTick = GetTickCount64();
     if (m_hwnd && IsWindow(m_hwnd)) {
         updatePlacement();
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
         SetTimer(m_hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
@@ -97,6 +98,7 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     }
 
     initializeWebView2();
+    SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     ShowWindow(m_hwnd, SW_SHOW);
     SetForegroundWindow(m_hwnd);
     SetTimer(m_hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
@@ -372,15 +374,13 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         case WM_ACTIVATEAPP:
             if (wParam == FALSE && inst.m_visible.load()) {
                 const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-                if (elapsed >= 150) {
+                if (elapsed >= 200) {
                     inst.hide();
                 }
             }
             break;
         case WM_ACTIVATE:
-            if (LOWORD(wParam) == WA_INACTIVE) {
-                PostMessageW(hwnd, WM_TRAY_VERIFY_DEACTIVATED, 0, 0);
-            } else {
+            if (LOWORD(wParam) != WA_INACTIVE) {
                 if (inst.m_controller) {
                     inst.m_controller->put_IsVisible(TRUE);
                     inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
@@ -394,33 +394,40 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     break;
                 }
                 const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-                if (elapsed < 150) {
-                    // 窗口刚打开 150ms 容差期，避免初始创建抖动
+                if (elapsed < 200) {
+                    // 窗口刚打开 200ms 容差期，避免初始创建与焦点转移抖动
                     break;
                 }
+
+                // 1. 外部鼠标点击判定：若在托盘窗口外部按下鼠标键，平滑收起
+                const bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) ||
+                                       (GetAsyncKeyState(VK_RBUTTON) & 0x8000) ||
+                                       (GetAsyncKeyState(VK_MBUTTON) & 0x8000);
+                if (mouseDown) {
+                    POINT curPt{};
+                    GetCursorPos(&curPt);
+                    RECT winRc{};
+                    GetWindowRect(hwnd, &winRc);
+                    if (!PtInRect(&winRc, curPt)) {
+                        inst.hide();
+                        KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
+                        break;
+                    }
+                }
+
+                // 2. 外部前台切换判定：若前台窗口已切换为非本进程窗口，自动收起
                 const HWND foreground = GetForegroundWindow();
-                const bool isOurWindow = (foreground == hwnd || (foreground && IsChild(hwnd, foreground)));
-                if (!isOurWindow) {
-                    // 激活窗口已不是托盘窗口或其子控件，自动收起
-                    inst.hide();
-                    KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
+                if (foreground && foreground != hwnd) {
+                    DWORD fgPid = 0;
+                    GetWindowThreadProcessId(foreground, &fgPid);
+                    if (fgPid != 0 && fgPid != GetCurrentProcessId()) {
+                        inst.hide();
+                        KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
+                        break;
+                    }
                 }
             }
             break;
-        case WM_TRAY_VERIFY_DEACTIVATED: {
-            if (!inst.m_visible.load()) break;
-            const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-            if (elapsed < 150) {
-                // 窗口刚打开 150ms 内不因初始焦点抖动意外关闭，但设置定时器后续复查
-                SetTimer(hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
-                break;
-            }
-            const HWND foreground = GetForegroundWindow();
-            if (foreground != hwnd && (!foreground || !IsChild(hwnd, foreground))) {
-                inst.hide();
-            }
-            break;
-        }
         case WM_DESTROY:
             KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
             if (inst.m_hwnd == hwnd) inst.m_hwnd = nullptr;

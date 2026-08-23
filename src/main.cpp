@@ -507,6 +507,12 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         else searchWnd.show(GetModuleHandleW(nullptr));
     });
     tray.onPauseGesture([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{}); });
+    tray.onRestartElevated([hwnd]() {
+        easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
+        if (launchElevatedSuccessor(true)) {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+    });
 
     // 2. 统计模块
     easy::core::StatsManager::instance().initialize();
@@ -630,6 +636,17 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    // 注册打开诊断日志目录 IPC 处理器
+    easy::core::MessageBridge::instance().registerHandler("app.openLogDir", [](const nlohmann::json&) -> nlohmann::json {
+        std::filesystem::path logDir = easy::core::WinUtils::getLogDirectory();
+        std::error_code ec;
+        if (!std::filesystem::exists(logDir, ec)) {
+            std::filesystem::create_directories(logDir, ec);
+        }
+        ShellExecuteW(nullptr, L"open", logDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return {{"success", true}, {"path", easy::core::WinUtils::wstringToUtf8(logDir.wstring())}};
+    });
+
     // 注册应用一键热重启 IPC 处理器
     easy::core::MessageBridge::instance().registerHandler("app.restart", [hwnd](const nlohmann::json&) -> nlohmann::json {
         wchar_t exePath[MAX_PATH];
@@ -700,6 +717,11 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             easy::core::EventBus::instance().publish(easy::core::ActionToggleRecordingEvent{});
         } else if (action == "pauseGesture") {
             easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{});
+        } else if (action == "restartElevated") {
+            easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
+            if (launchElevatedSuccessor(true)) {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
         } else if (action == "exit") {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
         } else {

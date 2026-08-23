@@ -22,13 +22,14 @@ namespace easy::tray {
 
 /// 托盘菜单项 ID
 enum class TrayMenuId : UINT {
-    OpenSettings = 1001,
-    Screenshot   = 1002,
-    Recording    = 1003,
-    PauseGesture = 1004,
-    Search       = 1005,
-    Separator    = 0,
-    Exit         = 1099
+    OpenSettings    = 1001,
+    Screenshot      = 1002,
+    Recording       = 1003,
+    PauseGesture    = 1004,
+    Search          = 1005,
+    RestartElevated = 1006,
+    Separator       = 0,
+    Exit            = 1099
 };
 
 /// 托盘事件回调类型
@@ -78,6 +79,7 @@ public:
     void onRecording(TrayEventCallback callback)     { m_callbacks[TrayMenuId::Recording]    = std::move(callback); }
     void onSearch(TrayEventCallback callback)        { m_callbacks[TrayMenuId::Search]       = std::move(callback); }
     void onPauseGesture(TrayEventCallback callback)  { m_callbacks[TrayMenuId::PauseGesture] = std::move(callback); }
+    void onRestartElevated(TrayEventCallback callback) { m_callbacks[TrayMenuId::RestartElevated] = std::move(callback); }
     void onExit(TrayEventCallback callback)          { m_callbacks[TrayMenuId::Exit]         = std::move(callback); }
 
     /// 显示右键菜单

@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -389,6 +389,18 @@ export const GeneralPage: FC = () => {
                 { value: 'error', label: 'Error' },
               ]}
             />
+          </SettingRow>
+
+          <SettingRow label={t('general.openLogDir', '日志目录')} description={t('general.openLogDirDesc', '打开系统诊断日志与故障排查记录所在文件夹')}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void bridgeRequest('app.openLogDir');
+              }}
+            >
+              <FolderOpen size={15} style={{ marginRight: 6 }} />
+              {t('general.openLogDirBtn', '打开日志目录')}
+            </Button>
           </SettingRow>
         </Card>
       </SettingGroup>

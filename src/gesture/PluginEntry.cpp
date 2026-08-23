@@ -280,7 +280,7 @@ public:
                 {"targetMode", engine.targetMode()},
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
-                {"trailWidth", config.get<float>("/gesture/trailWidth", 4.0f)},
+                {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
                 {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
                 {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
                 {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)}
@@ -341,7 +341,7 @@ public:
 
             std::string trailColorMode = params.value("trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto"));
             std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6"));
-            float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 4.0f));
+            float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
             float trailOutlineWidth = clampTrailOutlineWidth(
                 params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)));
 

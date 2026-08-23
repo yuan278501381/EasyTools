@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Pause, Play, LogOut } from 'lucide-react';
+import { Settings, Camera, Video, Search, Pause, Play, Shield, LogOut } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -51,7 +51,7 @@ export default function TrayApp() {
     return () => { delete document.documentElement.dataset.surface; };
   }, []);
 
-  // 键盘快捷导航与全局失焦自动收起 (Esc / Blur 关闭，上下键切换焦点)
+  // 键盘快捷导航 (Esc 关闭，上下键切换焦点)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -75,15 +75,10 @@ export default function TrayApp() {
         buttons[nextIndex]?.focus();
       }
     };
-    const handleBlur = () => {
-      void bridgeRequest('tray.hide').catch(() => {});
-    };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('blur', handleBlur);
     };
   }, []);
 
@@ -145,6 +140,11 @@ export default function TrayApp() {
           </span>
         </button>
       )}
+      <div className="tray-menu__divider" />
+      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('restartElevated')}>
+        <Shield size={15} className="tray-menu__icon" />
+        <span className="tray-menu__label">{t('tray.restartElevated', 'Restart as Administrator')}</span>
+      </button>
       <div className="tray-menu__divider" />
       <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={15} className="tray-menu__icon" />

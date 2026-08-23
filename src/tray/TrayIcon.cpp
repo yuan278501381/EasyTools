@@ -221,7 +221,9 @@ void TrayIcon::showNativeContextMenu(POINT pt) {
     InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::PauseGesture),
                 m_gesturePaused ? (isEn ? L"Resume Gesture" : L"恢复手势") : (isEn ? L"Pause Gesture" : L"暂停手势"));
     InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"Exit EasyTools" : L"退出 EasyTools");
+    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::RestartElevated), isEn ? L"Restart as Administrator" : L"以管理员身份重启");
+    InsertMenuW(hMenu, 9, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+    InsertMenuW(hMenu, 10, MF_BYPOSITION | MF_STRING, static_cast<UINT_PTR>(TrayMenuId::Exit), isEn ? L"Exit EasyTools" : L"退出 EasyTools");
 
     SetForegroundWindow(m_hwnd);
     UINT selected = TrackPopupMenuEx(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, m_hwnd, nullptr);

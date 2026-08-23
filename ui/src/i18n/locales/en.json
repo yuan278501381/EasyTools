@@ -130,10 +130,13 @@
     "accentMint": "Emerald Mint",
     "accentCoral": "Sunset Coral",
     "accentApplied": "Theme accent switched to: {{name}}",
-    "advanced": "Advanced",
+    "advanced": "Advanced Settings",
     "logLevel": "Log Level",
     "logLevelDesc": "Set diagnostic log output level",
-    "toastSaveSuccess": "Settings saved",
+    "openLogDir": "Log Directory",
+    "openLogDirDesc": "Open the folder containing diagnostic and troubleshooting logs",
+    "openLogDirBtn": "Open Log Directory",
+    "toastSaveSuccess": "Settings saved automatically",
     "toastSaveDesc": "Updated: {{key}}",
     "toastSaveFailed": "Save failed",
     "loadFailed": "Could not load settings",
@@ -455,6 +458,7 @@
     "replaceSimilarTracks": "Replace all similar gesture tracks",
     "replaceSimilarHint1": "Unifying similar gesture tracks into the same value helps reduce accidental triggers and improves performance",
     "replaceSimilarHint2": "If a target has multiple identical gestures, only the last one remains active",
+    "replaceSimilarHintAuto": "Automatically overwrites duplicate tracks to maintain unique mappings",
     "gestureCode": "Draw Gesture",
     "gestureDraw": "Draw Gesture",
     "gestureCodeRequired": "Please draw or select a gesture on the canvas",
@@ -767,6 +771,7 @@
     "search": "File Search",
     "resumeGesture": "Resume gestures",
     "pauseGesture": "Pause gestures",
+    "restartElevated": "Restart as Administrator",
     "exit": "Exit"
   }
 }

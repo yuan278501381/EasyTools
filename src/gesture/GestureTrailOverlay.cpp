@@ -119,7 +119,7 @@ void GestureTrailOverlay::applyThemeColorsLocked() {
     auto& cfg = easy::core::ConfigManager::instance();
     const std::string colorMode = cfg.get<std::string>("/gesture/trailColorMode", "auto");
     const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#8B5CF6");
-    m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 4.0f);
+    m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 2.5f);
     m_style.outlineWidth = clampTrailOutlineWidth(
         cfg.get<float>("/gesture/trailOutlineWidth", 2.5f));
 
