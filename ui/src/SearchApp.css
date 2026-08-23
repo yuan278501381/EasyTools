@@ -1086,6 +1086,38 @@ html[data-surface="search"] #root {
     border-color: var(--primary);
 }
 
+.search-empty-icon-wrap--indexing {
+    color: var(--primary);
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    box-shadow: 0 0 20px var(--primary-dim);
+}
+
+.search-indexing-progress-bar-wrap {
+    width: 240px;
+    height: 4px;
+    background: var(--search-surface-pill-border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+    position: relative;
+}
+
+.search-indexing-progress-bar-indeterminate {
+    width: 40%;
+    height: 100%;
+    background: var(--primary);
+    border-radius: 2px;
+    position: absolute;
+    animation: indexing-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes indexing-indeterminate {
+    0% { left: -40%; width: 30%; }
+    50% { left: 35%; width: 50%; }
+    100% { left: 100%; width: 30%; }
+}
+
 .search-empty-icon {
     opacity: 0.85;
 }

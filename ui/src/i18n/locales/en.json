@@ -204,11 +204,19 @@
     "installSuccess": "Extension installed! Restart EasyTools to activate.",
     "installLocal": "Import Local Package (.zip / .dll)",
     "author": "Author",
+    "uninstall": "Uninstall",
+    "uninstalling": "Uninstalling...",
+    "uninstallSuccess": "Extension uninstalled successfully",
+    "uninstallConfirm": "Are you sure you want to uninstall this extension?",
+    "uninstallFailed": "Uninstall failed",
+    "isExtension": "Extension",
+    "isCore": "Core Plugin",
     "state": {
       "running": "Running",
       "disabled": "Disabled",
       "pendingRestart": "Restart needed",
-      "failed": "Load failed"
+      "failed": "Load failed",
+      "unavailable": "Not Installed"
     },
     "items": {
       "gesture": {
@@ -693,7 +701,10 @@
     "maxResultsAll": "All",
     "maxResults50": "50 items",
     "maxResults100": "100 items",
-    "maxResults200": "200 items"
+    "maxResults200": "200 items",
+    "initialIndexingTitle": "Building and persisting full disk index...",
+    "initialIndexingDesc": "First run is scanning all local MFT tables and persisting index. Instant search will be ready in seconds.",
+    "indexReadyToast": "Full disk index built and ready!"
   },
   "searchPage": {
     "tabSettings": "Settings & Hotkey",

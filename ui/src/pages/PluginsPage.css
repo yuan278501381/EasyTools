@@ -101,6 +101,11 @@
   border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
+.plugin-card--unavailable {
+  border-style: dashed;
+  opacity: 0.88;
+}
+
 .plugin-card__header {
   display: flex;
   align-items: flex-start;
@@ -141,6 +146,23 @@
   font-size: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plugin-card__header-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.plugin-card__type-tag {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
 }
 
 .marketplace-category-tag {
@@ -229,6 +251,33 @@
   border-top: 1px solid var(--card-border);
   color: var(--text-muted);
   font-size: 0.78rem;
+  gap: 12px;
+}
+
+.plugin-card__footer-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-uninstall-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--card-border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.plugin-uninstall-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .marketplace-permissions {
@@ -237,6 +286,32 @@
   gap: 5px;
   color: var(--text-muted);
   font-size: 0.72rem;
+}
+
+.marketplace-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marketplace-uninstall-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--card-border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.marketplace-uninstall-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .marketplace-action-btn {

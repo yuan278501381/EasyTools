@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
 import {
   Bot,
   Camera,
-  CheckCircle2,
   ClipboardList,
   DownloadCloud,
   FileCode2,
@@ -16,6 +15,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -34,8 +34,9 @@ export interface PluginStatus {
   enabled: boolean;
   active: boolean;
   restartRequired: boolean;
-  state: 'running' | 'disabled' | 'pendingRestart' | 'failed';
+  state: 'running' | 'disabled' | 'pendingRestart' | 'failed' | 'unavailable';
   error?: string;
+  isExtension?: boolean;
 }
 
 export interface MarketplacePlugin {
@@ -83,6 +84,8 @@ const ICONS = {
   markdown_preview: FileCode2,
 } as const;
 
+const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast']);
+
 export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<'installed' | 'marketplace'>('installed');
@@ -91,6 +94,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
   const [loading, setLoading] = useState(initialPlugins.length === 0);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [uninstallingId, setUninstallingId] = useState<string | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -152,6 +156,24 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
       toast.error(t('plugins.saveFailed'), { description: String(error) });
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const handleUninstall = async (plugin: { id: string; name?: string }) => {
+    setUninstallingId(plugin.id);
+    try {
+      const result = await bridgeRequest<{ success: boolean; error?: string }>('plugins.uninstall', { id: plugin.id });
+      if (result?.success) {
+        toast.success(t('plugins.uninstallSuccess'));
+        setMarketplace((prev) => prev.map((p) => p.id === plugin.id ? { ...p, installed: false } : p));
+        await refresh();
+      } else {
+        throw new Error(result?.error || t('plugins.uninstallFailed'));
+      }
+    } catch (error) {
+      toast.error(t('plugins.uninstallFailed'), { description: String(error) });
+    } finally {
+      setUninstallingId(null);
     }
   };
 
@@ -265,15 +287,24 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
           {plugins.map((plugin) => {
             const Icon = ICONS[plugin.id as keyof typeof ICONS] ?? Puzzle;
             const failed = plugin.state === 'failed';
-            const badgeVariant = failed ? 'danger' : plugin.restartRequired ? 'warning' : plugin.active ? 'success' : 'muted';
+            const isUnavailable = plugin.state === 'unavailable';
+            const badgeVariant = failed ? 'danger' : isUnavailable ? 'muted' : plugin.restartRequired ? 'warning' : plugin.active ? 'success' : 'muted';
+            const isExtension = Boolean(plugin.isExtension || !CORE_PLUGIN_IDS.has(plugin.id));
+            const isUninstalling = uninstallingId === plugin.id;
+
             return (
-              <article className={`plugin-card ${failed ? 'plugin-card--failed' : ''}`} key={plugin.id}>
+              <article className={`plugin-card ${failed ? 'plugin-card--failed' : ''} ${isUnavailable ? 'plugin-card--unavailable' : ''}`} key={plugin.id}>
                 <div className="plugin-card__header">
                   <span className="plugin-card__icon"><Icon size={22} strokeWidth={2.1} /></span>
                   <div className="plugin-card__identity">
                     <div className="plugin-card__title-row">
                       <h2>{t(`plugins.items.${plugin.id}.name`, { defaultValue: plugin.name })}</h2>
-                      <Badge text={t(`plugins.state.${plugin.state}`)} variant={badgeVariant} />
+                      <div className="plugin-card__header-badges">
+                        {isExtension && (
+                          <span className="plugin-card__type-tag">{t('plugins.isExtension')}</span>
+                        )}
+                        <Badge text={t(`plugins.state.${plugin.state}`)} variant={badgeVariant} />
+                      </div>
                     </div>
                     <span className="plugin-card__version">v{plugin.version || '—'} · {plugin.fileName}</span>
                   </div>
@@ -300,11 +331,30 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                 )}
                 {plugin.error && <p className="plugin-card__error" role="alert">{plugin.error}</p>}
                 <div className="plugin-card__footer">
-                  <span>{plugin.active ? t('plugins.resourceActive') : t('plugins.resourceInactive')}</span>
+                  <div className="plugin-card__footer-status">
+                    <span>{plugin.active ? t('plugins.resourceActive') : t('plugins.resourceInactive')}</span>
+                    {isExtension && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isUninstalling || savingId === plugin.id}
+                        onClick={() => void handleUninstall(plugin)}
+                        className="plugin-uninstall-btn"
+                        title={t('plugins.uninstall')}
+                      >
+                        {isUninstalling ? (
+                          <RotateCw size={13} className="plugins-spin" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
+                        {t('plugins.uninstall')}
+                      </Button>
+                    )}
+                  </div>
                   <Toggle
                     id={`plugin-${plugin.id}`}
                     checked={plugin.enabled}
-                    disabled={savingId === plugin.id || (failed && !plugin.enabled)}
+                    disabled={savingId === plugin.id || isUninstalling || (failed && !plugin.enabled) || isUnavailable}
                     onChange={(value) => void setEnabled(plugin, value)}
                   />
                 </div>
@@ -356,6 +406,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
               const title = isEn && item.nameEn ? item.nameEn : item.name;
               const desc = isEn && item.descriptionEn ? item.descriptionEn : item.description;
               const isInstalling = installingId === item.id;
+              const isUninstalling = uninstallingId === item.id;
               const isInstalled = item.installed;
 
               return (
@@ -385,30 +436,48 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                       <ShieldCheck size={14} />
                       {(item.permissions || []).join(' · ')}
                     </div>
-                    <Button
-                      variant={isInstalled ? 'secondary' : 'primary'}
-                      size="sm"
-                      disabled={isInstalling || isInstalled}
-                      onClick={() => void installMarketPlugin(item)}
-                      className="marketplace-action-btn"
-                    >
+                    <div className="marketplace-actions">
                       {isInstalled ? (
                         <>
-                          <CheckCircle2 size={14} />
-                          {t('plugins.installed')}
-                        </>
-                      ) : isInstalling ? (
-                        <>
-                          <RotateCw size={14} className="plugins-spin" />
-                          {t('plugins.installing')}
+                          <Badge text={t('plugins.installed')} variant="success" />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={isUninstalling}
+                            onClick={() => void handleUninstall(item)}
+                            className="marketplace-uninstall-btn"
+                            title={t('plugins.uninstall')}
+                          >
+                            {isUninstalling ? (
+                              <RotateCw size={13} className="plugins-spin" />
+                            ) : (
+                              <Trash2 size={13} />
+                            )}
+                            {t('plugins.uninstall')}
+                          </Button>
                         </>
                       ) : (
-                        <>
-                          <DownloadCloud size={14} />
-                          {t('plugins.install')}
-                        </>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={isInstalling}
+                          onClick={() => void installMarketPlugin(item)}
+                          className="marketplace-action-btn"
+                        >
+                          {isInstalling ? (
+                            <>
+                              <RotateCw size={14} className="plugins-spin" />
+                              {t('plugins.installing')}
+                            </>
+                          ) : (
+                            <>
+                              <DownloadCloud size={14} />
+                              {t('plugins.install')}
+                            </>
+                          )}
+                        </Button>
                       )}
-                    </Button>
+                    </div>
                   </div>
                 </article>
               );

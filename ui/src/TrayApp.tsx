@@ -51,7 +51,7 @@ export default function TrayApp() {
     return () => { delete document.documentElement.dataset.surface; };
   }, []);
 
-  // 键盘快捷导航 (Esc 关闭，上下键切换焦点)
+  // 键盘快捷导航与全局失焦自动收起 (Esc / Blur 关闭，上下键切换焦点)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -75,8 +75,16 @@ export default function TrayApp() {
         buttons[nextIndex]?.focus();
       }
     };
+    const handleBlur = () => {
+      void bridgeRequest('tray.hide').catch(() => {});
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('blur', handleBlur);
+    };
   }, []);
 
   const captureActive = activePlugins.has('capture');
@@ -90,6 +98,8 @@ export default function TrayApp() {
       setGesturePaused(!gesturePaused);
     }
     setBusy(true);
+    // 立即乐观收起托盘菜单，带来零延迟即时交互体验
+    void bridgeRequest('tray.hide').catch(() => {});
     try {
       const result = await bridgeRequest<{ success: boolean }>('tray.action', { action });
       if (!result.success) throw new Error('Tray action failed');

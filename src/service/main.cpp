@@ -334,6 +334,10 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 if (act == "getDbStats") {
                     auto stats = easy::service::db::DatabaseManager::instance().getStats();
+                    const bool isIndexing = g_InitialIndexWorkers.load(std::memory_order_acquire) > 0 ||
+                                            g_RebuildInProgress.load(std::memory_order_acquire) ||
+                                            g_SnapshotInProgress.load(std::memory_order_acquire) ||
+                                            !g_SearchIndexReady.load(std::memory_order_acquire);
                     return {
                         {"success", true},
                         {"dbPath", WStringToString(stats.dbPath)},
@@ -342,6 +346,10 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         {"totalRecords", stats.totalRecords},
                         {"volumeCount", stats.volumeCount},
                         {"exists", stats.exists},
+                        {"indexing", isIndexing},
+                        {"initialWorkers", g_InitialIndexWorkers.load(std::memory_order_acquire)},
+                        {"rebuildInProgress", g_RebuildInProgress.load(std::memory_order_acquire)},
+                        {"snapshotInProgress", g_SnapshotInProgress.load(std::memory_order_acquire)},
                         {"runHistoryCount", easy::service::db::RunHistoryManager::instance().size()},
                         {"searchHistoryCount", easy::service::db::SearchHistoryManager::instance().size()}
                     };

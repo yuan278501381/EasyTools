@@ -590,6 +590,7 @@ void markExtensionInstalled(const std::string& id, bool installed) {
             installedList.erase(it);
             config.set("/plugins/installedExtensions", installedList);
         }
+        config.set("/plugins/" + id + "/enabled", false);
     }
 }
 
@@ -602,6 +603,8 @@ void MessageBridge::registerBuiltinHandlers() {
         std::unordered_set<std::string> existingIds;
         for (const auto& plugin : statuses) {
             existingIds.insert(plugin.id);
+            const bool isExt = isExtensionInstalled(plugin.id) ||
+                (plugin.id != "gesture" && plugin.id != "capture" && plugin.id != "search" && plugin.id != "keycast");
             plugins.push_back({
                 {"id", plugin.id},
                 {"name", plugin.name},
@@ -614,7 +617,8 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"active", plugin.active},
                 {"restartRequired", plugin.restartRequired},
                 {"state", plugin.state},
-                {"error", plugin.error}
+                {"error", plugin.error},
+                {"isExtension", isExt}
             });
         }
 
@@ -637,7 +641,8 @@ void MessageBridge::registerBuiltinHandlers() {
                     {"active", false},
                     {"restartRequired", false},
                     {"state", "unavailable"},
-                    {"error", "扩展包尚未安装；旧版仅记录了目录状态"}
+                    {"error", "扩展包尚未安装；旧版仅记录了目录状态"},
+                    {"isExtension", true}
                 });
             }
         }

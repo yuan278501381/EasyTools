@@ -204,11 +204,19 @@
     "installSuccess": "扩展已成功安装！将在下次启动或立即重启后加载。",
     "installLocal": "导入本地插件包 (.zip / .dll)",
     "author": "开发者",
+    "uninstall": "卸载",
+    "uninstalling": "正在卸载...",
+    "uninstallSuccess": "扩展已成功卸载",
+    "uninstallConfirm": "确定要卸载此扩展插件吗？",
+    "uninstallFailed": "卸载失败",
+    "isExtension": "扩展模块",
+    "isCore": "内置核心",
     "state": {
       "running": "运行中",
       "disabled": "已停用",
       "pendingRestart": "等待重启",
-      "failed": "加载失败"
+      "failed": "加载失败",
+      "unavailable": "未安装"
     },
     "items": {
       "gesture": {
@@ -693,7 +701,10 @@
     "maxResultsAll": "全部",
     "maxResults50": "50 条",
     "maxResults100": "100 条",
-    "maxResults200": "200 条"
+    "maxResults200": "200 条",
+    "initialIndexingTitle": "正在极速构建并固化全盘文件索引...",
+    "initialIndexingDesc": "首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。",
+    "indexReadyToast": "全盘文件索引固化完成，已就绪！"
   },
   "searchPage": {
     "tabSettings": "基础与热键",

@@ -842,6 +842,8 @@ export default function SearchApp() {
   };
 
   const [searchHistory, setSearchHistory] = useState<{ search: string; searchCount: number; lastSearchDate: number }[]>([]);
+  const [isInitialIndexing, setIsInitialIndexing] = useState(false);
+  const isInitialIndexingRef = useRef(false);
   const [dbStats, setDbStats] = useState<{
     dbPath: string;
     dbSize: number;
@@ -849,6 +851,7 @@ export default function SearchApp() {
     totalRecords: number;
     volumeCount: number;
     exists: boolean;
+    indexing?: boolean;
     runHistoryCount: number;
     searchHistoryCount: number;
   } | null>(null);
@@ -864,7 +867,7 @@ export default function SearchApp() {
     }
   }, []);
 
-  const refreshDbStats = useCallback(async () => {
+  const checkInitialIndex = useCallback(async (): Promise<boolean> => {
     try {
       const res = await bridgeRequest<{
         dbPath: string;
@@ -873,20 +876,48 @@ export default function SearchApp() {
         totalRecords: number;
         volumeCount: number;
         exists: boolean;
+        indexing?: boolean;
         runHistoryCount: number;
         searchHistoryCount: number;
         success: boolean;
       }>('search.getDbStats');
       if (res && res.success) {
         setDbStats(res);
+        const needsIndex = !res.exists || res.totalRecords === 0 || !!res.indexing;
+        if (needsIndex) {
+          setIsInitialIndexing(true);
+          isInitialIndexingRef.current = true;
+          if (!res.indexing && (!res.exists || res.totalRecords === 0)) {
+            // 没有固化索引文件且当前未在构建，自动发起一次全盘索引扫描并固化快照
+            void bridgeRequest('search.rebuildIndex').catch(() => {});
+          }
+          return true;
+        } else {
+          if (isInitialIndexingRef.current) {
+            isInitialIndexingRef.current = false;
+            setIsInitialIndexing(false);
+            setServiceAvailable(true);
+            toast.success(t('search.indexReadyToast', '全盘文件索引固化完成，已就绪！'));
+          } else {
+            setIsInitialIndexing(false);
+          }
+          return false;
+        }
       }
     } catch {
       // ignore
     }
-  }, []);
+    return false;
+  }, [t]);
+
+  const refreshDbStats = useCallback(async () => {
+    await checkInitialIndex();
+  }, [checkInitialIndex]);
 
   useEffect(() => {
     let active = true;
+    let pollTimer: number | undefined;
+
     void bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 })
       .then((res) => {
         if (active && res && res.success && Array.isArray(res.history)) {
@@ -895,28 +926,27 @@ export default function SearchApp() {
       })
       .catch(() => undefined);
 
-    void bridgeRequest<{
-      dbPath: string;
-      dbSize: number;
-      timestamp: number;
-      totalRecords: number;
-      volumeCount: number;
-      exists: boolean;
-      runHistoryCount: number;
-      searchHistoryCount: number;
-      success: boolean;
-    }>('search.getDbStats')
-      .then((res) => {
-        if (active && res && res.success) {
-          setDbStats(res);
-        }
-      })
-      .catch(() => undefined);
+    const runPoll = async () => {
+      const isBusy = await checkInitialIndex();
+      if (!active) return;
+      if (isBusy) {
+        pollTimer = window.setTimeout(runPoll, 500);
+      }
+    };
+
+    void runPoll();
+
+    const onFocusEvt = () => {
+      void runPoll();
+    };
+    window.addEventListener('easytools:focusSearch', onFocusEvt);
 
     return () => {
       active = false;
+      if (pollTimer) window.clearTimeout(pollTimer);
+      window.removeEventListener('easytools:focusSearch', onFocusEvt);
     };
-  }, []);
+  }, [checkInitialIndex]);
 
   const removeHistoryItem = async (e: React.MouseEvent, s: string) => {
     e.stopPropagation();
@@ -934,10 +964,10 @@ export default function SearchApp() {
 
   const [sortField, setSortField] = useState<SortField>(() => {
     const saved = localStorage.getItem('easytools_search_sort_field');
-    if (saved === 'modified' || saved === 'name' || saved === 'size' || saved === 'created') {
+    if (saved === 'modified' || saved === 'name' || saved === 'size' || saved === 'created' || saved === 'relevance') {
       return saved;
     }
-    return 'relevance';
+    return 'modified';
   });
 
   const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
@@ -2161,7 +2191,7 @@ export default function SearchApp() {
             aria-activedescendant={sortedResults[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
             spellCheck={false}
           />
-          {loading && <span className="search-loading" aria-label={t('common.loading', '正在搜索...')} />}
+          {(loading || isInitialIndexing) && <span className="search-loading" aria-label={t('common.loading', '正在构建索引/搜索...')} />}
           
           <button
             className="search-help-btn search-drag-btn"
@@ -3059,16 +3089,33 @@ export default function SearchApp() {
           </div>
         )}
 
-        {!serviceAvailable && (
+        {isInitialIndexing && sortedResults.length === 0 && (
+          <div className="search-empty-container search-empty-container--indexing" role="status">
+            <div className="search-empty-icon-wrap search-empty-icon-wrap--indexing">
+              <RefreshCw size={32} className="search-empty-icon spin-animation" />
+            </div>
+            <div className="search-empty-title">
+              {t('search.initialIndexingTitle', '正在极速构建并固化全盘文件索引...')}
+            </div>
+            <div className="search-empty-desc">
+              {t('search.initialIndexingDesc', '首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。')}
+            </div>
+            <div className="search-indexing-progress-bar-wrap">
+              <div className="search-indexing-progress-bar-indeterminate" />
+            </div>
+          </div>
+        )}
+
+        {!isInitialIndexing && !serviceAvailable && (
           <div className="search-status" role="status">
             <ServerOff size={18} aria-hidden="true" />
             <span>{t('search.serviceUnavailable', '文件索引服务暂不可用，正在尝试自动连接或静默拉起。')}</span>
           </div>
         )}
 
-        {actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
+        {!isInitialIndexing && actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
 
-        {serviceAvailable && query.trim() && !loading && sortedResults.length === 0 && (
+        {!isInitialIndexing && serviceAvailable && query.trim() && !loading && sortedResults.length === 0 && (
           <div className="search-empty-container" role="status">
             <div className="search-empty-icon-wrap">
               <SearchX size={34} className="search-empty-icon" />
@@ -3105,7 +3152,7 @@ export default function SearchApp() {
           </div>
         )}
 
-        {serviceAvailable && !query.trim() && sortedResults.length === 0 && searchHistory.length === 0 && (
+        {!isInitialIndexing && serviceAvailable && !query.trim() && sortedResults.length === 0 && searchHistory.length === 0 && (
           <div className="search-empty-container search-empty-container--initial" role="status">
             <div className="search-empty-icon-wrap search-empty-icon-wrap--initial">
               <Search size={32} className="search-empty-icon" />

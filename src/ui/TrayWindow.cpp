@@ -19,6 +19,7 @@ namespace easy::ui {
 
 static constexpr const wchar_t* TRAY_WINDOW_CLASS = L"EasyTools_TrayWindow";
 static constexpr UINT WM_TRAY_VERIFY_DEACTIVATED = WM_APP + 41;
+static constexpr UINT_PTR IDT_TRAY_AUTOHIDE = 9001;
 
 namespace {
 
@@ -79,10 +80,12 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
         updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
+        SetTimer(m_hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
         m_visible = true;
 
         if (m_controller) {
             m_controller->put_IsVisible(TRUE);
+            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
             syncWebViewDpi(m_controller.Get(), m_hwnd);
         }
         return;
@@ -96,17 +99,20 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     initializeWebView2();
     ShowWindow(m_hwnd, SW_SHOW);
     SetForegroundWindow(m_hwnd);
+    SetTimer(m_hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
     UpdateWindow(m_hwnd);
     m_visible = true;
 }
 
 void TrayWindow::hide() {
-    if (m_hwnd) {
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        KillTimer(m_hwnd, IDT_TRAY_AUTOHIDE);
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
         }
+        easy::core::WinUtils::trimWorkingSet();
     }
 }
 
@@ -363,16 +369,50 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 syncWebViewDpi(inst.m_controller.Get(), hwnd);
             }
             return 0;
+        case WM_ACTIVATEAPP:
+            if (wParam == FALSE && inst.m_visible.load()) {
+                const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+                if (elapsed >= 150) {
+                    inst.hide();
+                }
+            }
+            break;
         case WM_ACTIVATE:
             if (LOWORD(wParam) == WA_INACTIVE) {
                 PostMessageW(hwnd, WM_TRAY_VERIFY_DEACTIVATED, 0, 0);
+            } else {
+                if (inst.m_controller) {
+                    inst.m_controller->put_IsVisible(TRUE);
+                    inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                }
+            }
+            break;
+        case WM_TIMER:
+            if (wParam == IDT_TRAY_AUTOHIDE) {
+                if (!inst.m_visible.load()) {
+                    KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
+                    break;
+                }
+                const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+                if (elapsed < 150) {
+                    // 窗口刚打开 150ms 容差期，避免初始创建抖动
+                    break;
+                }
+                const HWND foreground = GetForegroundWindow();
+                const bool isOurWindow = (foreground == hwnd || (foreground && IsChild(hwnd, foreground)));
+                if (!isOurWindow) {
+                    // 激活窗口已不是托盘窗口或其子控件，自动收起
+                    inst.hide();
+                    KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
+                }
             }
             break;
         case WM_TRAY_VERIFY_DEACTIVATED: {
             if (!inst.m_visible.load()) break;
             const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-            if (elapsed < 350) {
-                // 窗口刚打开 350ms 内不因初始焦点抖动或创建子窗口而意外关闭
+            if (elapsed < 150) {
+                // 窗口刚打开 150ms 内不因初始焦点抖动意外关闭，但设置定时器后续复查
+                SetTimer(hwnd, IDT_TRAY_AUTOHIDE, 80, nullptr);
                 break;
             }
             const HWND foreground = GetForegroundWindow();
@@ -382,6 +422,7 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             break;
         }
         case WM_DESTROY:
+            KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
             if (inst.m_hwnd == hwnd) inst.m_hwnd = nullptr;
             inst.destroy();
             break;
