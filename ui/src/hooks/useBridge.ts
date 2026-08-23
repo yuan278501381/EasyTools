@@ -195,7 +195,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
             { gestureCode: 'D-L', action: { type: 0, name: '关闭窗口', description: '关闭当前活动窗口或应用程序', keyStroke: 'Alt+F4' } },
             { gestureCode: 'U-R', action: { type: 0, name: '下一个标签页', description: '切换到下一个标签页', keyStroke: 'Ctrl+Tab' } },
             { gestureCode: 'U-L', action: { type: 0, name: '上一个标签页', description: '切换到上一个标签页', keyStroke: 'Ctrl+Shift+Tab' } },
-            { gestureCode: 'D-U', action: { type: 0, name: '刷新', description: '刷新页面', keyStroke: 'F5' } },
+            { gestureCode: 'L-U-R', action: { type: 0, name: '刷新', description: '刷新页面', keyStroke: 'F5' } },
             { gestureCode: 'U-D', action: { type: 0, name: '新建标签页', description: '新建标签页', keyStroke: 'Ctrl+T' } },
             { gestureCode: 'L-D', action: { type: 0, name: '显示桌面', description: '一键显示/隐藏桌面', keyStroke: 'Win+D' } },
             { gestureCode: 'R-U', action: { type: 0, name: '任务视图', description: '打开 Windows 任务视图', keyStroke: 'Win+Tab' } },

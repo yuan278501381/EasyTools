@@ -23,8 +23,15 @@ static constexpr UINT_PTR IDT_TRAY_AUTOHIDE = 9001;
 
 namespace {
 
-SIZE getTrayWindowSize(POINT anchor) {
+SIZE getTrayWindowSize(POINT anchor, int customW = 0, int customH = 0) {
     const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    if (customW > 0 && customH > 0) {
+        return {
+            std::max<LONG>(120L, static_cast<LONG>(customW * scale)),
+            std::max<LONG>(80L, static_cast<LONG>(customH * scale))
+        };
+    }
     return TrayWindowStyle::windowSizeForDpi(
         easy::core::dpi::effectiveDpiForMonitor(monitor));
 }
@@ -149,7 +156,7 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
     wc.lpszClassName = TRAY_WINDOW_CLASS;
     RegisterClassExW(&wc);
 
-    const SIZE sz = getTrayWindowSize({x, y});
+    const SIZE sz = getTrayWindowSize({x, y}, m_contentWidth, m_contentHeight);
     const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
 
     m_hwnd = CreateWindowExW(
@@ -172,7 +179,7 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
 void TrayWindow::updatePlacement() {
     if (!m_hwnd || m_updatingPlacement) return;
     m_updatingPlacement = true;
-    const SIZE size = getTrayWindowSize(m_anchor);
+    const SIZE size = getTrayWindowSize(m_anchor, m_contentWidth, m_contentHeight);
     const POINT origin = trayWindowOrigin(
         m_anchor.x, m_anchor.y, size.cx, size.cy);
     SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, size.cx, size.cy,
@@ -182,10 +189,12 @@ void TrayWindow::updatePlacement() {
 
 void TrayWindow::setContentSize(int width, int height) {
     if (!m_hwnd || !IsWindow(m_hwnd) || width <= 0 || height <= 0) return;
+    m_contentWidth = width;
+    m_contentHeight = height;
     const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
     const float scale = easy::core::dpi::scaleForMonitor(monitor);
-    const int scaledW = std::max(120, static_cast<int>(width * scale));
-    const int scaledH = std::max(80, static_cast<int>(height * scale));
+    const int scaledW = std::max<int>(120, static_cast<int>(width * scale));
+    const int scaledH = std::max<int>(80, static_cast<int>(height * scale));
 
     m_updatingPlacement = true;
     const POINT origin = trayWindowOrigin(m_anchor.x, m_anchor.y, scaledW, scaledH);

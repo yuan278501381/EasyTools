@@ -212,6 +212,7 @@ export const GestureEditorModal: FC<Props> = ({
         'D-R': { name: '关闭标签页', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页' },
         'R-D': { name: '恢复关闭的标签页', type: 0, keyStroke: 'Ctrl+Shift+T', desc: '恢复最近关闭的标签页' },
         'D-L': { name: '关闭窗口', type: 0, keyStroke: 'Alt+F4', desc: '退出当前应用程序窗口' },
+        'L-U-R': { name: '刷新页面', type: 0, keyStroke: 'F5', desc: '重新加载当前页面' },
         'D-U': { name: '刷新页面', type: 0, keyStroke: 'F5', desc: '重新加载当前页面' },
         'L-D': { name: '显示桌面', type: 2, builtinCmd: 5, desc: '最小化所有窗口并显示桌面' },
         'D-R-D': { name: '快速截屏', type: 2, builtinCmd: 10, desc: '启动 EasyTools 智能截屏' },

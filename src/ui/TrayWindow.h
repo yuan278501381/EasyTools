@@ -55,6 +55,8 @@ private:
     uint64_t m_showTimeTick{0};
     POINT m_anchor{};
     bool m_updatingPlacement = false;
+    int m_contentWidth = 0;
+    int m_contentHeight = 0;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;

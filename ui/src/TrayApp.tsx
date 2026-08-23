@@ -17,9 +17,9 @@ export default function TrayApp() {
   const reportSize = useCallback(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
-    // 加上 html #root 边距 (4px * 2 = 8px)
-    const totalHeight = Math.ceil(rect.height + 8);
-    const totalWidth = Math.ceil(rect.width + 8);
+    // 加上 html #root 边距与阴影容差 (5px * 2 = 10px)
+    const totalHeight = Math.ceil(rect.height + 10);
+    const totalWidth = Math.ceil(rect.width + 10);
     if (totalHeight > 20 && totalWidth > 20) {
       void bridgeRequest('tray.resize', { width: totalWidth, height: totalHeight }).catch(() => {});
     }

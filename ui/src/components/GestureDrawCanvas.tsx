@@ -177,7 +177,7 @@ const RIGHT_PRESET_GESTURES = [
   { code: 'D', label: '最小化' },
   { code: 'U-R', label: '下一标签' },
   { code: 'U-L', label: '上一标签' },
-  { code: 'D-U', label: '刷新' },
+  { code: 'L-U-R', label: '刷新' },
   { code: 'L-D', label: '显示桌面' },
   { code: 'D-R-D', label: '截图' },
 ];
@@ -189,7 +189,7 @@ const MIDDLE_PRESET_GESTURES = [
   { code: 'Middle+D', label: '最小化' },
   { code: 'Middle+D-R', label: '关闭标签' },
   { code: 'Middle+R-D', label: '恢复标签' },
-  { code: 'Middle+D-U', label: '刷新' },
+  { code: 'Middle+L-U-R', label: '刷新' },
   { code: 'Middle+L-D', label: '显示桌面' },
 ];
 
@@ -200,7 +200,7 @@ const SIDE1_PRESET_GESTURES = [
   { code: 'X1+D', label: '上一标签' },
   { code: 'X1+D-R', label: '关闭标签' },
   { code: 'X1+R-D', label: '恢复标签' },
-  { code: 'X1+D-U', label: '刷新' },
+  { code: 'X1+L-U-R', label: '刷新' },
 ];
 
 const SIDE2_PRESET_GESTURES = [

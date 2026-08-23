@@ -192,7 +192,7 @@ GestureProfile GestureProfile::createDefaultGlobal() {
     addKeys("D-L",      "关闭窗口",           "Alt+F4",           "关闭当前活动窗口或应用程序");
     addKeys("U-R",      "下一个标签页",       "Ctrl+Tab",         "切换到下一个标签页");
     addKeys("U-L",      "上一个标签页",       "Ctrl+Shift+Tab",   "切换到上一个标签页");
-    addKeys("D-U",      "刷新",               "F5",               "刷新页面");
+    addKeys("L-U-R",    "刷新",               "F5",               "刷新页面");
     addKeys("U-D",      "新建标签页",         "Ctrl+T",           "新建标签页");
     addKeys("L-D",      "显示桌面",           "Win+D",            "一键显示/隐藏桌面");
     addKeys("R-U",      "任务视图",           "Win+Tab",          "打开 Windows 任务视图");
