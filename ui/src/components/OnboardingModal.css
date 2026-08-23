@@ -27,8 +27,8 @@
 .onboarding__card {
   position: relative;
   width: 90vw;
-  max-width: 600px;
-  min-height: 420px;
+  max-width: 680px;
+  min-height: 440px;
   background: var(--bg-surface);
   border: 1px solid var(--card-border);
   border-radius: 20px;
@@ -124,21 +124,21 @@
   line-height: 1.5;
 }
 
-/* ── 功能卡片三列 ─────────────────────────────────────────────────────────── */
+/* ── 功能卡片四列 ─────────────────────────────────────────────────────────── */
 .onboarding__features {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
   width: 100%;
-  max-width: 480px;
+  max-width: 620px;
 }
 
 .onboarding__feature-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 20px 12px;
+  gap: 8px;
+  padding: 16px 10px;
   border-radius: 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--card-border);
@@ -340,7 +340,15 @@
 }
 
 /* ── 响应式 ───────────────────────────────────────────────────────────────── */
-@media (max-width: 500px) {
+@media (max-width: 640px) {
+  .onboarding__features {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    max-width: 440px;
+  }
+}
+
+@media (max-width: 480px) {
   .onboarding__features {
     grid-template-columns: 1fr;
   }

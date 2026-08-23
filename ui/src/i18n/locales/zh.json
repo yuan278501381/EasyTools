@@ -658,6 +658,8 @@
   "onboarding": {
     "welcomeTitle": "欢迎使用 EasyTools",
     "welcomeSubtitle": "高效工作，从这里开始",
+    "featureSearch": "文件与内容搜索",
+    "featureSearchDesc": "毫秒级全盘极速检索，支持拼音与文档代码内容穿透",
     "featureCapture": "截图录屏",
     "featureCaptureDesc": "强大的截图与录屏功能，支持多种格式",
     "featureGesture": "鼠标手势",
@@ -666,6 +668,7 @@
     "featureKeycastDesc": "实时显示按键操作，录屏教学利器",
     "shortcutsTitle": "核心快捷键",
     "shortcutsSubtitle": "掌握这些快捷键，即刻提升效率",
+    "shortcutSearch": "文件与内容搜索",
     "shortcutCapture": "截图",
     "shortcutRecord": "录屏",
     "shortcutOcr": "文本识别",

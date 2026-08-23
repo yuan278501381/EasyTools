@@ -658,6 +658,8 @@
   "onboarding": {
     "welcomeTitle": "Welcome to EasyTools",
     "welcomeSubtitle": "Boost your productivity, starting here",
+    "featureSearch": "File & Content Search",
+    "featureSearchDesc": "Millisecond full-disk search & deep text inspection",
     "featureCapture": "Screen Capture",
     "featureCaptureDesc": "Powerful capture & recording with multiple formats",
     "featureGesture": "Mouse Gestures",
@@ -666,6 +668,7 @@
     "featureKeycastDesc": "Real-time keystroke display, perfect for tutorials",
     "shortcutsTitle": "Core Shortcuts",
     "shortcutsSubtitle": "Master these shortcuts to boost your efficiency",
+    "shortcutSearch": "File Search",
     "shortcutCapture": "Capture",
     "shortcutRecord": "Record",
     "shortcutOcr": "Text OCR",

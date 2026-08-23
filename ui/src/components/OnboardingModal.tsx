@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type FC } from 'react';
 import { Button } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import {
-  Camera, MousePointer2, Keyboard, Sparkles,
+  Search, Camera, MousePointer2, Keyboard, Sparkles,
   ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import './OnboardingModal.css';
@@ -108,6 +108,13 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
             <div className="onboarding__features">
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
+                  <Search size={22} />
+                </div>
+                <span className="onboarding__feature-name">{t('onboarding.featureSearch')}</span>
+                <span className="onboarding__feature-desc">{t('onboarding.featureSearchDesc')}</span>
+              </div>
+              <div className="onboarding__feature-card">
+                <div className="onboarding__feature-icon">
                   <Camera size={22} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureCapture')}</span>
@@ -136,6 +143,10 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
             <p className="onboarding__subtitle">{t('onboarding.shortcutsSubtitle')}</p>
             <div className="onboarding__shortcuts">
               <div className="onboarding__shortcut-row">
+                <span className="onboarding__shortcut-name">{t('onboarding.shortcutSearch')}</span>
+                <kbd className="onboarding__shortcut-kbd">Alt+Space</kbd>
+              </div>
+              <div className="onboarding__shortcut-row">
                 <span className="onboarding__shortcut-name">{t('onboarding.shortcutCapture')}</span>
                 <kbd className="onboarding__shortcut-kbd">Ctrl+Shift+A</kbd>
               </div>
@@ -146,10 +157,6 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
               <div className="onboarding__shortcut-row">
                 <span className="onboarding__shortcut-name">{t('onboarding.shortcutOcr')}</span>
                 <kbd className="onboarding__shortcut-kbd">Ctrl+Shift+O</kbd>
-              </div>
-              <div className="onboarding__shortcut-row">
-                <span className="onboarding__shortcut-name">{t('onboarding.shortcutGesturePause')}</span>
-                <kbd className="onboarding__shortcut-kbd">Ctrl+Alt+Shift+W</kbd>
               </div>
             </div>
           </div>
