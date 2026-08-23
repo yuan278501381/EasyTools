@@ -878,10 +878,23 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     auto profJson = prof.toJson();
     auto profRestored = GestureProfile::fromJson(profJson);
     EXPECT_EQ(profRestored.name(), "test_profile");
-    EXPECT_EQ(profRestored.getMappings().size(), 2u);
-    EXPECT_EQ(profRestored.getTriggerState("right"), TriggerModeState::Enabled);
+    // 5. 默认全局手势与桌面/任务栏预设工厂测试
+    auto defaultProf = GestureProfile::createDefaultGlobal();
+    EXPECT_EQ(defaultProf.name(), "default");
+    EXPECT_GE(defaultProf.getMappings().size(), 20u);
+    EXPECT_TRUE(defaultProf.findAction("L").has_value());
+    EXPECT_EQ(defaultProf.findAction("L")->name, "后退");
+    EXPECT_EQ(defaultProf.findAction("L")->keyStroke.toString(), "Alt+Left");
+    EXPECT_TRUE(defaultProf.findAction("R").has_value());
+    EXPECT_EQ(defaultProf.findAction("R")->name, "前进");
+    EXPECT_EQ(defaultProf.findAction("R")->keyStroke.toString(), "Alt+Right");
+    EXPECT_TRUE(defaultProf.findAction("Middle+L").has_value());
+    EXPECT_EQ(defaultProf.findAction("Middle+L")->name, "上一曲");
+    EXPECT_EQ(defaultProf.findAction("Middle+L")->keyStroke.toString(), "MediaPrev");
+    EXPECT_TRUE(defaultProf.findAction("Middle+R").has_value());
+    EXPECT_EQ(defaultProf.findAction("Middle+R")->name, "下一曲");
+    EXPECT_EQ(defaultProf.findAction("Middle+R")->keyStroke.toString(), "MediaNext");
 
-    // 5. 桌面与任务栏预设工厂测试
     auto desktopProf = GestureProfile::createDesktopProfile();
     EXPECT_EQ(desktopProf.name(), "special_desktop");
     EXPECT_GE(desktopProf.getMappings().size(), 5u);

@@ -80,25 +80,44 @@ export const CODE_TO_ARROWS: Record<string, string> = {
   LU: '↖', RU: '↗', LD: '↙', RD: '↘',
 };
 
-/** 把方向编码 (如 "U-R", "LU") 渲染为箭头串, 用于实时预览与无障碍提示。 */
+/** 把方向编码 (如 "Middle+L", "Ctrl+U-R", "LU") 渲染为箭头串, 用于实时预览与无障碍提示。 */
 export function codeToArrows(code: string): string {
   if (!code) return '';
-  const upper = code.trim().toUpperCase();
+  let prefix = '';
+  let upper = code.trim().toUpperCase();
+
+  if (upper.startsWith('MIDDLE+')) {
+    prefix = '[中键] ';
+    upper = upper.slice(7);
+  }
+  if (upper.startsWith('CTRL+')) {
+    prefix = 'Ctrl+' + prefix;
+    upper = upper.slice(5);
+  }
+  if (upper.startsWith('ALT+')) {
+    prefix = 'Alt+' + prefix;
+    upper = upper.slice(4);
+  }
+  if (upper.startsWith('SHIFT+')) {
+    prefix = 'Shift+' + prefix;
+    upper = upper.slice(6);
+  }
+
   if (upper.includes('-')) {
-    return upper.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
+    return prefix + upper.split('-').map((seg) => CODE_TO_ARROWS[seg] ?? seg).join(' ');
   }
   if (CODE_TO_ARROWS[upper]) {
-    return CODE_TO_ARROWS[upper];
+    return prefix + CODE_TO_ARROWS[upper];
   }
   // 逐字符解析 (如 "DR" -> "↓ →")
   const chars = upper.split('');
-  if (chars.every((c) => CODE_TO_ARROWS[c])) {
-    return chars.map((c) => CODE_TO_ARROWS[c]).join(' ');
+  if (chars.length > 0 && chars.every((c) => CODE_TO_ARROWS[c])) {
+    return prefix + chars.map((c) => CODE_TO_ARROWS[c]).join(' ');
   }
-  return upper;
+  return prefix + upper;
 }
 
-export const GESTURE_CODE_PATTERN = /^[UDLR]{1,3}(-[UDLR]{1,3})*$/;
+export const GESTURE_CODE_PATTERN = /^((Middle|Ctrl|Alt|Shift)\+)*[UDLR]{1,3}(-[UDLR]{1,3})*$/i;
 
 export function normalizeGestureCode(code: string): string {
   return code.trim().toUpperCase();

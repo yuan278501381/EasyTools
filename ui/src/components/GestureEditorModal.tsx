@@ -175,6 +175,46 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     });
   };
 
+  const handleGestureCodeChange = (newCode: string) => {
+    const clean = newCode.trim().toUpperCase();
+    setDraft((prev) => {
+      const isCleanEmpty = !prev.action.name.trim();
+      const presets: Record<string, { name: string; type: number; keyStroke?: string; builtinCmd?: number; desc?: string }> = {
+        'L': { name: '后退', type: 0, keyStroke: 'Alt+Left', desc: '网页/浏览器/文件管理器后退' },
+        'R': { name: '前进', type: 0, keyStroke: 'Alt+Right', desc: '网页/浏览器/文件管理器前进' },
+        'MIDDLE+L': { name: '上一曲', type: 0, keyStroke: 'MediaPrev', desc: '全局多媒体上一曲' },
+        'MIDDLE+R': { name: '下一曲', type: 0, keyStroke: 'MediaNext', desc: '全局多媒体下一曲' },
+        'U': { name: '最大化/还原', type: 2, builtinCmd: 2, desc: '最大化或还原当前窗口' },
+        'D': { name: '最小化', type: 2, builtinCmd: 3, desc: '最小化当前窗口' },
+        'D-R': { name: '关闭标签页/窗口', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页或窗口' },
+        'R-U': { name: '恢复关闭标签页', type: 0, keyStroke: 'Ctrl+Shift+T', desc: '恢复最近关闭的标签页' },
+        'U-R': { name: '下一个标签页', type: 0, keyStroke: 'Ctrl+Tab', desc: '切换到下一个标签页' },
+        'U-L': { name: '上一个标签页', type: 0, keyStroke: 'Ctrl+Shift+Tab', desc: '切换到上一个标签页' },
+        'D-U': { name: '刷新', type: 0, keyStroke: 'F5', desc: '刷新页面' },
+        'U-D': { name: '新建标签页', type: 0, keyStroke: 'Ctrl+T', desc: '新建标签页' },
+        'L-D': { name: '显示桌面', type: 0, keyStroke: 'Win+D', desc: '一键显示/隐藏桌面' },
+        'D-R-D': { name: '屏幕截图', type: 0, keyStroke: 'Win+Shift+S', desc: '唤起屏幕截图工具' },
+      };
+
+      if (!isEdit && isCleanEmpty && presets[clean]) {
+        const p = presets[clean];
+        return {
+          ...prev,
+          gestureCode: newCode,
+          action: {
+            ...prev.action,
+            name: p.name,
+            type: p.type,
+            keyStroke: p.keyStroke ?? '',
+            builtinCmd: p.builtinCmd,
+            description: p.desc,
+          },
+        };
+      }
+      return { ...prev, gestureCode: newCode };
+    });
+  };
+
   return (
     <Modal
       open
@@ -194,7 +234,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
       >
         <GestureDrawCanvas
           value={draft.gestureCode}
-          onChange={(v) => setDraft((d) => ({ ...d, gestureCode: v }))}
+          onChange={handleGestureCodeChange}
         />
         {code && (
           <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>

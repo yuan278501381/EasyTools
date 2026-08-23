@@ -110,7 +110,7 @@ export const GesturePage: FC = () => {
   const [targetMode, setTargetMode] = useState<'underPointer' | 'foreground'>('underPointer');
   const [scribbleCancel, setScribbleCancel] = useState(true);
   const [inFlightCompass, setInFlightCompass] = useState(true);
-  const [triggerButton, setTriggerButton] = useState('right');
+  const [triggerButton, setTriggerButton] = useState('both');
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#8B5CF6');
   const [trailWidth, setTrailWidth] = useState(4.0);
@@ -178,7 +178,7 @@ export const GesturePage: FC = () => {
       .then(([state, profileList, ruleList, radialRes, hotkeyList]) => {
         if (!isMounted) return;
         setEnabled(state.enabled);
-        setTriggerButton(state.triggerButton ?? 'right');
+        setTriggerButton(state.triggerButton ?? 'both');
         setTrailVisible(state.trailVisible ?? true);
         setAutoBypassFullscreen(state.autoBypassFullscreen ?? false);
         setTargetMode(state.targetMode === 'foreground' ? 'foreground' : 'underPointer');

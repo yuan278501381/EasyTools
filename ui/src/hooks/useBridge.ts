@@ -184,8 +184,10 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
         {
           name: 'default',
           mappings: [
-            { gestureCode: 'L', action: { type: 0, name: '后退', keyStroke: 'Alt+Left' } },
-            { gestureCode: 'R', action: { type: 0, name: '前进', keyStroke: 'Alt+Right' } },
+            { gestureCode: 'L', action: { type: 0, name: '后退', description: '网页/浏览器/文件管理器后退', keyStroke: 'Alt+Left' } },
+            { gestureCode: 'R', action: { type: 0, name: '前进', description: '网页/浏览器/文件管理器前进', keyStroke: 'Alt+Right' } },
+            { gestureCode: 'Middle+L', action: { type: 0, name: '上一曲', description: '全局多媒体上一曲 (鼠标中键向左滑动)', keyStroke: 'MediaPrev' } },
+            { gestureCode: 'Middle+R', action: { type: 0, name: '下一曲', description: '全局多媒体下一曲 (鼠标中键向右滑动)', keyStroke: 'MediaNext' } },
             { gestureCode: 'U', action: { type: 0, name: '关闭窗口', keyStroke: 'Alt+F4' } },
             { gestureCode: 'D', action: { type: 0, name: '新建标签页', keyStroke: 'Ctrl+T' } },
             { gestureCode: 'UL', action: { type: 0, name: '复制', keyStroke: 'Ctrl+C' } },
@@ -206,7 +208,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
       return {
         enabled: true,
         paused: false,
-        triggerButton: 'right',
+        triggerButton: 'both',
         trailVisible: true,
         targetMode: 'underPointer',
         elevated: false,

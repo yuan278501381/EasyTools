@@ -169,6 +169,8 @@ function pointsToSvgPath(points: Point[]): string {
 const COMMON_PRESET_GESTURES = [
   { code: 'L', label: '后退' },
   { code: 'R', label: '前进' },
+  { code: 'Middle+L', label: '中键上一曲' },
+  { code: 'Middle+R', label: '中键下一曲' },
   { code: 'U', label: '最大化' },
   { code: 'D', label: '最小化' },
   { code: 'D-R', label: '关闭' },

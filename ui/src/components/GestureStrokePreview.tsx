@@ -34,7 +34,8 @@ const DIR_VECTORS: Record<string, Vector> = {
 
 function parseSegments(rawCode: string): string[] {
   if (!rawCode) return [];
-  const clean = rawCode.trim().toUpperCase();
+  let clean = rawCode.trim().toUpperCase();
+  clean = clean.replace(/^((MIDDLE|CTRL|ALT|SHIFT)\+)+/g, '');
   if (clean.includes('-')) {
     return clean.split('-').filter(Boolean);
   }
@@ -68,6 +69,13 @@ export const GestureStrokePreview: FC<Props> = ({
   const [isHovered, setIsHovered] = useState(false);
   const pathRef = useRef<SVGPathElement>(null);
   const [pathLength, setPathLength] = useState(100);
+
+  const effectiveTriggerButton = useMemo(() => {
+    const upper = code.trim().toUpperCase();
+    if (upper.startsWith('MIDDLE+')) return 'middle';
+    if (upper.startsWith('LEFT+')) return 'left';
+    return triggerButton;
+  }, [code, triggerButton]);
 
   const segments = useMemo(() => parseSegments(code), [code]);
 
@@ -200,15 +208,15 @@ export const GestureStrokePreview: FC<Props> = ({
           className="gesture-stroke-preview__trigger-indicator"
         >
           <circle cx="0" cy="0" r="3.8" />
-          {triggerButton === 'right' && (
+          {effectiveTriggerButton === 'right' && (
             // 右半圆填充 (右键触发 ◐)
             <path d="M 0 -3.8 A 3.8 3.8 0 0 1 0 3.8 Z" />
           )}
-          {triggerButton === 'left' && (
+          {effectiveTriggerButton === 'left' && (
             // 左半圆填充 (左键触发 ◑)
             <path d="M 0 -3.8 A 3.8 3.8 0 0 0 0 3.8 Z" />
           )}
-          {triggerButton === 'middle' && (
+          {effectiveTriggerButton === 'middle' && (
             // 中间滚轮条填充
             <rect x="-1" y="-3.8" width="2" height="7.6" rx="0.5" />
           )}

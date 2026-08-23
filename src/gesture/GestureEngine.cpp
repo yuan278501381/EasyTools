@@ -42,6 +42,9 @@ std::optional<GestureAction> lookupGestureAction(
     if (fullCode != bareCode) {
         if (auto action = lookupProfileAction(profile, fallback, fullCode)) return action;
     }
+    if (fullCode.starts_with("Middle+") && fullCode != "Middle+" + bareCode) {
+        if (auto action = lookupProfileAction(profile, fallback, "Middle+" + bareCode)) return action;
+    }
     if (auto action = lookupProfileAction(profile, fallback, bareCode)) return action;
     const auto expanded = expandSingleDiagonalCode(bareCode);
     if (!expanded) return std::nullopt;
@@ -564,7 +567,8 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
                     if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
                     if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
 
-                    const std::string fullCode = modPrefix + bareCode;
+                    const std::string triggerPrefix = (m_activeTriggerDown == MouseEventType::MiddleDown) ? "Middle+" : "";
+                    const std::string fullCode = triggerPrefix + modPrefix + bareCode;
                     std::optional<GestureAction> action;
                     if (m_activeProfile) {
                         action = lookupGestureAction(m_activeProfile, m_fallbackProfile, fullCode, bareCode);
@@ -655,13 +659,14 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         return;
     }
 
-    // 生成带修饰键前缀的手势编码 (如 "Ctrl+L"、"Alt+D-R"、"Ctrl+Shift+U")
+    // 生成带修饰键前缀的手势编码 (如 "Middle+L"、"Ctrl+L"、"Alt+D-R"、"Ctrl+Shift+U")
     std::string modPrefix;
     if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
     if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
     if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
-    std::string fullCode = modPrefix + result->code;  // 带修饰键的完整编码
-    std::string bareCode = result->code;               // 无修饰键的纯方向编码
+    const std::string triggerPrefix = (m_activeTriggerDown == MouseEventType::MiddleDown) ? "Middle+" : "";
+    std::string fullCode = triggerPrefix + modPrefix + result->code;  // 带修饰键的完整编码
+    std::string bareCode = result->code;                               // 无修饰键的纯方向编码
 
     LOG_INFO("手势识别成功: code={}, fullCode={}, arrows={}, 点数={}, 距离={:.0f}px",
              bareCode, fullCode, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
@@ -898,7 +903,7 @@ void GestureEngine::loadFromConfig() {
     bool paused = config.get<bool>("/gesture/paused",
                                    !config.get<bool>("/gesture/enabled", true));
     m_paused = paused;
-    setTriggerButton(config.get<std::string>("/gesture/triggerButton", "right"));
+    setTriggerButton(config.get<std::string>("/gesture/triggerButton", "both"));
     setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
     setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", false));
     setTargetMode(config.get<std::string>("/gesture/targetMode", "underPointer"));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { upsertGestureMapping, type GestureMapping } from './gestureModel';
+import { upsertGestureMapping, codeToArrows, GESTURE_CODE_PATTERN, type GestureMapping } from './gestureModel';
 
 function mapping(code: string, name: string, id?: string): GestureMapping {
   return { id, gestureCode: code, action: { type: 0, name, keyStroke: 'Ctrl+A' } };
@@ -59,5 +59,22 @@ describe('upsertGestureMapping', () => {
     const next = upsertGestureMapping(list, saved, list[2]);
     expect(next.map((m) => m.id)).toEqual(['b', 'c']);
     expect(next[1].action.name).toBe('最大化改关标签');
+  });
+});
+
+describe('codeToArrows and GESTURE_CODE_PATTERN', () => {
+  it('correctly renders arrows with Middle+ and modifier prefixes', () => {
+    expect(codeToArrows('L')).toBe('←');
+    expect(codeToArrows('R')).toBe('→');
+    expect(codeToArrows('Middle+L')).toBe('[中键] ←');
+    expect(codeToArrows('Middle+R')).toBe('[中键] →');
+    expect(codeToArrows('Ctrl+U-R')).toBe('Ctrl+↑ →');
+
+    expect(GESTURE_CODE_PATTERN.test('L')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('R')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('Middle+L')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('Middle+R')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('Ctrl+Shift+U-R')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('invalid_xyz')).toBe(false);
   });
 });
