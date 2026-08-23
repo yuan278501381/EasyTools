@@ -894,6 +894,15 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     EXPECT_TRUE(defaultProf.findAction("Middle+R").has_value());
     EXPECT_EQ(defaultProf.findAction("Middle+R")->name, "下一曲");
     EXPECT_EQ(defaultProf.findAction("Middle+R")->keyStroke.toString(), "MediaNext");
+    EXPECT_TRUE(defaultProf.findAction("R-D").has_value());
+    EXPECT_EQ(defaultProf.findAction("R-D")->name, "恢复关闭的标签页");
+    EXPECT_EQ(defaultProf.findAction("R-D")->keyStroke.toString(), "Ctrl+Shift+T");
+    EXPECT_TRUE(defaultProf.findAction("D-L").has_value());
+    EXPECT_EQ(defaultProf.findAction("D-L")->name, "关闭窗口");
+    EXPECT_EQ(defaultProf.findAction("D-L")->keyStroke.toString(), "Alt+F4");
+    EXPECT_TRUE(defaultProf.findAction("D-R").has_value());
+    EXPECT_EQ(defaultProf.findAction("D-R")->name, "关闭标签页");
+    EXPECT_EQ(defaultProf.findAction("D-R")->keyStroke.toString(), "Ctrl+W");
 
     auto desktopProf = GestureProfile::createDesktopProfile();
     EXPECT_EQ(desktopProf.name(), "special_desktop");

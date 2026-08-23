@@ -180,29 +180,28 @@ GestureProfile GestureProfile::createDefaultGlobal() {
         profile.addMapping(mapping);
     };
 
-    // 默认手势集 (与 WGestures 2 等世界级手势工具标准对齐)
+    // 默认手势集 (符合现代浏览器与效率手势直觉)
     addKeys("L",        "后退",               "Alt+Left",         "网页/浏览器/文件管理器后退");
     addKeys("R",        "前进",               "Alt+Right",        "网页/浏览器/文件管理器前进");
     addKeys("Middle+L", "上一曲",             "MediaPrev",        "全局多媒体上一曲 (鼠标中键向左滑动)");
     addKeys("Middle+R", "下一曲",             "MediaNext",        "全局多媒体下一曲 (鼠标中键向右滑动)");
     addBuiltin("U",     "最大化/还原",        BuiltinCommand::MaximizeWindow, "最大化或还原当前窗口");
-    addBuiltin("D",    "最小化",             BuiltinCommand::MinimizeWindow, "最小化当前窗口");
-    addKeys("D-R",     "关闭标签页/窗口",     "Ctrl+W",           "关闭当前标签页或窗口");
-    addKeys("R-U",     "恢复关闭标签页",     "Ctrl+Shift+T",     "恢复最近关闭的标签页");
-    addKeys("U-R",     "下一个标签页",       "Ctrl+Tab",         "切换到下一个标签页");
-    addKeys("U-L",     "上一个标签页",       "Ctrl+Shift+Tab",   "切换到上一个标签页");
-    addKeys("D-U",     "刷新",               "F5",               "刷新页面");
-    addKeys("U-D",     "新建标签页",         "Ctrl+T",           "新建标签页");
-    addKeys("L-D",     "显示桌面",           "Win+D",            "一键显示/隐藏桌面");
-    addKeys("R-D",     "任务视图",           "Win+Tab",          "打开 Windows 任务视图");
-    addKeys("D-R-D",   "屏幕截图",           "Win+Shift+S",      "唤起屏幕截图工具");
-    addKeys("U-L",     "复制",               "Ctrl+C",           "复制选中内容");
-    addKeys("D-L",     "粘贴",               "Ctrl+V",           "粘贴内容");
-    addKeys("L-U",     "剪切",               "Ctrl+X",           "剪切选中内容");
-    addKeys("R-L",     "全选",               "Ctrl+A",           "全选当前内容");
-    addKeys("L-R",     "撤销",               "Ctrl+Z",           "撤销上一步操作");
-    addKeys("U-D-U",   "强制刷新",           "Ctrl+F5",          "强制刷新忽略缓存");
-    addKeys("D-U-D",   "任务管理器",         "Ctrl+Shift+Escape","打开 Windows 任务管理器");
+    addBuiltin("D",     "最小化",             BuiltinCommand::MinimizeWindow, "最小化当前窗口");
+    addKeys("D-R",      "关闭标签页",         "Ctrl+W",           "关闭当前标签页或文档");
+    addKeys("R-D",      "恢复关闭的标签页",   "Ctrl+Shift+T",     "重新打开最近关闭的标签页 (如 Chrome/Edge 恢复标签)");
+    addKeys("D-L",      "关闭窗口",           "Alt+F4",           "关闭当前活动窗口或应用程序");
+    addKeys("U-R",      "下一个标签页",       "Ctrl+Tab",         "切换到下一个标签页");
+    addKeys("U-L",      "上一个标签页",       "Ctrl+Shift+Tab",   "切换到上一个标签页");
+    addKeys("D-U",      "刷新",               "F5",               "刷新页面");
+    addKeys("U-D",      "新建标签页",         "Ctrl+T",           "新建标签页");
+    addKeys("L-D",      "显示桌面",           "Win+D",            "一键显示/隐藏桌面");
+    addKeys("R-U",      "任务视图",           "Win+Tab",          "打开 Windows 任务视图");
+    addKeys("D-R-D",    "屏幕截图",           "Win+Shift+S",      "唤起屏幕截图工具");
+    addKeys("L-U",      "剪切",               "Ctrl+X",           "剪切选中内容");
+    addKeys("R-L",      "全选",               "Ctrl+A",           "全选当前内容");
+    addKeys("L-R",      "撤销",               "Ctrl+Z",           "撤销上一步操作");
+    addKeys("U-D-U",    "强制刷新",           "Ctrl+F5",          "强制刷新忽略缓存");
+    addKeys("D-U-D",    "任务管理器",         "Ctrl+Shift+Escape","打开 Windows 任务管理器");
 
     LOG_INFO("创建默认全局手势配置集, 手势数量={}", profile.getMappings().size());
     return profile;
