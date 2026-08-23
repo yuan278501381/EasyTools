@@ -10,6 +10,7 @@
 #include "ui/WebViewWindowStyle.h"
 #include "ui/WebViewSecurity.h"
 #include "ui/WebViewSuspend.h"
+#include "ui/KeyboardPipeline.h"
 #include <WebView2.h>
 #include <wrl/event.h>
 #include <filesystem>
@@ -339,6 +340,7 @@ void SearchWindow::initializeWebView2() {
                             }
 
                             web_security::applyNavigationPolicy(m_webView.Get());
+                            KeyboardPipeline::applyWebKeyboardPolicy(m_controller.Get());
 
                             // ── 动态获取 UI 基础地址 ──────────────────────────────────────────
                             auto exeDir = easy::core::WinUtils::getExeDirectory();
@@ -519,8 +521,9 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             }
             break;
         }
-        case WM_SYSCOMMAND: {
-            if ((wParam & 0xFFF0) == SC_KEYMENU) {
+        case WM_SYSCOMMAND:
+        case WM_HELP: {
+            if (KeyboardPipeline::filterWindowMessage(hwnd, uMsg, wParam, lParam)) {
                 return 0;
             }
             break;

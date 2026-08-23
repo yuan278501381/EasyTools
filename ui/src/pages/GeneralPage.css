@@ -179,9 +179,10 @@
 }
 
 .general-page__hotkey-name {
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   font-weight: 500;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 /* ── 冲突与状态徽章 ─────────────────────────────────────────────────────── */

@@ -116,6 +116,10 @@ public:
     /// 获取所有已注册快捷键（用于 UI 显示，附带冲突分析）
     std::vector<HotkeyEntry> getAllHotkeys() const;
 
+    /// 设置快捷键分发暂停状态（例如用户在 UI 中录制按键时避免误触发）
+    void setPaused(bool paused) { m_paused.store(paused, std::memory_order_relaxed); }
+    bool isPaused() const { return m_paused.load(std::memory_order_relaxed); }
+
 private:
     HotkeyManager() = default;
     HotkeyManager(const HotkeyManager&) = delete;
@@ -128,6 +132,7 @@ private:
     std::unordered_map<int, std::string> m_idToName;         // id → name (反向查找)
     mutable std::mutex m_mutex;
     std::atomic<int> m_nextId{1};
+    std::atomic<bool> m_paused{false};
 };
 
 }  // namespace easy::core

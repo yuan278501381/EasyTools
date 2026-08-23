@@ -42,6 +42,7 @@
 #include "ui/ToastStyle.h"
 #include "ui/WebViewOriginPolicy.h"
 #include "ui/WebViewSuspend.h"
+#include "ui/KeyboardPipeline.h"
 #include "service/PipeEndpoint.h"
 #include "ui/WebViewWindowStyle.h"
 #include "capture/CaptureToolbarLayout.h"
@@ -2152,6 +2153,31 @@ TEST(WebViewSecurityTest, AllowsTrayRequiredMethods) {
     EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"tray.resize\"}", Surface::Tray));
     EXPECT_FALSE(isBridgeMethodAllowed("{\"method\":\"search.query\"}", Surface::Tray));
     EXPECT_FALSE(isBridgeMethodAllowed("{\"method\":\"capture.start\"}", Surface::Tray));
+}
+
+TEST(KeyboardPipelineTest, FiltersSystemMenuAndHelpMessages) {
+    using easy::ui::KeyboardPipeline;
+    // SC_KEYMENU (Alt / F10 / Alt+Space 激活系统菜单) 必须被管线拦截
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_KEYMENU, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_KEYMENU | 0x0002, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CONTEXTHELP, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_HELP, 0, 0));
+
+    // 普通命令如最大化/最小化/关闭等不能被误拦截
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CLOSE, 0));
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_MAXIMIZE, 0));
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_KEYDOWN, VK_SPACE, 0));
+}
+
+TEST(HotkeyManagerTest, HandlesRecordingPauseMode) {
+    auto& mgr = easy::core::HotkeyManager::instance();
+    EXPECT_FALSE(mgr.isPaused());
+
+    mgr.setPaused(true);
+    EXPECT_TRUE(mgr.isPaused());
+
+    mgr.setPaused(false);
+    EXPECT_FALSE(mgr.isPaused());
 }
 
 TEST(WebViewSuspendTest, DistinguishesRefusalFromFailure) {

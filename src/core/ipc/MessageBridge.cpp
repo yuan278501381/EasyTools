@@ -1019,6 +1019,11 @@ void MessageBridge::registerBuiltinHandlers() {
         }
         return {{"success", true}, {"name", name}, {"shortcut", parsed->toString()}};
     });
+    registerHandler("hotkey.setPaused", [](const json& params) -> json {
+        const bool paused = params.value("paused", false);
+        HotkeyManager::instance().setPaused(paused);
+        return {{"success", true}, {"paused", paused}};
+    });
 
     // ── 通用设置与系统交互 ───────────────────────────────────────────────
     registerHandler("general.getSettings", [](const json&) -> json {

@@ -73,14 +73,16 @@
 }
 
 .uikit-toggle__label {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   color: var(--text-primary);
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .uikit-toggle__desc {
-  font-size: 0.78rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .uikit-toggle__switch {
@@ -153,15 +155,16 @@
 }
 
 .uikit-setting-row__label {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   color: var(--text-primary);
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .uikit-setting-row__desc {
-  font-size: 0.78rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .uikit-setting-row__control {

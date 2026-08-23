@@ -327,6 +327,10 @@ HotkeyConflictInfo HotkeyManager::checkConflict(const HotkeyDef& def, const std:
 }
 
 void HotkeyManager::handleHotkeyMessage(WPARAM wParam) {
+    if (m_paused.load(std::memory_order_relaxed)) {
+        LOG_DEBUG("快捷键已暂停触发 (录制模式中)");
+        return;
+    }
     int id = static_cast<int>(wParam);
     std::string name;
     HotkeyCallback callback;

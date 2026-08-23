@@ -14,18 +14,55 @@ import { useState, useCallback, useRef, useEffect, type FC, type KeyboardEvent a
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { useControlA11y } from './ControlA11yContext';
+import { bridgeRequest } from '../hooks/useBridge';
 import './HotkeyRecorder.css';
 
-/** 特殊键名标准化映射 */
-const KEY_NAME_MAP: Record<string, string> = {
-  ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down',
-  ' ': 'Space', Enter: 'Enter', Tab: 'Tab',
-  Delete: 'Delete', Home: 'Home', End: 'End',
-  PageUp: 'PageUp', PageDown: 'PageDown', Insert: 'Insert',
-};
-
 /** 修饰键集合 */
-const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta']);
+const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'AltGraph', 'OS']);
+
+/** 全键位标准化解析 */
+const normalizeKey = (e: KeyboardEvent): string => {
+  // 1. 空格键
+  if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') return 'Space';
+  // 2. 小键盘键区
+  if (e.code.startsWith('Numpad')) {
+    const num = e.code.replace('Numpad', '');
+    if (/^\d$/.test(num)) return `Num${num}`;
+    const numpadMap: Record<string, string> = {
+      Add: 'Num+', Subtract: 'Num-', Multiply: 'Num*', Divide: 'Num/', Decimal: 'Num.', Enter: 'NumEnter'
+    };
+    return numpadMap[num] || `Num${num}`;
+  }
+  // 3. 功能键 F1 ~ F24
+  if (/^F\d{1,2}$/i.test(e.key)) return e.key.toUpperCase();
+  // 4. 特殊导航与编辑键
+  const keyMap: Record<string, string> = {
+    ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down',
+    Enter: 'Enter', Tab: 'Tab', Delete: 'Delete', Home: 'Home', End: 'End',
+    PageUp: 'PageUp', PageDown: 'PageDown', Insert: 'Insert', CapsLock: 'CapsLock',
+    PrintScreen: 'PrintScreen', ScrollLock: 'ScrollLock', Pause: 'Pause',
+    ContextMenu: 'Apps',
+  };
+  if (keyMap[e.key]) return keyMap[e.key];
+  // 5. 符号键映射
+  const symbolMap: Record<string, string> = {
+    '`': '`', '~': '`',
+    '-': '-', '_': '-',
+    '=': '=', '+': '=',
+    '[': '[', '{': '[',
+    ']': ']', '}': ']',
+    '\\': '\\', '|': '\\',
+    ';': ';', ':': ';',
+    "'": "'", '"': "'",
+    ',': ',', '<': ',',
+    '.': '.', '>': '.',
+    '/': '/', '?': '/',
+  };
+  if (symbolMap[e.key]) return symbolMap[e.key];
+  // 6. 单字符/字母
+  if (e.key.length === 1) return e.key.toUpperCase();
+  return e.key;
+};
 
 interface HotkeyRecorderProps {
   /** 当前快捷键值, 格式如 "Ctrl+Shift+A" */
@@ -52,6 +89,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
     setRecording(true);
     setActiveKeys([]);
     pendingRef.current = null;
+    bridgeRequest('hotkey.setPaused', { paused: true }).catch(() => {});
   }, []);
 
   // ── 退出录入模式 (不保存) ─────────────────────────────────────────────────
@@ -59,6 +97,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
     setRecording(false);
     setActiveKeys([]);
     pendingRef.current = null;
+    bridgeRequest('hotkey.setPaused', { paused: false }).catch(() => {});
   }, []);
 
   // ── 确认录入结果 ──────────────────────────────────────────────────────────
@@ -69,7 +108,15 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       onChange(hotkeyStr);
     }
     pendingRef.current = null;
+    bridgeRequest('hotkey.setPaused', { paused: false }).catch(() => {});
   }, [onChange, value]);
+
+  // 组件卸载时确保恢复全局热键
+  useEffect(() => {
+    return () => {
+      bridgeRequest('hotkey.setPaused', { paused: false }).catch(() => {});
+    };
+  }, []);
 
   // ── 键盘事件监听 ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -93,6 +140,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
         setRecording(false);
         setActiveKeys([]);
         pendingRef.current = null;
+        bridgeRequest('hotkey.setPaused', { paused: false }).catch(() => {});
         return;
       }
 
@@ -111,7 +159,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
         pendingRef.current = null;
       } else {
         // 修饰键 + 主键 → 完成组合
-        const mainKey = isSpace ? 'Space' : (KEY_NAME_MAP[key] ?? (key.length === 1 ? key.toUpperCase() : key));
+        const mainKey = normalizeKey(e);
         const combo = [...mods, mainKey];
         setActiveKeys(combo);
         pendingRef.current = combo.join('+');

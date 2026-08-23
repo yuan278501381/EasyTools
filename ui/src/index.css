@@ -30,11 +30,11 @@
   --card-border: rgba(255, 255, 255, 0.08);
   --card-hover: #262338;
 
-  /* 文本 */
+  /* 文本 (高清晰度对比度) */
   --text-primary: #f8f8fc;
-  --text-secondary: #a1a1b5;
-  --text-muted: #73738c;
-  --text-disabled: #4b4b5c;
+  --text-secondary: #c4c4d6;
+  --text-muted: #9494aa;
+  --text-disabled: #555568;
 
   /* 输入框 */
   --input-bg: rgba(15, 15, 25, 0.6);
@@ -125,9 +125,10 @@
   --card-border: rgba(0, 0, 0, 0.08);
   --card-hover: #fafafa;
 
-  --text-primary: #111118;
-  --text-secondary: #4a4a5e;
-  --text-muted: #8b8b9f;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-disabled: #94a3b8;
 
   --input-bg: rgba(255, 255, 255, 0.95);
   --input-border: rgba(0, 0, 0, 0.12);
@@ -262,10 +263,15 @@ html {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   background-color: var(--bg-base);
   background-image: 
     radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
