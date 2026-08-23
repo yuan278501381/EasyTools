@@ -13,6 +13,10 @@
 
 ## Frontend (React/TypeScript) Development
 1. **i18next Dynamic Keys**: The project's `react-i18next` `t()` function uses strict TypeScript union types for keys. When passing dynamic variables as translation keys (e.g., from an array or config), cast the key `as any` (e.g., `t(item.key as any)`) to bypass `TS2345` type errors.
+2. **Typography & Font Rendering Standards (方案 B & C 黄金准则)**:
+   - **Zero System Font Pollution**: 严禁在安装包中向 Windows `C:\Windows\Fonts` 写入字体或修改系统注册表，杜绝管理员权限受限、DirectWrite 进程锁定导致的卸载残留以及字体分发版权合规风险。
+   - **App-Embedded WebFont & DirectWrite Fallback**: 采用“应用级内嵌 WebFont + 系统 DirectWrite 梯队回退”体系。全局字体栈统一为：`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;` 并标配 `-webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;`。
+   - **Legibility & Font Size Floor**: 界面中所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，行高不得低于 `1.4`，保障 ClearType 次像素渲染字字锐利。
 
 ## Copyright & Open Source Attribution Standards
 1. **Author Identity**: The official author identifier for the project is **`Yy1 (yuan278501381)`** (display format: `Yy1 (@yuan278501381)`).
