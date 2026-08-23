@@ -395,6 +395,25 @@ TEST(GestureRecognizerTest, DirectionEncodingAndSmoothing) {
     EXPECT_EQ(parsed.b, 0.0f);
     auto invalidHex = easy::core::parseHexColor("invalid");
     EXPECT_GT(invalidHex.r, 0.0f);
+
+    // 自定义最小识别距离 (minSegmentDistance) 测试
+    {
+        RecognizerConfig customCfg;
+        customCfg.minSegmentDistance = 30;
+        GestureRecognizer customRecognizer(customCfg);
+        customRecognizer.reset();
+        customRecognizer.addPoint(0, 0);
+        customRecognizer.addPoint(20, 0);
+        auto res20 = customRecognizer.finalize();
+        EXPECT_FALSE(res20.has_value()); // 20px < 30px 阈值，应判定为无效手势
+
+        customRecognizer.reset();
+        customRecognizer.addPoint(0, 0);
+        customRecognizer.addPoint(50, 0);
+        auto res50 = customRecognizer.finalize();
+        ASSERT_TRUE(res50.has_value());
+        EXPECT_EQ(res50->code, "R"); // 50px >= 30px 阈值，应识别为向右
+    }
 }
 
 TEST(GestureInputPolicyTest, TriggerDownHonorsMode) {

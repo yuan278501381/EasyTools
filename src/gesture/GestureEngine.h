@@ -81,6 +81,14 @@ public:
     void setTargetMode(const std::string& mode);
     std::string targetMode() const;
 
+    /// 手势起始超时时间 (毫秒, 默认 500ms)
+    void setInitialTimeoutMs(int ms);
+    int initialTimeoutMs() const { return m_initialTimeoutMs.load(); }
+
+    /// 手势最小识别距离 (像素, 默认 24px)
+    void setMinSegmentDistance(int px);
+    int minSegmentDistance() const { return m_minSegmentDistance.load(); }
+
     /// 当前状态
     GestureState state() const { return m_state.load(); }
 
@@ -165,6 +173,8 @@ private:
     std::atomic<bool> m_trailVisible{true};
     std::atomic<bool> m_autoBypassFullscreen{true};
     std::atomic<GestureTargetMode> m_targetMode{GestureTargetMode::UnderPointer};
+    std::atomic<int> m_initialTimeoutMs{500};
+    std::atomic<int> m_minSegmentDistance{24};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口（含设置窗）
     HWND m_previousForeground = nullptr;  // 手势开始时的前台窗口（跳过覆盖层）
     HWND m_lastExternalWindow = nullptr;  // 最近一次命中的目标窗口

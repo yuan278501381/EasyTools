@@ -278,6 +278,8 @@ public:
                 {"trailVisible", engine.trailVisible()},
                 {"autoBypassFullscreen", engine.autoBypassFullscreen()},
                 {"targetMode", engine.targetMode()},
+                {"initialTimeoutMs", engine.initialTimeoutMs()},
+                {"minSegmentDistance", engine.minSegmentDistance()},
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
@@ -295,7 +297,8 @@ public:
             }
             static const std::unordered_set<std::string> allowed = {
                 "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen",
-                "targetMode", "trailColorMode", "trailColor", "trailWidth", "trailOutlineWidth"
+                "targetMode", "initialTimeoutMs", "minSegmentDistance",
+                "trailColorMode", "trailColor", "trailWidth", "trailOutlineWidth"
             };
             for (const auto& [key, value] : params.items()) {
                 if (!allowed.contains(key)) {
@@ -307,6 +310,8 @@ public:
                 (params.contains("trailVisible") && !params["trailVisible"].is_boolean()) ||
                 (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean()) ||
                 (params.contains("targetMode") && !params["targetMode"].is_string()) ||
+                (params.contains("initialTimeoutMs") && !params["initialTimeoutMs"].is_number_integer()) ||
+                (params.contains("minSegmentDistance") && !params["minSegmentDistance"].is_number_integer()) ||
                 (params.contains("trailColorMode") && !params["trailColorMode"].is_string()) ||
                 (params.contains("trailColor") && !params["trailColor"].is_string()) ||
                 (params.contains("trailWidth") && !params["trailWidth"].is_number()) ||
@@ -340,6 +345,9 @@ public:
                 return {{"success", false}, {"error", "invalid targetMode"}};
             }
 
+            const int initialTimeoutMs = params.value("initialTimeoutMs", engine.initialTimeoutMs());
+            const int minSegmentDistance = params.value("minSegmentDistance", engine.minSegmentDistance());
+
             std::string trailColorMode = params.value("trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto"));
             std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6"));
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
@@ -351,6 +359,8 @@ public:
                 {"triggerButton", trigger}, {"trailVisible", trailVisible},
                 {"autoBypassFullscreen", autoBypassFullscreen},
                 {"targetMode", targetMode},
+                {"initialTimeoutMs", initialTimeoutMs},
+                {"minSegmentDistance", minSegmentDistance},
                 {"trailColorMode", trailColorMode},
                 {"trailColor", trailColor},
                 {"trailWidth", trailWidth},
@@ -363,6 +373,8 @@ public:
             engine.setTrailVisible(trailVisible);
             engine.setAutoBypassFullscreen(autoBypassFullscreen);
             engine.setTargetMode(targetMode);
+            engine.setInitialTimeoutMs(initialTimeoutMs);
+            engine.setMinSegmentDistance(minSegmentDistance);
             easy::gesture::GestureTrailOverlay::instance().reloadThemeColors();
 
             const bool pauseApplied = engine.setPaused(paused);
@@ -374,6 +386,8 @@ public:
                 {"trailVisible", engine.trailVisible()},
                 {"autoBypassFullscreen", engine.autoBypassFullscreen()},
                 {"targetMode", engine.targetMode()},
+                {"initialTimeoutMs", engine.initialTimeoutMs()},
+                {"minSegmentDistance", engine.minSegmentDistance()},
                 {"trailColorMode", trailColorMode},
                 {"trailColor", trailColor},
                 {"trailWidth", trailWidth},

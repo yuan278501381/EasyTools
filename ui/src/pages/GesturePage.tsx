@@ -73,14 +73,15 @@ interface GestureState {
   paused: boolean;
   triggerButton: string;
   trailVisible: boolean;
-    autoBypassFullscreen?: boolean;
-    targetMode?: 'underPointer' | 'foreground';
-    trailColorMode?: 'auto' | 'custom';
+  autoBypassFullscreen?: boolean;
+  targetMode?: 'underPointer' | 'foreground';
+  initialTimeoutMs?: number;
+  minSegmentDistance?: number;
+  trailColorMode?: 'auto' | 'custom';
   trailColor?: string;
-    trailWidth?: number;
+  trailWidth?: number;
   trailOutlineWidth?: number;
   elevated?: boolean;
-  runAsAdmin?: boolean;
 }
 
 const TRAIL_COLOR_PRESETS = [
@@ -108,6 +109,8 @@ export const GesturePage: FC = () => {
   const [trailVisible, setTrailVisible] = useState(true);
   const [autoBypassFullscreen, setAutoBypassFullscreen] = useState(true);
   const [targetMode, setTargetMode] = useState<'underPointer' | 'foreground'>('underPointer');
+  const [initialTimeoutMs, setInitialTimeoutMs] = useState(500);
+  const [minSegmentDistance, setMinSegmentDistance] = useState(24);
   const [scribbleCancel, setScribbleCancel] = useState(true);
   const [inFlightCompass, setInFlightCompass] = useState(true);
   const [triggerButton, setTriggerButton] = useState('both');
@@ -116,8 +119,6 @@ export const GesturePage: FC = () => {
   const [trailWidth, setTrailWidth] = useState(2.5);
   const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
   const [elevated, setElevated] = useState(false);
-  const [runAsAdmin, setRunAsAdmin] = useState(false);
-  const [isRestartingElevated, setIsRestartingElevated] = useState(false);
   
   // Profiles & Rules
   const [profiles, setProfiles] = useState<Record<string, GestureProfileData>>({
@@ -186,8 +187,9 @@ export const GesturePage: FC = () => {
         setTrailColor(state.trailColor ?? '#8B5CF6');
         setTrailWidth(state.trailWidth ?? 2.5);
         setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
+        setInitialTimeoutMs(state.initialTimeoutMs ?? 500);
+        setMinSegmentDistance(state.minSegmentDistance ?? 24);
         setElevated(state.elevated ?? false);
-        setRunAsAdmin(state.runAsAdmin ?? false);
 
         const pMap: Record<string, GestureProfileData> = {};
         if (Array.isArray(profileList)) {
@@ -524,38 +526,26 @@ export const GesturePage: FC = () => {
     }
   };
 
-  const handleToggleRunAsAdmin = async (checked: boolean) => {
-    if (isRestartingElevated) return;
-    const previous = runAsAdmin;
-    setRunAsAdmin(checked);
+  const handleInitialTimeoutChange = async (val: number) => {
+    const clamped = Math.max(100, Math.min(3000, Math.round(val)));
+    setInitialTimeoutMs(clamped);
     try {
-      const persist = await bridgeRequest<OperationResult>('general.updateSettings', { runAsAdmin: checked });
-      if (!persist.success) throw new Error(persist.error || tr('gesture.saveFailed'));
-
-      if (checked && !elevated) {
-        setIsRestartingElevated(true);
-        const result = await bridgeRequest<OperationResult & { cancelled?: boolean; alreadyElevated?: boolean }>(
-          'app.restartElevated',
-        );
-        if (result.alreadyElevated) {
-          setElevated(true);
-          setIsRestartingElevated(false);
-          return;
-        }
-        if (!result.success) {
-          setIsRestartingElevated(false);
-          toast.error(result.cancelled ? tr('gesture.restartAsAdminCancelled') : tr('gesture.restartAsAdminFailed'));
-        }
-        return;
-      }
-
-      if (!checked && elevated) {
-        setIsRestartingElevated(true);
-        await bridgeRequest('app.restart');
-      }
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { initialTimeoutMs: clamped });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
     } catch (err) {
-      setRunAsAdmin(previous);
-      setIsRestartingElevated(false);
+      console.error('Failed to update gesture initialTimeoutMs:', err);
+      toast.error(tr('gesture.saveFailed'), { description: String(err) });
+    }
+  };
+
+  const handleMinSegmentDistanceChange = async (val: number) => {
+    const clamped = Math.max(5, Math.min(100, Math.round(val)));
+    setMinSegmentDistance(clamped);
+    try {
+      const result = await bridgeRequest<OperationResult>('gesture.updateSettings', { minSegmentDistance: clamped });
+      if (!result.success) throw new Error(result.error || tr('gesture.saveFailed'));
+    } catch (err) {
+      console.error('Failed to update gesture minSegmentDistance:', err);
       toast.error(tr('gesture.saveFailed'), { description: String(err) });
     }
   };
@@ -891,14 +881,50 @@ export const GesturePage: FC = () => {
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
           />
-          <Toggle
-            id="gesture-run-as-admin"
-            label={tr('gesture.runAsAdmin')}
-            description={elevated ? tr('gesture.alreadyElevated') : tr('gesture.runAsAdminDesc')}
-            checked={runAsAdmin}
-            onChange={handleToggleRunAsAdmin}
-            disabled={isRestartingElevated}
-          />
+          <div className="gesture-admin-hint-card">
+            <ShieldAlert size={18} className="gesture-admin-hint-icon" />
+            <div className="gesture-admin-hint-content">
+              <div className="gesture-admin-hint-title">
+                {tr('gesture.adminHintTitle')}
+                {elevated && <span className="gesture-admin-badge">{tr('gesture.alreadyElevated')}</span>}
+              </div>
+              <div className="gesture-admin-hint-desc">
+                {elevated
+                  ? tr('gesture.adminHintElevatedDesc')
+                  : tr('gesture.adminHintDesc')}
+              </div>
+            </div>
+          </div>
+          <SettingRow label={tr('gesture.initialTimeout')} description={tr('gesture.initialTimeoutDesc')}>
+            <div className="gesture-number-input-wrap">
+              <input
+                id="gesture-initial-timeout"
+                type="number"
+                min={100}
+                max={3000}
+                step={50}
+                className="gesture-number-input"
+                value={initialTimeoutMs}
+                onChange={(e) => handleInitialTimeoutChange(Number(e.target.value))}
+              />
+              <span className="gesture-number-unit">ms</span>
+            </div>
+          </SettingRow>
+          <SettingRow label={tr('gesture.minSegmentDistance')} description={tr('gesture.minSegmentDistanceDesc')}>
+            <div className="gesture-number-input-wrap">
+              <input
+                id="gesture-min-segment-dist"
+                type="number"
+                min={5}
+                max={100}
+                step={2}
+                className="gesture-number-input"
+                value={minSegmentDistance}
+                onChange={(e) => handleMinSegmentDistanceChange(Number(e.target.value))}
+              />
+              <span className="gesture-number-unit">px</span>
+            </div>
+          </SettingRow>
           <SettingRow label={tr('gesture.targetMode')} description={tr('gesture.targetModeDesc')}>
             <Select
               id="gesture-target-mode"

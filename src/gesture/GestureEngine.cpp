@@ -338,6 +338,21 @@ std::string GestureEngine::targetMode() const {
     return gestureTargetModeKey(m_targetMode.load(std::memory_order_acquire));
 }
 
+void GestureEngine::setInitialTimeoutMs(int ms) {
+    const int clamped = std::clamp(ms, 100, 3000);
+    m_initialTimeoutMs.store(clamped);
+    LOG_INFO("手势起始超时已设置: initialTimeoutMs={}ms", clamped);
+}
+
+void GestureEngine::setMinSegmentDistance(int px) {
+    const int clamped = std::clamp(px, 5, 100);
+    m_minSegmentDistance.store(clamped);
+    auto cfg = m_recognizer.config();
+    cfg.minSegmentDistance = clamped;
+    m_recognizer.setConfig(cfg);
+    LOG_INFO("手势最小识别距离已设置: minSegmentDistance={}px", clamped);
+}
+
 void GestureEngine::setProfile(const std::string& name, const GestureProfile& profile) {
     std::unique_lock lock(m_profileMutex);
     m_profiles.insert_or_assign(name, profile);
@@ -575,8 +590,8 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
             static_cast<float>(event.position.y)
         );
 
-        if (elapsed >= 15000) {
-            // 连续画了 15 秒仍未松手：弹出红底 3 个大圆点调侃状态，并持续停留，直到用户真正松手
+        if (elapsed >= 10000) {
+            // 连续画了 10 秒仍未松手：弹出红底 3 个大圆点调侃状态，并持续停留，直到用户真正松手
             trail.setRecognized(false);
             trail.setLiveAction("•••");
         } else {
@@ -670,9 +685,9 @@ void GestureEngine::endTracking(const MouseEvent& event) {
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_trackingStartTime).count();
 
-    // 如果连续绘制超过 15 秒用户才松手：结束手势，红底 3 个大圆点闪现并平滑淡出，不执行任何动作
-    if (elapsed >= 15000) {
-        LOG_WARN("手势绘制超过 15 秒后松手结束 ({}ms)，红底调侃淡出", elapsed);
+    // 如果连续绘制超过 10 秒用户才松手：结束手势，红底 3 个大圆点闪现并平滑淡出，不执行任何动作
+    if (elapsed >= 10000) {
+        LOG_WARN("手势绘制超过 10 秒后松手结束 ({}ms)，红底调侃淡出", elapsed);
         m_state = GestureState::Idle;
         if (m_trailVisible.load()) {
             GestureTrailOverlay::instance().setRecognized(false);
@@ -979,6 +994,8 @@ void GestureEngine::loadFromConfig() {
     setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
     setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", true));
     setTargetMode(config.get<std::string>("/gesture/targetMode", "underPointer"));
+    setInitialTimeoutMs(config.get<int>("/gesture/initialTimeoutMs", 500));
+    setMinSegmentDistance(config.get<int>("/gesture/minSegmentDistance", 24));
 
     // 加载 Profile
     std::unordered_map<std::string, GestureProfile> loadedProfiles;
@@ -1028,7 +1045,9 @@ bool GestureEngine::saveToConfig() {
             {"triggerButton", triggerButton()},
             {"trailVisible", m_trailVisible.load()},
             {"autoBypassFullscreen", m_autoBypassFullscreen.load()},
-            {"targetMode", targetMode()}
+            {"targetMode", targetMode()},
+            {"initialTimeoutMs", m_initialTimeoutMs.load()},
+            {"minSegmentDistance", m_minSegmentDistance.load()}
         }}
     }, "/gesture");
 
