@@ -166,11 +166,9 @@ function pointsToSvgPath(points: Point[]): string {
   return path;
 }
 
-const COMMON_PRESET_GESTURES = [
+const RIGHT_PRESET_GESTURES = [
   { code: 'L', label: '后退' },
   { code: 'R', label: '前进' },
-  { code: 'Middle+L', label: '中键上一曲' },
-  { code: 'Middle+R', label: '中键下一曲' },
   { code: 'D-R', label: '关闭标签' },
   { code: 'R-D', label: '恢复标签' },
   { code: 'D-L', label: '关闭窗口' },
@@ -183,19 +181,32 @@ const COMMON_PRESET_GESTURES = [
   { code: 'D-R-D', label: '截图' },
 ];
 
+const MIDDLE_PRESET_GESTURES = [
+  { code: 'Middle+L', label: '上一曲' },
+  { code: 'Middle+R', label: '下一曲' },
+  { code: 'Middle+U', label: '最大化' },
+  { code: 'Middle+D', label: '最小化' },
+  { code: 'Middle+D-R', label: '关闭标签' },
+  { code: 'Middle+R-D', label: '恢复标签' },
+  { code: 'Middle+D-U', label: '刷新' },
+  { code: 'Middle+L-D', label: '显示桌面' },
+];
+
 interface Props {
   value: string;
   onChange: (code: string) => void;
+  triggerButton?: 'right' | 'middle';
 }
 
-export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
+export const GestureDrawCanvas: FC<Props> = ({ value, onChange, triggerButton = 'right' }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [drawingButton, setDrawingButton] = useState<number | null>(null);
   const [points, setPoints] = useState<Point[]>([]);
   const recognizedCode = value;
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // 允许鼠标左键、右键或中键在画板内绘制
+    // 允许鼠标左键(0)、中键(1)或右键(2)在画板内直接真实录制
     e.preventDefault();
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -203,7 +214,12 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
     const y = e.clientY - rect.top;
     setPoints([{ x, y }]);
     setIsDrawing(true);
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDrawingButton(e.button);
+    try {
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -228,13 +244,22 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
     e.preventDefault();
     setIsDrawing(false);
 
+    // 根据实际按下的物理按键自动判定触发源：
+    // e.button === 1 (滚轮中键) -> 中键手势 ('Middle+')
+    // e.button === 2 (鼠标右键) -> 右键手势 ('')
+    // e.button === 0 (鼠标左键) -> 遵循当前选中的 triggerButton
+    const effectiveButton = drawingButton ?? e.button;
+    const isMiddle = effectiveButton === 1 ? true : effectiveButton === 2 ? false : triggerButton === 'middle';
+
     if (points.length >= 2) {
-      const code = recognizeStrokes(points);
-      if (code) {
-        onChange(code);
+      const bare = recognizeStrokes(points);
+      if (bare) {
+        const prefix = isMiddle ? 'Middle+' : '';
+        onChange(prefix + bare);
       }
     }
-  }, [isDrawing, points, onChange]);
+    setDrawingButton(null);
+  }, [isDrawing, points, onChange, triggerButton, drawingButton]);
 
   const handleClear = () => {
     setPoints([]);
@@ -247,6 +272,7 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
 
   const svgPath = pointsToSvgPath(points);
   const lastPoint = points.length > 0 ? points[points.length - 1] : null;
+  const presets = triggerButton === 'middle' ? MIDDLE_PRESET_GESTURES : RIGHT_PRESET_GESTURES;
 
   return (
     <div className="gesture-draw-container">
@@ -255,7 +281,9 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
           <div className="gesture-draw-title-icon-badge">
             <PenTool size={12} strokeWidth={2.2} />
           </div>
-          <span>手势录制画板 (按住鼠标右键或左键在下方划线)</span>
+          <span>
+            {triggerButton === 'middle' ? '中键手势录制画板 (按住中键/滚轮滑动)' : '右键手势录制画板 (按住鼠标右键滑动)'}
+          </span>
         </div>
         <button
           type="button"
@@ -276,6 +304,7 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()} // 阻止右键弹出浏览器菜单
+        onAuxClick={(e) => e.preventDefault()}    // 阻止中键自动滚动
       >
         {/* 背景辅助网格与导引十字 */}
         <div className="gesture-draw-crosshair" />
@@ -285,8 +314,8 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
             <div className="gesture-draw-watermark-icon-box">
               <MousePointer size={22} strokeWidth={2} className="gesture-draw-mouse-icon" />
             </div>
-            <div className="gesture-draw-watermark-text">按住鼠标在此处划出轨迹</div>
-            <div className="gesture-draw-watermark-hint">系统将自动识别转角与方向</div>
+            <div className="gesture-draw-watermark-text">按住鼠标右键或中键在此划出轨迹</div>
+            <div className="gesture-draw-watermark-hint">按哪个键划动，就自动绑定为哪个键触发</div>
           </div>
         )}
 
@@ -333,7 +362,7 @@ export const GestureDrawCanvas: FC<Props> = ({ value, onChange }) => {
       <div className="gesture-preset-tray">
         <span className="gesture-preset-label">常用预设:</span>
         <div className="gesture-preset-chips">
-          {COMMON_PRESET_GESTURES.map((preset) => (
+          {presets.map((preset) => (
             <button
               key={preset.code}
               type="button"

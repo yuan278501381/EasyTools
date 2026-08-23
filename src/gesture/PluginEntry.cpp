@@ -458,6 +458,15 @@ public:
             };
         });
 
+        mb.registerHandler("gesture.setRecordingMode", [](const nlohmann::json& params) -> nlohmann::json {
+            bool recording = params.value("recording", false);
+            easy::gesture::GestureEngine::instance().setRecordingMode(recording);
+            return {
+                {"success", true},
+                {"recording", easy::gesture::GestureEngine::instance().isRecordingMode()}
+            };
+        });
+
         mb.registerHandler("gesture.getScopeRules", [](const nlohmann::json&) -> nlohmann::json {
             return easy::gesture::GestureEngine::instance().scopeRules().toJson();
         });

@@ -9,7 +9,7 @@
  *   - 全局开关 / 轨迹流光显示 / 游戏全屏免打扰
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useCallback, type FC } from 'react';
+import { useState, useEffect, useCallback, useMemo, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Badge, Select, Button, TextInput } from '../components/UIKit';
 import { GestureEditorModal } from '../components/GestureEditorModal';
 import { GestureStrokePreview } from '../components/GestureStrokePreview';
@@ -239,8 +239,8 @@ export const GesturePage: FC = () => {
   const currentProfile = profiles[currentProfileName] ?? (
     selectedTarget.kind === 'global' ? { name: 'default', mappings: [], triggerStates: {} } : (profiles.default ?? { name: 'default', mappings: [], triggerStates: {} })
   );
-  const currentMappings: GestureMapping[] = currentProfile.mappings ?? [];
-  const currentTriggerStates: Record<string, TriggerState> = currentProfile.triggerStates ?? {};
+  const currentMappings: GestureMapping[] = useMemo(() => currentProfile.mappings ?? [], [currentProfile.mappings]);
+  const currentTriggerStates: Record<string, TriggerState> = useMemo(() => currentProfile.triggerStates ?? {}, [currentProfile.triggerStates]);
 
   // ── 持久化当前 Profile 的手势映射 ──────────────────────────────────────────
   const persistMappings = useCallback(async (nextMappings: GestureMapping[]) => {
@@ -671,16 +671,27 @@ export const GesturePage: FC = () => {
     }
   };
 
-  const filteredMappings = currentMappings.filter((m) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      m.gestureCode.toLowerCase().includes(q) ||
-      m.action.name.toLowerCase().includes(q) ||
-      (m.action.keyStroke || '').toLowerCase().includes(q) ||
-      (m.action.description || '').toLowerCase().includes(q)
-    );
-  });
+  const [triggerFilter, setTriggerFilter] = useState<'all' | 'right' | 'middle'>('all');
+
+  const rightCount = useMemo(() => currentMappings.filter((m) => !m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+')).length, [currentMappings]);
+  const middleCount = useMemo(() => currentMappings.filter((m) => m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+')).length, [currentMappings]);
+
+  const filteredMappings = useMemo(() => {
+    return currentMappings.filter((m) => {
+      const isMiddle = m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+');
+      if (triggerFilter === 'right' && isMiddle) return false;
+      if (triggerFilter === 'middle' && !isMiddle) return false;
+
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        m.gestureCode.toLowerCase().includes(q) ||
+        m.action.name.toLowerCase().includes(q) ||
+        (m.action.keyStroke || '').toLowerCase().includes(q) ||
+        (m.action.description || '').toLowerCase().includes(q)
+      );
+    });
+  }, [currentMappings, triggerFilter, searchQuery]);
 
   if (loading) {
     return (
@@ -1037,11 +1048,37 @@ export const GesturePage: FC = () => {
                 {/* ── 手势映射表 (手势列表 + 单项开关 + 调序 + 过滤 + CRUD) ── */}
                 <Card>
                   <div className="gesture-toolbar">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
                       <span className="gesture-toolbar__count">
                         {selectedTarget.kind === 'global' ? '全局手势表' : `「${selectedTarget.title}」专属手势`}
                         {' '}({filteredMappings.length}/{currentMappings.length})
                       </span>
+
+                      {/* 触发按键分类快速筛选 */}
+                      <div className="gesture-trigger-filter-tabs">
+                        <button
+                          type="button"
+                          className={`gesture-trigger-filter-tab ${triggerFilter === 'all' ? 'active' : ''}`}
+                          onClick={() => setTriggerFilter('all')}
+                        >
+                          全部 ({currentMappings.length})
+                        </button>
+                        <button
+                          type="button"
+                          className={`gesture-trigger-filter-tab ${triggerFilter === 'right' ? 'active' : ''}`}
+                          onClick={() => setTriggerFilter('right')}
+                        >
+                          ◐ 右键手势 ({rightCount})
+                        </button>
+                        <button
+                          type="button"
+                          className={`gesture-trigger-filter-tab ${triggerFilter === 'middle' ? 'active' : ''}`}
+                          onClick={() => setTriggerFilter('middle')}
+                        >
+                          ◓ 中键手势 ({middleCount})
+                        </button>
+                      </div>
+
                       <div className="gesture-search-box">
                         <Search size={13} className="gesture-search-icon" />
                         <input
@@ -1077,7 +1114,7 @@ export const GesturePage: FC = () => {
                         </div>
                       )}
 
-                      {filteredMappings.map((m, i) => {
+                      {filteredMappings.map((m: GestureMapping, i: number) => {
                         const actualIdx = currentMappings.findIndex((x) => x.gestureCode === m.gestureCode);
                         const isEnabled = m.enabled ?? true;
                         const isDragging = draggedIdx === actualIdx;
@@ -1102,13 +1139,24 @@ export const GesturePage: FC = () => {
                             className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''} ${isDragging ? 'gesture-table__row--dragging' : ''}`}
                             style={{ animationDelay: `${i * 20}ms` }}
                           >
-                            {/* 1. 拖拽抓手 + WGestures 2 动态手势画板 */}
+                            {/* 1. 拖拽抓手 + 动态手势画板 + 触发按键徽章 */}
                             <span className="gesture-table__col gesture-table__col--gesture">
                               <div className="gesture-handle-box">
                                 <div className="gesture-drag-handle" title="按住拖拽调整手势顺序">
                                   <GripVertical size={14} className="gesture-grip-icon" />
                                 </div>
-                                <GestureStrokePreview code={m.gestureCode} width={58} height={36} />
+                                <div className="gesture-preview-with-badge">
+                                  <GestureStrokePreview code={m.gestureCode} width={56} height={34} />
+                                  <span
+                                    className={`gesture-trigger-mini-badge ${
+                                      m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+')
+                                        ? 'gesture-trigger-mini-badge--middle'
+                                        : 'gesture-trigger-mini-badge--right'
+                                    }`}
+                                  >
+                                    {m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+') ? '◓ 中键' : '◐ 右键'}
+                                  </span>
+                                </div>
                               </div>
                             </span>
 

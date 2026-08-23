@@ -220,12 +220,82 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .gesture-toolbar__count {
   font-size: 0.82rem;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── 手势列表触发按键过滤标签 ─────────────────────────────────────────────── */
+.gesture-trigger-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--input-bg);
+  padding: 2px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+}
+
+.gesture-trigger-filter-tab {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.gesture-trigger-filter-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.gesture-trigger-filter-tab.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px var(--primary-glow);
+}
+
+/* ── 表格行中触发来源微型徽章 ───────────────────────────────────────────── */
+.gesture-preview-with-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.gesture-trigger-mini-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1.2;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.gesture-trigger-mini-badge--right {
+  background: var(--input-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--card-border);
+}
+
+.gesture-trigger-mini-badge--middle {
+  background: var(--primary-dim);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
 }
 
 /* ── 轮盘菜单编辑器 ───────────────────────────────────────────────────────── */

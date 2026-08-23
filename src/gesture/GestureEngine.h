@@ -61,6 +61,10 @@ public:
     bool isPaused() const { return m_paused.load(); }
     void setPauseChangedCallback(PauseChangedCallback callback);
 
+    /// 手势录制/绘图模式：打开手势录制界面时临时放行所有鼠标手势，绝不触发任何动作
+    void setRecordingMode(bool recording);
+    bool isRecordingMode() const { return m_recordingMode.load(); }
+
     /// 触发按钮配置
     void setTriggerButton(const std::string& button);
     std::string triggerButton() const;
@@ -157,6 +161,7 @@ private:
     // 状态
     std::atomic<GestureState> m_state{GestureState::Idle};
     std::atomic<bool> m_paused{false};
+    std::atomic<bool> m_recordingMode{false};
     std::atomic<bool> m_trailVisible{true};
     std::atomic<bool> m_autoBypassFullscreen{false};
     std::atomic<GestureTargetMode> m_targetMode{GestureTargetMode::UnderPointer};

@@ -261,6 +261,20 @@ bool GestureEngine::setPaused(bool paused) {
     return true;
 }
 
+void GestureEngine::setRecordingMode(bool recording) {
+    m_recordingMode.store(recording, std::memory_order_release);
+    MouseHook::instance().setPaused(recording || m_paused.load(std::memory_order_acquire));
+    if (recording) {
+        std::lock_guard lock(m_mutex);
+        if (m_state.load(std::memory_order_relaxed) == GestureState::Tracking) {
+            cancelTracking();
+        }
+        GestureTrailOverlay::instance().hide();
+        GestureTrailOverlay::instance().releaseD2DResources();
+    }
+    LOG_INFO("手势引擎录制模式更新: recording={}", recording);
+}
+
 void GestureEngine::setPauseChangedCallback(PauseChangedCallback callback) {
     std::lock_guard lock(m_callbackMutex);
     m_pauseChangedCallback = std::move(callback);
@@ -359,9 +373,9 @@ bool GestureEngine::onMouseEvent(const MouseEvent& event) {
     try {
         std::lock_guard lock(m_mutex);
 
-        if (m_paused.load()) {
+        if (m_paused.load(std::memory_order_acquire) || m_recordingMode.load(std::memory_order_acquire)) {
             if (event.type == MouseEventType::RightDown || event.type == MouseEventType::MiddleDown) {
-                LOG_INFO("手势引擎已暂停，放行触发键");
+                LOG_INFO("手势引擎处于暂停或录制模式，放行所有按键");
             }
             return false;
         }

@@ -203,3 +203,144 @@
   flex-shrink: 0;
   color: #f59e0b;
 }
+
+/* ── 触发按键分段选择器 ─────────────────────────────────────────────────── */
+.gesture-trigger-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+
+.gesture-trigger-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+  background: var(--input-bg);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+  user-select: none;
+  font-family: inherit;
+}
+
+.gesture-trigger-btn:hover {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+}
+
+.gesture-trigger-btn.active {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), 0 2px 8px var(--primary-glow);
+}
+
+.gesture-trigger-indicator {
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.gesture-trigger-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gesture-trigger-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gesture-trigger-desc {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 录制手势说明与指引 (WGestures 风格) ─────────────────────────────────── */
+.gesture-record-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  margin-bottom: 12px;
+}
+
+.gesture-record-instructions__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.gesture-record-instructions__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── 替换所有相似手势轨迹配置卡片 ────────────────────────────────────────── */
+.gesture-replace-tracks-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  transition: border-color var(--transition-fast);
+}
+
+.gesture-replace-tracks-card:hover {
+  border-color: var(--primary);
+}
+
+.gesture-replace-tracks-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gesture-replace-tracks-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.gesture-replace-tracks-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gesture-replace-tracks-hints {
+  margin: 0;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

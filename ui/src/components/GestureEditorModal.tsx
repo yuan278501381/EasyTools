@@ -22,6 +22,7 @@ import {
   GESTURE_CODE_PATTERN,
   codeToArrows,
 } from './gestureModel';
+import { bridgeRequest } from '../hooks/useBridge';
 import './GestureEditorModal.css';
 
 let gMappingCounter = 0;
@@ -87,6 +88,14 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
       });
     }
   }, [initialFocusTarget]);
+
+  // 当手势录制/编辑弹窗挂载时，通知后端开启录制模式，临时放行系统全局鼠标拦截，绝不误执行手势命令
+  useEffect(() => {
+    void bridgeRequest('gesture.setRecordingMode', { recording: true });
+    return () => {
+      void bridgeRequest('gesture.setRecordingMode', { recording: false });
+    };
+  }, []);
 
   const handleToggleAdvanced = () => {
     const next = !advancedOpen;
@@ -217,6 +226,22 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
     });
   };
 
+  const currentTrigger: 'right' | 'middle' = code.startsWith('MIDDLE+') ? 'middle' : 'right';
+
+  const handleTriggerChange = (targetTrigger: 'right' | 'middle') => {
+    const bareCode = code.replace(/^((MIDDLE|CTRL|ALT|SHIFT)\+)+/g, '');
+    let modPrefix = '';
+    if (code.includes('CTRL+')) modPrefix += 'Ctrl+';
+    if (code.includes('ALT+')) modPrefix += 'Alt+';
+    if (code.includes('SHIFT+')) modPrefix += 'Shift+';
+
+    const prefix = targetTrigger === 'middle' ? 'Middle+' : '';
+    const newCode = prefix + modPrefix + bareCode;
+    handleGestureCodeChange(newCode);
+  };
+
+  const [replaceSimilarTracks, setReplaceSimilarTracks] = useState(true);
+
   return (
     <Modal
       open
@@ -229,6 +254,47 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
         </>
       }
     >
+      {/* 录制手势说明与指引 (WGestures 2 风格) */}
+      <div className="gesture-record-instructions">
+        <div className="gesture-record-instructions__title">
+          {t('gestureEditor.guidePrompt', '使用一种合适的触发方式，在屏幕/画板上画出手势，对应的符号会显示在下方。')}
+        </div>
+        <ul className="gesture-record-instructions__list">
+          <li>{t('gestureEditor.guideNote1', '按下一个或多个键 "修饰" 绘制中的手势，会使之成为不同手势；键盘按键 (Ctrl / Alt / Shift) 也可以作为修饰键')}</li>
+          <li>{t('gestureEditor.guideNote2', '触发方式 ◐ (鼠标右键) 或 ◓ (鼠标中键/滚轮) 直接在画板上滑动即可实时录制')}</li>
+        </ul>
+      </div>
+
+      <Field
+        label={t('gestureEditor.triggerButton', '触发按键 (手势触发来源)')}
+        hint={t('gestureEditor.triggerButtonHint', '选择通过按住鼠标右键还是滚轮中键来发起此手势')}
+      >
+        <div className="gesture-trigger-segmented">
+          <button
+            type="button"
+            className={`gesture-trigger-btn ${currentTrigger === 'right' ? 'active' : ''}`}
+            onClick={() => handleTriggerChange('right')}
+          >
+            <span className="gesture-trigger-indicator">◐</span>
+            <div className="gesture-trigger-info">
+              <span className="gesture-trigger-name">{t('gestureEditor.triggerRight', '鼠标右键 (默认)')}</span>
+              <span className="gesture-trigger-desc">{t('gestureEditor.triggerRightDesc', '按住鼠标右键滑动 · 最便捷常用')}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`gesture-trigger-btn ${currentTrigger === 'middle' ? 'active' : ''}`}
+            onClick={() => handleTriggerChange('middle')}
+          >
+            <span className="gesture-trigger-indicator">◓</span>
+            <div className="gesture-trigger-info">
+              <span className="gesture-trigger-name">{t('gestureEditor.triggerMiddle', '鼠标中键 (滚轮)')}</span>
+              <span className="gesture-trigger-desc">{t('gestureEditor.triggerMiddleDesc', '按住滚轮滑动 · 切歌/多媒体专属')}</span>
+            </div>
+          </button>
+        </div>
+      </Field>
+
       <Field
         label={t('gestureEditor.gestureDraw')}
         error={codeError}
@@ -237,6 +303,7 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
         <GestureDrawCanvas
           value={draft.gestureCode}
           onChange={handleGestureCodeChange}
+          triggerButton={currentTrigger}
         />
         {code && (
           <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -254,6 +321,25 @@ export const GestureEditorModal: FC<Props> = ({ initial, existingCodes, existing
           </div>
         )}
       </Field>
+
+      {/* 替换所有相似手势轨迹配置卡片 (用户选项) */}
+      <div className="gesture-replace-tracks-card">
+        <label className="gesture-replace-tracks-label">
+          <input
+            type="checkbox"
+            className="gesture-replace-tracks-checkbox"
+            checked={replaceSimilarTracks}
+            onChange={(e) => setReplaceSimilarTracks(e.target.checked)}
+          />
+          <span className="gesture-replace-tracks-title">
+            {t('gestureEditor.replaceSimilarTracks', '替换所有相似手势轨迹')}
+          </span>
+        </label>
+        <ul className="gesture-replace-tracks-hints">
+          <li>{t('gestureEditor.replaceSimilarHint1', '将相似手势轨迹统一为相同值，有助于减少误操作并提升性能')}</li>
+          <li>{t('gestureEditor.replaceSimilarHint2', '如果一个目标有多个相同手势，则只有最后一个有效')}</li>
+        </ul>
+      </div>
 
       <Field label={t('gestureEditor.actionName')} error={nameError}>
         <TextInput
