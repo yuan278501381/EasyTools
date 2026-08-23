@@ -151,8 +151,8 @@ bool ToastOverlay::createResources() {
         if (m_renderTarget) {
             // 背景: 世界级高质感翡翠绿半透明 (Emerald Green, #059669 / #065F46)
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.04f, 0.44f, 0.30f, 0.94f), &m_bgBrush);
-            // 边框: 清透浅绿微高光描边 (Mint Accent, #34D399)
-            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.83f, 0.60f, 0.90f), &m_strokeBrush);
+            // 边框: 白色清晰描边
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_strokeBrush);
             // 文字: 纯白色
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_textBrush);
         }
