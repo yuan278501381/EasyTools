@@ -103,13 +103,15 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       if (e.shiftKey) mods.push('Shift');
       if (e.metaKey) mods.push('Win');
 
-      if (MODIFIER_KEYS.has(key)) {
+      const isSpace = e.code === 'Space' || key === ' ' || key === 'Spacebar';
+
+      if (MODIFIER_KEYS.has(key) && !isSpace) {
         // 仅按下了修饰键，实时展示
         setActiveKeys([...mods]);
         pendingRef.current = null;
       } else {
         // 修饰键 + 主键 → 完成组合
-        const mainKey = KEY_NAME_MAP[key] ?? (key.length === 1 ? key.toUpperCase() : key);
+        const mainKey = isSpace ? 'Space' : (KEY_NAME_MAP[key] ?? (key.length === 1 ? key.toUpperCase() : key));
         const combo = [...mods, mainKey];
         setActiveKeys(combo);
         pendingRef.current = combo.join('+');

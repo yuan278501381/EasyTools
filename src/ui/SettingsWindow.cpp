@@ -658,6 +658,14 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
             return 0;
         }
 
+        case WM_SYSCOMMAND: {
+            // 屏蔽 Alt 键或 Alt+Space 激活 Win32 系统窗口菜单，保障快捷键录制顺畅
+            if ((wParam & 0xFFF0) == SC_KEYMENU) {
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
         default:
             return DefWindowProcW(hwnd, msg, wParam, lParam);
     }

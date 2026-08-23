@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -278,8 +278,11 @@ export const GeneralPage: FC = () => {
   const internalConflictsCount = hotkeys.filter(h => h.conflictType === 'internal').length;
   const externalConflictsCount = hotkeys.filter(h =>
     h.conflictType === 'external' || (h.registered === false && Boolean(h.shortcut) && h.armed !== false)).length;
-  const activeCount = hotkeys.filter(h =>
-    Boolean(h.shortcut) && !h.conflict && (h.registered || h.armed === false)).length;
+  const sessionOnlyCount = hotkeys.filter(h =>
+    Boolean(h.shortcut) && h.armed === false && !h.conflict && h.conflictType !== 'external' && h.conflictType !== 'internal').length;
+  const globalActiveCount = hotkeys.filter(h =>
+    Boolean(h.shortcut) && (h.registered !== false) && h.armed !== false && !h.conflict && h.conflictType !== 'internal' && h.conflictType !== 'external').length;
+  const unboundCount = hotkeys.filter(h => !h.shortcut).length;
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading')}</div>;
@@ -412,24 +415,29 @@ export const GeneralPage: FC = () => {
           <div className="general-page__hotkey-health-bar">
             <div className="general-page__hotkey-health-stats">
               <span className="general-page__stat-pill total">
-                <Keyboard size={13} /> 全部 {hotkeys.length} 项
+                <Keyboard size={12} /> 全部 {hotkeys.length} 项
               </span>
               <span className="general-page__stat-pill ok">
-                <CheckCircle2 size={13} /> 生效 {activeCount} 项
+                <CheckCircle2 size={12} /> 生效 {globalActiveCount} 项
               </span>
+              {sessionOnlyCount > 0 && (
+                <span className="general-page__stat-pill session">
+                  <Disc size={12} /> 仅录屏生效 {sessionOnlyCount} 项
+                </span>
+              )}
               {internalConflictsCount > 0 && (
                 <span className="general-page__stat-pill warning">
-                  <AlertTriangle size={13} /> 内部冲突 {internalConflictsCount} 项
+                  <AlertTriangle size={12} /> 内部冲突 {internalConflictsCount} 项
                 </span>
               )}
               {externalConflictsCount > 0 && (
                 <span className="general-page__stat-pill danger">
-                  <AlertOctagon size={13} /> 外部冲突 {externalConflictsCount} 项
+                  <AlertOctagon size={12} /> 外部冲突 {externalConflictsCount} 项
                 </span>
               )}
-              {internalConflictsCount === 0 && externalConflictsCount === 0 && (
-                <span className="general-page__stat-pill clean">
-                  {t('general.allHealthy')}
+              {unboundCount > 0 && (
+                <span className="general-page__stat-pill unbound">
+                  <MinusCircle size={12} /> 未绑定 {unboundCount} 项
                 </span>
               )}
             </div>
@@ -439,7 +447,7 @@ export const GeneralPage: FC = () => {
               onClick={refreshHotkeys}
               title={t('general.recheckShortcuts')}
             >
-              <RefreshCw size={13} className={refreshingHotkeys ? 'general-page__spin' : ''} />
+              <RefreshCw size={12} className={refreshingHotkeys ? 'general-page__spin' : ''} />
               <span>{t('general.recheckShortcuts')}</span>
             </Button>
           </div>

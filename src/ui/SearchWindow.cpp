@@ -519,6 +519,12 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             }
             break;
         }
+        case WM_SYSCOMMAND: {
+            if ((wParam & 0xFFF0) == SC_KEYMENU) {
+                return 0;
+            }
+            break;
+        }
         case WM_DESTROY:
             if (inst.m_hwnd == hwnd) inst.m_hwnd = nullptr;
             inst.destroy();
