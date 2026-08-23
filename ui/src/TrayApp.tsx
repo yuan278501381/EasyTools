@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Pause, Play, Shield, LogOut } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, LogOut, Keyboard, MousePointer } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -11,7 +11,7 @@ export default function TrayApp() {
   const menuRef = useRef<HTMLDivElement>(null);
   const [gesturePaused, setGesturePaused] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [activePlugins, setActivePlugins] = useState(() => new Set(['capture', 'search', 'gesture']));
+  const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set(['capture', 'search', 'gesture']));
 
   // 动态上报真实尺寸给 C++ 宿主窗口，杜绝任何空白溢出
   const reportSize = useCallback(() => {
@@ -35,23 +35,27 @@ export default function TrayApp() {
     return () => ro.disconnect();
   }, [reportSize, activePlugins, gesturePaused]);
 
-  useEffect(() => {
-    document.documentElement.dataset.surface = 'tray';
+  const refreshState = useCallback(() => {
     void bridgeRequest<Array<{ id: string; active: boolean }>>('plugins.getAll')
       .then((plugins) => {
         const active = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
         setActivePlugins(active);
         if (active.has('gesture')) {
           void bridgeRequest<{ paused: boolean }>('gesture.getState')
-            .then(state => setGesturePaused(state.paused))
+            .then((state) => setGesturePaused(Boolean(state?.paused)))
             .catch(() => {});
         }
       })
       .catch(() => {});
-    return () => { delete document.documentElement.dataset.surface; };
   }, []);
 
-  // 键盘快捷导航 (Esc 关闭，上下键切换焦点)
+  useEffect(() => {
+    document.documentElement.dataset.surface = 'tray';
+    refreshState();
+    return () => { delete document.documentElement.dataset.surface; };
+  }, [refreshState]);
+
+  // 键盘快捷导航 (Esc 关闭，方向键切换焦点)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -59,18 +63,17 @@ export default function TrayApp() {
         void bridgeRequest('tray.hide').catch(() => {});
         return;
       }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
         if (buttons.length === 0) return;
         const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
         let nextIndex: number;
         if (currentIndex === -1) {
-          nextIndex = e.key === 'ArrowDown' ? 0 : buttons.length - 1;
+          nextIndex = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 0 : buttons.length - 1;
         } else {
-          nextIndex = e.key === 'ArrowDown'
-            ? (currentIndex + 1) % buttons.length
-            : (currentIndex - 1 + buttons.length) % buttons.length;
+          const delta = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1 : -1;
+          nextIndex = (currentIndex + delta + buttons.length) % buttons.length;
         }
         buttons[nextIndex]?.focus();
       }
@@ -82,25 +85,60 @@ export default function TrayApp() {
     };
   }, []);
 
+  // 快捷胶囊开关（不收起托盘，即时响应并乐观更新）
+  const toggleGesture = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activePlugins.has('gesture')) {
+      setActivePlugins((prev) => new Set(prev).add('gesture'));
+      setGesturePaused(false);
+      await bridgeRequest('plugins.setEnabled', { id: 'gesture', enabled: true }).catch(() => {});
+      return;
+    }
+    const nextPaused = !gesturePaused;
+    setGesturePaused(nextPaused);
+    try {
+      await bridgeRequest('gesture.updateSettings', { paused: nextPaused });
+    } catch {
+      setGesturePaused(!nextPaused);
+    }
+  };
+
+  const togglePlugin = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const willEnable = !activePlugins.has(id);
+    setActivePlugins((prev) => {
+      const next = new Set(prev);
+      if (willEnable) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    try {
+      await bridgeRequest('plugins.setEnabled', { id, enabled: willEnable });
+    } catch {
+      setActivePlugins((prev) => {
+        const next = new Set(prev);
+        if (willEnable) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
+  };
+
   const captureActive = activePlugins.has('capture');
   const searchActive = activePlugins.has('search');
-  const gestureActive = activePlugins.has('gesture');
+  const gestureEffectiveActive = activePlugins.has('gesture') && !gesturePaused;
+  const keycastActive = activePlugins.has('keycast');
 
+  // 触发全局命令动作（立即乐观收起托盘，带来零延迟体验）
   const handleAction = async (action: string) => {
     if (busy) return;
-    const previousPaused = gesturePaused;
-    if (action === 'pauseGesture') {
-      setGesturePaused(!gesturePaused);
-    }
     setBusy(true);
-    // 立即乐观收起托盘菜单，带来零延迟即时交互体验
     void bridgeRequest('tray.hide').catch(() => {});
     try {
       const result = await bridgeRequest<{ success: boolean }>('tray.action', { action });
       if (!result.success) throw new Error('Tray action failed');
     } catch (error) {
       console.error(error);
-      setGesturePaused(previousPaused);
     } finally {
       setBusy(false);
     }
@@ -108,11 +146,61 @@ export default function TrayApp() {
 
   return (
     <div ref={menuRef} className="tray-menu" role="menu">
+      {/* 顶部 Mini Control Center 快捷胶囊栏 */}
+      <div className="tray-control-center" role="group" aria-label={t('tray.quickControls', 'Quick Controls')}>
+        <button
+          type="button"
+          className={`tray-pill ${gestureEffectiveActive ? 'tray-pill--active' : ''}`}
+          onClick={(e) => void toggleGesture(e)}
+          title={`${t('tray.pillGesture', 'Gestures')}: ${gestureEffectiveActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
+        >
+          <MousePointer size={13} className="tray-pill__icon" />
+          <span className="tray-pill__label">{t('tray.pillGesture', 'Gestures')}</span>
+          <span className="tray-pill__dot" />
+        </button>
+
+        <button
+          type="button"
+          className={`tray-pill ${keycastActive ? 'tray-pill--active' : ''}`}
+          onClick={(e) => void togglePlugin(e, 'keycast')}
+          title={`${t('tray.pillKeycast', 'Keycast')}: ${keycastActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
+        >
+          <Keyboard size={13} className="tray-pill__icon" />
+          <span className="tray-pill__label">{t('tray.pillKeycast', 'Keycast')}</span>
+          <span className="tray-pill__dot" />
+        </button>
+
+        <button
+          type="button"
+          className={`tray-pill ${captureActive ? 'tray-pill--active' : ''}`}
+          onClick={(e) => void togglePlugin(e, 'capture')}
+          title={`${t('tray.pillCapture', 'Capture')}: ${captureActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
+        >
+          <Camera size={13} className="tray-pill__icon" />
+          <span className="tray-pill__label">{t('tray.pillCapture', 'Capture')}</span>
+          <span className="tray-pill__dot" />
+        </button>
+
+        <button
+          type="button"
+          className={`tray-pill ${searchActive ? 'tray-pill--active' : ''}`}
+          onClick={(e) => void togglePlugin(e, 'search')}
+          title={`${t('tray.pillSearch', 'Search')}: ${searchActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
+        >
+          <Search size={13} className="tray-pill__icon" />
+          <span className="tray-pill__label">{t('tray.pillSearch', 'Search')}</span>
+          <span className="tray-pill__dot" />
+        </button>
+      </div>
+
+      <div className="tray-menu__divider" />
+
+      {/* 核心操作项 */}
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('openSettings')}>
         <Settings size={15} className="tray-menu__icon" />
         <span className="tray-menu__label">{t('tray.settings', 'Settings')}</span>
       </button>
-      {(captureActive || searchActive || gestureActive) && <div className="tray-menu__divider" />}
+
       {captureActive && (
         <>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
@@ -125,27 +213,23 @@ export default function TrayApp() {
           </button>
         </>
       )}
+
       {searchActive && (
         <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('search')}>
           <Search size={15} className="tray-menu__icon" />
           <span className="tray-menu__label">{t('tray.search', 'File Search')}</span>
         </button>
       )}
-      {((captureActive || searchActive) && gestureActive) && <div className="tray-menu__divider" />}
-      {gestureActive && (
-        <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('pauseGesture')}>
-          {gesturePaused ? <Play size={15} className="tray-menu__icon" /> : <Pause size={15} className="tray-menu__icon" />}
-          <span className="tray-menu__label">
-            {gesturePaused ? t('tray.resumeGesture', 'Resume Gesture') : t('tray.pauseGesture', 'Pause Gesture')}
-          </span>
-        </button>
-      )}
+
       <div className="tray-menu__divider" />
+
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('restartElevated')}>
         <Shield size={15} className="tray-menu__icon" />
         <span className="tray-menu__label">{t('tray.restartElevated', 'Restart as Administrator')}</span>
       </button>
+
       <div className="tray-menu__divider" />
+
       <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={15} className="tray-menu__icon" />
         <span className="tray-menu__label">{t('tray.exit', 'Exit')}</span>

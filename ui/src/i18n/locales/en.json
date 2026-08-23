@@ -111,7 +111,7 @@
     "language": "Language",
     "languageDesc": "Set the display language",
     "langAuto": "System Default (Auto)",
-    "langZh": "简体中文",
+    "langZh": "Simplified Chinese",
     "langEn": "English",
     "theme": "Theme",
     "themeDesc": "Switch between dark and light themes",
@@ -178,7 +178,7 @@
   "plugins": {
     "capabilities": "Module capabilities",
     "permissions": "View system access",
-    "abi": "ABI {{version}}",
+    "abi": "ABI Version {{version}}",
     "loadFailed": "Could not load module status",
     "saveFailed": "Could not save the module setting",
     "enabledSaved": "Module will be enabled after restart",
@@ -785,6 +785,13 @@
     "resumeGesture": "Resume gestures",
     "pauseGesture": "Pause gestures",
     "restartElevated": "Restart as Administrator",
-    "exit": "Exit"
+    "exit": "Exit",
+    "pillGesture": "Gestures",
+    "pillKeycast": "Keycast",
+    "pillCapture": "Capture",
+    "pillSearch": "Search",
+    "quickControls": "Quick Controls",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
   }
 }

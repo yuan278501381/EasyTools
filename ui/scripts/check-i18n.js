@@ -23,8 +23,12 @@ function compareKeys(obj1, obj2, prefix = '') {
         console.error(`❌ [Missing Key] zh.json is missing translation for: ${prefix}${key}`);
         hasError = true;
       } else if (obj2[key] === obj1[key] && obj1[key] !== '') {
-        // Warning if English and Chinese text are exactly the same (except maybe brand names)
-        console.warn(`⚠️ [Warning] zh.json value is identical to English for: ${prefix}${key}`);
+        const fullKey = `${prefix}${key}`;
+        // 允许软件官方品牌标识等专有名词保持统一
+        const allowedIdentical = new Set(['app.title']);
+        if (!allowedIdentical.has(fullKey)) {
+          console.warn(`⚠️ [Warning] zh.json value is identical to English for: ${fullKey}`);
+        }
       }
     }
   }
