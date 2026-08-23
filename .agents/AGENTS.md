@@ -5,6 +5,10 @@
    - **Trigger Principle**: Always trigger memory trimming (`easy::core::WinUtils::trimWorkingSet()`) strictly on **Cold Paths / Lifecycle Endpoints** (e.g., screenshot finished/canceled, video recording stopped, scroll capture stitched, OCR finished, settings/tray window hidden, plugin paused/disabled).
    - **Strict Red Lines**: NEVER call `trimWorkingSet()` inside Hot Paths (e.g., low-level mouse/keyboard hook callbacks, 60fps render loops, gesture tracking loops, keycast typing streams) to prevent micro-stuttering caused by soft page faults.
    - **Lazy Re-initialization**: Must pair with lazy re-creation of heavy resources (Direct2D render targets, DIB sections, big Mat buffers) when features are reactivated.
+4. **Keyboard Accelerator Pipeline (`KeyboardPipeline`)**:
+   - **Win32 Host Filtering**: All top-level UI windows (`SettingsWindow`, `SearchWindow`, `TrayWindow`, etc.) must route messages through `KeyboardPipeline::filterWindowMessage` to intercept `SC_KEYMENU`, `SC_CONTEXTHELP`, and `WM_HELP`, preventing native menus from stealing focus when users press Alt, F10, or F1.
+   - **WebView2 Accelerator Policy**: Must attach `KeyboardPipeline::applyWebKeyboardPolicy` to `ICoreWebView2Controller` to suppress default Chromium browser shortcuts (`Ctrl+P`, `Ctrl+F`, `Ctrl+U`, `Ctrl+J`, `Ctrl+H`, `Ctrl+W`, `Alt+Left/Right`), ensuring all key combinations are 100% forwarded to the React DOM.
+   - **Silent Recording Mode**: During hotkey recording in UI, frontend must notify backend via `hotkey.setPaused(true)` to mute background global hotkey dispatching and prevent accidental tool triggering.
 
 ## Quality Assurance & Code Coverage (100% Coverage Mandate)
 1. **100% Code Coverage Standard**: All core business logic, utility classes, codecs, parsers, state machines, math/transform algorithms, and plugin contracts must maintain 100% statement and branch test coverage.
