@@ -57,8 +57,20 @@ export default function TrayApp() {
   useEffect(() => {
     document.documentElement.dataset.surface = 'tray';
     refreshState();
-    return () => { delete document.documentElement.dataset.surface; };
-  }, [refreshState]);
+    const handleShow = () => {
+      refreshState();
+      reportSize();
+    };
+    window.addEventListener('tray:show', handleShow);
+    window.addEventListener('focus', handleShow);
+    window.addEventListener('visibilitychange', handleShow);
+    return () => {
+      window.removeEventListener('tray:show', handleShow);
+      window.removeEventListener('focus', handleShow);
+      window.removeEventListener('visibilitychange', handleShow);
+      delete document.documentElement.dataset.surface;
+    };
+  }, [refreshState, reportSize]);
 
   // 键盘快捷导航 (Esc 关闭，方向键切换焦点)
   useEffect(() => {

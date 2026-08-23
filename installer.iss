@@ -1,4 +1,4 @@
-﻿[Defines]
+[Defines]
 #ifndef EasyToolsVersion
   #define EasyToolsVersion "1.0.0"
 #endif
@@ -41,6 +41,10 @@ chinesesimplified.InstallingService=正在安装快速文件索引服务...
 english.InstallingService=Installing fast file search index service...
 chinesesimplified.StartingService=正在启动快速文件索引服务...
 english.StartingService=Starting fast file search index service...
+chinesesimplified.ShowDetails=详细信息(&D)
+english.ShowDetails=Show &Details
+chinesesimplified.HideDetails=隐藏信息(&D)
+english.HideDetails=Hide &Details
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -65,6 +69,93 @@ Filename: "{sys}\sc.exe"; Parameters: "stop EasyTools_SearchService"; Flags: run
 Filename: "{sys}\sc.exe"; Parameters: "delete EasyTools_SearchService"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsSearch"
 
 [Code]
+var
+  DetailsButton: TNewButton;
+  DetailsMemo: TNewMemo;
+  ExtractTimerId: LongWord;
+  TimerCallbackAddr: LongWord;
+  LastExtractedFile: String;
+
+function SetTimer(hWnd: LongWord; nIDEvent, uElapse: LongWord; lpTimerFunc: LongWord): LongWord;
+  external 'SetTimer@user32.dll stdcall';
+function KillTimer(hWnd: LongWord; uIDEvent: LongWord): Boolean;
+  external 'KillTimer@user32.dll stdcall';
+
+procedure OnExtractTimer(hWnd: LongWord; uMsg: LongWord; idEvent: LongWord; dwTime: LongWord);
+var
+  CurFile: String;
+begin
+  CurFile := WizardForm.FilenameLabel.Caption;
+  if (CurFile <> '') and (CurFile <> LastExtractedFile) then
+  begin
+    LastExtractedFile := CurFile;
+    DetailsMemo.Lines.Add(CurFile);
+  end;
+end;
+
+procedure DetailsButtonClick(Sender: TObject);
+begin
+  DetailsMemo.Visible := not DetailsMemo.Visible;
+  if DetailsMemo.Visible then
+    DetailsButton.Caption := CustomMessage('HideDetails')
+  else
+    DetailsButton.Caption := CustomMessage('ShowDetails');
+end;
+
+procedure InitializeWizard();
+begin
+  // 创建详细信息展开/收起按钮
+  DetailsButton := TNewButton.Create(WizardForm);
+  DetailsButton.Parent := WizardForm.InstallingPage;
+  DetailsButton.Left := WizardForm.ProgressGauge.Left;
+  DetailsButton.Top := WizardForm.ProgressGauge.Top + WizardForm.ProgressGauge.Height + ScaleY(10);
+  DetailsButton.Width := ScaleX(95);
+  DetailsButton.Height := ScaleY(24);
+  DetailsButton.Caption := CustomMessage('ShowDetails');
+  DetailsButton.OnClick := @DetailsButtonClick;
+
+  // 创建详细信息文本日志框
+  DetailsMemo := TNewMemo.Create(WizardForm);
+  DetailsMemo.Parent := WizardForm.InstallingPage;
+  DetailsMemo.Left := WizardForm.ProgressGauge.Left;
+  DetailsMemo.Top := DetailsButton.Top + DetailsButton.Height + ScaleY(8);
+  DetailsMemo.Width := WizardForm.ProgressGauge.Width;
+  DetailsMemo.Height := WizardForm.InstallingPage.Height - DetailsMemo.Top - ScaleY(4);
+  DetailsMemo.ReadOnly := True;
+  DetailsMemo.ScrollBars := ssVertical;
+  DetailsMemo.Font.Name := 'Consolas';
+  DetailsMemo.Font.Size := 8;
+  DetailsMemo.Visible := False;
+
+  TimerCallbackAddr := CreateCallback(@OnExtractTimer);
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpInstalling then
+  begin
+    if (ExtractTimerId = 0) and (TimerCallbackAddr <> 0) then
+      ExtractTimerId := SetTimer(0, 0, 30, TimerCallbackAddr);
+  end
+  else
+  begin
+    if ExtractTimerId <> 0 then
+    begin
+      KillTimer(0, ExtractTimerId);
+      ExtractTimerId := 0;
+    end;
+  end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  if ExtractTimerId <> 0 then
+  begin
+    KillTimer(0, ExtractTimerId);
+    ExtractTimerId := 0;
+  end;
+end;
+
 function ServiceExists(): Boolean;
 begin
   Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\EasyTools_SearchService');

@@ -276,22 +276,24 @@ html[data-surface="tray"] #root {
 }
 
 .tray-menu__dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.25);
   flex-shrink: 0;
   margin-left: auto;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme="light"] .tray-menu__dot {
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.25);
 }
 
-.tray-menu__dot--active {
+.tray-menu__dot--active,
+[data-theme="light"] .tray-menu__dot--active,
+[data-theme="dark"] .tray-menu__dot--active {
   background: #10b981 !important;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.65);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8) !important;
 }
 
 .tray-menu__item--elevating {

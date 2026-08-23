@@ -93,6 +93,9 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
             m_controller->put_IsVisible(TRUE);
             m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
             syncWebViewDpi(m_controller.Get(), m_hwnd);
+            if (m_webView) {
+                m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('tray:show'));", nullptr);
+            }
         }
         return;
     }
