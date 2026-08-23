@@ -271,18 +271,32 @@ if (-not $SkipTests) {
 }
 
 # ------------------------------------------------------------------------------
-# 5. 打包输出物 (Deploy)
+# 5. 打包输出物 (Deploy & Artifact Purification)
 # ------------------------------------------------------------------------------
 Write-Log "开始提纯输出物并写入暂存区..."
 $DeployDir = Join-Path $ScriptDir "deploy_dist"
 $StagingDir = Join-Path $ScriptDir "deploy_dist_staging_$TraceID"
+$SymbolsDir = Join-Path $ScriptDir "deploy_symbols"
 
 if (Test-Path $StagingDir) {
     Remove-Item -Recurse -Force $StagingDir
 }
 New-Item -ItemType Directory -Path $StagingDir | Out-Null
 
-# 二进制文件
+# 符号隔离归档 (Symbol Stripping & Independent Archive)
+if (-not (Test-Path $SymbolsDir)) {
+    New-Item -ItemType Directory -Path $SymbolsDir | Out-Null
+}
+$SymbolsZip = Join-Path $SymbolsDir "EasyTools-Symbols-v$ProjectVersion.zip"
+$PdbFiles = Get-ChildItem -Path (Join-Path $BuildDir "bin") -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue
+if ($PdbFiles) {
+    Write-Log "正在将 $($PdbFiles.Count) 个调试符号 (*.pdb) 归档到: $SymbolsZip..."
+    if (Test-Path $SymbolsZip) { Remove-Item -Force $SymbolsZip -ErrorAction SilentlyContinue }
+    Compress-Archive -Path $PdbFiles.FullName -DestinationPath $SymbolsZip -Force
+    Write-Log "调试符号已安全剥离并独立归档至 deploy_symbols/。" "SUCCESS"
+}
+
+# 二进制主文件
 $ExePath = Join-Path $BuildDir "bin\$Configuration\EasyTools.exe"
 if (-not (Test-Path $ExePath)) {
     # 尝试查找根级 bin
@@ -301,20 +315,27 @@ if (Test-Path $ExePath) {
     Copy-Item $ServicePath -Destination $StagingDir
     Write-Log "已复制文件索引服务: EasyTools_Service.exe"
     
-    # 复制所有同一目录下的 DLL 文件 (vcpkg 的依赖如 spdlog.dll 等)
-    $DllFiles = Join-Path $ExeDir "*.dll"
-    if (Test-Path $DllFiles) {
-        Copy-Item $DllFiles -Destination $StagingDir
-        Write-Log "已复制依赖库 DLL 文件"
+    # 复制所有同一目录下的运行库 DLL 文件 (排除 gtest, gmock 等测试库)
+    $DllFiles = Get-ChildItem -Path $ExeDir -Filter "*.dll" | Where-Object {
+        $_.Name -notlike "gtest*.dll" -and $_.Name -notlike "gmock*.dll"
     }
+    foreach ($dll in $DllFiles) {
+        Copy-Item $dll.FullName -Destination $StagingDir
+    }
+    Write-Log "已复制生产运行库 DLL 文件 (已排除测试库 gtest)"
     
-    # 复制插件目录
+    # 复制插件目录 (仅复制插件 DLL 与 plugin.json，严禁复制 pdb 及重复三方库)
     $PluginsDir = Join-Path $BuildDir "bin\plugins\$Configuration"
     if (Test-Path $PluginsDir) {
         $TargetPluginsDir = Join-Path $StagingDir "plugins"
         New-Item -ItemType Directory -Path $TargetPluginsDir -ErrorAction SilentlyContinue | Out-Null
-        Copy-Item "$PluginsDir\*" -Destination $TargetPluginsDir -Recurse
-        Write-Log "已复制插件与相关依赖 (plugins/)"
+        $PluginFiles = Get-ChildItem -Path $PluginsDir | Where-Object {
+            $_.Name -like "Plugin_*.dll" -or $_.Name -like "*.plugin.json"
+        }
+        foreach ($pf in $PluginFiles) {
+            Copy-Item $pf.FullName -Destination $TargetPluginsDir
+        }
+        Write-Log "已复制纯净插件集合 (plugins/)，无冗余 DLL 与 PDB"
     } else {
         Write-Log "未找到插件构建目录: $PluginsDir" "WARN"
     }
@@ -382,17 +403,38 @@ if ($WebView2PackageDir) {
     }
 }
 
-# 拷贝资源文件和 UI
-if (Test-Path "resources") {
-    Copy-Item "resources" -Destination $StagingDir -Recurse
-    Write-Log "已复制资源文件 (resources/)"
+# 白名单资产注入 (resources/)
+$TargetResourcesDir = Join-Path $StagingDir "resources"
+New-Item -ItemType Directory -Path $TargetResourcesDir -ErrorAction SilentlyContinue | Out-Null
+
+$WhitelistedResourceFiles = @("app.ico", "tray.ico", "app_icon_hires.png")
+foreach ($rFile in $WhitelistedResourceFiles) {
+    $srcPath = Join-Path "resources" $rFile
+    if (Test-Path $srcPath) {
+        Copy-Item $srcPath -Destination $TargetResourcesDir
+    }
 }
+if (Test-Path "resources\scripts") {
+    Copy-Item "resources\scripts" -Destination $TargetResourcesDir -Recurse
+}
+Write-Log "已通过白名单注入运行必需资源 (ico, png, scripts/)"
 
 if (Test-Path "ui/dist") {
     $UiDeployDir = Join-Path $StagingDir "ui"
     New-Item -ItemType Directory -Path $UiDeployDir | Out-Null
     Copy-Item "ui/dist\*" -Destination $UiDeployDir -Recurse
-    Write-Log "已复制前端产物 (ui/)"
+    # 排除测试用 demo 网页
+    if (Test-Path (Join-Path $UiDeployDir "theme_demo.html")) {
+        Remove-Item -Force (Join-Path $UiDeployDir "theme_demo.html")
+    }
+    # 确保保留 Logo_Origin.png 和 Logo_Origin2.png
+    if ((Test-Path "ui/Logo_Origin.png") -and (-not (Test-Path (Join-Path $UiDeployDir "Logo_Origin.png")))) {
+        Copy-Item "ui/Logo_Origin.png" -Destination $UiDeployDir
+    }
+    if ((Test-Path "ui/Logo_Origin2.png") -and (-not (Test-Path (Join-Path $UiDeployDir "Logo_Origin2.png")))) {
+        Copy-Item "ui/Logo_Origin2.png" -Destination $UiDeployDir
+    }
+    Write-Log "已复制纯净前端产物 (ui/) 并保留原始 Logo"
 }
 if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination $StagingDir }
 

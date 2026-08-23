@@ -1,4 +1,4 @@
-[Defines]
+﻿[Defines]
 #ifndef EasyToolsVersion
   #define EasyToolsVersion "1.0.0"
 #endif
@@ -22,17 +22,31 @@ SetupIconFile=resources\app.ico
 UninstallDisplayIcon={app}\EasyTools.exe
 ; 全盘 NTFS 索引服务需要管理员权限注册并读取 USN Journal。
 PrivilegesRequired=admin
-CloseApplications=yes
+; 禁用 Windows 重启管理器干扰，由 Pascal 脚本实现精准进程状态检测与友好关闭
+CloseApplications=no
 RestartApplications=no
-AppMutex=Global\EasyTools_SingleInstance_Mutex
+; 默认跟随系统语言，英文兜底，免额外弹窗打扰
+ShowLanguageDialog=no
+
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "resources\installer\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+chinesesimplified.AppRunningPrompt=安装程序检测到 EasyTools 正在运行。%n%n是否自动关闭正在运行的 EasyTools 并继续安装？
+english.AppRunningPrompt=Setup detected that EasyTools is currently running.%n%nWould you like to automatically close running instances of EasyTools and continue with the installation?
+chinesesimplified.InstallationAbortedByUser=安装已由用户取消。请关闭 EasyTools 后重新运行安装程序。
+english.InstallationAbortedByUser=Installation was cancelled by the user. Please close EasyTools and rerun setup.
+chinesesimplified.InstallingService=正在安装快速文件索引服务...
+english.InstallingService=Installing fast file search index service...
+chinesesimplified.StartingService=正在启动快速文件索引服务...
+english.StartingService=Starting fast file search index service...
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 Source: "deploy_dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 忽略可能会被占用的日志等
-; Excludes: "deploy_logs\*"
 
 [Icons]
 Name: "{group}\EasyTools"; Filename: "{app}\EasyTools.exe"
@@ -40,10 +54,10 @@ Name: "{group}\{cm:UninstallProgram,EasyTools}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\EasyTools"; Filename: "{app}\EasyTools.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "正在安装快速文件索引服务..."; Check: not ServiceExists
+Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: not ServiceExists
 Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: ServiceExists
 Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "正在启动快速文件索引服务..."
+Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"
 Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -60,15 +74,32 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  // 用户确认安装后再停止进程，避免仅打开安装器就打断当前工作。
-  Exec('taskkill.exe', '/f /im EasyTools.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := '';
+  
+  // 检查 EasyTools 是否在运行
+  if CheckForMutexes('Global\EasyTools_SingleInstance_Mutex') then
+  begin
+    // 弹出多语言确认提示框 (静默安装模式下自动选 YES)
+    if SuppressibleMsgBox(CustomMessage('AppRunningPrompt'), mbConfirmation, MB_YESNO, IDYES) = IDYES then
+    begin
+      // 终止进程并等待完全释放文件
+      Exec('taskkill.exe', '/f /im EasyTools.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Sleep(600);
+    end
+    else
+    begin
+      Result := CustomMessage('InstallationAbortedByUser');
+      Exit;
+    end;
+  end;
+
+  // 停止并清理服务进程
   if ServiceExists then
     Exec(ExpandConstant('{sys}\sc.exe'), 'stop EasyTools_SearchService', '',
          SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // sc stop 是异步状态切换；确保旧服务进程已释放待覆盖文件。
   Exec('taskkill.exe', '/f /im EasyTools_Service.exe', '', SW_HIDE,
        ewWaitUntilTerminated, ResultCode);
-  Result := '';
+  Sleep(400);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -78,5 +109,11 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     Exec('taskkill.exe', '/f /im EasyTools.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    if ServiceExists then
+      Exec(ExpandConstant('{sys}\sc.exe'), 'stop EasyTools_SearchService', '',
+           SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill.exe', '/f /im EasyTools_Service.exe', '', SW_HIDE,
+         ewWaitUntilTerminated, ResultCode);
+    Sleep(300);
   end;
 end;
