@@ -2,14 +2,15 @@
  * GestureDrawCanvas — 交互式手势录制与识别画板 (World-Class Interactive Drawing Pad)
  *
  * 功能:
- *   - 一体化手势录制控制舱 (Cockpit Bar): 触发模式切换 + Ctrl / Shift / Alt 修饰键联动
- *   - 实时监听键盘物理修饰键按下状态并高亮显示
- *   - 支持按住鼠标 (左键/右键/中键) 在画板上真实录制
- *   - 拦截右键菜单与中键滚动，实现平滑鼠标轨迹捕获
- *   - 实时贝塞尔平滑渲染与双层发光霓虹流光特效
+ *   - 一体化手势录制控制舱 (Cockpit Bar):
+ *     - 触发按键自由切换: 鼠标右键 / 中键 / 侧键1 / 侧键2 / 左键
+ *     - 触发位置自由切换: 全局区域 / 屏幕上边缘 / 底边缘 / 左边缘 / 右边缘
+ *     - 键盘物理修饰键实时捕获高亮 (Ctrl / Shift / Alt)
+ *   - 按住鼠标任意按键滑动时，自动探测物理按键并无缝绑定
+ *   - 拦截右键菜单与中键/侧键导航默认事件，保证画板绘制极其流畅
  *   - 搭载 RDP + 转弯圆角折叠平滑消抖算法 (Corner Fillet Folding)
- *   - 实时识别方向并自动合成手势编码 (如 Ctrl+R, Middle+Shift+L)
- *   - 支持一键清空重绘与常用快捷预设
+ *   - 实时识别方向并自动合成手势完整编码 (如 TopEdge+D, X1+L, Ctrl+Middle+R)
+ *   - 常用快捷手势预设分流展示
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useRef, useCallback, useEffect, type FC } from 'react';
@@ -18,6 +19,8 @@ import {
   codeToArrows,
   parseGestureCode,
   assembleGestureCode,
+  type TriggerButton,
+  type ScreenEdge,
 } from './gestureModel';
 import './GestureDrawCanvas.css';
 
@@ -140,12 +143,7 @@ function recognizeStrokes(points: Point[]): string {
       segStart = pt;
     }
   }
-
-  if (currentDir) {
-    if (rawDirs.length === 0 || rawDirs[rawDirs.length - 1] !== currentDir) {
-      rawDirs.push(currentDir);
-    }
-  }
+  if (currentDir) rawDirs.push(currentDir);
 
   const simplified = simplifyDirections(rawDirs);
   return simplified.join('-');
@@ -156,16 +154,17 @@ function pointsToSvgPath(points: Point[]): string {
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
   if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
 
-  let path = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 2; i++) {
-    const pNext = points[i + 1];
-    const pAfter = points[i + 2];
-    const midX = (pNext.x + pAfter.x) / 2;
-    const midY = (pNext.y + pAfter.y) / 2;
-    path += ` Q ${pNext.x} ${pNext.y}, ${midX} ${midY}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    d += ` Q ${p1.x} ${p1.y}, ${midX} ${midY}`;
   }
-  path += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
-  return path;
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
 }
 
 const RIGHT_PRESET_GESTURES = [
@@ -194,11 +193,40 @@ const MIDDLE_PRESET_GESTURES = [
   { code: 'Middle+L-D', label: '显示桌面' },
 ];
 
+const SIDE1_PRESET_GESTURES = [
+  { code: 'X1+L', label: '后退' },
+  { code: 'X1+R', label: '前进' },
+  { code: 'X1+U', label: '下一标签' },
+  { code: 'X1+D', label: '上一标签' },
+  { code: 'X1+D-R', label: '关闭标签' },
+  { code: 'X1+R-D', label: '恢复标签' },
+  { code: 'X1+D-U', label: '刷新' },
+];
+
+const SIDE2_PRESET_GESTURES = [
+  { code: 'X2+L', label: '上一曲' },
+  { code: 'X2+R', label: '下一曲' },
+  { code: 'X2+U', label: '音量增加' },
+  { code: 'X2+D', label: '音量减少' },
+  { code: 'X2+D-R', label: '关闭窗口' },
+  { code: 'X2+L-D', label: '显示桌面' },
+];
+
+const TOPEDGE_PRESET_GESTURES = [
+  { code: 'TopEdge+D', label: '任务视图 / 显示桌面' },
+  { code: 'TopEdge+L', label: '左虚拟桌面' },
+  { code: 'TopEdge+R', label: '右虚拟桌面' },
+  { code: 'TopEdge+Left+D', label: '左键下拉关闭' },
+  { code: 'TopEdge+Middle+D', label: '中键下拉最小化' },
+];
+
 interface Props {
   value: string;
   onChange: (code: string) => void;
-  triggerButton?: 'right' | 'middle';
-  onTriggerButtonChange?: (trigger: 'right' | 'middle') => void;
+  triggerButton?: TriggerButton;
+  onTriggerButtonChange?: (trigger: TriggerButton) => void;
+  screenEdge?: ScreenEdge;
+  onScreenEdgeChange?: (edge: ScreenEdge) => void;
 }
 
 export const GestureDrawCanvas: FC<Props> = ({
@@ -206,6 +234,8 @@ export const GestureDrawCanvas: FC<Props> = ({
   onChange,
   triggerButton = 'right',
   onTriggerButtonChange,
+  screenEdge = 'none',
+  onScreenEdgeChange,
 }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -219,12 +249,13 @@ export const GestureDrawCanvas: FC<Props> = ({
     alt: false,
   });
 
-  // 解析当前手势编码自带的修饰状态
+  // 解析当前手势编码自带的修饰与边缘状态
   const parsed = parseGestureCode(value);
   const currentCtrl = parsed.hasCtrl || liveKeys.ctrl;
   const currentShift = parsed.hasShift || liveKeys.shift;
   const currentAlt = parsed.hasAlt || liveKeys.alt;
-  const currentTrigger = parsed.isMiddle ? 'middle' : triggerButton;
+  const currentTrigger = parsed.triggerButton !== 'right' ? parsed.triggerButton : triggerButton;
+  const currentEdge = parsed.edge !== 'none' ? parsed.edge : screenEdge;
 
   // 监听物理键盘修饰键实时按下/松开
   useEffect(() => {
@@ -258,10 +289,37 @@ export const GestureDrawCanvas: FC<Props> = ({
     const nextAlt = mod === 'alt' ? !parsed.hasAlt : parsed.hasAlt;
 
     const newCode = assembleGestureCode({
-      isMiddle: currentTrigger === 'middle',
+      edge: currentEdge,
+      triggerButton: currentTrigger,
       hasCtrl: nextCtrl,
       hasShift: nextShift,
       hasAlt: nextAlt,
+      bareCode: parsed.bareCode,
+    });
+    onChange(newCode);
+  };
+
+  const handleSetTrigger = (btn: TriggerButton) => {
+    onTriggerButtonChange?.(btn);
+    const newCode = assembleGestureCode({
+      edge: currentEdge,
+      triggerButton: btn,
+      hasCtrl: currentCtrl,
+      hasShift: currentShift,
+      hasAlt: currentAlt,
+      bareCode: parsed.bareCode,
+    });
+    onChange(newCode);
+  };
+
+  const handleSetEdge = (edge: ScreenEdge) => {
+    onScreenEdgeChange?.(edge);
+    const newCode = assembleGestureCode({
+      edge,
+      triggerButton: currentTrigger,
+      hasCtrl: currentCtrl,
+      hasShift: currentShift,
+      hasAlt: currentAlt,
       bareCode: parsed.bareCode,
     });
     onChange(newCode);
@@ -277,11 +335,18 @@ export const GestureDrawCanvas: FC<Props> = ({
     setIsDrawing(true);
     setDrawingButton(e.button);
 
-    // 智能联动触发键
-    if (e.button === 1 && onTriggerButtonChange) {
-      onTriggerButtonChange('middle');
-    } else if (e.button === 2 && onTriggerButtonChange) {
-      onTriggerButtonChange('right');
+    // 智能联动物理按键识别
+    let detectedBtn: TriggerButton = currentTrigger;
+    if (e.button === 1) detectedBtn = 'middle';
+    else if (e.button === 2) detectedBtn = 'right';
+    else if (e.button === 3) detectedBtn = 'x1';
+    else if (e.button === 4) detectedBtn = 'x2';
+    else if (e.button === 0 && (currentEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
+      detectedBtn = 'left';
+    }
+
+    if (onTriggerButtonChange && detectedBtn !== currentTrigger) {
+      onTriggerButtonChange(detectedBtn);
     }
 
     try {
@@ -289,7 +354,7 @@ export const GestureDrawCanvas: FC<Props> = ({
     } catch {
       // ignore
     }
-  }, [onTriggerButtonChange]);
+  }, [currentTrigger, currentEdge, liveKeys, parsed, onTriggerButtonChange]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDrawing || !canvasRef.current) return;
@@ -314,13 +379,21 @@ export const GestureDrawCanvas: FC<Props> = ({
     setIsDrawing(false);
 
     const effectiveButton = drawingButton ?? e.button;
-    const isMiddle = effectiveButton === 1 ? true : effectiveButton === 2 ? false : currentTrigger === 'middle';
+    let effectiveTrigger: TriggerButton = currentTrigger;
+    if (effectiveButton === 1) effectiveTrigger = 'middle';
+    else if (effectiveButton === 2) effectiveTrigger = 'right';
+    else if (effectiveButton === 3) effectiveTrigger = 'x1';
+    else if (effectiveButton === 4) effectiveTrigger = 'x2';
+    else if (effectiveButton === 0 && (currentEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
+      effectiveTrigger = 'left';
+    }
 
     if (points.length >= 2) {
       const bare = recognizeStrokes(points);
       if (bare) {
         const full = assembleGestureCode({
-          isMiddle,
+          edge: currentEdge,
+          triggerButton: effectiveTrigger,
           hasCtrl: e.ctrlKey || liveKeys.ctrl || parsed.hasCtrl,
           hasShift: e.shiftKey || liveKeys.shift || parsed.hasShift,
           hasAlt: e.altKey || liveKeys.alt || parsed.hasAlt,
@@ -330,7 +403,7 @@ export const GestureDrawCanvas: FC<Props> = ({
       }
     }
     setDrawingButton(null);
-  }, [isDrawing, points, onChange, currentTrigger, drawingButton, liveKeys, parsed]);
+  }, [isDrawing, points, onChange, currentTrigger, currentEdge, drawingButton, liveKeys, parsed]);
 
   const handleClear = () => {
     setPoints([]);
@@ -340,7 +413,8 @@ export const GestureDrawCanvas: FC<Props> = ({
   const handleSelectPreset = (presetCode: string) => {
     const presetParsed = parseGestureCode(presetCode);
     const full = assembleGestureCode({
-      isMiddle: currentTrigger === 'middle' || presetParsed.isMiddle,
+      edge: presetParsed.edge !== 'none' ? presetParsed.edge : currentEdge,
+      triggerButton: presetParsed.triggerButton !== 'right' ? presetParsed.triggerButton : currentTrigger,
       hasCtrl: currentCtrl || presetParsed.hasCtrl,
       hasShift: currentShift || presetParsed.hasShift,
       hasAlt: currentAlt || presetParsed.hasAlt,
@@ -351,36 +425,103 @@ export const GestureDrawCanvas: FC<Props> = ({
 
   const svgPath = pointsToSvgPath(points);
   const lastPoint = points.length > 0 ? points[points.length - 1] : null;
-  const presets = currentTrigger === 'middle' ? MIDDLE_PRESET_GESTURES : RIGHT_PRESET_GESTURES;
+
+  // 根据当前触发方式智能挑选预设列表
+  const presets =
+    currentEdge === 'top'
+      ? TOPEDGE_PRESET_GESTURES
+      : currentTrigger === 'middle'
+      ? MIDDLE_PRESET_GESTURES
+      : currentTrigger === 'x1'
+      ? SIDE1_PRESET_GESTURES
+      : currentTrigger === 'x2'
+      ? SIDE2_PRESET_GESTURES
+      : RIGHT_PRESET_GESTURES;
 
   return (
     <div className="gesture-draw-container">
       {/* 一体化手势录制控制舱 (Cockpit Bar) */}
       <div className="gesture-cockpit-bar">
-        {/* 左侧：触发按键快速切换 */}
+        {/* 触发按键快速切换 */}
         <div className="gesture-cockpit-group">
           <span className="gesture-cockpit-label">触发键:</span>
           <button
             type="button"
             className={`gesture-cockpit-pill ${currentTrigger === 'right' ? 'active' : ''}`}
-            onClick={() => onTriggerButtonChange?.('right')}
-            title="按住鼠标右键滑动"
+            onClick={() => handleSetTrigger('right')}
+            title="鼠标右键 (按住右键滑动)"
           >
             <span>◐</span>
-            <span>鼠标右键</span>
+            <span>右键</span>
           </button>
           <button
             type="button"
             className={`gesture-cockpit-pill ${currentTrigger === 'middle' ? 'active' : ''}`}
-            onClick={() => onTriggerButtonChange?.('middle')}
-            title="按住鼠标中键(滚轮)滑动"
+            onClick={() => handleSetTrigger('middle')}
+            title="鼠标中键 (按住中键/滚轮滑动)"
           >
             <span>◓</span>
-            <span>鼠标中键</span>
+            <span>中键</span>
+          </button>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentTrigger === 'x1' ? 'active' : ''}`}
+            onClick={() => handleSetTrigger('x1')}
+            title="鼠标侧键1 (按住后退键滑动)"
+          >
+            <span>◧</span>
+            <span>侧键1</span>
+          </button>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentTrigger === 'x2' ? 'active' : ''}`}
+            onClick={() => handleSetTrigger('x2')}
+            title="鼠标侧键2 (按住前进键滑动)"
+          >
+            <span>◨</span>
+            <span>侧键2</span>
+          </button>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentTrigger === 'left' ? 'active' : ''}`}
+            onClick={() => handleSetTrigger('left')}
+            title="鼠标左键 (边缘或带修饰键生效)"
+          >
+            <span>◑</span>
+            <span>左键</span>
           </button>
         </div>
 
-        {/* 右侧：修饰键与清空按钮 */}
+        {/* 触发位置 (屏幕边缘) */}
+        <div className="gesture-cockpit-group">
+          <span className="gesture-cockpit-label">位置:</span>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentEdge === 'none' ? 'active' : ''}`}
+            onClick={() => handleSetEdge('none')}
+            title="全局区域"
+          >
+            <span>全局</span>
+          </button>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentEdge === 'top' ? 'active' : ''}`}
+            onClick={() => handleSetEdge('top')}
+            title="屏幕上边缘"
+          >
+            <span>◰ 上边缘</span>
+          </button>
+          <button
+            type="button"
+            className={`gesture-cockpit-pill ${currentEdge === 'bottom' ? 'active' : ''}`}
+            onClick={() => handleSetEdge('bottom')}
+            title="屏幕底边缘"
+          >
+            <span>◲ 底边缘</span>
+          </button>
+        </div>
+
+        {/* 修饰键与清空按钮 */}
         <div className="gesture-cockpit-group">
           <span className="gesture-cockpit-label">修饰键:</span>
           <button
@@ -439,10 +580,10 @@ export const GestureDrawCanvas: FC<Props> = ({
               <MousePointer size={20} strokeWidth={2} className="gesture-draw-mouse-icon" />
             </div>
             <div className="gesture-draw-watermark-text">
-              按住鼠标划出轨迹 · 支持按住 Ctrl / Shift / Alt 修饰键录制
+              按住鼠标划出轨迹 · 支持按住右键/中键/侧键或配合修饰键录制
             </div>
             <div className="gesture-draw-watermark-hint">
-              按哪个键划动即自动绑定该键 · 也可点击上方药丸自由组合
+              按哪个键划动即自动识别该按键 · 也可点击上方控制舱药丸自由组合
             </div>
           </div>
         )}
@@ -504,4 +645,3 @@ export const GestureDrawCanvas: FC<Props> = ({
     </div>
   );
 };
-

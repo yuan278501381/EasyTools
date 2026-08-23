@@ -26,29 +26,50 @@ namespace easy::gesture {
 /// 当前触发模式下，这个按下事件是否应当开始一笔手势。
 inline bool isGestureTriggerDown(MouseEventType type, TriggerMode mode) noexcept {
     if (type == MouseEventType::RightDown) {
-        return mode == TriggerMode::RightOnly || mode == TriggerMode::Both;
+        return mode == TriggerMode::RightOnly || mode == TriggerMode::Both || mode == TriggerMode::All;
     }
     if (type == MouseEventType::MiddleDown) {
-        return mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both;
+        return mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both || mode == TriggerMode::All;
+    }
+    if (type == MouseEventType::X1Down) {
+        return mode == TriggerMode::Both || mode == TriggerMode::All || mode == TriggerMode::X1Only;
+    }
+    if (type == MouseEventType::X2Down) {
+        return mode == TriggerMode::Both || mode == TriggerMode::All || mode == TriggerMode::X2Only;
+    }
+    if (type == MouseEventType::LeftDown) {
+        return true; // 边缘或带修饰键的左键按下
     }
     return false;
 }
 
 /// 与按下配对的抬起事件。必须按实际按下的键配对，不能用配置项里的默认右键。
 inline MouseEventType triggerUpFor(MouseEventType downEvent) noexcept {
-    return downEvent == MouseEventType::MiddleDown
-        ? MouseEventType::MiddleUp
-        : MouseEventType::RightUp;
+    switch (downEvent) {
+        case MouseEventType::MiddleDown: return MouseEventType::MiddleUp;
+        case MouseEventType::X1Down:     return MouseEventType::X1Up;
+        case MouseEventType::X2Down:     return MouseEventType::X2Up;
+        case MouseEventType::LeftDown:   return MouseEventType::LeftUp;
+        default:                         return MouseEventType::RightUp;
+    }
 }
 
-/// 追踪过程中这些事件应立刻取消手势并放行（左键、对侧鼠标键）。
+/// 追踪过程中这些事件应立刻取消手势并放行（非当前触发键的其他鼠标键按下）。
 /// 与当前触发键相同的再次按下不取消：那是状态机失步时的噪声，由钩子侧闩锁处理。
 inline bool cancelsGestureTracking(MouseEventType type, MouseEventType activeTriggerDown) noexcept {
-    if (type == MouseEventType::LeftDown || type == MouseEventType::LeftUp) return true;
+    if (type == MouseEventType::LeftDown || type == MouseEventType::LeftUp) {
+        return activeTriggerDown != MouseEventType::LeftDown;
+    }
     if (type == MouseEventType::RightDown && activeTriggerDown != MouseEventType::RightDown) {
         return true;
     }
     if (type == MouseEventType::MiddleDown && activeTriggerDown != MouseEventType::MiddleDown) {
+        return true;
+    }
+    if (type == MouseEventType::X1Down && activeTriggerDown != MouseEventType::X1Down) {
+        return true;
+    }
+    if (type == MouseEventType::X2Down && activeTriggerDown != MouseEventType::X2Down) {
         return true;
     }
     return false;

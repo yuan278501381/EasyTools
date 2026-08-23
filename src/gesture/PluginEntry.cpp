@@ -324,7 +324,8 @@ public:
                     return {{"success", false}, {"error", "triggerButton must be a string"}};
                 }
                 trigger = params["triggerButton"].get<std::string>();
-                if (trigger != "right" && trigger != "middle" && trigger != "both") {
+                if (trigger != "right" && trigger != "middle" && trigger != "both" &&
+                    trigger != "all" && trigger != "x1" && trigger != "x2") {
                     return {{"success", false}, {"error", "invalid triggerButton"}};
                 }
             }

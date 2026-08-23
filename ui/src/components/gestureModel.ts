@@ -15,14 +15,15 @@ export interface TriggerItemDef {
 export const TRIGGER_ITEM_DEFINITIONS: TriggerItemDef[] = [
   { key: 'right', name: '鼠标右键', category: 'mouse', iconType: 'rclick' },
   { key: 'middle', name: '鼠标中键', category: 'mouse', iconType: 'mclick' },
-  { key: 'left', name: '鼠标左键', category: 'mouse', iconType: 'lclick' },
   { key: 'xbutton1', name: '鼠标侧键1', category: 'mouse', iconType: 'xbutton1' },
   { key: 'xbutton2', name: '鼠标侧键2', category: 'mouse', iconType: 'xbutton2' },
+  { key: 'left', name: '鼠标左键', category: 'mouse', iconType: 'lclick' },
   { key: 'edge_top_slide', name: '屏幕上边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_bottom_slide', name: '屏幕底边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_left_slide', name: '屏幕左边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_right_slide', name: '屏幕右边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
   { key: 'edge_top_wheel', name: '屏幕上边缘 + 滚轮', category: 'edge', iconType: 'edge_wheel' },
-  { key: 'edge_top_right', name: '屏幕上边缘 + 鼠标右键', category: 'edge', iconType: 'edge_rclick' },
-  { key: 'edge_top_middle', name: '屏幕上边缘 + 鼠标中键', category: 'edge', iconType: 'edge_mclick' },
-  { key: 'edge_top_left', name: '屏幕上边缘 + 鼠标左键', category: 'edge', iconType: 'edge_lclick' },
+  { key: 'edge_bottom_wheel', name: '屏幕底边缘 + 滚轮', category: 'edge', iconType: 'edge_wheel' },
 ];
 
 export interface GestureMapping {
@@ -80,8 +81,17 @@ export const CODE_TO_ARROWS: Record<string, string> = {
   LU: '↖', RU: '↗', LD: '↙', RD: '↘',
 };
 
+export type TriggerButton = 'right' | 'middle' | 'x1' | 'x2' | 'left';
+export type ScreenEdge = 'none' | 'top' | 'bottom' | 'left' | 'right';
+
 export interface ParsedGestureCode {
+  edge: ScreenEdge;
+  triggerButton: TriggerButton;
   isMiddle: boolean;
+  isX1: boolean;
+  isX2: boolean;
+  isLeft: boolean;
+  isTopEdge: boolean;
   hasCtrl: boolean;
   hasAlt: boolean;
   hasShift: boolean;
@@ -90,15 +100,32 @@ export interface ParsedGestureCode {
 
 export function parseGestureCode(code: string): ParsedGestureCode {
   let upper = (code || '').trim().toUpperCase();
+  let edge: ScreenEdge = 'none';
+  let triggerButton: TriggerButton = 'right';
   let hasCtrl = false;
   let hasAlt = false;
   let hasShift = false;
-  let isMiddle = false;
 
   let matched = true;
   while (matched) {
     matched = false;
-    if (upper.startsWith('CTRL+')) {
+    if (upper.startsWith('TOPEDGE+')) {
+      edge = 'top';
+      upper = upper.slice(8);
+      matched = true;
+    } else if (upper.startsWith('BOTTOMEDGE+')) {
+      edge = 'bottom';
+      upper = upper.slice(11);
+      matched = true;
+    } else if (upper.startsWith('LEFTEDGE+')) {
+      edge = 'left';
+      upper = upper.slice(9);
+      matched = true;
+    } else if (upper.startsWith('RIGHTEDGE+')) {
+      edge = 'right';
+      upper = upper.slice(10);
+      matched = true;
+    } else if (upper.startsWith('CTRL+')) {
       hasCtrl = true;
       upper = upper.slice(5);
       matched = true;
@@ -111,39 +138,95 @@ export function parseGestureCode(code: string): ParsedGestureCode {
       upper = upper.slice(6);
       matched = true;
     } else if (upper.startsWith('MIDDLE+')) {
-      isMiddle = true;
+      triggerButton = 'middle';
       upper = upper.slice(7);
+      matched = true;
+    } else if (upper.startsWith('X1+') || upper.startsWith('SIDE1+') || upper.startsWith('XBUTTON1+')) {
+      triggerButton = 'x1';
+      upper = upper.replace(/^(X1|SIDE1|XBUTTON1)\+/, '');
+      matched = true;
+    } else if (upper.startsWith('X2+') || upper.startsWith('SIDE2+') || upper.startsWith('XBUTTON2+')) {
+      triggerButton = 'x2';
+      upper = upper.replace(/^(X2|SIDE2|XBUTTON2)\+/, '');
+      matched = true;
+    } else if (upper.startsWith('LEFT+')) {
+      triggerButton = 'left';
+      upper = upper.slice(5);
       matched = true;
     }
   }
-  return { isMiddle, hasCtrl, hasAlt, hasShift, bareCode: upper };
+
+  return {
+    edge,
+    triggerButton,
+    isMiddle: triggerButton === 'middle',
+    isX1: triggerButton === 'x1',
+    isX2: triggerButton === 'x2',
+    isLeft: triggerButton === 'left',
+    isTopEdge: edge === 'top',
+    hasCtrl,
+    hasAlt,
+    hasShift,
+    bareCode: upper,
+  };
 }
 
 export function assembleGestureCode(params: {
+  edge?: ScreenEdge;
+  triggerButton?: TriggerButton;
   isMiddle?: boolean;
+  isX1?: boolean;
+  isX2?: boolean;
+  isLeft?: boolean;
+  isTopEdge?: boolean;
   hasCtrl?: boolean;
   hasAlt?: boolean;
   hasShift?: boolean;
   bareCode: string;
 }): string {
   let prefix = '';
+
+  // 1. Edge prefix
+  if (params.edge === 'top' || params.isTopEdge) prefix += 'TopEdge+';
+  else if (params.edge === 'bottom') prefix += 'BottomEdge+';
+  else if (params.edge === 'left') prefix += 'LeftEdge+';
+  else if (params.edge === 'right') prefix += 'RightEdge+';
+
+  // 2. Modifier prefix
   if (params.hasCtrl) prefix += 'Ctrl+';
   if (params.hasAlt) prefix += 'Alt+';
   if (params.hasShift) prefix += 'Shift+';
-  if (params.isMiddle) prefix += 'Middle+';
+
+  // 3. Trigger button prefix
+  if (params.triggerButton === 'middle' || params.isMiddle) prefix += 'Middle+';
+  else if (params.triggerButton === 'x1' || params.isX1) prefix += 'X1+';
+  else if (params.triggerButton === 'x2' || params.isX2) prefix += 'X2+';
+  else if (params.triggerButton === 'left' || params.isLeft) prefix += 'Left+';
+
   return prefix + (params.bareCode || '').toUpperCase();
 }
 
-/** 把方向编码 (如 "Middle+L", "Ctrl+U-R", "Ctrl+Middle+R") 渲染为箭头串, 用于实时预览与无障碍提示。 */
+/** 把完整手势编码渲染为箭头与文字提示串, 用于实时预览与列表清晰展示。 */
 export function codeToArrows(code: string): string {
   if (!code) return '';
-  const { isMiddle, hasCtrl, hasAlt, hasShift, bareCode } = parseGestureCode(code);
+  const parsed = parseGestureCode(code);
   let prefix = '';
-  if (hasCtrl) prefix += 'Ctrl+';
-  if (hasAlt) prefix += 'Alt+';
-  if (hasShift) prefix += 'Shift+';
-  if (isMiddle) prefix += '[中键] ';
 
+  if (parsed.edge === 'top') prefix += '[上边缘] ';
+  else if (parsed.edge === 'bottom') prefix += '[底边缘] ';
+  else if (parsed.edge === 'left') prefix += '[左边缘] ';
+  else if (parsed.edge === 'right') prefix += '[右边缘] ';
+
+  if (parsed.hasCtrl) prefix += 'Ctrl+';
+  if (parsed.hasAlt) prefix += 'Alt+';
+  if (parsed.hasShift) prefix += 'Shift+';
+
+  if (parsed.triggerButton === 'middle') prefix += '[中键] ';
+  else if (parsed.triggerButton === 'x1') prefix += '[侧键1] ';
+  else if (parsed.triggerButton === 'x2') prefix += '[侧键2] ';
+  else if (parsed.triggerButton === 'left') prefix += '[左键] ';
+
+  const bareCode = parsed.bareCode;
   if (!bareCode) return prefix.trim();
 
   if (bareCode.includes('-')) {
@@ -160,7 +243,7 @@ export function codeToArrows(code: string): string {
   return prefix + bareCode;
 }
 
-export const GESTURE_CODE_PATTERN = /^((Middle|Ctrl|Alt|Shift)\+)*[UDLR]{1,3}(-[UDLR]{1,3})*$/i;
+export const GESTURE_CODE_PATTERN = /^((TopEdge|BottomEdge|LeftEdge|RightEdge|Middle|X1|X2|Left|Ctrl|Alt|Shift)\+)*[UDLR]{1,3}(-[UDLR]{1,3})*$/i;
 
 export function normalizeGestureCode(code: string): string {
   return code.trim().toUpperCase();

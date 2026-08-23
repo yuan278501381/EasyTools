@@ -91,6 +91,19 @@ std::vector<MouseEvent> MouseHook::drainEvents(size_t maxCount) {
     return events;
 }
 
+static ScreenEdgeZone detectScreenEdgeZone(POINT pt, int tolerance = 4) {
+    HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    if (!hMon) return ScreenEdgeZone::None;
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfoW(hMon, &mi)) return ScreenEdgeZone::None;
+    const RECT& rc = mi.rcMonitor;
+    if (pt.y <= rc.top + tolerance) return ScreenEdgeZone::Top;
+    if (pt.y >= rc.bottom - 1 - tolerance) return ScreenEdgeZone::Bottom;
+    if (pt.x <= rc.left + tolerance) return ScreenEdgeZone::Left;
+    if (pt.x >= rc.right - 1 - tolerance) return ScreenEdgeZone::Right;
+    return ScreenEdgeZone::None;
+}
+
 LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     auto& self = MouseHook::instance();
 
@@ -115,7 +128,7 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
                     if (data && (data->flags & LLMHF_INJECTED) == 0) {
                         if (wParam == WM_RBUTTONUP || wParam == WM_MBUTTONUP ||
-                            wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONUP) {
+                            wParam == WM_XBUTTONUP || wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONUP) {
                             self.m_triggerButtonDown.store(false, std::memory_order_release);
                         }
                     }
@@ -166,10 +179,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                 }
                 case WM_RBUTTONDOWN: {
                     event.type = MouseEventType::RightDown;
+                    event.edgeZone = detectScreenEdgeZone(data->pt);
+                    event.isTopEdge = (event.edgeZone == ScreenEdgeZone::Top);
                     const auto mode = self.m_configuredTriggerMode.load(std::memory_order_relaxed);
                     if (gestureEnabled &&
                         !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        (mode == TriggerMode::RightOnly || mode == TriggerMode::Both)) {
+                        (mode == TriggerMode::RightOnly || mode == TriggerMode::Both || mode == TriggerMode::All)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
                         self.m_cachedForegroundWindow = GetForegroundWindow();
@@ -178,6 +193,8 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
                         if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
                         self.m_cachedModifiers = mods;
+                        self.m_cachedEdgeZone = event.edgeZone;
+                        self.m_cachedIsTopEdge = event.isTopEdge;
                         shouldCapture = true;
                     }
                     easy::core::StatsManager::instance().recordRightClick();
@@ -192,10 +209,12 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     break;
                 case WM_MBUTTONDOWN: {
                     event.type = MouseEventType::MiddleDown;
+                    event.edgeZone = detectScreenEdgeZone(data->pt);
+                    event.isTopEdge = (event.edgeZone == ScreenEdgeZone::Top);
                     const auto mode = self.m_configuredTriggerMode.load(std::memory_order_relaxed);
                     if (gestureEnabled &&
                         !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
-                        (mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both)) {
+                        (mode == TriggerMode::MiddleOnly || mode == TriggerMode::Both || mode == TriggerMode::All)) {
                         self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
                         self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
                         self.m_cachedForegroundWindow = GetForegroundWindow();
@@ -204,6 +223,8 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
                         if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
                         self.m_cachedModifiers = mods;
+                        self.m_cachedEdgeZone = event.edgeZone;
+                        self.m_cachedIsTopEdge = event.isTopEdge;
                         shouldCapture = true;
                     }
                     break;
@@ -215,27 +236,89 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                         self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
                     }
                     break;
-                case WM_LBUTTONDOWN:
+                case WM_XBUTTONDOWN: {
+                    const WORD xbtn = HIWORD(data->mouseData);
+                    event.type = (xbtn == XBUTTON2) ? MouseEventType::X2Down : MouseEventType::X1Down;
+                    event.edgeZone = detectScreenEdgeZone(data->pt);
+                    event.isTopEdge = (event.edgeZone == ScreenEdgeZone::Top);
+                    const auto mode = self.m_configuredTriggerMode.load(std::memory_order_relaxed);
+                    const bool allowX = (mode == TriggerMode::Both || mode == TriggerMode::All ||
+                                         (mode == TriggerMode::X1Only && xbtn == XBUTTON1) ||
+                                         (mode == TriggerMode::X2Only && xbtn == XBUTTON2));
+                    if (gestureEnabled &&
+                        !self.m_triggerButtonDown.load(std::memory_order_relaxed) && allowX) {
+                        self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
+                        self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        self.m_cachedForegroundWindow = GetForegroundWindow();
+                        uint8_t mods = 0;
+                        if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+                        if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+                        if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+                        self.m_cachedModifiers = mods;
+                        self.m_cachedEdgeZone = event.edgeZone;
+                        self.m_cachedIsTopEdge = event.isTopEdge;
+                        shouldCapture = true;
+                    }
+                    break;
+                }
+                case WM_XBUTTONUP: {
+                    const WORD xbtn = HIWORD(data->mouseData);
+                    event.type = (xbtn == XBUTTON2) ? MouseEventType::X2Up : MouseEventType::X1Up;
+                    const auto active = self.m_activeTriggerDown.load(std::memory_order_relaxed);
+                    if ((active == MouseEventType::X1Down && xbtn == XBUTTON1) ||
+                        (active == MouseEventType::X2Down && xbtn == XBUTTON2)) {
+                        shouldCapture = gestureEnabled;
+                        self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
+                    }
+                    break;
+                }
+                case WM_LBUTTONDOWN: {
                     event.type = MouseEventType::LeftDown;
-                    if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
-                        // 左键按下时立即复位手势触发状态并通知引擎取消，绝对不吞掉左键点击
+                    event.edgeZone = detectScreenEdgeZone(data->pt);
+                    event.isTopEdge = (event.edgeZone == ScreenEdgeZone::Top);
+                    uint8_t mods = 0;
+                    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) mods |= MOUSE_MOD_CTRL;
+                    if (GetAsyncKeyState(VK_MENU)    & 0x8000) mods |= MOUSE_MOD_ALT;
+                    if (GetAsyncKeyState(VK_SHIFT)   & 0x8000) mods |= MOUSE_MOD_SHIFT;
+
+                    if (gestureEnabled && !self.m_triggerButtonDown.load(std::memory_order_relaxed) &&
+                        (event.edgeZone != ScreenEdgeZone::None || mods != 0)) {
+                        self.m_activeTriggerDown.store(event.type, std::memory_order_relaxed);
+                        self.m_triggerButtonDown.store(true, std::memory_order_relaxed);
+                        self.m_cachedForegroundWindow = GetForegroundWindow();
+                        self.m_cachedModifiers = mods;
+                        self.m_cachedEdgeZone = event.edgeZone;
+                        self.m_cachedIsTopEdge = event.isTopEdge;
+                        shouldCapture = true;
+                    } else if (self.m_triggerButtonDown.load(std::memory_order_relaxed)) {
+                        // 其它按键触发中如果按下左键，通知取消手势并放行左键
                         self.m_triggerButtonDown.store(false, std::memory_order_release);
                         event.foregroundWindow = self.m_cachedForegroundWindow;
                         event.modifiers = self.m_cachedModifiers;
+                        event.edgeZone = self.m_cachedEdgeZone;
+                        event.isTopEdge = self.m_cachedIsTopEdge;
                         self.processEvent(event);
+                        shouldCapture = false;
+                    } else {
+                        shouldCapture = false;
                     }
                     easy::core::StatsManager::instance().recordLeftClick();
-                    // 左键点击永远放行给系统，严禁拦截
-                    shouldCapture = false;
                     break;
+                }
                 case WM_LBUTTONUP:
                     event.type = MouseEventType::LeftUp;
-                    // 左键抬起永远放行给系统
-                    shouldCapture = false;
+                    if (self.m_activeTriggerDown.load(std::memory_order_relaxed) == MouseEventType::LeftDown) {
+                        shouldCapture = gestureEnabled;
+                        self.m_triggerButtonDown.store(false, std::memory_order_relaxed);
+                    } else {
+                        shouldCapture = false;
+                    }
                     break;
                 case WM_MOUSEWHEEL: {
                     short delta = HIWORD(data->mouseData);
                     event.type = delta > 0 ? MouseEventType::WheelUp : MouseEventType::WheelDown;
+                    event.edgeZone = detectScreenEdgeZone(data->pt);
+                    event.isTopEdge = (event.edgeZone == ScreenEdgeZone::Top);
                     shouldCapture = gestureEnabled &&
                         self.m_triggerButtonDown.load(std::memory_order_relaxed);
                     easy::core::StatsManager::instance().recordScroll();
@@ -248,6 +331,8 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
             if (shouldCapture) {
                 event.foregroundWindow = self.m_cachedForegroundWindow;
                 event.modifiers = self.m_cachedModifiers;
+                event.edgeZone = self.m_cachedEdgeZone;
+                event.isTopEdge = self.m_cachedIsTopEdge;
                 if (self.processEvent(event)) {
                     return 1; // 拦截事件，不传递给系统和其他应用
                 }

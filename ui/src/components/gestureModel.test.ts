@@ -62,18 +62,27 @@ describe('upsertGestureMapping', () => {
   });
 });
 
-describe('codeToArrows and GESTURE_CODE_PATTERN', () => {
-  it('correctly renders arrows with Middle+ and modifier prefixes', () => {
+describe('codeToArrows, parseGestureCode, assembleGestureCode and GESTURE_CODE_PATTERN', () => {
+  it('correctly renders arrows with Middle+, X1+, X2+, TopEdge+ and modifier prefixes', () => {
     expect(codeToArrows('L')).toBe('←');
     expect(codeToArrows('R')).toBe('→');
     expect(codeToArrows('Middle+L')).toBe('[中键] ←');
     expect(codeToArrows('Middle+R')).toBe('[中键] →');
+    expect(codeToArrows('X1+L')).toBe('[侧键1] ←');
+    expect(codeToArrows('X2+R')).toBe('[侧键2] →');
+    expect(codeToArrows('TopEdge+D')).toBe('[上边缘] ↓');
+    expect(codeToArrows('TopEdge+Left+D')).toBe('[上边缘] [左键] ↓');
     expect(codeToArrows('Ctrl+U-R')).toBe('Ctrl+↑ →');
+    expect(codeToArrows('Ctrl+X1+L')).toBe('Ctrl+[侧键1] ←');
 
     expect(GESTURE_CODE_PATTERN.test('L')).toBe(true);
     expect(GESTURE_CODE_PATTERN.test('R')).toBe(true);
     expect(GESTURE_CODE_PATTERN.test('Middle+L')).toBe(true);
-    expect(GESTURE_CODE_PATTERN.test('Middle+R')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('X1+L')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('X2+R')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('TopEdge+D')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('TopEdge+Left+D')).toBe(true);
+    expect(GESTURE_CODE_PATTERN.test('BottomEdge+X1+L')).toBe(true);
     expect(GESTURE_CODE_PATTERN.test('Ctrl+Shift+U-R')).toBe(true);
     expect(GESTURE_CODE_PATTERN.test('invalid_xyz')).toBe(false);
   });

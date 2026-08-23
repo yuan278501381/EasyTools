@@ -285,10 +285,18 @@ void GestureEngine::setTriggerButton(const std::string& button) {
         m_triggerDown = MouseEventType::MiddleDown;
         m_triggerUp = MouseEventType::MiddleUp;
         MouseHook::instance().setTriggerMode(TriggerMode::MiddleOnly);
+    } else if (button == "x1") {
+        m_triggerDown = MouseEventType::X1Down;
+        m_triggerUp = MouseEventType::X1Up;
+        MouseHook::instance().setTriggerMode(TriggerMode::X1Only);
+    } else if (button == "x2") {
+        m_triggerDown = MouseEventType::X2Down;
+        m_triggerUp = MouseEventType::X2Up;
+        MouseHook::instance().setTriggerMode(TriggerMode::X2Only);
     } else if (button == "both" || button == "all") {
         m_triggerDown = MouseEventType::RightDown;
         m_triggerUp = MouseEventType::RightUp;
-        MouseHook::instance().setTriggerMode(TriggerMode::Both);
+        MouseHook::instance().setTriggerMode(TriggerMode::All);
     } else {
         m_triggerDown = MouseEventType::RightDown;
         m_triggerUp = MouseEventType::RightUp;
@@ -299,8 +307,10 @@ void GestureEngine::setTriggerButton(const std::string& button) {
 
 std::string GestureEngine::triggerButton() const {
     const auto mode = MouseHook::instance().triggerMode();
-    if (mode == TriggerMode::Both) return "both";
+    if (mode == TriggerMode::All || mode == TriggerMode::Both) return "all";
     if (mode == TriggerMode::MiddleOnly) return "middle";
+    if (mode == TriggerMode::X1Only) return "x1";
+    if (mode == TriggerMode::X2Only) return "x2";
     return "right";
 }
 
@@ -519,6 +529,7 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
                  windowUsesCompositorSurface(startEx));
     }
     m_gestureModifiers = event.modifiers;  // 记录手势开始时的修饰键状态
+    m_gestureEdgeZone = event.edgeZone;    // 记录手势开始时的屏幕边缘区域
     m_activeProfile = resolveProfile(m_gestureStartWindow); // 一次性预解析 Profile 缓存
     m_fallbackProfile = getProfile("default");
     m_lastRecognizedDirections.clear();
@@ -535,8 +546,8 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
         trail.addPoint(static_cast<float>(event.position.x), static_cast<float>(event.position.y));
     }
 
-    LOG_TRACE("手势追踪开始: pos=({},{}), modifiers=0x{:02X}, trailVisible={}",
-              event.position.x, event.position.y, m_gestureModifiers, m_trailVisible.load());
+    LOG_TRACE("手势追踪开始: pos=({},{}), modifiers=0x{:02X}, edgeZone={}, trailVisible={}",
+              event.position.x, event.position.y, m_gestureModifiers, static_cast<int>(m_gestureEdgeZone), m_trailVisible.load());
 }
 
 void GestureEngine::updateTracking(const MouseEvent& event) {
@@ -576,13 +587,24 @@ void GestureEngine::updateTracking(const MouseEvent& event) {
 
                 std::string liveLabel;
                 if (!dirs.empty()) {
+                    std::string edgePrefix;
+                    if (m_gestureEdgeZone == ScreenEdgeZone::Top)         edgePrefix = "TopEdge+";
+                    else if (m_gestureEdgeZone == ScreenEdgeZone::Bottom) edgePrefix = "BottomEdge+";
+                    else if (m_gestureEdgeZone == ScreenEdgeZone::Left)   edgePrefix = "LeftEdge+";
+                    else if (m_gestureEdgeZone == ScreenEdgeZone::Right)  edgePrefix = "RightEdge+";
+
                     std::string modPrefix;
                     if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
                     if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
                     if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
 
-                    const std::string triggerPrefix = (m_activeTriggerDown == MouseEventType::MiddleDown) ? "Middle+" : "";
-                    const std::string fullCode = triggerPrefix + modPrefix + bareCode;
+                    std::string triggerPrefix;
+                    if (m_activeTriggerDown == MouseEventType::MiddleDown) triggerPrefix = "Middle+";
+                    else if (m_activeTriggerDown == MouseEventType::X1Down) triggerPrefix = "X1+";
+                    else if (m_activeTriggerDown == MouseEventType::X2Down) triggerPrefix = "X2+";
+                    else if (m_activeTriggerDown == MouseEventType::LeftDown) triggerPrefix = "Left+";
+
+                    const std::string fullCode = edgePrefix + triggerPrefix + modPrefix + bareCode;
                     std::optional<GestureAction> action;
                     if (m_activeProfile) {
                         action = lookupGestureAction(m_activeProfile, m_fallbackProfile, fullCode, bareCode);
@@ -673,14 +695,26 @@ void GestureEngine::endTracking(const MouseEvent& event) {
         return;
     }
 
-    // 生成带修饰键前缀的手势编码 (如 "Middle+L"、"Ctrl+L"、"Alt+D-R"、"Ctrl+Shift+U")
+    // 生成带边缘与修饰键前缀的手势编码 (如 "TopEdge+D"、"Middle+L"、"X1+R"、"Ctrl+L"、"Alt+D-R")
+    std::string edgePrefix;
+    if (m_gestureEdgeZone == ScreenEdgeZone::Top)         edgePrefix = "TopEdge+";
+    else if (m_gestureEdgeZone == ScreenEdgeZone::Bottom) edgePrefix = "BottomEdge+";
+    else if (m_gestureEdgeZone == ScreenEdgeZone::Left)   edgePrefix = "LeftEdge+";
+    else if (m_gestureEdgeZone == ScreenEdgeZone::Right)  edgePrefix = "RightEdge+";
+
     std::string modPrefix;
     if (m_gestureModifiers & MOUSE_MOD_CTRL)  modPrefix += "Ctrl+";
     if (m_gestureModifiers & MOUSE_MOD_ALT)   modPrefix += "Alt+";
     if (m_gestureModifiers & MOUSE_MOD_SHIFT) modPrefix += "Shift+";
-    const std::string triggerPrefix = (m_activeTriggerDown == MouseEventType::MiddleDown) ? "Middle+" : "";
-    std::string fullCode = triggerPrefix + modPrefix + result->code;  // 带修饰键的完整编码
-    std::string bareCode = result->code;                               // 无修饰键的纯方向编码
+
+    std::string triggerPrefix;
+    if (m_activeTriggerDown == MouseEventType::MiddleDown) triggerPrefix = "Middle+";
+    else if (m_activeTriggerDown == MouseEventType::X1Down) triggerPrefix = "X1+";
+    else if (m_activeTriggerDown == MouseEventType::X2Down) triggerPrefix = "X2+";
+    else if (m_activeTriggerDown == MouseEventType::LeftDown) triggerPrefix = "Left+";
+
+    std::string fullCode = edgePrefix + triggerPrefix + modPrefix + result->code;  // 完整手势编码
+    std::string bareCode = result->code;                                           // 无前缀的纯方向编码
 
     LOG_INFO("手势识别成功: code={}, fullCode={}, arrows={}, 点数={}, 距离={:.0f}px",
              bareCode, fullCode, result->toArrowString(), result->rawPoints.size(), result->totalDistance);
@@ -828,20 +862,44 @@ void GestureEngine::actionWorkerLoop(std::stop_token stopToken) {
 // 把被吞掉的触发键点击补发出去 (注入事件会被 MouseHook 忽略, 不会再次触发手势)。
 // 用于"没有有效手势/未绑定动作/窗口禁用"时, 让右键(或中键)菜单等正常工作。
 void GestureEngine::reinjectTriggerClick() {
-    const bool right = (m_activeTriggerDown == MouseEventType::RightDown);
+    const MouseEventType trigger = m_activeTriggerDown;
     const std::string traceId = m_gestureTraceId;
-    auto inject = [right, traceId]() {
+    auto inject = [trigger, traceId]() {
         easy::core::TraceId::setCurrent(traceId);
-        LOG_TRACE("无手势, 补发{}键点击以还原正常菜单", right ? "右" : "中");
         INPUT in[2] = {};
         in[0].type = INPUT_MOUSE;
-        in[0].mi.dwFlags = right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_MIDDLEDOWN;
         in[1].type = INPUT_MOUSE;
-        in[1].mi.dwFlags = right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_MIDDLEUP;
+        const char* btnName = "右";
+        if (trigger == MouseEventType::RightDown) {
+            in[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+            in[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+            btnName = "右";
+        } else if (trigger == MouseEventType::MiddleDown) {
+            in[0].mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
+            in[1].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
+            btnName = "中";
+        } else if (trigger == MouseEventType::X1Down) {
+            in[0].mi.dwFlags = MOUSEEVENTF_XDOWN;
+            in[0].mi.mouseData = XBUTTON1;
+            in[1].mi.dwFlags = MOUSEEVENTF_XUP;
+            in[1].mi.mouseData = XBUTTON1;
+            btnName = "侧键1";
+        } else if (trigger == MouseEventType::X2Down) {
+            in[0].mi.dwFlags = MOUSEEVENTF_XDOWN;
+            in[0].mi.mouseData = XBUTTON2;
+            in[1].mi.dwFlags = MOUSEEVENTF_XUP;
+            in[1].mi.mouseData = XBUTTON2;
+            btnName = "侧键2";
+        } else if (trigger == MouseEventType::LeftDown) {
+            in[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            in[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            btnName = "左";
+        }
+        LOG_TRACE("无手势, 补发{}键点击以还原正常操作", btnName);
         const UINT sent = SendInput(2, in, sizeof(INPUT));
         if (sent != 2) {
             LOG_ERROR("补发{}键点击失败: sent={}, error={}",
-                      right ? "右" : "中", sent, GetLastError());
+                      btnName, sent, GetLastError());
         }
     };
 

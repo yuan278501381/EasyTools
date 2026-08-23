@@ -26,6 +26,10 @@ enum class MouseEventType {
     RightUp,
     MiddleDown,
     MiddleUp,
+    X1Down,
+    X1Up,
+    X2Down,
+    X2Up,
     LeftDown,
     LeftUp,
     WheelUp,
@@ -37,6 +41,15 @@ static constexpr uint8_t MOUSE_MOD_CTRL  = 0x01;
 static constexpr uint8_t MOUSE_MOD_ALT   = 0x02;
 static constexpr uint8_t MOUSE_MOD_SHIFT = 0x04;
 
+/// 屏幕边缘区域
+enum class ScreenEdgeZone : uint8_t {
+    None = 0,     // 常规屏幕区域
+    Top = 1,      // 屏幕上边缘
+    Bottom = 2,   // 屏幕底边缘
+    Left = 3,     // 屏幕左边缘
+    Right = 4     // 屏幕右边缘
+};
+
 /// 鼠标事件数据（从钩子回调中采集）
 struct MouseEvent {
     MouseEventType type;
@@ -44,6 +57,8 @@ struct MouseEvent {
     std::chrono::steady_clock::time_point timestamp;              // 高精度时间戳
     HWND foregroundWindow = nullptr;                              // 事件发生时的前台窗口
     uint8_t modifiers = 0;                                        // 修饰键状态 (MOUSE_MOD_CTRL | MOUSE_MOD_ALT | MOUSE_MOD_SHIFT)
+    ScreenEdgeZone edgeZone = ScreenEdgeZone::None;               // 屏幕边缘区域
+    bool isTopEdge = false;                                       // 兼容保留字段
 };
 
 /// 鼠标事件回调，返回 true 表示拦截此事件不传递给下层
@@ -54,9 +69,12 @@ using MouseHookFaultCallback = std::function<void()>;
 
 /// 手势允许的触发按键模式
 enum class TriggerMode : uint8_t {
-    RightOnly = 0,        // 仅右键 (次要按键，自适应左手模式)
+    RightOnly = 0,        // 仅右键 (次要按键)
     MiddleOnly = 1,       // 仅滚轮中键
-    Both = 2              // 右键与中键均可触发 (推荐)
+    Both = 2,             // 右键与中键 (兼容模式)
+    All = 3,              // 全部支持 (右键、中键、侧键1、侧键2 自由组合)
+    X1Only = 4,           // 仅侧键1
+    X2Only = 5            // 仅侧键2
 };
 
 class MouseHook {
@@ -113,6 +131,8 @@ private:
 
     HWND m_cachedForegroundWindow = nullptr;
     uint8_t m_cachedModifiers = 0;
+    ScreenEdgeZone m_cachedEdgeZone = ScreenEdgeZone::None;
+    bool m_cachedIsTopEdge = false;
 
     // ── 防御性编程：超时熔断自愈 (Circuit Breaker) ──
     std::atomic<bool> m_circuitBreakerTripped{false};

@@ -87,7 +87,6 @@ export const GestureEditorModal: FC<Props> = ({
   const silentCardRef = useRef<HTMLDivElement>(null);
 
   const code = draft.gestureCode.trim().toUpperCase();
-  const currentTrigger = code.includes('MIDDLE+') ? 'middle' : 'right';
 
   // 弹窗挂载时开启录制免打扰保护模式，关闭时自动恢复全局拦截
   useEffect(() => {
@@ -195,6 +194,19 @@ export const GestureEditorModal: FC<Props> = ({
         R: { name: '前进', type: 0, keyStroke: 'Alt+Right', desc: '网页/资源管理器前进' },
         'MIDDLE+L': { name: '上一曲', type: 0, keyStroke: 'MediaPrev', desc: '全局多媒体上一曲' },
         'MIDDLE+R': { name: '下一曲', type: 0, keyStroke: 'MediaNext', desc: '全局多媒体下一曲' },
+        'X1+L': { name: '后退', type: 0, keyStroke: 'Alt+Left', desc: '网页/资源管理器后退' },
+        'X1+R': { name: '前进', type: 0, keyStroke: 'Alt+Right', desc: '网页/资源管理器前进' },
+        'X1+U': { name: '下一标签', type: 0, keyStroke: 'Ctrl+Tab', desc: '切换至下一个标签' },
+        'X1+D': { name: '上一标签', type: 0, keyStroke: 'Ctrl+Shift+Tab', desc: '切换至上一个标签' },
+        'X1+D-R': { name: '关闭标签页', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页' },
+        'X2+L': { name: '上一曲', type: 0, keyStroke: 'MediaPrev', desc: '全局多媒体上一曲' },
+        'X2+R': { name: '下一曲', type: 0, keyStroke: 'MediaNext', desc: '全局多媒体下一曲' },
+        'X2+U': { name: '音量增加', type: 2, builtinCmd: 22, desc: '增加系统主音量' },
+        'X2+D': { name: '音量减少', type: 2, builtinCmd: 23, desc: '降低系统主音量' },
+        'TOPEDGE+D': { name: '任务视图', type: 2, builtinCmd: 7, desc: '呼出 Windows 任务视图 / 时间线' },
+        'TOPEDGE+L': { name: '切换至左桌面', type: 2, builtinCmd: 25, desc: '切换至左侧虚拟桌面' },
+        'TOPEDGE+R': { name: '切换至右桌面', type: 2, builtinCmd: 26, desc: '切换至右侧虚拟桌面' },
+        'TOPEDGE+LEFT+D': { name: '关闭当前窗口', type: 0, keyStroke: 'Alt+F4', desc: '屏幕顶端左键下拉关闭窗口' },
         U: { name: '最大化/还原', type: 2, builtinCmd: 2, desc: '最大化或还原当前窗口' },
         D: { name: '最小化', type: 2, builtinCmd: 3, desc: '最小化当前窗口' },
         'D-R': { name: '关闭标签页', type: 0, keyStroke: 'Ctrl+W', desc: '关闭当前标签页' },
@@ -224,10 +236,24 @@ export const GestureEditorModal: FC<Props> = ({
     });
   };
 
-  const handleTriggerChange = (targetTrigger: 'right' | 'middle') => {
+  const handleTriggerChange = (targetTrigger: import('./gestureModel').TriggerButton) => {
     const parsed = parseGestureCode(draft.gestureCode);
     const newCode = assembleGestureCode({
-      isMiddle: targetTrigger === 'middle',
+      edge: parsed.edge,
+      triggerButton: targetTrigger,
+      hasCtrl: parsed.hasCtrl,
+      hasShift: parsed.hasShift,
+      hasAlt: parsed.hasAlt,
+      bareCode: parsed.bareCode,
+    });
+    handleGestureCodeChange(newCode);
+  };
+
+  const handleEdgeChange = (targetEdge: import('./gestureModel').ScreenEdge) => {
+    const parsed = parseGestureCode(draft.gestureCode);
+    const newCode = assembleGestureCode({
+      edge: targetEdge,
+      triggerButton: parsed.triggerButton,
       hasCtrl: parsed.hasCtrl,
       hasShift: parsed.hasShift,
       hasAlt: parsed.hasAlt,
@@ -237,6 +263,7 @@ export const GestureEditorModal: FC<Props> = ({
   };
 
   const activeAdvancedCount = (draft.instantExecute ? 1 : 0) + (draft.silentToast ? 1 : 0);
+  const parsed = parseGestureCode(draft.gestureCode);
 
   return (
     <Modal
@@ -268,8 +295,10 @@ export const GestureEditorModal: FC<Props> = ({
         <GestureDrawCanvas
           value={draft.gestureCode}
           onChange={handleGestureCodeChange}
-          triggerButton={currentTrigger}
+          triggerButton={parsed.triggerButton}
           onTriggerButtonChange={handleTriggerChange}
+          screenEdge={parsed.edge}
+          onScreenEdgeChange={handleEdgeChange}
         />
         {code && (
           <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>

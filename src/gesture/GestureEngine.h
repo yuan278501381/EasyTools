@@ -172,6 +172,7 @@ private:
     POINT m_gestureEndPt{};
     std::string m_gestureTraceId;         // 当前手势的 TraceId, 贯穿 按下→移动→抬起→执行
     uint8_t m_gestureModifiers = 0;       // 手势开始时的修饰键状态
+    ScreenEdgeZone m_gestureEdgeZone = ScreenEdgeZone::None; // 手势开始时的屏幕边缘区域
     std::chrono::steady_clock::time_point m_trackingStartTime; // 手势开始追踪的时间点
     std::optional<GestureProfile> m_activeProfile;       // 本次手势激活的 Profile 缓存
     std::optional<GestureProfile> m_fallbackProfile;     // 本次手势 fallback 的默认 Profile 缓存
