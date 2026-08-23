@@ -101,6 +101,7 @@ export interface SidebarProps {
   onSelectAccent?: (accent: string) => void;
   activePlugins?: ReadonlySet<string>;
   installedExtensionIds?: string[];
+  isElevated?: boolean;
 }
 
 export const Sidebar: FC<SidebarProps> = ({
@@ -113,6 +114,7 @@ export const Sidebar: FC<SidebarProps> = ({
   onSelectAccent,
   activePlugins,
   installedExtensionIds = [],
+  isElevated = false,
 }) => {
   const { t } = useTranslation();
   const [flyoutOpen, setFlyoutOpen] = useState(false);
@@ -152,6 +154,12 @@ export const Sidebar: FC<SidebarProps> = ({
           <EasyToolsBolt size={32} fill="var(--primary)" />
         </span>
         <span className="sidebar__logo-text">EasyTools</span>
+        <span
+          className={`sidebar__admin-badge ${isElevated ? 'sidebar__admin-badge--elevated' : 'sidebar__admin-badge--normal'}`}
+          title={isElevated ? t('sidebar.adminTitle') : t('sidebar.normalTitle')}
+        >
+          {isElevated ? t('sidebar.adminBadge') : t('sidebar.normalBadge')}
+        </span>
       </div>
 
       {/* ── 导航列表 ──────────────────────────────────────────────── */}

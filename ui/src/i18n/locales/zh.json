@@ -670,7 +670,11 @@
     "themeToggleDark": "切换到暗色主题",
     "appearanceTitle": "外观与主题偏好",
     "mainNav": "主导航",
-    "pluginDisabled": "该功能模块本次运行未加载，请在功能模块中启用并重启"
+    "pluginDisabled": "该功能模块本次运行未加载，请在功能模块中启用并重启",
+    "adminBadge": "管理员",
+    "adminTitle": "以管理员身份运行",
+    "normalBadge": "非管理员",
+    "normalTitle": "非管理员身份运行"
   },
   "onboarding": {
     "welcomeTitle": "欢迎使用 EasyTools",

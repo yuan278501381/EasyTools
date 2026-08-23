@@ -2162,11 +2162,16 @@ TEST(KeyboardPipelineTest, FiltersSystemMenuAndHelpMessages) {
     EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_KEYMENU | 0x0002, 0));
     EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CONTEXTHELP, 0));
     EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_HELP, 0, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSKEYDOWN, VK_SPACE, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSKEYUP, VK_SPACE, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSKEYDOWN, VK_F10, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSKEYDOWN, VK_MENU, 0));
 
     // 普通命令如最大化/最小化/关闭等不能被误拦截
     EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CLOSE, 0));
     EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_MAXIMIZE, 0));
     EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_KEYDOWN, VK_SPACE, 0));
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSKEYDOWN, 'A', 0));
 }
 
 TEST(HotkeyManagerTest, HandlesRecordingPauseMode) {

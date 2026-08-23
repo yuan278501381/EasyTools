@@ -69,18 +69,73 @@ namespace {
         return wstr;
     }
 
+    void blendOverlay(cv::Mat& canvas, const cv::Mat& fgMat, int startX, int startY) {
+        if (canvas.empty() || fgMat.empty()) return;
+        int szH = fgMat.rows;
+        int szW = fgMat.cols;
+
+        if (canvas.channels() == 3) {
+            for (int y = 0; y < szH; ++y) {
+                int targetY = startY + y;
+                if (targetY < 0 || targetY >= canvas.rows) continue;
+                cv::Vec3b* rowBg = canvas.ptr<cv::Vec3b>(targetY);
+                const cv::Vec4b* rowFg = fgMat.ptr<cv::Vec4b>(y);
+                for (int x = 0; x < szW; ++x) {
+                    int targetX = startX + x;
+                    if (targetX < 0 || targetX >= canvas.cols) continue;
+
+                    const cv::Vec4b& fg = rowFg[x];
+                    float alpha = fg[3] / 255.0f;
+                    if (alpha > 0.001f) {
+                        cv::Vec3b& bg = rowBg[targetX];
+                        bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
+                        bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
+                        bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
+                    }
+                }
+            }
+        } else if (canvas.channels() == 4) {
+            for (int y = 0; y < szH; ++y) {
+                int targetY = startY + y;
+                if (targetY < 0 || targetY >= canvas.rows) continue;
+                cv::Vec4b* rowBg = canvas.ptr<cv::Vec4b>(targetY);
+                const cv::Vec4b* rowFg = fgMat.ptr<cv::Vec4b>(y);
+                for (int x = 0; x < szW; ++x) {
+                    int targetX = startX + x;
+                    if (targetX < 0 || targetX >= canvas.cols) continue;
+
+                    const cv::Vec4b& fg = rowFg[x];
+                    float alpha = fg[3] / 255.0f;
+                    if (alpha > 0.001f) {
+                        cv::Vec4b& bg = rowBg[targetX];
+                        bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
+                        bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
+                        bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
+                        bg[3] = 255;
+                    }
+                }
+            }
+        }
+    }
+
     cv::Size measureSnipasteText(const std::wstring& wtext, int fontSize) {
         if (wtext.empty()) return {24, fontSize + 8};
-        Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
-        Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+        Gdiplus::FontFamily fontFamily(L"Microsoft YaHei UI");
+        const Gdiplus::FontFamily* activeFamily = &fontFamily;
+        Gdiplus::FontFamily fallbackFamily(L"Segoe UI");
+        if (!fontFamily.IsAvailable()) {
+            activeFamily = &fallbackFamily;
+        }
+        Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
         HDC hdc = GetDC(nullptr);
         Gdiplus::Graphics graphics(hdc);
         Gdiplus::RectF boundRect;
-        Gdiplus::StringFormat format;
-        format.SetAlignment(Gdiplus::StringAlignmentNear);
+        Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericTypographic());
         graphics.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &boundRect);
         ReleaseDC(nullptr, hdc);
-        return cv::Size(static_cast<int>(std::ceil(boundRect.Width)) + 16, static_cast<int>(std::ceil(boundRect.Height)) + 8);
+        int w = static_cast<int>(std::ceil(boundRect.Width)) + 8;
+        int h = static_cast<int>(std::ceil(boundRect.Height)) + 6;
+        return cv::Size(std::max(w, 24), std::max(h, fontSize + 8));
     }
 
     void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, cv::Size& outSize) {
@@ -99,79 +154,63 @@ namespace {
             Gdiplus::Bitmap bitmap(sz.width, sz.height, static_cast<INT>(textMat.step), PixelFormat32bppARGB, textMat.data);
             Gdiplus::Graphics g(&bitmap);
             g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
-
-            // 1. 半透明气泡底衬 (Snipaste / PixPin 风格圆角胶囊)
-            Gdiplus::GraphicsPath bgPath;
-            float pad = 1.0f;
-            float r = 5.0f;
-            float w = static_cast<float>(sz.width) - pad * 2.0f;
-            float h = static_cast<float>(sz.height) - pad * 2.0f;
-            bgPath.AddArc(pad, pad, r * 2, r * 2, 180, 90);
-            bgPath.AddArc(pad + w - r * 2, pad, r * 2, r * 2, 270, 90);
-            bgPath.AddArc(pad + w - r * 2, pad + h - r * 2, r * 2, r * 2, 0, 90);
-            bgPath.AddArc(pad, pad + h - r * 2, r * 2, r * 2, 90, 90);
-            bgPath.CloseFigure();
+            // 采用纯净灰度抗锯齿 (TextRenderingHintAntiAliasGridFit)，严禁在透明图层上使用 ClearType 造成彩色/黑白栅格条纹
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
 
             BYTE rVal = static_cast<BYTE>(color[2]);
             BYTE gVal = static_cast<BYTE>(color[1]);
             BYTE bVal = static_cast<BYTE>(color[0]);
             float luminance = (0.299f * rVal + 0.587f * gVal + 0.114f * bVal) / 255.0f;
 
-            // 气泡半透明填充 (Alpha 130) + 浅描边
-            Gdiplus::SolidBrush bgBrush(Gdiplus::Color(135, 18, 18, 24));
-            g.FillPath(&bgBrush, &bgPath);
-            Gdiplus::Pen borderPen(Gdiplus::Color(70, 255, 255, 255), 1.0f);
-            g.DrawPath(&borderPen, &bgPath);
+            // 1. 文字绘制 (纯透明底衬 + 高对比描边 + 矢量文字填充)
+            Gdiplus::FontFamily fontFamily(L"Microsoft YaHei UI");
+            const Gdiplus::FontFamily* activeFamily = &fontFamily;
+            Gdiplus::FontFamily fallbackFamily(L"Segoe UI");
+            if (!fontFamily.IsAvailable()) {
+                activeFamily = &fallbackFamily;
+            }
 
-            // 2. 文字双层发光描边 (4 向柔和描边，在任何黑白背景上都极其清晰)
-            Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
-            Gdiplus::Font font(&fontFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+            Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericTypographic());
+            format.SetAlignment(Gdiplus::StringAlignmentNear);
+            format.SetLineAlignment(Gdiplus::StringAlignmentNear);
 
-            Gdiplus::Color strokeColor = (luminance > 0.45f) ? Gdiplus::Color(220, 0, 0, 0) : Gdiplus::Color(220, 255, 255, 255);
-            Gdiplus::SolidBrush strokeBrush(strokeColor);
-            float textX = 8.0f;
-            float textY = 4.0f;
-            for (float dx = -1.2f; dx <= 1.2f; dx += 1.2f) {
-                for (float dy = -1.2f; dy <= 1.2f; dy += 1.2f) {
-                    if (dx != 0.0f || dy != 0.0f) {
-                        g.DrawString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX + dx, textY + dy), &strokeBrush);
+            float textX = 4.0f;
+            float textY = 3.0f;
+
+            if (!wtext.empty()) {
+                Gdiplus::GraphicsPath textPath;
+                textPath.AddString(wtext.c_str(), -1, activeFamily, Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::PointF(textX, textY), &format);
+
+                // 双层高对比抗锯齿描边（浅色文字配深色阴影描边，深色文字配浅色高光描边，无需灰黑底框）
+                Gdiplus::Color strokeColor = (luminance > 0.45f) ? Gdiplus::Color(220, 0, 0, 0) : Gdiplus::Color(220, 255, 255, 255);
+                Gdiplus::Pen strokePen(strokeColor, std::max(2.0f, fontSize * 0.10f));
+                strokePen.SetLineJoin(Gdiplus::LineJoinRound);
+                g.DrawPath(&strokePen, &textPath);
+
+                // 正文矢量文字填充
+                Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
+                g.FillPath(&textBrush, &textPath);
+            }
+
+            // 2. 编辑态光标绘制
+            if (isEditing) {
+                bool showCursor = ((GetTickCount() / 450) % 2 == 0) || wtext.empty();
+                if (showCursor) {
+                    float cursorX = textX + 1.0f;
+                    if (!wtext.empty()) {
+                        Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+                        Gdiplus::RectF measured;
+                        g.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &measured);
+                        cursorX = textX + measured.Width + 2.0f;
                     }
-                }
-            }
-
-            // 正文文字
-            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
-            g.DrawString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX, textY), &textBrush);
-
-            // 3. 编辑态光标绘制
-            if (isEditing && (GetTickCount() / 450) % 2 == 0) {
-                Gdiplus::RectF measured;
-                g.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(textX, textY), &measured);
-                float cursorX = textX + (wtext.empty() ? 0.0f : measured.Width) + 1.0f;
-                Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
-                g.DrawLine(&cursorPen, cursorX, textY + 2.0f, cursorX, textY + fontSize + 2.0f);
-            }
-        }
-
-        // 4. Alpha 混合到 canvas
-        for (int y = 0; y < sz.height; ++y) {
-            for (int x = 0; x < sz.width; ++x) {
-                int targetY = pt.y + y;
-                int targetX = pt.x + x;
-                if (targetY < 0 || targetY >= canvas.rows || targetX < 0 || targetX >= canvas.cols) continue;
-
-                cv::Vec4b& bg = canvas.at<cv::Vec4b>(targetY, targetX);
-                cv::Vec4b fg = textMat.at<cv::Vec4b>(y, x);
-                float alpha = fg[3] / 255.0f;
-                if (alpha > 0.001f) {
-                    bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
-                    bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
-                    bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
-                    bg[3] = 255;
+                    Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
+                    g.DrawLine(&cursorPen, cursorX, textY + 1.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
                 }
             }
         }
+
+        // 4. 高性能自适应 Alpha 混合到 canvas (精准处理 3 通道 BGR 与 4 通道 BGRA，杜绝跨步错位栅格)
+        blendOverlay(canvas, textMat, pt.x, pt.y);
     }
 
     void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, float dpiScale = 1.0f) {
@@ -220,23 +259,7 @@ namespace {
 
         int startX = center.x - sz / 2;
         int startY = center.y - sz / 2;
-        for (int y = 0; y < sz; ++y) {
-            for (int x = 0; x < sz; ++x) {
-                int targetY = startY + y;
-                int targetX = startX + x;
-                if (targetY < 0 || targetY >= canvas.rows || targetX < 0 || targetX >= canvas.cols) continue;
-
-                cv::Vec4b& bg = canvas.at<cv::Vec4b>(targetY, targetX);
-                cv::Vec4b fg = badgeMat.at<cv::Vec4b>(y, x);
-                float alpha = fg[3] / 255.0f;
-                if (alpha > 0.001f) {
-                    bg[0] = static_cast<uchar>(fg[0] * alpha + bg[0] * (1.0f - alpha));
-                    bg[1] = static_cast<uchar>(fg[1] * alpha + bg[1] * (1.0f - alpha));
-                    bg[2] = static_cast<uchar>(fg[2] * alpha + bg[2] * (1.0f - alpha));
-                    bg[3] = 255;
-                }
-            }
-        }
+        blendOverlay(canvas, badgeMat, startX, startY);
     }
 }
 
@@ -343,9 +366,9 @@ cv::Rect MarkupElement::getBoundingBox() const {
 HitArea MarkupElement::hitTestEx(cv::Point pt, int padding) const {
     cv::Rect bbox = getBoundingBox();
     
-    // 如果处于激活状态，优先测试缩放手柄
+    // 如果处于激活状态，优先测试缩放手柄 (8 个方向控制点)
     if (isActive) {
-        int hw = 6; // handle half-width
+        int hw = 7; // 手柄响应半宽 (14x14px 灵敏命中区)
         cv::Point handles[8] = {
             {bbox.x, bbox.y}, {bbox.x + bbox.width / 2, bbox.y}, {bbox.x + bbox.width, bbox.y},
             {bbox.x + bbox.width, bbox.y + bbox.height / 2},
@@ -359,11 +382,12 @@ HitArea MarkupElement::hitTestEx(cv::Point pt, int padding) const {
         }
     }
 
-    // 然后测试主体区域
-    bbox.x -= padding;
-    bbox.y -= padding;
-    bbox.width += padding * 2;
-    bbox.height += padding * 2;
+    // 然后测试主体区域（扩大命中容差，避免边缘漏点）
+    int p = std::max(padding, 6);
+    bbox.x -= p;
+    bbox.y -= p;
+    bbox.width += p * 2;
+    bbox.height += p * 2;
     if (bbox.contains(pt)) return HitArea::Body;
     
     return HitArea::None;
@@ -382,19 +406,19 @@ void MarkupElement::resize(int dx, int dy, HitArea handle) {
         // 改善文本框缩放交互: 无论抓取哪个手柄，向外拖拽变大，向内变小
         int delta = 0;
         switch (handle) {
-            case HitArea::LT: delta = -dx - dy; break;
-            case HitArea::T:  delta = -dy; break;
-            case HitArea::RT: delta = dx - dy; break;
+            case HitArea::LT: delta = -dx - dy; startPt.x += dx; startPt.y += dy; break;
+            case HitArea::T:  delta = -dy; startPt.y += dy; break;
+            case HitArea::RT: delta = dx - dy; startPt.y += dy; break;
             case HitArea::R:  delta = dx; break;
             case HitArea::RB: delta = dx + dy; break;
             case HitArea::B:  delta = dy; break;
-            case HitArea::LB: delta = -dx + dy; break;
-            case HitArea::L:  delta = -dx; break;
+            case HitArea::LB: delta = -dx + dy; startPt.x += dx; break;
+            case HitArea::L:  delta = -dx; startPt.x += dx; break;
             default: break;
         }
-        fontSize += delta * 0.3f;
-        if (fontSize < 10.0f) fontSize = 10.0f;
-        if (fontSize > 200.0f) fontSize = 200.0f;
+        fontSize += delta * 0.35f;
+        if (fontSize < 12.0f) fontSize = 12.0f;
+        if (fontSize > 180.0f) fontSize = 180.0f;
         const_cast<MarkupElement*>(this)->textRenderSize = cv::Size(0,0); // 强制重算
         return;
     }
@@ -526,73 +550,73 @@ MarkupElement* MarkupEngine::getElementById(uint32_t id) const {
 // 工具快捷方法
 // ─────────────────────────────────────────────────────────────────────────────
 
-void MarkupEngine::drawRectangle(cv::Point p1, cv::Point p2, MarkupColor color, float thickness) {
+MarkupElement* MarkupEngine::drawRectangle(cv::Point p1, cv::Point p2, MarkupColor color, float thickness) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Rectangle;
     elem->startPt = p1;
     elem->endPt = p2;
     elem->color = color;
     elem->thickness = thickness;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::drawArrow(cv::Point from, cv::Point to, MarkupColor color, float thickness) {
+MarkupElement* MarkupEngine::drawArrow(cv::Point from, cv::Point to, MarkupColor color, float thickness) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Arrow;
     elem->startPt = from;
     elem->endPt = to;
     elem->color = color;
     elem->thickness = thickness;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::drawEllipse(cv::Point p1, cv::Point p2, MarkupColor color, float thickness) {
+MarkupElement* MarkupEngine::drawEllipse(cv::Point p1, cv::Point p2, MarkupColor color, float thickness) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Ellipse;
     elem->startPt = p1;
     elem->endPt = p2;
     elem->color = color;
     elem->thickness = thickness;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::drawPenStroke(const std::vector<cv::Point>& points, MarkupColor color, float thickness) {
-    if (points.size() < 2) return;
+MarkupElement* MarkupEngine::drawPenStroke(const std::vector<cv::Point>& points, MarkupColor color, float thickness) {
+    if (points.size() < 2) return nullptr;
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Pen;
     elem->penPoints = points;
     elem->color = color;
     elem->thickness = thickness;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::drawHighlight(cv::Point p1, cv::Point p2, MarkupColor color) {
+MarkupElement* MarkupEngine::drawHighlight(cv::Point p1, cv::Point p2, MarkupColor color) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Highlight;
     elem->startPt = p1;
     elem->endPt = p2;
     elem->color = color;
     elem->color.a = 80;  // 半透明
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::applyMosaic(cv::Point p1, cv::Point p2, int blockSize) {
+MarkupElement* MarkupEngine::applyMosaic(cv::Point p1, cv::Point p2, int blockSize) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Mosaic;
     elem->startPt = p1;
     elem->endPt = p2;
     elem->mosaicBlockSize = blockSize;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
-void MarkupEngine::addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize) {
+MarkupElement* MarkupEngine::addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Text;
     elem->startPt = position;
     elem->text = text;
     elem->color = color;
     elem->fontSize = fontSize;
-    addElement(std::move(elem));
+    return addElement(std::move(elem));
 }
 
 int MarkupEngine::addNumberMark(cv::Point position, MarkupColor color, float dpiScale) {
@@ -934,8 +958,8 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
         cv::Scalar activeColor(255, 140, 0); // BGR: Deep Sky Blue / Azure style
         cv::rectangle(canvas, bbox, activeColor, 1, cv::LINE_AA);
         
-        // 绘制 8 个把手
-        int hw = 4;
+        // 绘制 8 个把手 (5x5 像素纯白+高亮天蓝描边手柄)
+        int hw = 5;
         cv::Point handles[8] = {
             {bbox.x, bbox.y}, {bbox.x + bbox.width / 2, bbox.y}, {bbox.x + bbox.width, bbox.y},
             {bbox.x + bbox.width, bbox.y + bbox.height / 2},
@@ -944,21 +968,10 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
         };
 
         for (const auto& pt : handles) {
-            // 白色填充
+            // 白色实体填充
             cv::rectangle(canvas, cv::Rect(pt.x - hw, pt.y - hw, hw * 2, hw * 2), cv::Scalar(255, 255, 255), cv::FILLED, cv::LINE_AA);
-            // 蓝色描边
+            // 天蓝色清晰描边
             cv::rectangle(canvas, cv::Rect(pt.x - hw, pt.y - hw, hw * 2, hw * 2), activeColor, 1, cv::LINE_AA);
-        }
-    }
-
-    // 如果是文本且正在编辑，绘制闪烁光标
-    if (element.tool == MarkupTool::Text && element.isEditing) {
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        if ((ms / 500) % 2 == 0) {
-            int cx = element.startPt.x + element.textRenderSize.width + 2;
-            int cy1 = element.startPt.y - element.textRenderSize.height + 8;
-            int cy2 = element.startPt.y + 4;
-            cv::line(canvas, cv::Point(cx, cy1), cv::Point(cx, cy2), color, thick, cv::LINE_AA);
         }
     }
 }

@@ -1237,8 +1237,14 @@ bool GestureTrailOverlay::render() {
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));  // 完全透明背景
 
-    ID2D1SolidColorBrush* activeGlow = m_glowBrush.Get();
-    ID2D1SolidColorBrush* activeLine = m_lineBrush.Get();
+    ID2D1SolidColorBrush* activeGlow = (isRecognized || points.size() < 4)
+        ? m_glowBrush.Get()
+        : (m_greyGlowBrush ? m_greyGlowBrush.Get() : m_glowBrush.Get());
+    ID2D1SolidColorBrush* activeLine = (isRecognized || points.size() < 4)
+        ? m_lineBrush.Get()
+        : (m_greyLineBrush ? m_greyLineBrush.Get() : m_lineBrush.Get());
+    if (!activeGlow) activeGlow = m_glowBrush.Get();
+    if (!activeLine) activeLine = m_lineBrush.Get();
 
     auto getPt = [&](size_t idx) -> D2D1_POINT_2F {
         return D2D1::Point2F(points[idx].x - m_originX, points[idx].y - m_originY);
@@ -1283,7 +1289,11 @@ bool GestureTrailOverlay::render() {
                 }
             }
         }
-        if (m_headCoreBrush) {
+        ID2D1SolidColorBrush* activeHead = (isRecognized || points.size() < 4)
+            ? m_headCoreBrush.Get()
+            : activeLine;
+        if (!activeHead) activeHead = m_headCoreBrush.Get();
+        if (activeHead) {
             const float headR = (std::max)(m_style.lineWidth * m_dpiScale * 0.55f, 3.0f);
             const float outlineW = clampTrailOutlineWidth(m_style.outlineWidth) * m_dpiScale;
             if (m_outlineBrush && outlineW > 0.0f) {
@@ -1292,9 +1302,9 @@ bool GestureTrailOverlay::render() {
                     D2D1::Ellipse(getPt(points.size() - 1), headR + outlineW, headR + outlineW),
                     m_outlineBrush.Get());
             }
-            m_headCoreBrush->SetOpacity(m_fadeAlpha);
+            activeHead->SetOpacity(m_fadeAlpha);
             m_renderTarget->FillEllipse(
-                D2D1::Ellipse(getPt(points.size() - 1), headR, headR), m_headCoreBrush.Get());
+                D2D1::Ellipse(getPt(points.size() - 1), headR, headR), activeHead);
         }
     }
 

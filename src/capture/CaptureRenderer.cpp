@@ -465,21 +465,33 @@ void CaptureRenderer::drawMarkupPreview(const D2D1_RECT_F& selectionRect, Captur
             return;
         }
 
-        D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-        );
+        if (m_markupCacheBitmap) {
+            auto sz = m_markupCacheBitmap->GetPixelSize();
+            if (sz.width == static_cast<UINT32>(bgra.cols) && sz.height == static_cast<UINT32>(bgra.rows)) {
+                m_markupCacheBitmap->CopyFromMemory(nullptr, bgra.data, static_cast<UINT32>(bgra.cols * 4));
+                m_markupCacheDirty = false;
+            } else {
+                m_markupCacheBitmap.Reset();
+            }
+        }
 
-        ComPtr<ID2D1Bitmap> bitmap;
-        HRESULT hr = m_renderTarget->CreateBitmap(
-            D2D1::SizeU(bgra.cols, bgra.rows),
-            bgra.data,
-            bgra.cols * 4,
-            bitmapProps,
-            bitmap.GetAddressOf()
-        );
-        if (FAILED(hr) || !bitmap) return;
-        m_markupCacheBitmap = bitmap;
-        m_markupCacheDirty = false;
+        if (!m_markupCacheBitmap) {
+            D2D1_BITMAP_PROPERTIES bitmapProps = D2D1::BitmapProperties(
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+            );
+
+            ComPtr<ID2D1Bitmap> bitmap;
+            HRESULT hr = m_renderTarget->CreateBitmap(
+                D2D1::SizeU(bgra.cols, bgra.rows),
+                bgra.data,
+                bgra.cols * 4,
+                bitmapProps,
+                bitmap.GetAddressOf()
+            );
+            if (FAILED(hr) || !bitmap) return;
+            m_markupCacheBitmap = bitmap;
+            m_markupCacheDirty = false;
+        }
     }
 
     if (m_markupCacheBitmap) {

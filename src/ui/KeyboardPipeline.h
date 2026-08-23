@@ -12,6 +12,14 @@ public:
     /// @return true 表示消息已被管线拦截消费，窗口过程应直接返回 0
     static inline bool filterWindowMessage(HWND /*hwnd*/, UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
         switch (msg) {
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP: {
+                // 拦截 Alt+Space (VK_SPACE) 以及单独的 F10、Alt 键，避免系统窗口菜单截获
+                if (wParam == VK_SPACE || wParam == VK_F10 || wParam == VK_MENU) {
+                    return true;
+                }
+                break;
+            }
             case WM_SYSCOMMAND: {
                 const WPARAM cmd = wParam & 0xFFF0;
                 // 1. 拦截由 Alt / F10 / Alt+Space / Alt+字母触发的 Win32 原生窗口菜单与菜单栏激活

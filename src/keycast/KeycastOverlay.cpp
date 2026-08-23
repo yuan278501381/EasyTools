@@ -105,6 +105,7 @@ bool KeycastOverlay::createResources() {
 
     if (FAILED(m_d2dFactory->CreateDCRenderTarget(&props, &m_renderTarget))) return false;
     m_renderTarget->SetDpi(96.0f, 96.0f);
+    m_renderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
     // 创建常驻 32 位 DIB 内存 DC
     HDC hdcScreen = GetDC(nullptr);
@@ -154,11 +155,11 @@ bool KeycastOverlay::createResources() {
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-    // 浮动文本 Toast 提示卡片：粗圆角矩形纯白色边框 + 透明深灰色底 + 白色按键文字
+    // 浮动文本 Toast 提示卡片：粗圆角矩形纯白色边框 + 曜石深黑底 + 纯白高亮按键文字
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushText);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.82f), &m_brushBg);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), &m_brushBorder);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.90f), &m_brushBadgeBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.08f, 0.11f, 0.94f), &m_brushBg);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushBorder);
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushBadgeBg);
 
     if (!m_brushText || !m_brushBg || !m_brushBorder || !m_brushBadgeBg) {
         discardResources();
@@ -275,19 +276,19 @@ void KeycastOverlay::render() {
                 16.0f * m_dpiScale, 16.0f * m_dpiScale
             );
 
-            // 1. 透明深灰色卡片背景
-            m_brushBg->SetOpacity(0.82f * currentOpacity);
+            // 1. 曜石深黑微透卡片背景
+            m_brushBg->SetOpacity(0.94f * currentOpacity);
             m_renderTarget->FillRoundedRectangle(&rrect, m_brushBg.Get());
 
-            // 2. 粗圆角纯白色边框 (2.6px 粗边框)
+            // 2. 粗圆角纯白色边框 (2.6px 纯白高亮粗边框)
             if (m_brushBorder) {
-                m_brushBorder->SetOpacity(0.95f * currentOpacity);
+                m_brushBorder->SetOpacity(1.0f * currentOpacity);
                 m_renderTarget->DrawRoundedRectangle(
                     &rrect, m_brushBorder.Get(), 2.6f * m_dpiScale);
             }
 
-            // 3. 高质量文字排版
-            m_brushText->SetOpacity(currentOpacity);
+            // 3. 高质量纯白文字排版
+            m_brushText->SetOpacity(1.0f * currentOpacity);
             m_renderTarget->DrawTextLayout(
                 D2D1::Point2F(centerX - metrics.width / 2.0f, centerY - metrics.height / 2.0f),
                 layout.Get(),

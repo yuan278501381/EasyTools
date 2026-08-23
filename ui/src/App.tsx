@@ -96,11 +96,16 @@ function App() {
 
   const activePlugins = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
 
+  const [isElevated, setIsElevated] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
-    bridgeRequest<{ theme?: string; language?: string; accentColor?: string }>('general.getSettings')
+    bridgeRequest<{ theme?: string; language?: string; accentColor?: string; elevated?: boolean }>('general.getSettings')
       .then((settings) => {
         if (cancelled) return;
+        if (typeof settings.elevated === 'boolean') {
+          setIsElevated(settings.elevated);
+        }
         if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
           setThemePreference(settings.theme);
         }
@@ -249,6 +254,7 @@ function App() {
         }}
         activePlugins={plugins.length > 0 ? activePlugins : undefined}
         installedExtensionIds={installedExtensionIds}
+        isElevated={isElevated}
       />
       <main className="app__main" aria-labelledby="app-page-title">
         <Toaster position="bottom-right" theme={theme} richColors expand={true} />

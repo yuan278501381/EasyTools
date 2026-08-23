@@ -505,8 +505,7 @@ LRESULT CALLBACK CaptureOverlay::staticWndProc(HWND hwnd, UINT msg, WPARAM wPara
             ValidateRect(hwnd, nullptr);
             return 0;
         }
-        LRESULT res = self->m_input.handleMessage(hwnd, msg, wParam, lParam);
-        if (res != 0) return res;
+        return self->m_input.handleMessage(hwnd, msg, wParam, lParam);
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }

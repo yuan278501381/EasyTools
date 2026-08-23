@@ -97,24 +97,32 @@ void CaptureInput::updateHoverCursor(POINT point) {
         if (hitTestToolbar(point)) {
             cur = LoadCursor(nullptr, IDC_ARROW);
         } else {
-            // 选区控制点/边框优先（与点击命中顺序一致），其次才是选中元素的手柄
-            HitArea sel = hitTestSelectionBox(point);
-            if (sel != HitArea::None) {
-                cur = cursorForArea(sel);
-            } else {
-                if (m_state->activeElement) {
-                    cur = cursorForArea(m_state->activeElement->hitTestEx(toMarkupPoint(point)));
+            // 1. 如果当前选中的元素处于激活态，优先显示其手柄/主体光标（移动/缩放）
+            if (m_state->activeElement && m_state->activeElement->isActive) {
+                HitArea elemHit = m_state->activeElement->hitTestEx(toMarkupPoint(point));
+                if (elemHit != HitArea::None) {
+                    cur = cursorForArea(elemHit);
                 }
-                if (!cur) {
-                    HitResult hit = m_state->markup.getElementAtEx(toMarkupPoint(point));
-                    if (hit.element) {
-                        cur = cursorForArea(hit.area);
-                    }
+            }
+
+            // 2. 选区控制点/边框
+            if (!cur) {
+                HitArea sel = hitTestSelectionBox(point);
+                if (sel != HitArea::None) {
+                    cur = cursorForArea(sel);
+                }
+            }
+
+            // 3. 画布上其他未激活元素的悬停命中
+            if (!cur) {
+                HitResult hit = m_state->markup.getElementAtEx(toMarkupPoint(point));
+                if (hit.element) {
+                    cur = cursorForArea(hit.area);
                 }
             }
         }
     }
-    if (!cur) cur = LoadCursor(nullptr, IDC_CROSS);
+    if (!cur) cur = LoadCursor(nullptr, (m_state->currentTool == MarkupTool::Text) ? IDC_IBEAM : IDC_CROSS);
     SetCursor(cur);
 }
 
@@ -264,10 +272,17 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
     // thread, and remains invisible to sighted users.
     easy::core::accessibility::announceOverlay(
         m_hwnd, toolbarButtonAccessibleName(button));
-    if (m_state->activeElement) {
-        m_state->activeElement->isActive = false;
-        m_state->activeElement->isEditing = false;
-        m_state->activeElement = nullptr;
+
+    // 仅在切换其他工具或执行重置/确认时退出选中态；改颜色时保留当前激活元素并实时更新颜色
+    if (button.command != ToolbarCommand::SelectColor) {
+        if (m_state->activeElement) {
+            m_state->activeElement->isActive = false;
+            m_state->activeElement->isEditing = false;
+            if (m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->text.empty()) {
+                m_state->markup.removeElement(m_state->activeElement->id);
+            }
+            m_state->activeElement = nullptr;
+        }
     }
 
     switch (button.command) {
@@ -279,6 +294,11 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
 
         case ToolbarCommand::SelectColor:
             m_state->currentColor = button.color;
+            if (m_state->activeElement) {
+                m_state->activeElement->color = button.color;
+                m_renderer->markMarkupDirty();
+                m_renderer->invalidate();
+            }
             break;
 
         case ToolbarCommand::Undo:
@@ -436,13 +456,15 @@ void CaptureInput::beginMarkup(POINT point) {
             m_state->activeElement->isActive = false;
             m_state->activeElement->isEditing = false;
         }
-        m_state->markup.addText(local, "", m_state->currentColor, 18.0f * currentDpiScale);
-        m_state->activeElement = m_state->markup.getElementAtEx(local).element;
+        auto* elem = m_state->markup.addText(local, "", m_state->currentColor, 18.0f * currentDpiScale);
+        m_state->activeElement = elem;
         if (m_state->activeElement) {
             m_state->activeElement->isActive = true;
             m_state->activeElement->isEditing = true;
         }
         m_state->state = OverlayState::Selected;
+        m_renderer->markMarkupDirty();
+        m_renderer->invalidate();
         return;
     }
 
@@ -598,59 +620,103 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             m_renderer->markMarkupDirty();
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
-            // 文字编辑失焦提交
-            if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
-                m_state->activeElement->isEditing = false;
-                m_state->activeElement->isActive = false;
-                m_state->activeElement = nullptr;
-                m_renderer->invalidate();
-                return 0; // 拦截点击，转为渲染态
-            }
-
             if ((int)m_state->state.load() == (int)OverlayState::Selected || (int)m_state->state.load() == (int)OverlayState::Marking) {
                 HitArea selHit = HitArea::None;
                 if (auto* button = hitTestToolbar(point)) {
+                    // 如果正在编辑文字且点击的不是选颜色按钮，退出编辑
+                    if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                        if (button->command != ToolbarCommand::SelectColor) {
+                            m_state->activeElement->isEditing = false;
+                            if (m_state->activeElement->text.empty()) {
+                                m_state->markup.removeElement(m_state->activeElement->id);
+                                m_state->activeElement = nullptr;
+                            }
+                        }
+                    }
                     executeToolbarCommand(*button);
-                } else if ((selHit = hitTestSelectionBox(point)) != HitArea::None) {
-                    // 拖拽控制点缩放选区 / 拖拽边框移动选区（已有标注时会自动重映射坐标）
+                    return 0;
+                }
+                
+                // 选区控制点/边框调整
+                if ((selHit = hitTestSelectionBox(point)) != HitArea::None) {
+                    if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                        m_state->activeElement->isEditing = false;
+                        if (m_state->activeElement->text.empty()) {
+                            m_state->markup.removeElement(m_state->activeElement->id);
+                            m_state->activeElement = nullptr;
+                        }
+                    }
                     m_state->isAdjustingSelection = true;
                     m_state->selAdjustHandle = selHit;
                     m_state->selAdjustLast = point;
-                } else if (isPointInSelection(point)) {
+                    return 0;
+                }
+                
+                if (isPointInSelection(point)) {
                     cv::Point local = toMarkupPoint(point);
-                    HitResult hit = m_state->markup.getElementAtEx(local);
-
-                    if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
-                        if (!hit.element || hit.element != m_state->activeElement) {
-                            m_state->activeElement->isEditing = false;
-                        }
+                    
+                    // 1. 如果当前有处于激活态的元素，优先测试该元素的把手或主体
+                    HitArea activeElemHit = HitArea::None;
+                    if (m_state->activeElement && m_state->activeElement->isActive) {
+                        activeElemHit = m_state->activeElement->hitTestEx(local);
                     }
-
+                    
+                    if (activeElemHit != HitArea::None) {
+                        // 点击在当前已选中的元素上（把手或主体）
+                        if (m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                            // 正在编辑时点击主体/把手，提交编辑态转为移动/缩放态
+                            m_state->activeElement->isEditing = false;
+                            if (m_state->activeElement->text.empty()) {
+                                m_state->markup.removeElement(m_state->activeElement->id);
+                                m_state->activeElement = nullptr;
+                                m_renderer->invalidate();
+                                return 0;
+                            }
+                        }
+                        
+                        m_state->dragHandle = (activeElemHit == HitArea::Body) ? HitArea::None : activeElemHit;
+                        m_state->isManipulating = true;
+                        m_state->lastMousePos = point;
+                        m_renderer->invalidate();
+                        return 0;
+                    }
+                    
+                    // 2. 测试是否命中了画布上的其他标注元素
+                    HitResult hit = m_state->markup.getElementAtEx(local);
                     if (hit.element) {
+                        // 提交之前编辑的文字
                         if (m_state->activeElement && m_state->activeElement != hit.element) {
                             m_state->activeElement->isActive = false;
                             m_state->activeElement->isEditing = false;
+                            if (m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->text.empty()) {
+                                m_state->markup.removeElement(m_state->activeElement->id);
+                            }
                         }
+                        
                         m_state->activeElement = hit.element;
                         m_state->activeElement->isActive = true;
-
-                        if (hit.area == HitArea::Body) {
-                            m_state->dragHandle = HitArea::None;
-                            m_state->isManipulating = true;
-                            m_state->lastMousePos = point;
-                        } else {
-                            m_state->dragHandle = hit.area;
-                            m_state->isManipulating = true;
-                            m_state->lastMousePos = point;
-                        }
-                    } else {
-                        if (m_state->activeElement) {
-                            m_state->activeElement->isActive = false;
-                            m_state->activeElement->isEditing = false;
-                            m_state->activeElement = nullptr;
-                        }
-                        beginMarkup(point);
+                        m_state->activeElement->isEditing = false;
+                        
+                        m_state->dragHandle = (hit.area == HitArea::Body) ? HitArea::None : hit.area;
+                        m_state->isManipulating = true;
+                        m_state->lastMousePos = point;
+                        m_renderer->invalidate();
+                        return 0;
                     }
+                    
+                    // 3. 点击在空白区域
+                    if (m_state->activeElement) {
+                        m_state->activeElement->isActive = false;
+                        m_state->activeElement->isEditing = false;
+                        if (m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->text.empty()) {
+                            m_state->markup.removeElement(m_state->activeElement->id);
+                        }
+                        m_state->activeElement = nullptr;
+                    }
+                    
+                    // 在空白区域开始新的标注操作
+                    beginMarkup(point);
+                    return 0;
                 }
                 return 0;
             }
@@ -704,6 +770,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }
                 m_state->lastMousePos = m_state->currentCursor;
                 m_renderer->markMarkupDirty();   // 元素几何变了，合成缓存失效
+                m_renderer->invalidate();        // 立即触发 Direct2D 实时重绘
             } else if (m_state->isMarking) {
                 updateMarkup(m_state->currentCursor);
                 m_renderer->invalidate();        // 拖拽预览走 D2D，合成图不变
@@ -814,24 +881,74 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             return 0;
         }
 
+        case WM_IME_STARTCOMPOSITION: {
+            if (this && m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                HIMC hImc = ImmGetContext(hwnd);
+                if (hImc) {
+                    COMPOSITIONFORM cf{};
+                    cf.dwStyle = CFS_POINT;
+                    auto selRect = currentSelectionRect();
+                    cf.ptCurrentPos.x = static_cast<LONG>(selRect.left + m_state->activeElement->startPt.x);
+                    cf.ptCurrentPos.y = static_cast<LONG>(selRect.top + m_state->activeElement->startPt.y + m_state->activeElement->fontSize + 6);
+                    ImmSetCompositionWindow(hImc, &cf);
+                    ImmReleaseContext(hwnd, hImc);
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
+        case WM_IME_COMPOSITION: {
+            if (this && m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                if (lParam & GCS_RESULTSTR) {
+                    HIMC hImc = ImmGetContext(hwnd);
+                    if (hImc) {
+                        LONG bytes = ImmGetCompositionStringW(hImc, GCS_RESULTSTR, nullptr, 0);
+                        if (bytes > 0) {
+                            std::wstring resultStr(bytes / sizeof(wchar_t), L'\0');
+                            ImmGetCompositionStringW(hImc, GCS_RESULTSTR, &resultStr[0], bytes);
+
+                            std::wstring wstr = easy::core::WinUtils::utf8ToWstring(m_state->activeElement->text);
+                            wstr.append(resultStr);
+                            m_state->activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
+                            m_state->activeElement->textRenderSize = cv::Size(0, 0);
+                            m_renderer->markMarkupDirty();
+                            m_renderer->invalidate();
+                        }
+                        ImmReleaseContext(hwnd, hImc);
+                        return 0; // 消费输入法上屏文字，防止 DefWindowProcW 再次派发导致重复
+                    }
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
+        case WM_IME_CHAR: {
+            return 0;
+        }
+
         case WM_CHAR: {
             if (this && m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
-                m_renderer->markMarkupDirty();
                 wchar_t ch = static_cast<wchar_t>(wParam);
                 if (ch == 0x08) { // Backspace
                     std::wstring wstr = easy::core::WinUtils::utf8ToWstring(m_state->activeElement->text);
                     if (!wstr.empty()) {
                         wstr.pop_back();
                         m_state->activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
-                        m_state->activeElement->textRenderSize = cv::Size(0,0);
+                        m_state->activeElement->textRenderSize = cv::Size(0, 0);
+                        m_renderer->markMarkupDirty();
+                        m_renderer->invalidate();
                     }
-                } else if (ch == 0x0D || ch == 0x0A) { // Enter
+                } else if (ch == 0x0D || ch == 0x0A) { // Enter 提交
                     m_state->activeElement->isEditing = false;
-                } else if (ch >= 0x20) {
+                    m_renderer->markMarkupDirty();
+                    m_renderer->invalidate();
+                } else if (ch >= 0x20 || ch == 0x09) {
                     std::wstring wstr = easy::core::WinUtils::utf8ToWstring(m_state->activeElement->text);
                     wstr.push_back(ch);
                     m_state->activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
-                    m_state->activeElement->textRenderSize = cv::Size(0,0);
+                    m_state->activeElement->textRenderSize = cv::Size(0, 0);
+                    m_renderer->markMarkupDirty();
+                    m_renderer->invalidate();
                 }
                 return 0;
             }
@@ -942,12 +1059,25 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (wParam == VK_ESCAPE) {
                 if (editingText) {
                     m_state->activeElement->isEditing = false;
+                    if (m_state->activeElement->text.empty()) {
+                        m_state->markup.removeElement(m_state->activeElement->id);
+                        m_state->activeElement = nullptr;
+                    }
                 } else if (m_state->activeElement) {
                     m_state->activeElement->isActive = false;
                     m_state->activeElement = nullptr;
                 } else {
                     if (m_cancelCb) m_cancelCb();
                 }
+                return 0;
+            }
+
+            // Delete / Backspace: 在非文本编辑状态下删除当前选中的标注元素
+            if ((wParam == VK_DELETE || wParam == VK_BACK) && !editingText && m_state->activeElement) {
+                m_state->markup.removeElement(m_state->activeElement->id);
+                m_state->activeElement = nullptr;
+                m_renderer->markMarkupDirty();
+                m_renderer->invalidate();
                 return 0;
             }
 

@@ -670,7 +670,11 @@
     "themeToggleDark": "Switch to Dark Theme",
     "appearanceTitle": "Appearance & Themes",
     "mainNav": "Main Navigation",
-    "pluginDisabled": "Plugin disabled for this run. Enable in Plugins page and restart."
+    "pluginDisabled": "Plugin disabled for this run. Enable in Plugins page and restart.",
+    "adminBadge": "Admin",
+    "adminTitle": "Running as Administrator",
+    "normalBadge": "Standard",
+    "normalTitle": "Running as Standard User (Non-Administrator)"
   },
   "onboarding": {
     "welcomeTitle": "Welcome to EasyTools",

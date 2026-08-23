@@ -151,7 +151,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       if (e.shiftKey) mods.push('Shift');
       if (e.metaKey) mods.push('Win');
 
-      const isSpace = e.code === 'Space' || key === ' ' || key === 'Spacebar';
+      const isSpace = e.code === 'Space' || key === ' ' || key === 'Spacebar' || e.keyCode === 32;
 
       if (MODIFIER_KEYS.has(key) && !isSpace) {
         // 仅按下了修饰键，实时展示
@@ -160,7 +160,8 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       } else {
         // 修饰键 + 主键 → 完成组合
         const mainKey = normalizeKey(e);
-        const combo = [...mods, mainKey];
+        const filteredMods = mods.filter(m => m !== mainKey);
+        const combo = [...filteredMods, mainKey];
         setActiveKeys(combo);
         pendingRef.current = combo.join('+');
       }

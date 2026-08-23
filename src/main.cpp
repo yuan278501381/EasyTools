@@ -158,6 +158,8 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
     if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
 
     const std::wstring params = buildRestartParameters(includeWindowPos);
+    releaseSingleInstanceMutex(); // 先释放单例互斥锁，确保子进程能平滑获取单例锁
+
     SHELLEXECUTEINFOW sei{};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -165,9 +167,12 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
     sei.lpFile = exePath;
     sei.lpParameters = params.c_str();
     sei.nShow = SW_SHOWNORMAL;
-    if (!ShellExecuteExW(&sei)) return false;
+    if (!ShellExecuteExW(&sei)) {
+        // 用户在 UAC 弹窗点击了“否”或提权失败，重新占有单例锁以普通权限继续运行
+        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\EasyTools_SingleInstance_Mutex_v1");
+        return false;
+    }
     if (sei.hProcess) CloseHandle(sei.hProcess);
-    releaseSingleInstanceMutex();
     return true;
 }
 

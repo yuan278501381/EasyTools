@@ -4,6 +4,7 @@
 #include <wrl.h>
 #include <wrl/event.h>
 #include <WebView2.h>
+#include <string>
 
 namespace easy::ui {
 
@@ -14,8 +15,8 @@ void KeyboardPipeline::applyWebKeyboardPolicy(ICoreWebView2Controller* controlle
     using Microsoft::WRL::Callback;
     controller->add_AcceleratorKeyPressed(
         Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
-            [devToolsAllowed](ICoreWebView2Controller*, ICoreWebView2AcceleratorKeyPressedEventArgs* args) -> HRESULT {
-                if (!args) return S_OK;
+            [devToolsAllowed](ICoreWebView2Controller* ctrl, ICoreWebView2AcceleratorKeyPressedEventArgs* args) -> HRESULT {
+                if (!args || !ctrl) return S_OK;
 
                 COREWEBVIEW2_KEY_EVENT_KIND keyKind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
                 args->get_KeyEventKind(&keyKind);
@@ -24,24 +25,22 @@ void KeyboardPipeline::applyWebKeyboardPolicy(ICoreWebView2Controller* controlle
 
                 const bool isKeyDown = (keyKind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
                                         keyKind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN);
-                const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-                const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool isKeyUp = (keyKind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP ||
+                                      keyKind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP);
+                const bool ctrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                const bool altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
+                const bool shiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool winDown = ((GetKeyState(VK_LWIN) & 0x8000) != 0) || ((GetKeyState(VK_RWIN) & 0x8000) != 0);
 
-                // 1. 屏蔽不需要的 Chromium 浏览器默认快捷键行为（防止意外触发打印、下载、网页查找、历史记录等）
+                // 1. 屏蔽不需要的 Chromium 浏览器默认行为（打印、查找、下载、历史记录等）
                 if (isKeyDown) {
-                    if (ctrl && !alt && !shift) {
+                    if (ctrlDown && !altDown && !shiftDown) {
                         switch (vKey) {
-                            case 'P': // 打印
-                            case 'F': // 查找
-                            case 'U': // 查看源代码
-                            case 'J': // 下载
-                            case 'H': // 历史记录
-                            case 'O': // 打开文件
-                            case 'S': // 保存网页
+                            case 'P': case 'F': case 'U': case 'J':
+                            case 'H': case 'O': case 'S':
                                 args->put_Handled(TRUE);
                                 return S_OK;
-                            case 'R': // 刷新页面
+                            case 'R':
                                 if (!devToolsAllowed) {
                                     args->put_Handled(TRUE);
                                     return S_OK;
@@ -65,14 +64,34 @@ void KeyboardPipeline::applyWebKeyboardPolicy(ICoreWebView2Controller* controlle
                     }
 
                     // 屏蔽 Alt+Left / Alt+Right 触发的浏览器后退/前进
-                    if (alt && (vKey == VK_LEFT || vKey == VK_RIGHT)) {
+                    if (altDown && (vKey == VK_LEFT || vKey == VK_RIGHT)) {
                         args->put_Handled(TRUE);
                         return S_OK;
                     }
                 }
 
-                // 2. 针对所有的快捷键录入组合（包括 Alt+Space, Ctrl+Shift+..., Win+... 等），
-                // 显式保证其不被 WebView2 意外拦截并无损送达前端 DOM
+                // 2. 特别处理 Alt+Space 系统菜单键：
+                // Windows Chromium 内核会将 Alt+Space 判定为原生窗口菜单加速键直接吞没，不派发给 Web DOM；
+                // 此处在捕获到 Alt+Space 时，阻止系统菜单并向 WebView2 DOM 主动注入合成 KeyboardEvent！
+                if (vKey == VK_SPACE && altDown) {
+                    args->put_Handled(TRUE);
+
+                    Microsoft::WRL::ComPtr<ICoreWebView2> webView;
+                    if (SUCCEEDED(ctrl->get_CoreWebView2(&webView)) && webView) {
+                        const wchar_t* eventType = isKeyDown ? L"keydown" : (isKeyUp ? L"keyup" : nullptr);
+                        if (eventType) {
+                            std::wstring script = L"window.dispatchEvent(new KeyboardEvent('" + std::wstring(eventType) +
+                                L"', { key: ' ', code: 'Space', keyCode: 32, which: 32, altKey: true, ctrlKey: " +
+                                (ctrlDown ? L"true" : L"false") + L", shiftKey: " +
+                                (shiftDown ? L"true" : L"false") + L", metaKey: " +
+                                (winDown ? L"true" : L"false") + L", bubbles: true, cancelable: true }));";
+                            webView->ExecuteScript(script.c_str(), nullptr);
+                        }
+                    }
+                    return S_OK;
+                }
+
+                // 3. 常规按键（包含 Alt+V、Ctrl+Shift+... 等）全部放行给 DOM
                 args->put_Handled(FALSE);
                 return S_OK;
             }

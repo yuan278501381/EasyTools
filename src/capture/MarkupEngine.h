@@ -187,25 +187,25 @@ public:
     // ── 工具快捷方法 ─────────────────────────────────────────────────────
 
     /// 画矩形
-    void drawRectangle(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
+    MarkupElement* drawRectangle(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
 
     /// 画箭头
-    void drawArrow(cv::Point from, cv::Point to, MarkupColor color, float thickness = 2.0f);
+    MarkupElement* drawArrow(cv::Point from, cv::Point to, MarkupColor color, float thickness = 2.0f);
 
     /// 画椭圆
-    void drawEllipse(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
+    MarkupElement* drawEllipse(cv::Point p1, cv::Point p2, MarkupColor color, float thickness = 2.0f);
 
     /// 画笔自由绘制
-    void drawPenStroke(const std::vector<cv::Point>& points, MarkupColor color, float thickness = 2.0f);
+    MarkupElement* drawPenStroke(const std::vector<cv::Point>& points, MarkupColor color, float thickness = 2.0f);
 
     /// 高亮（半透明矩形）
-    void drawHighlight(cv::Point p1, cv::Point p2, MarkupColor color);
+    MarkupElement* drawHighlight(cv::Point p1, cv::Point p2, MarkupColor color);
 
     /// 马赛克区域
-    void applyMosaic(cv::Point p1, cv::Point p2, int blockSize = 12);
+    MarkupElement* applyMosaic(cv::Point p1, cv::Point p2, int blockSize = 12);
 
     /// 添加文本
-    void addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize = 16.0f);
+    MarkupElement* addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize = 16.0f);
 
     /// 添加序列号标记
     int addNumberMark(cv::Point position, MarkupColor color, float dpiScale = 1.0f);

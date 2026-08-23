@@ -64,6 +64,11 @@ void SettingsWindow::show(HINSTANCE hInstance) {
 
     if (m_hwnd && IsWindow(m_hwnd)) {
         // 窗口已存在，直接显示并激活
+        const std::wstring windowTitle = easy::core::WinUtils::isCurrentProcessElevated()
+            ? L"EasyTools 设置 (管理员)"
+            : L"EasyTools 设置";
+        SetWindowTextW(m_hwnd, windowTitle.c_str());
+
         if (IsIconic(m_hwnd)) {
             ShowWindow(m_hwnd, SW_RESTORE);
         } else {
@@ -235,10 +240,14 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
             : CW_USEDEFAULT;
     }
 
+    const std::wstring windowTitle = easy::core::WinUtils::isCurrentProcessElevated()
+        ? L"EasyTools 设置 (管理员)"
+        : L"EasyTools 设置";
+
     m_hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         SETTINGS_WINDOW_CLASS,
-        L"EasyTools 设置",
+        windowTitle.c_str(),
         WS_OVERLAPPEDWINDOW,
         x, y, targetSize.cx, targetSize.cy,
         nullptr, nullptr, hInstance, this  // 传递 this 指针

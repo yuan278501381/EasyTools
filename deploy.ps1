@@ -336,6 +336,18 @@ if (Test-Path $ExePath) {
             Copy-Item $pf.FullName -Destination $TargetPluginsDir
         }
         Write-Log "已复制纯净插件集合 (plugins/)，无冗余 DLL 与 PDB"
+
+        # 补充收集插件所需但主程序未直接引用的第三方运行库 (如 opencv_photo4.dll 等) 到根运行目录
+        $PluginDependencyDlls = Get-ChildItem -Path $PluginsDir -Filter "*.dll" | Where-Object {
+            $_.Name -notlike "Plugin_*.dll" -and $_.Name -notlike "gtest*.dll" -and $_.Name -notlike "gmock*.dll"
+        }
+        foreach ($pDll in $PluginDependencyDlls) {
+            $destFile = Join-Path $StagingDir $pDll.Name
+            if (-not (Test-Path $destFile)) {
+                Copy-Item $pDll.FullName -Destination $StagingDir
+                Write-Log "补充复制插件依赖运行库到根目录: $($pDll.Name)"
+            }
+        }
     } else {
         Write-Log "未找到插件构建目录: $PluginsDir" "WARN"
     }
