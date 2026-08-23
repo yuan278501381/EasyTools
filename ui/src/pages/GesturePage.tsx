@@ -723,6 +723,20 @@ export const GesturePage: FC = () => {
             checked={enabled}
             onChange={handleToggleEnabled}
           />
+          <div className="gesture-admin-hint-card">
+            <ShieldAlert size={18} className="gesture-admin-hint-icon" />
+            <div className="gesture-admin-hint-content">
+              <div className="gesture-admin-hint-title">
+                {tr('gesture.adminHintTitle')}
+                {elevated && <span className="gesture-admin-badge">{tr('gesture.alreadyElevated')}</span>}
+              </div>
+              <div className="gesture-admin-hint-desc">
+                {elevated
+                  ? tr('gesture.adminHintElevatedDesc')
+                  : tr('gesture.adminHintDesc')}
+              </div>
+            </div>
+          </div>
           <Toggle
             id="gesture-trail"
             label={tr('gesture.showTrail')}
@@ -881,20 +895,6 @@ export const GesturePage: FC = () => {
             checked={autoBypassFullscreen}
             onChange={handleToggleAutoBypass}
           />
-          <div className="gesture-admin-hint-card">
-            <ShieldAlert size={18} className="gesture-admin-hint-icon" />
-            <div className="gesture-admin-hint-content">
-              <div className="gesture-admin-hint-title">
-                {tr('gesture.adminHintTitle')}
-                {elevated && <span className="gesture-admin-badge">{tr('gesture.alreadyElevated')}</span>}
-              </div>
-              <div className="gesture-admin-hint-desc">
-                {elevated
-                  ? tr('gesture.adminHintElevatedDesc')
-                  : tr('gesture.adminHintDesc')}
-              </div>
-            </div>
-          </div>
           <SettingRow label={tr('gesture.initialTimeout')} description={tr('gesture.initialTimeoutDesc')}>
             <div className="gesture-number-input-wrap">
               <input
