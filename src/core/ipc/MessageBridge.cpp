@@ -79,7 +79,56 @@ std::optional<std::filesystem::path> choosePath(bool save, bool folder = false) 
     return result;
 }
 
-bool setAutoStart(bool enabled) {
+namespace {
+
+constexpr wchar_t AUTOSTART_TASK_NAME[] = L"EasyTools_Autostart";
+
+bool executeSilentCommand(const std::wstring& cmd) {
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi{};
+    std::wstring cmdBuffer = cmd;
+
+    BOOL ok = CreateProcessW(
+        nullptr,
+        cmdBuffer.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_NO_WINDOW,
+        nullptr,
+        nullptr,
+        &si,
+        &pi
+    );
+
+    if (!ok) {
+        return false;
+    }
+
+    WaitForSingleObject(pi.hProcess, 3000);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return exitCode == 0;
+}
+
+bool removeRegistryAutoStart() {
+    constexpr wchar_t keyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+        RegDeleteValueW(key, L"EasyTools");
+        RegCloseKey(key);
+    }
+    return true;
+}
+
+bool setRegistryAutoStart(bool enabled) {
     constexpr wchar_t keyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     HKEY key = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, keyPath, 0, nullptr, 0, KEY_SET_VALUE,
@@ -105,6 +154,64 @@ bool setAutoStart(bool enabled) {
     }
     RegCloseKey(key);
     return status == ERROR_SUCCESS;
+}
+
+bool isAutoStartEnabled() {
+    std::wstring queryCmd = L"schtasks.exe /query /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\"";
+    if (executeSilentCommand(queryCmd)) {
+        return true;
+    }
+    constexpr wchar_t keyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+        DWORD type = 0;
+        LSTATUS status = RegQueryValueExW(key, L"EasyTools", nullptr, &type, nullptr, nullptr);
+        RegCloseKey(key);
+        if (status == ERROR_SUCCESS) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool setAutoStart(bool enabled) {
+    wchar_t exePath[32768]{};
+    DWORD length = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+    if (length == 0 || length >= std::size(exePath)) {
+        return setRegistryAutoStart(enabled);
+    }
+
+    std::wstring exeStr(exePath, length);
+
+    if (enabled) {
+        // 幂等性清理：确保旧注册表 Run 项无冗余残留
+        removeRegistryAutoStart();
+
+        // 注册 Windows 任务计划（Task Scheduler）：
+        // /sc onlogon: 用户登录时触发
+        // /delay 0000:10: 延时 10 秒（排在系统与常规自启软件最后，零抢占 I/O）
+        // /rl highest: 以最高特权（管理员身份）免 UAC 弹窗静默运行
+        // /f: 强制原子化覆盖更新（保证多次安装/覆盖安装/路径变更时严格幂等）
+        std::wstring schCmd = L"schtasks.exe /create /tn \"" + std::wstring(AUTOSTART_TASK_NAME) +
+                              L"\" /tr \"\\\"" + exeStr + L"\\\" --silent\" /sc onlogon /delay 0000:10 /rl highest /f";
+
+        bool taskOk = executeSilentCommand(schCmd);
+        if (taskOk) {
+            LOG_INFO("AutoStart Task Scheduler task '{}' created/updated idempotently with 10s delay & highest privileges.",
+                     "EasyTools_Autostart");
+            return true;
+        }
+
+        LOG_WARN("Task Scheduler autostart failed, falling back to Registry Run key.");
+        return setRegistryAutoStart(true);
+    } else {
+        // 幂等性删除任务计划（/f 强制删除，静默忽略不存在错误）
+        std::wstring delCmd = L"schtasks.exe /delete /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\" /f";
+        executeSilentCommand(delCmd);
+        removeRegistryAutoStart();
+        LOG_INFO("AutoStart disabled idempotently (Task Scheduler and Registry entries cleared).");
+        return true;
+    }
 }
 
 void applyLogLevel(const std::string& level) {
@@ -917,8 +1024,8 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("general.getSettings", [](const json&) -> json {
         auto& config = ConfigManager::instance();
         return {
-            {"autoStart", config.get<bool>("/general/autoStart", false)},
-            {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)},
+            {"autoStart", config.get<bool>("/general/autoStart", isAutoStartEnabled())},
+            {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)},
             {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},

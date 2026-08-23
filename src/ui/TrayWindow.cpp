@@ -26,14 +26,12 @@ namespace {
 SIZE getTrayWindowSize(POINT anchor, int customW = 0, int customH = 0) {
     const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
     const float scale = easy::core::dpi::scaleForMonitor(monitor);
-    if (customW > 0 && customH > 0) {
-        return {
-            std::max<LONG>(120L, static_cast<LONG>(customW * scale)),
-            std::max<LONG>(80L, static_cast<LONG>(customH * scale))
-        };
-    }
-    return TrayWindowStyle::windowSizeForDpi(
-        easy::core::dpi::effectiveDpiForMonitor(monitor));
+    const int effectiveW = customW > 0 ? std::clamp(customW, 180, 220) : TrayWindowStyle::BaseWidth;
+    const int effectiveH = customH > 0 ? std::clamp(customH, 100, 500) : TrayWindowStyle::BaseHeight;
+    return {
+        static_cast<LONG>(effectiveW * scale),
+        static_cast<LONG>(effectiveH * scale)
+    };
 }
 
 POINT trayWindowOrigin(int x, int y, int width, int height) {
@@ -189,12 +187,14 @@ void TrayWindow::updatePlacement() {
 
 void TrayWindow::setContentSize(int width, int height) {
     if (!m_hwnd || !IsWindow(m_hwnd) || width <= 0 || height <= 0) return;
-    m_contentWidth = width;
-    m_contentHeight = height;
+    const int clampedW = std::clamp(width, 180, 220);
+    const int clampedH = std::clamp(height, 100, 500);
+    m_contentWidth = clampedW;
+    m_contentHeight = clampedH;
     const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
     const float scale = easy::core::dpi::scaleForMonitor(monitor);
-    const int scaledW = std::max<int>(120, static_cast<int>(width * scale));
-    const int scaledH = std::max<int>(80, static_cast<int>(height * scale));
+    const int scaledW = static_cast<int>(clampedW * scale);
+    const int scaledH = static_cast<int>(clampedH * scale);
 
     m_updatingPlacement = true;
     const POINT origin = trayWindowOrigin(m_anchor.x, m_anchor.y, scaledW, scaledH);

@@ -46,7 +46,7 @@ const ACCENT_PRESETS = [
 export const GeneralPage: FC = () => {
   const [settings, setSettings] = useState<GeneralSettings>({
     autoStart: false,
-    runAsAdmin: false,
+    runAsAdmin: true,
     elevated: false,
     minimizeToTray: true,
     checkUpdates: true,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Shield, LogOut, Keyboard, MousePointer } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -10,18 +10,19 @@ export default function TrayApp() {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [gesturePaused, setGesturePaused] = useState(false);
+  const [elevated, setElevated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set(['capture', 'search', 'gesture']));
 
-  // 动态上报真实尺寸给 C++ 宿主窗口，杜绝任何空白溢出
+  // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 200px，仅高度自适应内容）
   const reportSize = useCallback(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
-    // 加上 html #root 边距与阴影容差 (5px * 2 = 10px)
-    const totalHeight = Math.ceil(rect.height + 10);
-    const totalWidth = Math.ceil(rect.width + 10);
-    if (totalHeight > 20 && totalWidth > 20) {
-      void bridgeRequest('tray.resize', { width: totalWidth, height: totalHeight }).catch(() => {});
+    // 加上 #root padding (4px * 2 = 8px) 阴影容差
+    const totalHeight = Math.ceil(rect.height + 8);
+    const fixedWidth = 200;
+    if (totalHeight > 20) {
+      void bridgeRequest('tray.resize', { width: fixedWidth, height: totalHeight }).catch(() => {});
     }
   }, []);
 
@@ -36,6 +37,9 @@ export default function TrayApp() {
   }, [reportSize, activePlugins, gesturePaused]);
 
   const refreshState = useCallback(() => {
+    void bridgeRequest<{ elevated?: boolean }>('general.getSettings')
+      .then((res) => setElevated(Boolean(res?.elevated)))
+      .catch(() => {});
     void bridgeRequest<Array<{ id: string; active: boolean }>>('plugins.getAll')
       .then((plugins) => {
         const active = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
@@ -223,10 +227,27 @@ export default function TrayApp() {
 
       <div className="tray-menu__divider" />
 
-      <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('restartElevated')}>
-        <Shield size={15} className="tray-menu__icon" />
-        <span className="tray-menu__label">{t('tray.restartElevated', 'Restart as Administrator')}</span>
-      </button>
+      {elevated ? (
+        <button
+          type="button"
+          className="tray-menu__item tray-menu__item--admin-active"
+          disabled
+          title={t('tray.adminActiveDesc', 'Running with highest privileges')}
+        >
+          <ShieldCheck size={15} className="tray-menu__icon tray-menu__icon--admin" />
+          <span className="tray-menu__label">{t('tray.adminActive', 'Running as Administrator')}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="tray-menu__item tray-menu__item--admin"
+          disabled={busy}
+          onClick={() => void handleAction('restartElevated')}
+        >
+          <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
+          <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
+        </button>
+      )}
 
       <div className="tray-menu__divider" />
 
