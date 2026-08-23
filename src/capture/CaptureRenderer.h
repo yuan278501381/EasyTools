@@ -19,6 +19,7 @@ public:
     /// device-independent factories for the next capture.
     void releaseWindowResources();
     bool updateDpiScale(float scale);
+    void applyThemeColors();
     
     void render(CaptureState& state);
     void invalidate() {

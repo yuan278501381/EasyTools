@@ -15,7 +15,7 @@ const applyTheme = (preference: ThemePreference) => {
 };
 
 const applyAccent = (accent: string) => {
-  document.documentElement.setAttribute('data-accent', accent || 'violet');
+  document.documentElement.setAttribute('data-accent', accent || 'blue');
 };
 
 /** Keep auxiliary WebView surfaces aligned with the shared app appearance. */

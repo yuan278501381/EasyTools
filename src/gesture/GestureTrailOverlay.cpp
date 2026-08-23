@@ -118,12 +118,12 @@ void GestureTrailOverlay::applyThemeColorsLocked() {
 
     auto& cfg = easy::core::ConfigManager::instance();
     const std::string colorMode = cfg.get<std::string>("/gesture/trailColorMode", "auto");
-    const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#8B5CF6");
+    const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#3B82F6");
     m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 2.5f);
     m_style.outlineWidth = clampTrailOutlineWidth(
         cfg.get<float>("/gesture/trailOutlineWidth", 2.5f));
 
-    const std::string accent = cfg.get<std::string>("/general/accentColor", "violet");
+    const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
     const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
     const easy::core::AccentColorRGB trailRgb =
         resolveGestureTrailRgb(colorMode, customHex, themeRgb);
@@ -1237,8 +1237,8 @@ bool GestureTrailOverlay::render() {
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));  // 完全透明背景
 
-    ID2D1SolidColorBrush* activeGlow = isRecognized ? m_glowBrush.Get() : m_greyGlowBrush.Get();
-    ID2D1SolidColorBrush* activeLine = isRecognized ? m_lineBrush.Get() : m_greyLineBrush.Get();
+    ID2D1SolidColorBrush* activeGlow = m_glowBrush.Get();
+    ID2D1SolidColorBrush* activeLine = m_lineBrush.Get();
 
     auto getPt = [&](size_t idx) -> D2D1_POINT_2F {
         return D2D1::Point2F(points[idx].x - m_originX, points[idx].y - m_originY);

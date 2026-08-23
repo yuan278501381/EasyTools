@@ -1,6 +1,8 @@
 #include "capture/CaptureRenderer.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
+#include "core/config/ConfigManager.h"
+#include "core/utils/ThemeUtils.h"
 #include "capture/CaptureHistory.h"
 #include "capture/CaptureToolbarLayout.h"
 #include <format>
@@ -62,6 +64,27 @@ void CaptureRenderer::shutdown() {
     m_d2dFactory.Reset();
 }
 
+void CaptureRenderer::applyThemeColors() {
+    if (!m_renderTarget) return;
+
+    auto& cfg = easy::core::ConfigManager::instance();
+    const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
+    const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
+
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 1.0f),
+        m_borderBrush.ReleaseAndGetAddressOf()
+    );
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.6f),
+        m_crosshairBrush.ReleaseAndGetAddressOf()
+    );
+    m_renderTarget->CreateSolidColorBrush(
+        D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.3f),
+        m_windowHighlightBrush.ReleaseAndGetAddressOf()
+    );
+}
+
 bool CaptureRenderer::createRenderResources(CaptureState& state) {
     HRESULT hr;
 
@@ -100,11 +123,9 @@ bool CaptureRenderer::createRenderResources(CaptureState& state) {
 
     // 画笔
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.5f), m_dimBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 1.0f), m_borderBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.8f), m_infoBgBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.95f), m_infoTextBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.6f), m_crosshairBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.3f), m_windowHighlightBrush.GetAddressOf());
+    applyThemeColors();
 
     return true;
 }
@@ -272,8 +293,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         bounds.right = std::max(bounds.right, button.rect.right);
         bounds.bottom = std::max(bounds.bottom, button.rect.bottom);
     }
-    const float scale = std::clamp(state.dpiScale > 0.0f ? state.dpiScale : 1.0f,
-                                   1.0f, 5.0f);
+    const float scale = std::clamp(state.dpiScale > 0.0f ? state.dpiScale : 1.0f, 1.0f, 5.0f);
     auto bgRect = D2D1::RectF(
         bounds.left - 8.0f * scale, bounds.top - 6.0f * scale,
         bounds.right + 8.0f * scale, bounds.bottom + 6.0f * scale);
@@ -298,12 +318,16 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         drawSep(16, 17);  // 颜色 | 命令
     }
 
+    auto& cfg = easy::core::ConfigManager::instance();
+    const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
+    const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
+
     ComPtr<ID2D1SolidColorBrush> buttonBrush;
     ComPtr<ID2D1SolidColorBrush> activeBrush;
     ComPtr<ID2D1SolidColorBrush> dangerBrush;
     ComPtr<ID2D1SolidColorBrush> hoverBrush;
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.10f), buttonBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.486f, 0.227f, 0.965f, 0.95f), activeBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.95f), activeBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.25f, 0.25f, 0.85f), dangerBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.20f), hoverBrush.GetAddressOf());
 
@@ -315,7 +339,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         bool isHovered = state.currentCursor.x >= button.rect.left && state.currentCursor.x <= button.rect.right &&
                          state.currentCursor.y >= button.rect.top  && state.currentCursor.y <= button.rect.bottom;
 
-        auto rounded = D2D1::RoundedRect(button.rect, 5.0f, 5.0f);
+        auto rounded = D2D1::RoundedRect(button.rect, 5.0f * scale, 5.0f * scale);
 
         if (isColor) {
             // 颜色色板: 用色块填充, 当前色加白色描边, 悬停加淡描边

@@ -65,6 +65,13 @@ function App() {
 
   const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme());
   const [themePreference, setThemePreference] = useState<ThemePreference>('system');
+  const [accent, setAccent] = useState<string>(() => {
+    try {
+      return localStorage.getItem('easytools:accent-color') || 'blue';
+    } catch {
+      return 'blue';
+    }
+  });
   const theme: Theme = themePreference === 'system' ? systemTheme : themePreference;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [plugins, setPlugins] = useState<PluginStatus[]>([]);
@@ -91,11 +98,14 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    bridgeRequest<{ theme?: string; language?: string }>('general.getSettings')
+    bridgeRequest<{ theme?: string; language?: string; accentColor?: string }>('general.getSettings')
       .then((settings) => {
         if (cancelled) return;
         if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
           setThemePreference(settings.theme);
+        }
+        if (typeof settings.accentColor === 'string' && settings.accentColor) {
+          setAccent(settings.accentColor);
         }
         if (settings.language && settings.language !== 'auto' && i18n.language !== settings.language) {
           void i18n.changeLanguage(settings.language);
@@ -135,13 +145,6 @@ function App() {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  const [accent, setAccent] = useState<string>(() => {
-    try {
-      return localStorage.getItem('easytools:accent-color') || 'violet';
-    } catch {
-      return 'violet';
-    }
-  });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

@@ -281,7 +281,7 @@ public:
                 {"initialTimeoutMs", engine.initialTimeoutMs()},
                 {"minSegmentDistance", engine.minSegmentDistance()},
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
-                {"trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6")},
+                {"trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6")},
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
                 {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
                 {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
@@ -349,7 +349,7 @@ public:
             const int minSegmentDistance = params.value("minSegmentDistance", engine.minSegmentDistance());
 
             std::string trailColorMode = params.value("trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto"));
-            std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#8B5CF6"));
+            std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6"));
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
             float trailOutlineWidth = clampTrailOutlineWidth(
                 params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)));

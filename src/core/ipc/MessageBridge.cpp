@@ -926,7 +926,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"language", config.get<std::string>("/general/language", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
-            {"accentColor", config.get<std::string>("/general/accentColor", "violet")},
+            {"accentColor", config.get<std::string>("/general/accentColor", "blue")},
         };
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
@@ -977,7 +977,7 @@ void MessageBridge::registerBuiltinHandlers() {
         if (params.contains("theme") || params.contains("accentColor")) {
             EventBus::instance().publish(ThemeChangedEvent{
                 config.get<std::string>("/general/theme", "system"),
-                config.get<std::string>("/general/accentColor", "violet")
+                config.get<std::string>("/general/accentColor", "blue")
             });
         }
         return {{"success", true}};

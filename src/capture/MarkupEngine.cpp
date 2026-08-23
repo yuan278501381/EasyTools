@@ -174,9 +174,10 @@ namespace {
         }
     }
 
-    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color) {
-        int radius = 15;
-        int sz = radius * 2 + 10;
+    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, float dpiScale = 1.0f) {
+        float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
+        int radius = static_cast<int>(std::round(15.0f * scale));
+        int sz = radius * 2 + static_cast<int>(std::round(10.0f * scale));
         cv::Mat badgeMat(sz, sz, CV_8UC4, cv::Scalar(0, 0, 0, 0));
         {
             Gdiplus::Bitmap bitmap(sz, sz, static_cast<INT>(badgeMat.step), PixelFormat32bppARGB, badgeMat.data);
@@ -189,7 +190,7 @@ namespace {
 
             // 1. 柔和外层投影
             Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
-            g.FillEllipse(&shadowBrush, cx - radius + 1.5f, cy - radius + 2.5f, radius * 2.0f, radius * 2.0f);
+            g.FillEllipse(&shadowBrush, cx - radius + 1.5f * scale, cy - radius + 2.5f * scale, radius * 2.0f, radius * 2.0f);
 
             // 2. 主题色彩圆盘
             BYTE rVal = static_cast<BYTE>(color[2]);
@@ -199,13 +200,13 @@ namespace {
             g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
 
             // 3. 1.5px 白色高光内圈
-            Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f);
-            g.DrawEllipse(&ringPen, cx - radius + 1.0f, cy - radius + 1.0f, (radius - 1.0f) * 2.0f, (radius - 1.0f) * 2.0f);
+            Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f * scale);
+            g.DrawEllipse(&ringPen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
 
             // 4. 数字矢量排版
             std::wstring numWStr = std::to_wstring(number);
             Gdiplus::FontFamily fontFamily(L"Segoe UI");
-            float fontSize = (number >= 100) ? 11.0f : (number >= 10 ? 13.0f : 15.0f);
+            float fontSize = ((number >= 100) ? 11.0f : (number >= 10 ? 13.0f : 15.0f)) * scale;
             Gdiplus::Font font(&fontFamily, fontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
 
             Gdiplus::StringFormat format;
@@ -213,7 +214,7 @@ namespace {
             format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
             Gdiplus::SolidBrush numBrush(Gdiplus::Color(255, 255, 255, 255));
-            Gdiplus::RectF layoutRect(cx - radius, cy - radius - 0.5f, radius * 2.0f, radius * 2.0f);
+            Gdiplus::RectF layoutRect(cx - radius, cy - radius - 0.5f * scale, radius * 2.0f, radius * 2.0f);
             g.DrawString(numWStr.c_str(), -1, &font, layoutRect, &format, &numBrush);
         }
 
@@ -322,7 +323,7 @@ cv::Rect MarkupElement::getBoundingBox() const {
             return cv::Rect(startPt.x - magnifierRadius, startPt.y - magnifierRadius, magnifierRadius * 2, magnifierRadius * 2);
         }
         case MarkupTool::Number: {
-            int r = 16;
+            int r = static_cast<int>(std::round(16.0f * (dpiScale > 0.0f ? dpiScale : 1.0f)));
             return cv::Rect(startPt.x - r, startPt.y - r, r * 2, r * 2);
         }
         case MarkupTool::Pen: {
@@ -594,12 +595,13 @@ void MarkupEngine::addText(cv::Point position, const std::string& text, MarkupCo
     addElement(std::move(elem));
 }
 
-int MarkupEngine::addNumberMark(cv::Point position, MarkupColor color) {
+int MarkupEngine::addNumberMark(cv::Point position, MarkupColor color, float dpiScale) {
     auto elem = std::make_unique<MarkupElement>();
     elem->tool = MarkupTool::Number;
     elem->startPt = position;
     elem->color = color;
     elem->numberValue = m_nextNumber;
+    elem->dpiScale = dpiScale;
     addElement(std::move(elem));
     return m_nextNumber++;
 }
@@ -736,7 +738,7 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
         }
 
         case MarkupTool::Number: {
-            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color);
+            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color, element.dpiScale);
             break;
         }
 

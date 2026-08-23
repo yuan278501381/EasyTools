@@ -1,6 +1,7 @@
 #include "capture/CursorOverlay.h"
 
 #include "core/logger/Logger.h"
+#include "core/utils/DpiUtils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -270,8 +271,9 @@ CursorOverlay::Patch CursorOverlay::apply(CaptureFrameView& frame,
     const bool drawClick = m_clickActive && showClickEffects;
     const int clickX = m_clickPoint.x - screenRegion.x;
     const int clickY = m_clickPoint.y - screenRegion.y;
-    const double radius = 8.0 + clickProgress * 24.0;
-    constexpr double ringThickness = 3.6;
+    const float dpiScale = easy::core::dpi::scaleAtPoint(m_clickPoint);
+    const double radius = (8.0 + clickProgress * 24.0) * static_cast<double>(dpiScale);
+    const double ringThickness = 3.6 * static_cast<double>(dpiScale);
 
     Bounds bounds;
     if (drawCursor) bounds.include(cursorX, cursorY, m_cursorWidth, m_cursorHeight);

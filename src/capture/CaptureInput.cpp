@@ -422,12 +422,13 @@ void CaptureInput::beginMarkup(POINT point) {
     if (!m_state->markupBaseReady) return;
 
     cv::Point local = toMarkupPoint(point);
+    const float currentDpiScale = m_state->dpiScale > 0.0f ? m_state->dpiScale : 1.0f;
     if (m_state->currentTool == MarkupTool::Number) {
-        m_state->markup.addNumberMark(local, m_state->currentColor);
+        m_state->markup.addNumberMark(local, m_state->currentColor, currentDpiScale);
         return;
     }
     if (m_state->currentTool == MarkupTool::Magnifier) {
-        m_state->markup.addMagnifier(local);
+        m_state->markup.addMagnifier(local, 2.0f, static_cast<int>(std::round(60.0f * currentDpiScale)));
         return;
     }
     if (m_state->currentTool == MarkupTool::Text) {
@@ -435,7 +436,7 @@ void CaptureInput::beginMarkup(POINT point) {
             m_state->activeElement->isActive = false;
             m_state->activeElement->isEditing = false;
         }
-        m_state->markup.addText(local, "", m_state->currentColor, 18.0f * (m_state->dpiScale > 0 ? m_state->dpiScale : 1.0f));
+        m_state->markup.addText(local, "", m_state->currentColor, 18.0f * currentDpiScale);
         m_state->activeElement = m_state->markup.getElementAtEx(local).element;
         if (m_state->activeElement) {
             m_state->activeElement->isActive = true;

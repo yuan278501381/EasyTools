@@ -22,6 +22,7 @@ public:
     void startEditPinned(const cv::Mat& image, const CaptureRegion& region,
                          std::function<void(const cv::Mat& newImage)> onFinished);
     void cancel();
+    void reloadThemeColors() { m_renderer.applyThemeColors(); m_renderer.invalidate(); }
 
     void setCallback(SelectionCallback callback) { m_state.callback = std::move(callback); }
     void setClosedCallback(std::function<void()> callback) { m_closedCallback = std::move(callback); }

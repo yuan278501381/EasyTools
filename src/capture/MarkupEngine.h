@@ -89,8 +89,9 @@ struct MarkupElement {
     float fontSize = 16.0f;
     cv::Size textRenderSize{0, 0}; // 记录最后一次渲染的文本尺寸，用于包围盒
 
-    // 序列号值
+    // 序列号值与缩放
     int numberValue = 0;
+    float dpiScale = 1.0f;
 
     // 马赛克块大小
     int mosaicBlockSize = 12;
@@ -207,7 +208,7 @@ public:
     void addText(cv::Point position, const std::string& text, MarkupColor color, float fontSize = 16.0f);
 
     /// 添加序列号标记
-    int addNumberMark(cv::Point position, MarkupColor color);
+    int addNumberMark(cv::Point position, MarkupColor color, float dpiScale = 1.0f);
 
     /// 添加放大镜
     void addMagnifier(cv::Point center, float scale = 2.0f, int radius = 60);

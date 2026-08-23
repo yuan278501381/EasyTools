@@ -35,12 +35,12 @@ interface OperationResult {
 }
 
 const ACCENT_PRESETS = [
-  { id: 'violet', labelKey: 'general.accentViolet', color: '#8b5cf6' },
+  { id: 'blue',   labelKey: 'general.accentBlue',   color: '#3b82f6' },
   { id: 'cyan',   labelKey: 'general.accentCyan',   color: '#06b6d4' },
   { id: 'amber',  labelKey: 'general.accentAmber',  color: '#f59e0b' },
-  { id: 'blue',   labelKey: 'general.accentBlue',   color: '#3b82f6' },
   { id: 'mint',   labelKey: 'general.accentMint',   color: '#10b981' },
   { id: 'coral',  labelKey: 'general.accentCoral',  color: '#f43f5e' },
+  { id: 'violet', labelKey: 'general.accentViolet', color: '#8b5cf6' },
 ] as const;
 
 export const GeneralPage: FC = () => {

@@ -11,6 +11,8 @@
 #include "capture/CaptureOverlay.h"
 #include "core/events/EventBus.h"
 #include "core/logger/Logger.h"
+#include "core/config/ConfigManager.h"
+#include "core/utils/ThemeUtils.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
 
@@ -830,10 +832,13 @@ void PinWindow::render() {
         drawHoverToolbar();
     }
 
-    // 边框：选中态用 Fluent 蓝色强调 2px 内描边，否则 1px 半透明中性灰
+    // 边框：选中态用主题强调色 2px 内描边，否则 1px 半透明中性灰
     ComPtr<ID2D1SolidColorBrush> borderBrush;
     if (m_focused) {
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.478f, 0.800f, 0.95f), borderBrush.GetAddressOf());
+        auto& cfg = easy::core::ConfigManager::instance();
+        const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
+        const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.95f), borderBrush.GetAddressOf());
         m_renderTarget->DrawRectangle(D2D1::RectF(1, 1, size.width - 1, size.height - 1), borderBrush.Get(), 2.0f);
     } else {
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.5f, 0.5f, 0.5f), borderBrush.GetAddressOf());

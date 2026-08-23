@@ -370,6 +370,10 @@ public:
         m_recordingSubscription = bus.subscribe<easy::core::ActionToggleRecordingEvent>([](const easy::core::ActionToggleRecordingEvent&) {
             toggleRecording();
         });
+
+        m_themeSubscription = bus.subscribe<easy::core::ThemeChangedEvent>([](const easy::core::ThemeChangedEvent&) {
+            easy::capture::CaptureOverlay::instance().reloadThemeColors();
+        });
         
         mb.registerHandler("capture.triggerScreenshot", [](const nlohmann::json&) -> nlohmann::json {
             g_ocrPending.store(false);
@@ -750,8 +754,10 @@ public:
         auto& bus = easy::core::EventBus::instance();
         bus.unsubscribeAndWait(m_screenshotSubscription);
         bus.unsubscribeAndWait(m_recordingSubscription);
+        bus.unsubscribeAndWait(m_themeSubscription);
         m_screenshotSubscription = 0;
         m_recordingSubscription = 0;
+        m_themeSubscription = 0;
 
         g_ocrPending.store(false);
         if (g_ocrWorker.joinable()) g_ocrWorker.join();
@@ -775,6 +781,7 @@ public:
 private:
     easy::core::SubscriptionId m_screenshotSubscription = 0;
     easy::core::SubscriptionId m_recordingSubscription = 0;
+    easy::core::SubscriptionId m_themeSubscription = 0;
 };
 
 } // namespace easy::capture

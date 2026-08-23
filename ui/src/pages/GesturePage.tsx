@@ -115,7 +115,7 @@ export const GesturePage: FC = () => {
   const [inFlightCompass, setInFlightCompass] = useState(true);
   const [triggerButton, setTriggerButton] = useState('both');
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
-  const [trailColor, setTrailColor] = useState('#8B5CF6');
+  const [trailColor, setTrailColor] = useState('#3B82F6');
   const [trailWidth, setTrailWidth] = useState(2.5);
   const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
   const [elevated, setElevated] = useState(false);
@@ -184,7 +184,7 @@ export const GesturePage: FC = () => {
         setAutoBypassFullscreen(state.autoBypassFullscreen ?? true);
         setTargetMode(state.targetMode === 'foreground' ? 'foreground' : 'underPointer');
         setTrailColorMode(state.trailColorMode ?? 'auto');
-        setTrailColor(state.trailColor ?? '#8B5CF6');
+        setTrailColor(state.trailColor ?? '#3B82F6');
         setTrailWidth(state.trailWidth ?? 2.5);
         setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
         setInitialTimeoutMs(state.initialTimeoutMs ?? 500);
