@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer, Loader2 } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -149,14 +149,20 @@ export default function TrayApp() {
     }
   };
 
-  // 触发提权并展示优雅等待状态
-  const handleRestartElevated = async () => {
+  // 触发管理员提权或降权重启
+  const handleToggleElevated = async () => {
     if (busy || elevating) return;
     setElevating(true);
+    void bridgeRequest('tray.hide').catch(() => {});
     try {
-      const result = await bridgeRequest<{ success: boolean }>('tray.action', { action: 'restartElevated' });
-      if (result && !result.success) {
-        setElevating(false);
+      if (!elevated) {
+        const result = await bridgeRequest<{ success: boolean }>('tray.action', { action: 'restartElevated' });
+        if (result && !result.success) {
+          setElevating(false);
+        }
+      } else {
+        await bridgeRequest('general.updateSettings', { runAsAdmin: false });
+        await bridgeRequest('app.restart');
       }
     } catch {
       setElevating(false);
@@ -242,36 +248,21 @@ export default function TrayApp() {
 
       <div className="tray-menu__divider" />
 
-      {elevating ? (
-        <button
-          type="button"
-          className="tray-menu__item tray-menu__item--admin tray-menu__item--elevating"
-          disabled
-        >
-          <Loader2 size={15} className="tray-menu__icon tray-menu__icon--admin tray-menu__icon--spinning" />
-          <span className="tray-menu__label">{t('tray.elevating', '正在提升权限...')}</span>
-        </button>
-      ) : elevated ? (
-        <button
-          type="button"
-          className="tray-menu__item tray-menu__item--admin-active"
-          disabled
-          title={t('tray.adminActiveDesc', 'Running with highest privileges')}
-        >
+      <button
+        type="button"
+        className={`tray-menu__item tray-menu__item--admin ${elevated ? 'tray-menu__item--admin-active' : ''} ${elevating ? 'tray-menu__item--elevating' : ''}`}
+        disabled={busy || elevating}
+        onClick={() => void handleToggleElevated()}
+        title={elevated ? t('tray.adminActiveDesc', 'Running with highest privileges (Click to restart with normal privileges)') : t('tray.restartElevated', 'Run as Administrator')}
+      >
+        {elevated ? (
           <ShieldCheck size={15} className="tray-menu__icon tray-menu__icon--admin" />
-          <span className="tray-menu__label">{t('tray.adminActive', 'Running as Administrator')}</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="tray-menu__item tray-menu__item--admin"
-          disabled={busy}
-          onClick={() => void handleRestartElevated()}
-        >
+        ) : (
           <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
-          <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
-        </button>
-      )}
+        )}
+        <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
+        <span className={`tray-menu__dot ${elevated ? 'tray-menu__dot--active' : ''}`} />
+      </button>
 
       <div className="tray-menu__divider" />
 

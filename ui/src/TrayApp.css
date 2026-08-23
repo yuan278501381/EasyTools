@@ -249,7 +249,6 @@ html[data-surface="tray"] #root {
 .tray-menu__item--admin-active {
   color: #059669 !important;
   opacity: 0.95 !important;
-  cursor: default !important;
 }
 
 .tray-menu__item--admin-active .tray-menu__icon--admin {
@@ -264,6 +263,35 @@ html[data-surface="tray"] #root {
 [data-theme="dark"] .tray-menu__item--admin-active .tray-menu__icon--admin {
   color: #34d399 !important;
   filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.6));
+}
+
+.tray-menu__item--admin-active:hover {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669 !important;
+}
+
+[data-theme="dark"] .tray-menu__item--admin-active:hover {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399 !important;
+}
+
+.tray-menu__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] .tray-menu__dot {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.tray-menu__dot--active {
+  background: #10b981 !important;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.65);
 }
 
 .tray-menu__item--elevating {
