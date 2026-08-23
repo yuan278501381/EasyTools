@@ -563,11 +563,9 @@ public:
             if (response) {
                 try {
                     auto result = nlohmann::json::parse(*response);
-                    // The service may deliberately expose its authenticated
-                    // endpoint before disk/index initialization completes.
-                    // Preserve that explicit state instead of presenting an
-                    // empty initializing index as a healthy search result.
-                    result["available"] = !result.value("initializing", false);
+                    const bool isInit = result.value("initializing", false);
+                    result["available"] = !isInit;
+                    result["status"] = isInit ? "starting" : "ready";
                     return result;
                 } catch (...) {
                     LOG_ERROR("SearchPlugin: 无法解析 JSON 结果");
@@ -576,16 +574,15 @@ public:
                 LOG_WARN("SearchPlugin: 管道调用超时或返回空, error={}", pipeError);
             }
 
-            // A process named EasyTools_Service.exe can belong to another user,
-            // session, or stale token. Only a timeout/busy result from this
-            // per-user endpoint can be reported as a currently busy service.
-            const bool isAlive = pipeError == ERROR_TIMEOUT || pipeError == ERROR_PIPE_BUSY;
+            const bool isStarting = pipeError == ERROR_TIMEOUT || pipeError == ERROR_PIPE_BUSY ||
+                                   pipeError == ERROR_FILE_NOT_FOUND || g_serviceSpawnedByUs.load();
             const char* statusError = pipeError == ERROR_NOT_SUPPORTED
                 ? "search service is attached to another Windows user or session"
-                : (isAlive ? "search service busy" : "search service unavailable");
+                : (isStarting ? "search service starting" : "search service unavailable");
             return {
                 {"results", nlohmann::json::array()},
-                {"available", isAlive},
+                {"available", false},
+                {"status", isStarting ? "starting" : "unavailable"},
                 {"error", statusError}
             };
         });

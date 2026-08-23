@@ -83,6 +83,7 @@ export interface SearchResult {
 export interface SearchResponse {
   results: SearchResult[];
   available: boolean;
+  status?: 'ready' | 'starting' | 'unavailable';
   totalIndexedFiles?: number;
   elapsedMs?: number;
   error?: string;
@@ -844,6 +845,9 @@ export default function SearchApp() {
   const [searchHistory, setSearchHistory] = useState<{ search: string; searchCount: number; lastSearchDate: number }[]>([]);
   const [isInitialIndexing, setIsInitialIndexing] = useState(false);
   const isInitialIndexingRef = useRef(false);
+  const [isServiceStarting, setIsServiceStarting] = useState(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<number | null>(null);
   const [dbStats, setDbStats] = useState<{
     dbPath: string;
     dbSize: number;
@@ -1412,14 +1416,21 @@ export default function SearchApp() {
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      return;
+    }
     // 输入法组字期间 value 会随每个字母变化，此时发出的查询没有任何意义。
     if (isComposing) return;
 
     const sequence = ++requestSequence.current;
     const debounceMs = resolveDebounceMs({ query: trimmed, activeCategory, searchMode });
 
-    const timer = window.setTimeout(async () => {
+    const runQuery = async () => {
+      if (sequence !== requestSequence.current) return;
       const loadingTimer = window.setTimeout(() => {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);
@@ -1447,7 +1458,32 @@ export default function SearchApp() {
         window.clearTimeout(loadingTimer);
         // 服务端已判定本次查询过期，保留当前结果等待更新的那次返回。
         if (response.cancelled) return;
+
+        // 如果服务正在启动/就绪中，展示优雅等待并自动触发自愈重试
+        if (response.status === 'starting' || (!response.available && response.status !== 'unavailable')) {
+          startTransition(() => {
+            setIsServiceStarting(true);
+            setServiceAvailable(true);
+          });
+          if (retryCountRef.current < 25) {
+            retryCountRef.current += 1;
+            const nextDelay = Math.min(250 + retryCountRef.current * 100, 1000);
+            retryTimerRef.current = window.setTimeout(() => {
+              void runQuery();
+            }, nextDelay);
+          } else {
+            startTransition(() => {
+              setIsServiceStarting(false);
+              setServiceAvailable(false);
+            });
+          }
+          return;
+        }
+
+        // 服务正常就绪并返回数据
+        retryCountRef.current = 0;
         startTransition(() => {
+          setIsServiceStarting(false);
           setResults(Array.isArray(response.results) ? response.results : []);
           setSelectedIndex(0);
           if (response.totalIndexedFiles !== undefined) {
@@ -1470,9 +1506,25 @@ export default function SearchApp() {
         window.clearTimeout(loadingTimer);
         if (sequence === requestSequence.current) setLoading(false);
       }
+    };
+
+    retryCountRef.current = 0;
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runQuery();
     }, debounceMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
   }, [query, isComposing, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
 
   // 组合排序开关
@@ -1614,6 +1666,9 @@ export default function SearchApp() {
   const updateQuery = useCallback((next: string) => {
     setQuery(next);
     setActionError('');
+    if (!next.trim()) {
+      setIsServiceStarting(false);
+    }
 
     // 搜索语法动态识别与排序联动
     const lower = next.toLowerCase();
@@ -2191,7 +2246,7 @@ export default function SearchApp() {
             aria-activedescendant={sortedResults[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
             spellCheck={false}
           />
-          {(loading || isInitialIndexing) && <span className="search-loading" aria-label={t('common.loading', '正在构建索引/搜索...')} />}
+          {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', '正在构建索引/搜索...')} />}
           
           <button
             className="search-help-btn search-drag-btn"
@@ -3089,16 +3144,20 @@ export default function SearchApp() {
           </div>
         )}
 
-        {isInitialIndexing && sortedResults.length === 0 && (
+        {(isInitialIndexing || isServiceStarting) && sortedResults.length === 0 && (
           <div className="search-empty-container search-empty-container--indexing" role="status">
             <div className="search-empty-icon-wrap search-empty-icon-wrap--indexing">
               <RefreshCw size={32} className="search-empty-icon spin-animation" />
             </div>
             <div className="search-empty-title">
-              {t('search.initialIndexingTitle', '正在极速构建并固化全盘文件索引...')}
+              {isInitialIndexing
+                ? t('search.initialIndexingTitle', '正在极速构建并固化全盘文件索引...')
+                : t('search.serviceStartingTitle', '正在极速连接文件索引服务...')}
             </div>
             <div className="search-empty-desc">
-              {t('search.initialIndexingDesc', '首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。')}
+              {isInitialIndexing
+                ? t('search.initialIndexingDesc', '首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。')
+                : t('search.serviceStartingDesc', '正在按需唤醒文件索引引擎并加载磁盘缓存，完成后将自动呈现搜索结果，请稍候...')}
             </div>
             <div className="search-indexing-progress-bar-wrap">
               <div className="search-indexing-progress-bar-indeterminate" />
@@ -3106,16 +3165,16 @@ export default function SearchApp() {
           </div>
         )}
 
-        {!isInitialIndexing && !serviceAvailable && (
+        {!isInitialIndexing && !isServiceStarting && !serviceAvailable && (
           <div className="search-status" role="status">
             <ServerOff size={18} aria-hidden="true" />
             <span>{t('search.serviceUnavailable', '文件索引服务暂不可用，正在尝试自动连接或静默拉起。')}</span>
           </div>
         )}
 
-        {!isInitialIndexing && actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
+        {!isInitialIndexing && !isServiceStarting && actionError && <div className="search-status search-status--error" role="alert">{actionError}</div>}
 
-        {!isInitialIndexing && serviceAvailable && query.trim() && !loading && sortedResults.length === 0 && (
+        {!isInitialIndexing && !isServiceStarting && serviceAvailable && query.trim() && !loading && sortedResults.length === 0 && (
           <div className="search-empty-container" role="status">
             <div className="search-empty-icon-wrap">
               <SearchX size={34} className="search-empty-icon" />
@@ -3152,7 +3211,7 @@ export default function SearchApp() {
           </div>
         )}
 
-        {!isInitialIndexing && serviceAvailable && !query.trim() && sortedResults.length === 0 && searchHistory.length === 0 && (
+        {!isInitialIndexing && !isServiceStarting && serviceAvailable && !query.trim() && sortedResults.length === 0 && searchHistory.length === 0 && (
           <div className="search-empty-container search-empty-container--initial" role="status">
             <div className="search-empty-icon-wrap search-empty-icon-wrap--initial">
               <Search size={32} className="search-empty-icon" />
@@ -3198,7 +3257,11 @@ export default function SearchApp() {
             {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
             <div className="search-footer-stat-item search-footer-stat-item--interactive" title="当前匹配到的文件与文件夹对象总数 · 点击右侧图标刷新 (F5)">
               <span>
-                {sortedResults.length > 0 ? (
+                {isServiceStarting ? (
+                  <><strong>{t('search.serviceConnectingStatus', '正在连接索引服务...')}</strong></>
+                ) : isInitialIndexing ? (
+                  <><strong>{t('search.initialIndexingTitle', '正在构建索引...')}</strong></>
+                ) : sortedResults.length > 0 ? (
                   <><strong>{sortedResults.length.toLocaleString()}</strong> 个对象</>
                 ) : (
                   <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> 个对象</>
@@ -3211,10 +3274,10 @@ export default function SearchApp() {
                   e.stopPropagation();
                   void rebuildIndex();
                 }}
-                disabled={isRebuilding}
+                disabled={isRebuilding || isServiceStarting}
                 title="重新扫描全盘并更新索引与快照 (快捷键: F5 / Ctrl+R)"
               >
-                <RefreshCw size={11} className={isRebuilding ? 'spin-animation' : ''} />
+                <RefreshCw size={11} className={(isRebuilding || isServiceStarting) ? 'spin-animation' : ''} />
               </button>
             </div>
 

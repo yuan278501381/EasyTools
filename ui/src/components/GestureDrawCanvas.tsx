@@ -1,16 +1,16 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * GestureDrawCanvas — 交互式手势录制与识别画板 (World-Class Interactive Drawing Pad)
  *
- * 功能:
- *   - 一体化手势录制控制舱 (Cockpit Bar):
- *     - 触发按键自由切换: 鼠标右键 / 中键 / 侧键1 / 侧键2 / 左键
- *     - 触发位置自由切换: 全局区域 / 屏幕上边缘 / 底边缘 / 左边缘 / 右边缘
- *     - 键盘物理修饰键实时捕获高亮 (Ctrl / Shift / Alt)
- *   - 按住鼠标任意按键滑动时，自动探测物理按键并无缝绑定
- *   - 拦截右键菜单与中键/侧键导航默认事件，保证画板绘制极其流畅
+ * 核心交互哲学 (Zero-Cognition Auto-Detection & Display Only):
+ *   - 用户无需手动配置任何选项，认知负荷归零！
+ *   - 硬件按键自动感应: 在画板按住右键/中键/侧键1/侧键2/左键划动，全自动识别
+ *   - 屏幕位置自动感应: 在画板顶部起笔 -> 自动识别为上边缘 (TopEdge+)
+ *                     在画板底部起笔 -> 自动识别为底边缘 (BottomEdge+)
+ *                     在画板左/右侧起笔 -> 自动识别为左/右边缘 (LeftEdge+/RightEdge+)
+ *                     在画板中央起笔 -> 自动识别为全局常规手势 (none)
+ *   - 物理修饰键自动侦测: 划动时按住 Ctrl/Shift/Alt，实时侦测并自动绑定
+ *   - 顶部控制舱为「全自动感应监视仪 (Read-only Sensor Telemetry)」，纯状态展示不可编辑
  *   - 搭载 RDP + 转弯圆角折叠平滑消抖算法 (Corner Fillet Folding)
- *   - 实时识别方向并自动合成手势完整编码 (如 TopEdge+D, X1+L, Ctrl+Middle+R)
- *   - 常用快捷手势预设分流展示
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useRef, useCallback, useEffect, type FC } from 'react';
@@ -240,6 +240,7 @@ export const GestureDrawCanvas: FC<Props> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingButton, setDrawingButton] = useState<number | null>(null);
+  const [drawingEdge, setDrawingEdge] = useState<ScreenEdge>('none');
   const [points, setPoints] = useState<Point[]>([]);
 
   // 实时监听键盘物理按键状态 (Ctrl / Shift / Alt)
@@ -255,7 +256,7 @@ export const GestureDrawCanvas: FC<Props> = ({
   const currentShift = parsed.hasShift || liveKeys.shift;
   const currentAlt = parsed.hasAlt || liveKeys.alt;
   const currentTrigger = parsed.triggerButton !== 'right' ? parsed.triggerButton : triggerButton;
-  const currentEdge = parsed.edge !== 'none' ? parsed.edge : screenEdge;
+  const currentEdge = parsed.edge !== 'none' ? parsed.edge : (isDrawing ? drawingEdge : screenEdge);
 
   // 监听物理键盘修饰键实时按下/松开
   useEffect(() => {
@@ -283,48 +284,6 @@ export const GestureDrawCanvas: FC<Props> = ({
     };
   }, []);
 
-  const handleToggleModifier = (mod: 'ctrl' | 'shift' | 'alt') => {
-    const nextCtrl = mod === 'ctrl' ? !parsed.hasCtrl : parsed.hasCtrl;
-    const nextShift = mod === 'shift' ? !parsed.hasShift : parsed.hasShift;
-    const nextAlt = mod === 'alt' ? !parsed.hasAlt : parsed.hasAlt;
-
-    const newCode = assembleGestureCode({
-      edge: currentEdge,
-      triggerButton: currentTrigger,
-      hasCtrl: nextCtrl,
-      hasShift: nextShift,
-      hasAlt: nextAlt,
-      bareCode: parsed.bareCode,
-    });
-    onChange(newCode);
-  };
-
-  const handleSetTrigger = (btn: TriggerButton) => {
-    onTriggerButtonChange?.(btn);
-    const newCode = assembleGestureCode({
-      edge: currentEdge,
-      triggerButton: btn,
-      hasCtrl: currentCtrl,
-      hasShift: currentShift,
-      hasAlt: currentAlt,
-      bareCode: parsed.bareCode,
-    });
-    onChange(newCode);
-  };
-
-  const handleSetEdge = (edge: ScreenEdge) => {
-    onScreenEdgeChange?.(edge);
-    const newCode = assembleGestureCode({
-      edge,
-      triggerButton: currentTrigger,
-      hasCtrl: currentCtrl,
-      hasShift: currentShift,
-      hasAlt: currentAlt,
-      bareCode: parsed.bareCode,
-    });
-    onChange(newCode);
-  };
-
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     if (!canvasRef.current) return;
@@ -335,13 +294,34 @@ export const GestureDrawCanvas: FC<Props> = ({
     setIsDrawing(true);
     setDrawingButton(e.button);
 
+    // 智能识别落笔区域坐标 (自动感应上边缘/底边缘/左边缘/右边缘/全局)
+    const relX = rect.width > 0 ? x / rect.width : 0.5;
+    const relY = rect.height > 0 ? y / rect.height : 0.5;
+    let detectedEdge: ScreenEdge;
+    if (relY <= 0.25) {
+      detectedEdge = 'top';
+    } else if (relY >= 0.75) {
+      detectedEdge = 'bottom';
+    } else if (relX <= 0.15) {
+      detectedEdge = 'left';
+    } else if (relX >= 0.85) {
+      detectedEdge = 'right';
+    } else {
+      detectedEdge = 'none';
+    }
+
+    setDrawingEdge(detectedEdge);
+    if (onScreenEdgeChange && detectedEdge !== currentEdge) {
+      onScreenEdgeChange(detectedEdge);
+    }
+
     // 智能联动物理按键识别
     let detectedBtn: TriggerButton = currentTrigger;
     if (e.button === 1) detectedBtn = 'middle';
     else if (e.button === 2) detectedBtn = 'right';
     else if (e.button === 3) detectedBtn = 'x1';
     else if (e.button === 4) detectedBtn = 'x2';
-    else if (e.button === 0 && (currentEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
+    else if (e.button === 0 && (detectedEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
       detectedBtn = 'left';
     }
 
@@ -354,7 +334,7 @@ export const GestureDrawCanvas: FC<Props> = ({
     } catch {
       // ignore
     }
-  }, [currentTrigger, currentEdge, liveKeys, parsed, onTriggerButtonChange]);
+  }, [currentTrigger, currentEdge, liveKeys, parsed, onTriggerButtonChange, onScreenEdgeChange]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDrawing || !canvasRef.current) return;
@@ -378,13 +358,27 @@ export const GestureDrawCanvas: FC<Props> = ({
     e.preventDefault();
     setIsDrawing(false);
 
+    // 基于起笔点的绝对坐标核实边缘归属
+    let effectiveEdge: ScreenEdge = drawingEdge;
+    if (points.length > 0 && canvasRef.current) {
+      const startPt = points[0];
+      const rect = canvasRef.current.getBoundingClientRect();
+      const relX = rect.width > 0 ? startPt.x / rect.width : 0.5;
+      const relY = rect.height > 0 ? startPt.y / rect.height : 0.5;
+      if (relY <= 0.25) effectiveEdge = 'top';
+      else if (relY >= 0.75) effectiveEdge = 'bottom';
+      else if (relX <= 0.15) effectiveEdge = 'left';
+      else if (relX >= 0.85) effectiveEdge = 'right';
+      else effectiveEdge = 'none';
+    }
+
     const effectiveButton = drawingButton ?? e.button;
     let effectiveTrigger: TriggerButton = currentTrigger;
     if (effectiveButton === 1) effectiveTrigger = 'middle';
     else if (effectiveButton === 2) effectiveTrigger = 'right';
     else if (effectiveButton === 3) effectiveTrigger = 'x1';
     else if (effectiveButton === 4) effectiveTrigger = 'x2';
-    else if (effectiveButton === 0 && (currentEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
+    else if (effectiveButton === 0 && (effectiveEdge !== 'none' || liveKeys.ctrl || liveKeys.shift || liveKeys.alt || parsed.hasCtrl || parsed.hasShift || parsed.hasAlt)) {
       effectiveTrigger = 'left';
     }
 
@@ -392,7 +386,7 @@ export const GestureDrawCanvas: FC<Props> = ({
       const bare = recognizeStrokes(points);
       if (bare) {
         const full = assembleGestureCode({
-          edge: currentEdge,
+          edge: effectiveEdge,
           triggerButton: effectiveTrigger,
           hasCtrl: e.ctrlKey || liveKeys.ctrl || parsed.hasCtrl,
           hasShift: e.shiftKey || liveKeys.shift || parsed.hasShift,
@@ -403,10 +397,11 @@ export const GestureDrawCanvas: FC<Props> = ({
       }
     }
     setDrawingButton(null);
-  }, [isDrawing, points, onChange, currentTrigger, currentEdge, drawingButton, liveKeys, parsed]);
+  }, [isDrawing, points, onChange, currentTrigger, drawingEdge, drawingButton, liveKeys, parsed]);
 
   const handleClear = () => {
     setPoints([]);
+    setDrawingEdge('none');
     onChange('');
   };
 
@@ -440,131 +435,109 @@ export const GestureDrawCanvas: FC<Props> = ({
 
   return (
     <div className="gesture-draw-container">
-      {/* 一体化手势录制控制舱 (Cockpit Bar) */}
-      <div className="gesture-cockpit-bar">
-        {/* 触发按键快速切换 */}
+      {/* 实时硬件与位置感应监视仪 (Live Sensor Cockpit - Zero Cognition Read-only Display) */}
+      <div className="gesture-cockpit-bar" title="自动识别监视区：根据你在画板上按下的鼠标按键、起笔位置与键盘修饰键全自动识别">
+        {/* 触发按键自动感应指示 */}
         <div className="gesture-cockpit-group">
           <span className="gesture-cockpit-label">触发键:</span>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentTrigger === 'right' ? 'active' : ''}`}
-            onClick={() => handleSetTrigger('right')}
-            title="鼠标右键 (按住右键滑动)"
+          <span
+            className={`gesture-cockpit-badge ${currentTrigger === 'right' ? 'active' : ''}`}
+            title="鼠标右键 (按住右键划动手势)"
           >
             <span>◐</span>
             <span>右键</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentTrigger === 'middle' ? 'active' : ''}`}
-            onClick={() => handleSetTrigger('middle')}
-            title="鼠标中键 (按住中键/滚轮滑动)"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentTrigger === 'middle' ? 'active' : ''}`}
+            title="鼠标中键 (按住中键/滚轮划动手势)"
           >
             <span>◓</span>
             <span>中键</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentTrigger === 'x1' ? 'active' : ''}`}
-            onClick={() => handleSetTrigger('x1')}
-            title="鼠标侧键1 (按住后退键滑动)"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentTrigger === 'x1' ? 'active' : ''}`}
+            title="鼠标侧键1 (按住后退键划动手势)"
           >
             <span>◧</span>
             <span>侧键1</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentTrigger === 'x2' ? 'active' : ''}`}
-            onClick={() => handleSetTrigger('x2')}
-            title="鼠标侧键2 (按住前进键滑动)"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentTrigger === 'x2' ? 'active' : ''}`}
+            title="鼠标侧键2 (按住前进键划动手势)"
           >
             <span>◨</span>
             <span>侧键2</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentTrigger === 'left' ? 'active' : ''}`}
-            onClick={() => handleSetTrigger('left')}
-            title="鼠标左键 (边缘或带修饰键生效)"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentTrigger === 'left' ? 'active' : ''}`}
+            title="鼠标左键 (在边缘起笔或配合修饰键生效)"
           >
             <span>◑</span>
             <span>左键</span>
-          </button>
+          </span>
         </div>
 
-        {/* 触发位置 (屏幕边缘) */}
+        {/* 触发位置自动感应指示 */}
         <div className="gesture-cockpit-group">
           <span className="gesture-cockpit-label">位置:</span>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentEdge === 'none' ? 'active' : ''}`}
-            onClick={() => handleSetEdge('none')}
-            title="全局区域"
+          <span
+            className={`gesture-cockpit-badge ${currentEdge === 'none' ? 'active' : ''}`}
+            title="画板中央起笔自动识别为全局手势"
           >
             <span>全局</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentEdge === 'top' ? 'active' : ''}`}
-            onClick={() => handleSetEdge('top')}
-            title="屏幕上边缘"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentEdge === 'top' ? 'active' : ''}`}
+            title="画板顶部起笔自动识别为屏幕上边缘手势"
           >
             <span>◰ 上边缘</span>
-          </button>
-          <button
-            type="button"
-            className={`gesture-cockpit-pill ${currentEdge === 'bottom' ? 'active' : ''}`}
-            onClick={() => handleSetEdge('bottom')}
-            title="屏幕底边缘"
+          </span>
+          <span
+            className={`gesture-cockpit-badge ${currentEdge === 'bottom' ? 'active' : ''}`}
+            title="画板底部起笔自动识别为屏幕底边缘手势"
           >
             <span>◲ 底边缘</span>
-          </button>
+          </span>
         </div>
 
-        {/* 修饰键与清空按钮 */}
+        {/* 物理修饰键自动侦测指示 */}
         <div className="gesture-cockpit-group">
           <span className="gesture-cockpit-label">修饰键:</span>
-          <button
-            type="button"
-            className={`gesture-modifier-pill ${currentCtrl ? 'active' : ''} ${liveKeys.ctrl ? 'is-key-pressed' : ''}`}
-            onClick={() => handleToggleModifier('ctrl')}
-            title="Ctrl 修饰键 (按住键盘 Ctrl 或点击开启)"
+          <span
+            className={`gesture-modifier-badge ${currentCtrl ? 'active' : ''} ${liveKeys.ctrl ? 'is-key-pressed' : ''}`}
+            title="Ctrl 键 (按住键盘物理 Ctrl 自动捕获)"
           >
             Ctrl
-          </button>
-          <button
-            type="button"
-            className={`gesture-modifier-pill ${currentShift ? 'active' : ''} ${liveKeys.shift ? 'is-key-pressed' : ''}`}
-            onClick={() => handleToggleModifier('shift')}
-            title="Shift 修饰键 (按住键盘 Shift 或点击开启)"
+          </span>
+          <span
+            className={`gesture-modifier-badge ${currentShift ? 'active' : ''} ${liveKeys.shift ? 'is-key-pressed' : ''}`}
+            title="Shift 键 (按住键盘物理 Shift 自动捕获)"
           >
             Shift
-          </button>
-          <button
-            type="button"
-            className={`gesture-modifier-pill ${currentAlt ? 'active' : ''} ${liveKeys.alt ? 'is-key-pressed' : ''}`}
-            onClick={() => handleToggleModifier('alt')}
-            title="Alt 修饰键 (按住键盘 Alt 或点击开启)"
+          </span>
+          <span
+            className={`gesture-modifier-badge ${currentAlt ? 'active' : ''} ${liveKeys.alt ? 'is-key-pressed' : ''}`}
+            title="Alt 键 (按住键盘物理 Alt 自动捕获)"
           >
             Alt
-          </button>
+          </span>
 
           <button
             type="button"
             className="gesture-draw-clear-btn"
             onClick={handleClear}
-            title="清空画板"
+            title="清空画板重新录制"
           >
             <RotateCcw size={12} />
-            <span>清空</span>
+            <span>清空重录</span>
           </button>
         </div>
       </div>
 
-      {/* 交互式手势捕获板 */}
+      {/* 交互式手势捕获板 (含顶部与底部边缘自动感应指示区) */}
       <div
         ref={canvasRef}
-        className={`gesture-draw-pad ${isDrawing ? 'is-drawing' : ''}`}
+        className={`gesture-draw-pad ${isDrawing ? 'is-drawing' : ''} ${currentEdge === 'top' ? 'edge-active-top' : currentEdge === 'bottom' ? 'edge-active-bottom' : ''}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -574,16 +547,26 @@ export const GestureDrawCanvas: FC<Props> = ({
         {/* 背景辅助网格 */}
         <div className="gesture-draw-crosshair" />
 
+        {/* 顶部屏幕上边缘感应区指示 */}
+        <div className={`gesture-edge-sensor-zone gesture-edge-sensor-zone--top ${currentEdge === 'top' ? 'active' : ''}`}>
+          <span className="gesture-edge-sensor-tag">◰ 顶部上边缘感应区</span>
+        </div>
+
+        {/* 底部屏幕底边缘感应区指示 */}
+        <div className={`gesture-edge-sensor-zone gesture-edge-sensor-zone--bottom ${currentEdge === 'bottom' ? 'active' : ''}`}>
+          <span className="gesture-edge-sensor-tag">◲ 底部底边缘感应区</span>
+        </div>
+
         {points.length === 0 && (
           <div className="gesture-draw-watermark">
             <div className="gesture-draw-watermark-icon-box">
               <MousePointer size={20} strokeWidth={2} className="gesture-draw-mouse-icon" />
             </div>
             <div className="gesture-draw-watermark-text">
-              按住鼠标划出轨迹 · 支持按住右键/中键/侧键或配合修饰键录制
+              直接在画板划动 · 按键、起笔位置与修饰键全自动识别
             </div>
             <div className="gesture-draw-watermark-hint">
-              按哪个键划动即自动识别该按键 · 也可点击上方控制舱药丸自由组合
+              顶部起笔=上边缘 · 底部起笔=底边缘 · 中间起笔=全局 · 按哪个按键自动识别哪个
             </div>
           </div>
         )}

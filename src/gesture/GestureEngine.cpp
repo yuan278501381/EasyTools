@@ -977,7 +977,7 @@ void GestureEngine::loadFromConfig() {
     m_paused = paused;
     setTriggerButton(config.get<std::string>("/gesture/triggerButton", "both"));
     setTrailVisible(config.get<bool>("/gesture/trailVisible", true));
-    setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", false));
+    setAutoBypassFullscreen(config.get<bool>("/gesture/autoBypassFullscreen", true));
     setTargetMode(config.get<std::string>("/gesture/targetMode", "underPointer"));
 
     // 加载 Profile

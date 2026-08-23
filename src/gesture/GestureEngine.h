@@ -163,7 +163,7 @@ private:
     std::atomic<bool> m_paused{false};
     std::atomic<bool> m_recordingMode{false};
     std::atomic<bool> m_trailVisible{true};
-    std::atomic<bool> m_autoBypassFullscreen{false};
+    std::atomic<bool> m_autoBypassFullscreen{true};
     std::atomic<GestureTargetMode> m_targetMode{GestureTargetMode::UnderPointer};
     HWND m_gestureStartWindow = nullptr;  // 手势开始时光标下的顶层窗口（含设置窗）
     HWND m_previousForeground = nullptr;  // 手势开始时的前台窗口（跳过覆盖层）
