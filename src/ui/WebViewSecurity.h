@@ -25,41 +25,7 @@ inline bool isTrustedMessageSource(ICoreWebView2WebMessageReceivedEventArgs* arg
     return trusted;
 }
 
-inline bool isBridgeMethodAllowed(std::string_view message, Surface surface) {
-    if (!isBridgeMessageSizeAcceptable(message.size())) {
-        LOG_WARN("已拒绝过大的 WebView bridge 消息: {} bytes", message.size());
-        return false;
-    }
-    if (surface == Surface::Settings) return true;
-    try {
-        const auto request = nlohmann::json::parse(message);
-        const std::string method = request.value("method", "");
-        const auto starts = [&method](std::string_view prefix) {
-            return method.starts_with(prefix);
-        };
-        bool allowed = false;
-        switch (surface) {
-            case Surface::Search:
-                allowed = starts("search.") || starts("system.") ||
-                          method == "capture.pinImageFile";
-                break;
-            case Surface::Tray:
-                allowed = starts("tray.") || method == "plugins.getAll" ||
-                          method == "gesture.getState";
-                break;
-            case Surface::QuickLook:
-                allowed = starts("quicklook.");
-                break;
-            case Surface::Settings:
-                allowed = true;
-                break;
-        }
-        if (!allowed) LOG_WARN("已拒绝 WebView surface 越权调用: {}", method);
-        return allowed;
-    } catch (...) {
-        return false;
-    }
-}
+
 
 inline void applyNavigationPolicy(ICoreWebView2* webView) {
     if (!webView) return;

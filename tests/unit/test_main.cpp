@@ -2137,6 +2137,23 @@ TEST(WebViewSecurityTest, RejectsOversizedBridgePayload) {
         easy::ui::web_security::MaxBridgeMessageBytes + 1));
 }
 
+TEST(WebViewSecurityTest, AllowsTrayRequiredMethods) {
+    using easy::ui::web_security::isBridgeMethodAllowed;
+    using easy::ui::web_security::Surface;
+
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"general.getSettings\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"general.updateSettings\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"plugins.getAll\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"plugins.setEnabled\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"gesture.getState\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"app.restart\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"app.restartElevated\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"tray.action\"}", Surface::Tray));
+    EXPECT_TRUE(isBridgeMethodAllowed("{\"method\":\"tray.resize\"}", Surface::Tray));
+    EXPECT_FALSE(isBridgeMethodAllowed("{\"method\":\"search.query\"}", Surface::Tray));
+    EXPECT_FALSE(isBridgeMethodAllowed("{\"method\":\"capture.start\"}", Surface::Tray));
+}
+
 TEST(WebViewSuspendTest, DistinguishesRefusalFromFailure) {
     using easy::ui::WebViewSuspendOutcome;
     EXPECT_EQ(easy::ui::classifyWebViewSuspendCompletion(S_OK, TRUE),

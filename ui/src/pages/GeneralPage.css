@@ -165,12 +165,16 @@
 }
 
 .general-page__hotkey-control {
-  width: min(250px, 48%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 
-.general-page__hotkey-control .hotkey-recorder {
-  width: 100%;
+.general-page__hotkey-control .hotkey-recorder-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 /* ── 空状态 ───────────────────────────────────────────────────────────────── */

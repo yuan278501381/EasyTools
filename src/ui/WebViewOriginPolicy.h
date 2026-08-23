@@ -1,9 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <string_view>
-
 #include <windows.h>
+#include <nlohmann/json.hpp>
 
 namespace easy::ui::web_security {
 
@@ -35,6 +36,40 @@ inline bool isTrustedUri(std::wstring_view uri) noexcept {
     }
 #endif
     return false;
+}
+
+inline bool isBridgeMethodAllowed(std::string_view message, Surface surface) {
+    if (!isBridgeMessageSizeAcceptable(message.size())) {
+        return false;
+    }
+    if (surface == Surface::Settings) return true;
+    try {
+        const auto request = nlohmann::json::parse(message);
+        const std::string method = request.value("method", "");
+        const auto starts = [&method](std::string_view prefix) {
+            return method.starts_with(prefix);
+        };
+        bool allowed = false;
+        switch (surface) {
+            case Surface::Search:
+                allowed = starts("search.") || starts("system.") ||
+                          method == "capture.pinImageFile";
+                break;
+            case Surface::Tray:
+                allowed = starts("tray.") || starts("general.") || starts("plugins.") ||
+                          starts("gesture.") || starts("app.");
+                break;
+            case Surface::QuickLook:
+                allowed = starts("quicklook.");
+                break;
+            case Surface::Settings:
+                allowed = true;
+                break;
+        }
+        return allowed;
+    } catch (...) {
+        return false;
+    }
 }
 
 }  // namespace easy::ui::web_security

@@ -12,6 +12,7 @@
 
 import { useState, useCallback, useRef, useEffect, type FC, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 import { useControlA11y } from './ControlA11yContext';
 import './HotkeyRecorder.css';
 
@@ -141,7 +142,6 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
       }
     };
 
-    // 延迟绑定避免触发录入的那次 click 也被捕获
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
     }, 0);
@@ -154,30 +154,25 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
 
   // ── 解析已绑定的快捷键字符串为 token 列表 ─────────────────────────────────
   const parsedKeys = value ? value.split('+') : [];
-  const modifierSet = new Set(['Ctrl', 'Alt', 'Shift', 'Win']);
 
-  // ── 渲染按键胶囊 ──────────────────────────────────────────────────────────
+  // ── 渲染物理键帽簇 ────────────────────────────────────────────────────────
   const renderKeys = (keys: string[]) => {
     if (keys.length === 0) return null;
 
     return (
       <span className="hotkey-recorder__keys">
         {keys.map((key, idx) => (
-          <span key={`${key}-${idx}`}>
+          <span key={`${key}-${idx}`} style={{ display: 'inline-flex', alignItems: 'center' }}>
             {idx > 0 && <span className="hotkey-recorder__separator">+</span>}
-            <span
-              className={`hotkey-recorder__key ${modifierSet.has(key) ? 'hotkey-recorder__key--modifier' : ''}`}
-            >
-              {key}
-            </span>
+            <kbd className="hotkey-recorder__key">{key}</kbd>
           </span>
         ))}
       </span>
     );
   };
 
-  const defaultPlaceholder = placeholder ?? t('capture.pressToBind');
-  const recordingPlaceholder = t('hotkey.pressKeys');
+  const defaultPlaceholder = placeholder ?? t('capture.pressToBind', '点击设置快捷键');
+  const recordingPlaceholder = t('hotkey.pressKeys', '按下快捷键... (Esc 取消)');
 
   return (
     <div ref={containerRef} className="hotkey-recorder-wrap">
@@ -204,7 +199,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
         <span id={`${id}-value`} className="sr-only">
           {recording ? recordingPlaceholder : (value || defaultPlaceholder)}
         </span>
-        <span aria-hidden="true">
+        <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>
           {recording ? (
             activeKeys.length > 0 ? renderKeys(activeKeys) : (
               <span className="hotkey-recorder__placeholder">{recordingPlaceholder}</span>
@@ -221,9 +216,10 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
           type="button"
           className="hotkey-recorder__clear"
           onClick={() => onChange('')}
-          aria-label={t('hotkey.clearBinding')}
+          aria-label={t('hotkey.clearBinding', '清除快捷键')}
+          title={t('hotkey.clearBinding', '清除快捷键')}
         >
-          ×
+          <X size={12} strokeWidth={2.5} />
         </button>
       )}
     </div>
