@@ -896,34 +896,38 @@ export const GesturePage: FC = () => {
             onChange={handleToggleAutoBypass}
           />
           <SettingRow label={tr('gesture.initialTimeout')} description={tr('gesture.initialTimeoutDesc')}>
-            <div className="gesture-number-input-wrap">
-              <input
-                id="gesture-initial-timeout"
-                type="number"
-                min={100}
-                max={3000}
-                step={50}
-                className="gesture-number-input"
-                value={initialTimeoutMs}
-                onChange={(e) => handleInitialTimeoutChange(Number(e.target.value))}
-              />
-              <span className="gesture-number-unit">ms</span>
-            </div>
+            <Select
+              id="gesture-initial-timeout"
+              value={String(initialTimeoutMs)}
+              onChange={(val) => void handleInitialTimeoutChange(Number(val))}
+              options={[
+                { value: '300', label: tr('gesture.initialTimeoutFast') },
+                { value: '500', label: tr('gesture.initialTimeoutStandard') },
+                { value: '800', label: tr('gesture.initialTimeoutRelaxed') },
+                { value: '1200', label: tr('gesture.initialTimeoutGenerous') },
+                { value: '2000', label: tr('gesture.initialTimeoutLong') },
+                ...(![300, 500, 800, 1200, 2000].includes(initialTimeoutMs)
+                  ? [{ value: String(initialTimeoutMs), label: `${initialTimeoutMs} 毫秒 (自定义)` }]
+                  : []),
+              ]}
+            />
           </SettingRow>
           <SettingRow label={tr('gesture.minSegmentDistance')} description={tr('gesture.minSegmentDistanceDesc')}>
-            <div className="gesture-number-input-wrap">
-              <input
-                id="gesture-min-segment-dist"
-                type="number"
-                min={5}
-                max={100}
-                step={2}
-                className="gesture-number-input"
-                value={minSegmentDistance}
-                onChange={(e) => handleMinSegmentDistanceChange(Number(e.target.value))}
-              />
-              <span className="gesture-number-unit">px</span>
-            </div>
+            <Select
+              id="gesture-min-segment-dist"
+              value={String(minSegmentDistance)}
+              onChange={(val) => void handleMinSegmentDistanceChange(Number(val))}
+              options={[
+                { value: '12', label: tr('gesture.minSegmentDistanceUltra') },
+                { value: '18', label: tr('gesture.minSegmentDistanceSensitive') },
+                { value: '24', label: tr('gesture.minSegmentDistanceStandard') },
+                { value: '32', label: tr('gesture.minSegmentDistanceAntiShake') },
+                { value: '48', label: tr('gesture.minSegmentDistanceLarge') },
+                ...(![12, 18, 24, 32, 48].includes(minSegmentDistance)
+                  ? [{ value: String(minSegmentDistance), label: `${minSegmentDistance} 像素 (自定义)` }]
+                  : []),
+              ]}
+            />
           </SettingRow>
           <SettingRow label={tr('gesture.targetMode')} description={tr('gesture.targetModeDesc')}>
             <Select
@@ -1162,13 +1166,19 @@ export const GesturePage: FC = () => {
                               e.preventDefault();
                               void handleDropMapping(actualIdx);
                             }}
+                            onDoubleClick={() => openEditMapping(m)}
                             className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''} ${isDragging ? 'gesture-table__row--dragging' : ''}`}
                             style={{ animationDelay: `${i * 20}ms` }}
+                            title="双击进入编辑界面"
                           >
                             {/* 1. 拖拽抓手 + 动态手势画板 + 触发按键徽章 */}
                             <span className="gesture-table__col gesture-table__col--gesture">
                               <div className="gesture-handle-box">
-                                <div className="gesture-drag-handle" title="按住拖拽调整手势顺序">
+                                <div
+                                  className="gesture-drag-handle"
+                                  title="按住拖拽调整手势顺序"
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                >
                                   <GripVertical size={14} className="gesture-grip-icon" />
                                 </div>
                                 <div className="gesture-preview-with-badge">
@@ -1199,6 +1209,7 @@ export const GesturePage: FC = () => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'instant');
                                     }}
+                                    onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <Zap size={10} />
                                     <span>即时</span>
@@ -1213,6 +1224,7 @@ export const GesturePage: FC = () => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'silent');
                                     }}
+                                    onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <VolumeX size={10} />
                                     <span>静默</span>
@@ -1234,6 +1246,7 @@ export const GesturePage: FC = () => {
                                   e.stopPropagation();
                                   openEditMapping(m, 'action_type');
                                 }}
+                                onDoubleClick={(e) => e.stopPropagation()}
                               >
                                 <Badge
                                   text={ACTION_TYPE_KEYS[m.action.type] ? tr(ACTION_TYPE_KEYS[m.action.type]) : tr('common.unknown')}
@@ -1257,6 +1270,7 @@ export const GesturePage: FC = () => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'action_detail');
                                     }}
+                                    onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <kbd className="gesture-kbd" style={{ fontSize }}>
                                       {detailText}
@@ -1274,7 +1288,11 @@ export const GesturePage: FC = () => {
                                 aria-checked={isEnabled}
                                 className={`gesture-micro-switch ${isEnabled ? 'active' : ''}`}
                                 title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
-                                onClick={() => void handleToggleMappingEnabled(actualIdx)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleToggleMappingEnabled(actualIdx);
+                                }}
+                                onDoubleClick={(e) => e.stopPropagation()}
                               >
                                 <span className="gesture-micro-switch__thumb" />
                               </button>
@@ -1283,13 +1301,25 @@ export const GesturePage: FC = () => {
                             {/* 6. 编辑与删除 */}
                             <span className="gesture-table__col gesture-table__col--actions">
                               <div style={{ display: 'flex', gap: '4px' }}>
-                                <button className="gesture-icon-btn" title={tr('common.edit')} onClick={() => openEditMapping(m)}>
+                                <button
+                                  className="gesture-icon-btn"
+                                  title={tr('common.edit')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditMapping(m);
+                                  }}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                >
                                   <Edit3 size={15} />
                                 </button>
                                 <button
                                   className="gesture-icon-btn gesture-icon-btn--danger"
                                   title={tr('common.delete')}
-                                  onClick={() => handleDeleteMapping(actualIdx)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteMapping(actualIdx);
+                                  }}
+                                  onDoubleClick={(e) => e.stopPropagation()}
                                 >
                                   <Trash2 size={15} />
                                 </button>

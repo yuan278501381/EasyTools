@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer, Loader2 } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -11,6 +11,7 @@ export default function TrayApp() {
   const menuRef = useRef<HTMLDivElement>(null);
   const [gesturePaused, setGesturePaused] = useState(false);
   const [elevated, setElevated] = useState(false);
+  const [elevating, setElevating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set(['capture', 'search', 'gesture']));
 
@@ -148,6 +149,20 @@ export default function TrayApp() {
     }
   };
 
+  // 触发提权并展示优雅等待状态
+  const handleRestartElevated = async () => {
+    if (busy || elevating) return;
+    setElevating(true);
+    try {
+      const result = await bridgeRequest<{ success: boolean }>('tray.action', { action: 'restartElevated' });
+      if (result && !result.success) {
+        setElevating(false);
+      }
+    } catch {
+      setElevating(false);
+    }
+  };
+
   return (
     <div ref={menuRef} className="tray-menu" role="menu">
       {/* 顶部 Mini Control Center 快捷胶囊栏 */}
@@ -227,7 +242,16 @@ export default function TrayApp() {
 
       <div className="tray-menu__divider" />
 
-      {elevated ? (
+      {elevating ? (
+        <button
+          type="button"
+          className="tray-menu__item tray-menu__item--admin tray-menu__item--elevating"
+          disabled
+        >
+          <Loader2 size={15} className="tray-menu__icon tray-menu__icon--admin tray-menu__icon--spinning" />
+          <span className="tray-menu__label">{t('tray.elevating', '正在提升权限...')}</span>
+        </button>
+      ) : elevated ? (
         <button
           type="button"
           className="tray-menu__item tray-menu__item--admin-active"
@@ -242,7 +266,7 @@ export default function TrayApp() {
           type="button"
           className="tray-menu__item tray-menu__item--admin"
           disabled={busy}
-          onClick={() => void handleAction('restartElevated')}
+          onClick={() => void handleRestartElevated()}
         >
           <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
           <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>

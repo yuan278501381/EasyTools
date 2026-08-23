@@ -266,6 +266,21 @@ html[data-surface="tray"] #root {
   filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.6));
 }
 
+.tray-menu__item--elevating {
+  opacity: 0.85 !important;
+  cursor: wait !important;
+  pointer-events: none;
+}
+
+@keyframes tray-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tray-menu__icon--spinning {
+  animation: tray-spin 1s linear infinite;
+}
+
 .tray-menu__item--danger {
   color: #e11d48;
 }

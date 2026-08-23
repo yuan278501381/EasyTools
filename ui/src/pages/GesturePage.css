@@ -109,6 +109,8 @@
   border-bottom: 1px solid var(--card-border);
   transition: background var(--transition-fast);
   animation: fadeIn 0.25s ease both;
+  cursor: pointer;
+  user-select: none;
 }
 
 .gesture-table__row:hover {
