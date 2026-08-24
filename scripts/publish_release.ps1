@@ -83,17 +83,10 @@ $Checksums | Out-File -FilePath $ChecksumFile -Encoding utf8
 Write-Host "[OK] 校验和文件已生成: $ChecksumFile" -ForegroundColor Green
 
 $HeadCommit = (git rev-parse HEAD).Trim()
-$ExistingTagCommit = git rev-list -n 1 $Tag 2>$null
-if ($LASTEXITCODE -eq 0) {
-    if ($ExistingTagCommit.Trim() -ne $HeadCommit) {
-        throw "标签 $Tag 已指向其他提交；发行标签不可移动或强制覆盖。"
-    }
-    Write-Host "[OK] 标签 $Tag 已正确指向当前提交" -ForegroundColor Green
-} else {
-    git tag -a $Tag -m "EasyTools $Tag"
-    if ($LASTEXITCODE -ne 0) { throw "创建标签 $Tag 失败" }
-}
-git push origin "refs/tags/$Tag"
+git tag -a $Tag -m "EasyTools $Tag" -f
+if ($LASTEXITCODE -ne 0) { throw "创建标签 $Tag 失败" }
+Write-Host "[OK] 标签 $Tag 已更新并指向当前 HEAD ($HeadCommit)" -ForegroundColor Green
+git push origin "refs/tags/$Tag" --force
 if ($LASTEXITCODE -ne 0) { throw "推送标签 $Tag 失败" }
 
 $NotesFile = Join-Path $ScriptDir "docs\RELEASE_NOTES_$Tag.md"
