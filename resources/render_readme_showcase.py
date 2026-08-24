@@ -155,7 +155,7 @@ async def render_banner():
         <span>EasyTools</span>
         <span class="version-tag">v{product_version}</span>
       </div>
-      <p class="subtitle">The Ultimate Windows Productivity Suite</p>
+      <p class="subtitle">Open-Source Productivity Toolkit for Windows</p>
     </div>
   </div>
 </body>

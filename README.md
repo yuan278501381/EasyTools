@@ -1,528 +1,234 @@
 <div align="center">
 
-<a href="https://github.com/yuan278501381/easyTools">
-  <img src="docs/images/about_hero_showcase.png" alt="EasyTools Grand Showcase Header" width="100%" />
-</a>
+<img src="docs/images/about_hero_showcase.png" alt="EasyTools — 面向 Windows 的开源桌面效率工具集" width="100%" />
 
-<br/>
-<br/>
+# EasyTools
 
-[![Latest Release](https://img.shields.io/github/v/release/yuan278501381/easyTools?color=38BDF8&label=Release&logo=github)](https://github.com/yuan278501381/easyTools/releases/latest)
+面向 Windows 的开源桌面效率工具集
+
+[简体中文](README.md) · [English](README.en.md)
+
+[![Latest Release](https://img.shields.io/github/v/release/yuan278501381/easyTools?label=Release&logo=github)](https://github.com/yuan278501381/easyTools/releases/latest)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![C++20](https://img.shields.io/badge/C++-20-00599C.svg?logo=c%2B%2B)](https://en.cppreference.com/w/cpp/20)
-[![Direct2D](https://img.shields.io/badge/DirectX-Direct2D%20%2F%20DXGI-0078D7.svg)](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal)
-[![React 19](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)](https://react.dev/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
-[![Coverage](https://img.shields.io/badge/Coverage-measured%20in%20CI-yellow.svg)](#-代码覆盖率与质量门禁)
-[![Build](https://github.com/yuan278501381/easyTools/actions/workflows/build.yml/badge.svg)](https://github.com/yuan278501381/easyTools/actions)
-
-<p align="center">
-  <strong>一款追求低干扰交互、可靠响应与 High-DPI 体验的 Windows 现代化桌面效率工具集</strong>
-</p>
-
-[🚀 快速开始](#-快速开始-quick-start) • [✨ 全功能特性详解](#-全功能特性详解) • [⌨️ 快捷键与手势速查](#-快捷键与手势速查) • [🏗️ 架构与内存收缩体系](#-架构与极致内存收缩体系) • [⚡ 性能调优实录](#-性能调优与极致内存收缩实录) • [🛠️ 源码构建与开发](#-从源码构建与开发) • [📄 开源协议与署名](#-开源许可证与作者署名)
+[![Platform](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4?logo=windows)](#系统要求)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=c%2B%2B)](CMakeLists.txt)
 
 </div>
 
----
+EasyTools 把鼠标手势、截图与录屏、本地文件搜索、文件对话框增强、OCR、按键显示和快速预览放进一个 Windows 应用中。项目采用 C++20 原生核心与 React、TypeScript、WebView2 界面，目前仍在持续开发。
 
-## 📖 项目简介
+本文只描述当前仓库和已发布版本中能够核实的功能。实际体验可能因 Windows 版本、硬件、驱动、目标应用及设置不同而变化。
 
-**EasyTools** 是一款专为开发者、设计师、极客与追求极致操作效率的 Windows 用户量身打造的现代化效率软件。
+## 功能概览
 
-项目采用 **C++20 原生内核 + Direct2D / DXGI / WASAPI** 与 **React 19 + TypeScript + WebView2** 的现代化混合架构，结合原生系统能力、现代前端界面和 Per-Monitor DPI 适配。具体性能与资源占用会随硬件、Windows 版本和启用插件而变化，应以基准结果为准。
+| 功能 | 当前能力 | 适用范围与说明 |
+| --- | --- | --- |
+| 文件对话框助手 | 按发起程序记忆最近目录；提供最近目录、工作区和资源管理器当前目录的快捷入口 | 面向常见的 Windows 打开、保存和选择文件夹对话框；采用自绘或非标准对话框的应用可能无法增强 |
+| 本地文件搜索 | NTFS MFT/USN 索引；支持拼音、通配符、正则、路径、父目录、扩展名、文件/文件夹及排除条件 | MFT 快速索引主要适用于本机 NTFS 卷；网络位置、ReFS 和其他文件系统不具备相同能力 |
+| 文件内容搜索 | 纯文本、常见代码与配置文件；Office Open XML/WPS/XMind 文档；PSD/PSB/AI 元数据；DXF 文本 | 不是所有格式都支持正文提取；加密、损坏或超大文件可能跳过 |
+| 鼠标手势 | 触发键、方向序列、应用范围、快捷键、内置动作、启动程序及 Lua 动作；另有热角和径向菜单 | 全局钩子可能与其他手势、键鼠或安全软件冲突，可在设置中调整 |
+| 截图与贴图 | 区域截图、标注、滚动截图、OCR 与置顶贴图 | 滚动截图效果取决于目标窗口的滚动与绘制方式 |
+| 屏幕录制 | MP4 H.264/H.265、WebM VP9、GIF；可选系统声音、麦克风、光标及点击效果 | 可用编码器和性能取决于系统组件、显卡、驱动和所选参数 |
+| OCR | 调用 Windows 本地 OCR，并使用系统已安装的语言包 | 识别语言与质量取决于语言包、图像清晰度和版面 |
+| 按键显示 | 在屏幕上显示键盘/鼠标输入，并提供使用统计 | 密码等敏感输入场景建议暂停该功能 |
+| 快速预览 | 在资源管理器或桌面选中文件后按空格预览文件夹、Markdown、图片、音视频、PDF、代码及文本等 | 大文件和不支持的二进制格式会采用受限预览或文件信息视图 |
 
-### 🌟 核心设计原则
-1. **🚀 极限性能 (Extreme Performance)**：低开销鼠标钩子、Direct2D 轨迹渲染、DXGI 桌面捕获与硬件编码器优先的 4K 录屏、NTFS MFT 快速全盘搜索；
-2. **💡 以人为中心的易用性 (Human-Centered UX)**：提供 HUD 视觉反馈、手势操作、上下文按键提示与 High-DPI 缩放适配，并持续依据可访问性和用户反馈改进；
-3. **🧠 极限轻量与物理内存收缩 (Memory Trim & Deep Sleep)**：遵循“冷路径退场修剪，热操作期间绝不修剪”原则，重型任务结束后自动释放物理工作集，闲置时自动挂起 Chromium 渲染管线；
-4. **🛡️ 可持续质量门禁**：Release 构建可使用 OpenCppCoverage 生成当前工作树的 C++ 行覆盖率；覆盖率会随编译器、构建配置和测试集变化，发布前应以 CI 归档的 Cobertura 报告为准。CI 设有 30% 的最低防回退门槛，并持续提高关键生命周期、录屏与捕获路径覆盖率。
+上述能力由 EasyTools 主程序和五个原生插件组成：搜索、截图录屏、鼠标手势、按键显示、文件对话框增强。快速预览等公共能力由主程序提供。
 
----
+## 截图
 
-## 🚀 快速开始 (Quick Start)
+<p align="center">
+  <img src="docs/images/tray_quick_menu.png" alt="EasyTools 托盘快捷菜单" width="260" />
+</p>
+<p align="center"><sub>托盘快捷菜单：查看模块状态并快速进入常用功能。</sub></p>
 
-### 方式一：下载开箱即用（推荐）
+<p align="center">
+  <img src="docs/images/settings_general.png" alt="EasyTools 通用设置" width="100%" />
+</p>
+<p align="center"><sub>通用设置：启动方式、界面语言、主题和日志等选项。</sub></p>
 
-1. 前往 **[Releases 官方发行版页面](https://github.com/yuan278501381/easyTools/releases)** 下载最新版本：
-   - **安装版**：`EasyTools-Setup.exe`（支持静默安装、右键菜单集成与文件索引服务自注册）；
-   - **绿色便携版**：`EasyTools-win-x64-portable.zip`（解压即可双击 `EasyTools.exe` 运行，数据就地保存）；
-2. 启动后程序常驻系统托盘，所有功能即刻生效。
+<p align="center">
+  <img src="docs/images/settings_shortcuts.png" alt="EasyTools 快捷键总览与冲突检测" width="100%" />
+</p>
+<p align="center"><sub>快捷键总览：集中查看当前绑定、生效范围及冲突检测结果。</sub></p>
 
-### 方式二：从源码一键构建
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/images/settings_modules.png" alt="EasyTools 功能模块管理" width="100%" /><br /><sub>功能模块：查看插件版本、能力、状态和启停选项。</sub></td>
+    <td width="50%" align="center"><img src="docs/images/settings_gesture_options.png" alt="EasyTools 鼠标手势选项" width="100%" /><br /><sub>鼠标手势：开关、轨迹样式和适用场景。</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/images/settings_gesture_actions.png" alt="EasyTools 鼠标手势动作配置" width="100%" /><br /><sub>手势动作：按全局、应用和特殊目标配置规则。</sub></td>
+    <td width="50%" align="center"><img src="docs/images/settings_statistics.png" alt="EasyTools 输入数据统计" width="100%" /><br /><sub>本地统计：近期活动趋势和按键热力图。</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/search_content.png" alt="EasyTools 文件内容搜索与偏好面板" width="100%" />
+</p>
+<p align="center"><sub>内容搜索：匹配片段、文件属性、显示密度和搜索模式设置。</sub></p>
+
+以上为用户提供的 EasyTools v1.0.1 实际界面截图。界面仍在快速迭代，发布包中的实际界面可能略有差异；建议在 [Releases](https://github.com/yuan278501381/easyTools/releases) 查看对应版本说明。
+
+## 下载与使用
+
+1. 从 [GitHub Releases](https://github.com/yuan278501381/easyTools/releases/latest) 下载最新安装包或便携包。
+2. 安装版需要管理员权限，以安装为快速文件索引等能力服务的后台组件；便携版的部分系统级能力可能受限。
+3. 启动 EasyTools 后，通过系统托盘进入设置并按需启用功能。
+
+默认搜索快捷键是 `Alt+Space`。截图、录屏、OCR、贴图等快捷键请以设置页面显示为准；EasyTools 会提示已检测到的快捷键冲突。
+
+## 系统要求
+
+- Windows 10 或 Windows 11，x64
+- Microsoft Edge WebView2 Runtime（多数受支持的 Windows 系统已安装）
+- 部分能力需要管理员权限、NTFS 文件系统、Windows OCR 语言包或可用的媒体编码器
+
+当前没有 macOS、Linux 或 ARM64 版本。
+
+## 已知边界
+
+- 文件对话框助手针对标准 Windows Shell 文件对话框设计，自绘选择器或沙箱应用不保证兼容。
+- 不同 DPI、多显示器、滚动截图和硬件编码行为会受目标应用、显卡驱动及 Windows 版本影响。
+- 搜索的高速 MFT/USN 路径针对 NTFS；其他位置会采用不同能力或无法建立同等索引。
+- 内容搜索是按格式逐步支持的，不应理解为对任意文档全文检索。
+- 项目处于活跃开发期。升级前建议备份重要配置，并在 Issue 中附上版本、复现步骤和日志。
+
+## 隐私与网络
+
+搜索索引、OCR、截图、录屏和配置默认在本机处理。EasyTools 不需要账户，也不会为了实现这些核心功能上传文件内容。
+
+应用的更新检查会访问 GitHub Releases API；用户主动打开项目、下载或反馈链接时，也会访问相应网站。第三方脚本、用户配置的外部程序及未来扩展可能有自己的网络行为，请单独审查。
+
+## 从源码构建
+
+建议准备：
+
+- Visual Studio 2022 或更新版本，并安装“使用 C++ 的桌面开发”
+- CMake 3.25+
+- PowerShell 7+
+- Node.js 24+
+- vcpkg（默认路径为 `C:\vcpkg`，也可通过构建参数指定）
+- Inno Setup 6（只在生成安装包时需要）
+
+在仓库根目录执行：
 
 ```powershell
-# 1. 克隆代码仓库
-git clone https://github.com/yuan278501381/easyTools.git
-cd easyTools
-
-# 2. 运行一键构建与测试门禁流水线
-pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
-
-# 3. 产物将自动生成于 deploy_dist/ 目录及 Output/EasyTools-Setup.exe
+pwsh -NoProfile -File .\deploy.ps1 -Configuration Release
 ```
 
----
+主要产物位于 `build/bin/Release` 和 `deploy_dist`；安装包在检测到 Inno Setup 后生成到 `Output`。具体参数请运行 `Get-Help .\deploy.ps1 -Detailed`。
 
-## ✨ 全功能特性详解
+产品版本只在仓库根目录的 [`VERSION`](VERSION) 中维护，详细规则见[版本管理说明](docs/versioning.md)。
 
-### 1. 🖱️ 智能鼠标手势引擎 (Smart Mouse Gestures)
-> **告别繁琐按键，一划即达。**
+## 架构与生命周期
 
-- **Direct2D 鼠标轨迹**：按住鼠标右键（或自定义触发键）在屏幕任意位置绘制，轨迹提供低干扰的视觉跟随；实际延迟以性能基准为准；
-- **全新大气 HUD 视觉规范**：粗圆角纯白边框（2.6px）、半透明石墨深灰底板、24px 大气醒目粗体排版，松手执行时底板自然点亮为当前全局主题色；
-- **300 点滑窗缓冲**：限制轨迹缓存规模并避免无界内存增长；不同设备上的帧耗时和流畅度需通过性能基准验证；
-- **调侃超时反馈机制**：画满 15 秒未松手时常驻展示红底 3 个饱满圆滑大白点（`••••`），直到用户主动松手才优雅淡出；普通未匹配手势保持灰色流光且 Toast 静默；
-- **原子性按键分发系统**：按下与释放单次系统调用原子提交，杜绝修饰键（Ctrl/Alt/Win）残留粘滞与幽灵按键叠加；
-- **多维度动作库**：支持导航（前进/后退/刷新）、标签页控制（新建/关闭/恢复/切换）、窗口管理（最大化/最小化/还原/关闭窗口/显示桌面/任务视图）、启动截图、运行外部程序及执行自定义 Lua 脚本；
-- **交互式手势编辑器**：内置可视化手势绘制录入画布，支持方向灵敏度阈值精细微调。
-
----
-
-### 2. 🪟 屏幕热角与径向轮盘菜单 (Hot Corners & Radial Pie Menu)
-> **利用屏幕边缘与肌肉记忆的高效操作。**
-
-- **四角热区触发 (Hot Corners)**：光标轻推屏幕左上、左下、右上、右下四角，即刻触发预设动作（锁屏、截图、静音、桌面、任务切换），支持设置防误触停留延时；
-- **呼出式径向轮盘 (Pie Menu)**：通过快捷键或鼠标按键在光标所在位置呼出扇形轮盘，环形分布常用工具，支持自定义图标、颜色与多层级扇区。
-
----
-
-### 3. 📸 智能屏幕截图与桌面置顶贴图 (Capture & Desktop Pin)
-> **面向多屏 DPI 的截图标注与灵活贴图。**
-
-- **多显示器与 High-DPI 适配**：支持 100%～500% 缩放和混合 DPI 场景；跨屏捕获、光标与选区对齐仍需在目标设备组合上验证；
-- **窗口与元素智能吸附**：自动探测窗口边界、菜单控件、对话框元素，一键吸附选中；
-- **像素级专业标注工具箱**：矩形、圆形、箭头、自由画笔、马赛克/高斯模糊、序号步骤球、荧光笔、自定义文字与实时屏幕取色器；
-- **桌面置顶贴图 (Pin)**：将截图或剪贴板图片/文字瞬间钉在桌面最上层，支持滚轮缩放、透明度调节、拖拽移动与快速保存，对照写代码、比对文档极度便捷；
-- **新手友好提示**：左下角常驻上下文快捷键提示条，随手即可按 <kbd>H</kbd> 键隐藏，绝不污染截图输出。
-
----
-
-### 4. 📜 智能滚动长截图 (Scroll Capture)
-> **超长网页、长代码、长聊天记录一键完整捕获。**
-
-- **智能视觉特征拼接算法**：自动向下滚动并基于重叠区域进行亚像素级特征匹配，无缝拼接超长画面，杜绝画面错位与重影；
-- **全功能无级缩放预览**：拼接完成后支持自由缩放查看细节，支持二次裁剪、画笔标注并快速导出为 PNG / JPEG / WebP / PDF。
-
----
-
-### 5. 🎥 4K 超清屏幕录制 (4K Ultra-HD Screen Recorder)
-> **DXGI 高速桌面捕获、硬件编码器优先，双通道音频独立混音。**
-
-- **DXGI Desktop Duplication 硬件加速**：优先使用桌面捕获硬件路径，并保留兼容性回退；CPU、内存、帧率与掉帧表现以实测基准为准；
-- **WASAPI 双通道独立混音**：系统声音（扬声器）与人声（麦克风）独立采集，支持 0%–200% 实时增益微调与一键独立静音（S/M）；
-- **光标增强与点击涟漪**：可开关光标录制与鼠标点击扩散视觉反馈，录屏教程与演示更加直观；
-- **丰富格式编码支持**：支持 MP4 (H.264/AAC)、HEVC (H.265)、WebM (VP9/Opus) 与高质量动图 GIF；
-- **断电崩溃保护机制**：采用 `.partial` 写入与单调时钟 PTS 防掉帧，录制异常不损坏已有视频。
-
----
-
-### 6. 🔍 NTFS MFT 文件搜索 (NTFS MFT Search Engine)
-> **千万级文件，瞬间触达。**
-
-- **USN Journal / MFT 底层极速索引**：无需像传统搜索耗时数小时建库，后台极速解析 NTFS 文件系统主文件表；
-- **搜索浮窗**：默认快捷键 <kbd>Alt</kbd> + <kbd>Space</kbd> 呼出，支持随输随搜；响应时间取决于索引状态、磁盘和查询条件；
-- **Everything 级高级搜索语法**：
-  - 通配符支持（`*`, `?`）；
-  - 多词并列搜索（空格分隔）；
-  - 大小过滤（如 `size:>100MB`）；
-  - 扩展名过滤（如 `ext:docx;pdf`）；
-  - 拼音首字母缩写与汉字全拼搜索；
-- **三种布局密度切换**：紧凑、适中、宽松三种 UI 密度，满足不同屏幕与信息检索需求。
-
----
-
-### 7. 🔤 Windows 原生离线 OCR 文字提取 (Offline OCR)
-> **优先在本地处理；识别耗时和数据流向取决于用户启用的功能与配置。**
-
-- 基于 Windows 10/11 原生 `Windows.Media.Ocr` 离线引擎，无需联网即可提取屏幕中的文字、代码与表格；
-- 识别后即刻在结果窗口中展示，支持一键复制到剪贴板，支持行内快速编辑与二次检索。
-
----
-
-### 8. ⌨️ 实时按键回显与热力统计 (Keycast & Heatmap Stats)
-> **录屏、教学、演讲利器。**
-
-- **全局按键回显 HUD**：录屏与演示时实时在屏幕浮层回显当前按下的快捷键（如 `Ctrl + Shift + P`）；
-- **大气圆角设计**：统一采用 2.6px 纯白粗边框与半透明石墨灰毛玻璃底板，优雅而不遮挡视线；
-- **按键敲击与鼠标轨迹统计**：统计每日按键总数、Top 快捷键排行、鼠标移动总距离与屏幕点击热力图。
-
----
-
-### 9. 🧠 极限轻量与物理内存收缩体系 (Low Memory & Performance)
-> **效率软件自身的消耗必须无限趋近于零。**
-
-- **冷路径退场修剪**：遵循“冷路径退场修剪，热操作期间绝不修剪”原则。在截图/录屏/OCR 等重型任务结束后自动归还大内存对象并调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
-- **WebView2 深度休眠**：设置/搜索窗口隐藏时自动调用 `TrySuspend()` 请求挂起 Chromium 渲染管线；实际内存占用会随 WebView2 运行时、已打开表面和系统环境变化，应以性能基准测量为准；
-- **插件化物理隔离**：手势、截图标注、全盘搜索、按键回显均采用独立 DLL 插件化解耦，可按需启停，停用模块不注册任何系统钩子或后台线程。
-
----
-
-### 10. 🎨 现代设计语言与多主题生态 (Modern UI & Theme Ecosystem)
-- **极客主题库**：内置极光青（Arctic Cyan）、曜石黑（Obsidian Dark）、纯白亮色、钴蓝等精美主题，支持跟随系统深浅模式无缝切换；
-- **多语言国际化**：原生支持简体中文（zh-CN）与英文（en-US）界面；
-- **配置一键备份与迁移**：支持全量配置的 JSON 导入、导出与环境迁移。
-
----
-
-## ⌨️ 快捷键与手势速查
-
-### 1. 默认全局快捷键
-
-| 功能 | 默认快捷键 | 说明 |
-| :--- | :--- | :--- |
-| **区域截图** | <kbd>Alt</kbd> + <kbd>A</kbd> | 唤起智能选区截图标注与贴图 |
-| **滚动长截图** | <kbd>Alt</kbd> + <kbd>S</kbd> | 智能滚动捕获超长页面 |
-| **屏幕录制** | <kbd>Alt</kbd> + <kbd>R</kbd> | 开启 4K / 高清区域录屏，支持声音混音 |
-| **快速搜索** | <kbd>Alt</kbd> + <kbd>Space</kbd> | 呼出全盘文件搜索框 |
-| **设置中心** | <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | 打开 EasyTools 控制面板与个性化配置 |
-
-> 💡 *所有全局快捷键均可在「设置 → 通用设置」中自由修改或禁用。*
-
-### 2. 常用鼠标手势（按住鼠标右键划线）
-
-| 轨迹代号 | 视觉手势方向 | 默认绑定动作 | 作用场景说明 |
-| :---: | :---: | :--- | :--- |
-| **`L`** | ⬅️ 向左 | **后退** | 浏览器 / 文件资源管理器后退 |
-| **`R`** | ➡️ 向右 | **前进** | 浏览器 / 文件资源管理器前进 |
-| **`U`** | ⬆️ 向上 | **最大化 / 还原** | 切换当前活动窗口的最大化与还原 |
-| **`D`** | ⬇️ 向下 | **最小化** | 最小化当前活动窗口 |
-| **`D-R`** | ⬇️ ➡️ 下再向右 | **关闭标签页 / 窗口** | 关闭当前浏览器标签页或应用程序窗口 |
-| **`R-U`** | ➡️ ⬆️ 右再向上 | **恢复关闭的标签页** | 浏览器中重新打开最近关闭的标签页 |
-| **`U-R`** | ⬆️ ➡️ 上再向右 | **切换到下一个标签页** | 快速切换浏览器或多标签应用中的下一个 Tab |
-| **`U-L`** | ⬆️ ⬅️ 上再向左 | **切换到上一个标签页** | 快速切换浏览器或多标签应用中的上一个 Tab |
-| **`L-U-R`** | ⬅️ ⬆️ ➡️ 左-上-右 | **刷新** | 刷新当前页面（F5） |
-| **`U-D`** | ⬆️ ⬇️ 上再向下 | **新建标签页** | 新建空白标签页（Ctrl+T） |
-| **`L-D`** | ⬅️ ⬇️ 左再向下 | **显示桌面** | 一键最小化所有窗口并显示桌面（Win+D） |
-| **`R-D`** | ➡️ ⬇️ 右再向下 | **任务视图** | 呼出 Windows 虚拟桌面与任务视图（Win+Tab） |
-| **`D-R-D`** | ⬇️ ➡️ ⬇️ 下-右-下 | **区域截图** | 快速唤起 EasyTools 屏幕截图工具 |
-| **`••••`** | 持续画满 10 秒 | **调侃超时反馈** | 持续划线超 10 秒不松手时展示红底 3 个大圆点，松手后安全淡出 |
-
----
-
-## 🏗️ 架构与极致内存收缩体系
-
-### 1. 系统架构总览
-
-> 下图展示 EasyTools 从操作系统层、原生 C++ 内核层、插件化业务层到 WebView2 前端渲染层的完整分层拓扑。
+### 总体架构
 
 ```mermaid
-graph TB
-    subgraph OS["🖥️ Windows 10 / 11 操作系统层"]
-        DXGI["DXGI Desktop Duplication"]
-        D2D["Direct2D GPU 渲染"]
-        WASAPI["WASAPI 音频采集"]
-        MFT["NTFS MFT / USN Journal"]
-        WinOCR["Windows.Media.Ocr"]
-        HookAPI["SetWindowsHookEx"]
-        DPI["Per-Monitor V2 DPI"]
+flowchart TB
+    User[用户输入<br/>快捷键 · 鼠标 · 托盘] --> Host[EasyTools.exe<br/>C++20 原生宿主]
+
+    subgraph Core[宿主公共服务]
+        Config[配置与日志]
+        Dispatch[主线程调度 / EventBus]
+        Bridge[WebView2 ↔ C++ 消息桥]
+        Input[热键与键盘钩子]
     end
 
-    subgraph Host["⚙️ EasyTools.exe 主宿主进程"]
-        MainLoop["Win32 消息主循环"]
-        HotkeyMgr["全局热键注册 & WM_HOTKEY"]
-        PluginMgr["PluginManager 插件生命周期"]
-        Bridge["MessageBridge JSON-IPC"]
-        WV2Env["WebView2 Environment 单例"]
-        Suspend["WebViewSuspend 深度休眠"]
-        DpiSync["syncWebViewDpi RAW_PIXELS"]
+    subgraph UI[按需或预热的 WebView2 界面]
+        Settings[设置]
+        SearchUI[搜索]
+        Tray[托盘菜单]
+        Preview[快速预览]
     end
 
-    subgraph Core["📦 EasyCore.dll 核心库"]
-        Config["ConfigManager JSON 持久化"]
-        Logger["Spdlog 统一日志 + TraceID"]
-        IPC["命名管道 IPC 服务端"]
-        Trim["WinUtils::trimWorkingSet"]
-        LuaVM["Sol2 Lua 脚本引擎"]
-        Stats["按键 & 鼠标统计引擎"]
+    subgraph Plugins[原生插件 DLL]
+        Search[Search]
+        Capture[Capture]
+        Gesture[Gesture]
+        Keycast[Keycast]
+        Dialog[DialogEnhancer]
     end
 
-    subgraph Plugins["🔌 plugins/ 插件层 (独立 DLL)"]
-        Gesture["Plugin_Gesture.dll\n手势引擎 · 热角 · 径向轮盘"]
-        Capture["Plugin_Capture.dll\n截图标注 · 贴图 · 长截图 · 4K录屏 · OCR"]
-        Search["Plugin_Search.dll\nNTFS 搜索客户端 · IPC 桥接"]
-        Keycast["Plugin_Keycast.dll\n按键回显 · 热力统计"]
-    end
-
-    subgraph Service["🔎 EasyTools_Service.exe"]
-        MFTIdx["MFT 索引引擎"]
-        PipeServer["认证命名管道服务端"]
-    end
-
-    subgraph UI["🎨 WebView2 前端 (React 19 + TypeScript)"]
-        Settings["SettingsWindow 设置中心"]
-        SearchUI["SearchWindow 搜索浮窗"]
-        TrayUI["TrayWindow 托盘菜单"]
-        QuickLook["QuickLookWindow 快捷预览"]
-    end
-
-    MainLoop --> HotkeyMgr
-    MainLoop --> PluginMgr
-    MainLoop --> Bridge
-    HotkeyMgr --> Gesture
-    HotkeyMgr --> Capture
-
-    PluginMgr --> Gesture
-    PluginMgr --> Capture
-    PluginMgr --> Search
-    PluginMgr --> Keycast
-
-    Gesture --> D2D
-    Gesture --> HookAPI
-    Capture --> DXGI
-    Capture --> D2D
-    Capture --> WASAPI
-    Capture --> WinOCR
-    Search --> IPC
-    Keycast --> HookAPI
-
-    Bridge --> WV2Env
-    WV2Env --> Settings
-    WV2Env --> SearchUI
-    WV2Env --> TrayUI
-    WV2Env --> QuickLook
-    Suspend --> WV2Env
-    DpiSync --> DPI
-
-    IPC --> PipeServer
-    MFTIdx --> MFT
-    PipeServer --> MFTIdx
-
-    Core --> Logger
-    Core --> Config
-    Core --> Trim
-    Core --> LuaVM
-
-    style OS fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style Host fill:#0f172a,stroke:#1e40af,color:#93c5fd
-    style Core fill:#14532d,stroke:#166534,color:#86efac
-    style Plugins fill:#451a03,stroke:#92400e,color:#fcd34d
-    style Service fill:#4c1d95,stroke:#6d28d9,color:#c4b5fd
-    style UI fill:#0c4a6e,stroke:#0369a1,color:#7dd3fc
+    Host --> Core
+    Host --> UI
+    Host --> Plugins
+    Bridge <--> UI
+    Dispatch <--> Plugins
+    Search <--> Service[EasyTools_Service.exe<br/>索引服务]
+    Host --> WinAPI[Windows Shell / OCR / DXGI / WASAPI / Direct2D]
+    Plugins --> WinAPI
 ```
 
----
+插件管理器先读取并校验清单，只为本次启动时启用且兼容的插件映射 DLL。设置中改变插件开关后，需要重启 EasyTools 才会改变实际装载状态。
 
-### 2. 物理内存生命周期 — 冷热路径修剪策略
-
-> 遵循 **"冷路径退场修剪，热操作期间绝不修剪"** 核心原则，杜绝高频路径上的软缺页卡顿。
+### 界面与内存生命周期
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle: 启动完成
-
-    Idle --> HotPath: 用户触发操作
-    HotPath --> ColdPath: 操作完成 / 窗口隐藏
-
-    state HotPath {
-        direction LR
-        [*] --> Active
-        Active: 🔥 热路径运行中
-        note right of Active
-            ❌ 严禁调用 trimWorkingSet
-            • 1000Hz 鼠标钩子回调
-            • Direct2D 60FPS 轨迹渲染
-            • 键盘连击流 & Keycast
-            • 录屏帧捕获 & 编码
-        end note
-    }
-
-    state ColdPath {
-        direction LR
-        [*] --> Release
-        Release: ♻️ 释放大对象
-        Release --> TrimWS: trimWorkingSet()
-        TrimWS --> SuspendWV: TrySuspend()
-        SuspendWV: 💤 Chromium 深度休眠
-        note right of Release
-            ✅ 安全修剪节点
-            • 截图完成 / 取消
-            • 录屏停止
-            • 长截图拼接导出
-            • OCR 识别完毕
-            • 设置 / 搜索窗口隐藏
-            • 插件停用 / 卸载
-        end note
-    }
-
-    ColdPath --> Idle: 物理内存已归还
-    Idle --> HotPath: 下次操作按需惰性重建资源
+    [*] --> 启动
+    启动 --> 后台常驻: 初始化宿主、托盘及已启用插件
+    后台常驻 --> 界面活动: 打开设置或搜索
+    界面活动 --> 界面隐藏: 隐藏窗口并请求 TrySuspend
+    界面隐藏 --> 界面活动: Resume 并复用已有窗口
+    后台常驻 --> 托盘活动: 打开已预热的托盘菜单
+    托盘活动 --> 后台常驻: 隐藏托盘菜单并修剪工作集
+    后台常驻 --> 重型任务: 截图、滚动捕获或贴图等
+    重型任务 --> 后台常驻: 销毁任务资源；部分冷路径修剪工作集
+    界面活动 --> 退出
+    界面隐藏 --> 退出
+    后台常驻 --> 退出
+    退出 --> [*]: 销毁 WebView、停止插件、清理回调并卸载 DLL
 ```
 
----
+这里的 `TrySuspend` 是 WebView2 提供的尽力请求，运行时可以拒绝。当前代码会在托盘菜单隐藏、文件对话框胶囊销毁、滚动捕获关闭，以及最后一个或全部贴图关闭等位置请求修剪工作集。修剪只是向 Windows 内存管理器发出请求，不代表系统会立即释放全部内存，README 因此不承诺固定常驻占用。
 
-### 3. 时序图：鼠标手势动作执行流程
-
-> 从用户按下鼠标右键到手势动作分发的完整调用链路。
+### 插件启动与退出时序
 
 ```mermaid
 sequenceDiagram
-    participant U as 👤 用户
-    participant Hook as WH_MOUSE_LL 钩子
-    participant Engine as GestureEngine
-    participant D2D as Direct2D Overlay
-    participant HUD as HUD Toast
-    participant Policy as GestureInputPolicy
-    participant Action as GestureAction
-    participant Target as 目标窗口
+    participant App as EasyTools 宿主
+    participant Config as ConfigManager
+    participant PM as PluginManager
+    participant Manifest as 插件清单
+    participant DLL as 插件 DLL
+    participant Core as EventBus / IPC / Hotkey
+    participant UI as WebView 界面
 
-    U->>Hook: 按下鼠标右键
-    Hook->>Engine: WM_RBUTTONDOWN (坐标)
-    Engine->>D2D: 创建透明 Overlay 窗口
-    
-    loop 每次鼠标移动 (1000Hz)
-        U->>Hook: WM_MOUSEMOVE
-        Hook->>Engine: 追加轨迹点 (300 点滑窗)
-        Engine->>D2D: 渲染贝塞尔曲线轨迹
-        Engine->>Engine: 实时方向识别 (L/R/U/D)
+    App->>Config: 读取配置
+    App->>PM: 扫描插件目录
+    PM->>Manifest: 读取并校验版本、ABI、入口与权限
+    alt 插件禁用或清单不兼容
+        PM-->>App: 记录状态，不映射 DLL
+    else 插件获准启动
+        PM->>DLL: LoadLibrary + ABI 握手 + CreatePlugin
+        App->>Core: 初始化公共服务和处理器
+        App->>PM: initializePlugins()
+        PM->>DLL: initialize()
     end
-
-    U->>Hook: 释放鼠标右键
-    Hook->>Engine: WM_RBUTTONUP
-
-    Engine->>Engine: matchGesture(方向序列)
-    
-    alt 匹配成功
-        Engine->>Policy: pickGestureTargetSlot(起始坐标)
-        Policy-->>Engine: 目标窗口 HWND (穿透 Overlay)
-        Engine->>HUD: 显示动作名称 (主题色底板)
-        Engine->>Action: dispatch(动作, 目标HWND)
-        Action->>Action: 原子性 SendInput (Down+Up)
-        Action->>Target: 发送按键 / 命令
-    else 未匹配
-        Engine->>HUD: 灰色流光静默淡出
-    else 超时 15 秒
-        Engine->>HUD: 🔴 红底大白圆点 (••••)
-    end
-
-    Engine->>D2D: 销毁 Overlay
-    Engine->>Engine: trimWorkingSet()
+    App->>UI: 预热托盘；其他窗口按配置按需创建
+    Note over App,UI: 正常运行
+    App->>UI: 先销毁 WebView 入口
+    App->>PM: shutdownPlugins()
+    PM->>DLL: 反向调用 shutdown()
+    PM->>Core: 排空主线程任务并清除回调/处理器
+    PM->>DLL: FreeLibrary
 ```
 
----
+图示对应当前的 [`main.cpp`](src/main.cpp)、[`PluginManager.cpp`](src/core/plugin/PluginManager.cpp)、[`WebViewSuspend.cpp`](src/ui/WebViewSuspend.cpp) 和 [`WinUtils.h`](src/core/utils/WinUtils.h)，不是未来架构设想。
 
-### 4. 时序图：NTFS 搜索服务启动与权限降级
+扩展开发请参阅：
 
-> 展示搜索插件如何智能判定 SCM 服务状态并在权限不足时平滑降级为便携进程。
+- [插件开发指南](docs/plugin-development.md)
+- [Lua API](docs/api/lua-api.md)
+- [性能基线](docs/performance-baseline.md)
+- [版本管理](docs/versioning.md)
 
-```mermaid
-sequenceDiagram
-    participant U as 👤 用户
-    participant UI as SearchWindow
-    participant Plugin as Plugin_Search
-    participant Policy as ServiceStartupPolicy
-    participant SCM as Windows SCM
-    participant Svc as EasyTools_Service
-    participant Portable as 便携索引进程
+## 参与贡献
 
-    U->>UI: Alt+Space 呼出搜索
-    UI->>Plugin: 初始化搜索引擎
+欢迎提交 Issue 和 Pull Request。报告问题时，请提供 EasyTools 版本、Windows 版本、复现步骤、预期与实际结果，以及删除隐私信息后的相关日志。涉及兼容性的问题，最好同时说明目标程序和文件对话框类型。
 
-    Plugin->>SCM: OpenService(START | QUERY)
-    
-    alt 管理员权限 — 正常启动
-        SCM-->>Plugin: 服务句柄 ✅
-        Plugin->>Policy: decideStartupAction(状态)
-        Policy-->>Plugin: StartScmService
-        Plugin->>SCM: StartService()
-        SCM->>Svc: 启动 MFT 索引服务
-        Svc-->>Plugin: 命名管道就绪
-        Plugin->>UI: 搜索引擎就绪 (SCM)
-    else 普通用户 — ACCESS_DENIED
-        SCM-->>Plugin: ERROR_ACCESS_DENIED ⚠️
-        Plugin->>Policy: scmOpenShouldRetryQueryOnly()
-        Policy-->>Plugin: true — 降级为只读查询
-        Plugin->>SCM: OpenService(QUERY_ONLY)
-        
-        alt 服务已在运行
-            SCM-->>Plugin: 状态 = RUNNING
-            Plugin->>Policy: decideStartupAction(Running)
-            Policy-->>Plugin: WaitForScmEndpoint
-            Svc-->>Plugin: 命名管道就绪
-            Plugin->>UI: 搜索引擎就绪 (SCM)
-        else 服务已停止
-            SCM-->>Plugin: 状态 = STOPPED
-            Plugin->>Policy: decideStartupAction(Stopped, noStart)
-            Policy-->>Plugin: AllowPortableFallback
-            Plugin->>Portable: 启动当前用户便携进程
-            Portable-->>Plugin: 本地管道就绪
-            Plugin->>UI: 搜索引擎就绪 (便携)
-        end
-    else 服务未安装
-        SCM-->>Plugin: ERROR_SERVICE_DOES_NOT_EXIST
-        Plugin->>Portable: 启动便携索引进程
-        Portable-->>Plugin: 本地管道就绪
-        Plugin->>UI: 搜索引擎就绪 (便携)
-    end
+## 许可证
 
-    U->>UI: 输入搜索关键词
-    UI->>Plugin: query("关键词")
-    Plugin-->>UI: 返回结果列表
-```
-
----
-
-## ⚡ 性能调优与极致内存收缩实录
-
-> 📖 **完整技术实录请查阅专页**：👉 **[EasyTools 性能调优与极致内存收缩实录 (docs/performance-tuning.md)](docs/performance-tuning.md)**
-
-EasyTools 在架构设计与全场景落地中推行严密的基准测试与全链路观测。以下为关键调优成果概要：
-
-1. **全盘搜索服务内存紧缩 (FileIndexStore)**：
-   - 彻底移除 `StoredFileRecord` 中的小写冗余字段，消除 `StringArena` 200+ 万条小写规范化副本，立省全盘字符串内存；
-   - 引入单趟即时大小写无关匹配算法（`containsIgnoreCase` / `matchWildcard`），无小写缓存损耗且毫秒级响应；
-   - 纯英文/数字文件零拼音旁路开销，仅对包含 CJK 汉字的文件按需生成拼音索引。
-2. **冷热路径物理工作集修剪 (Memory Trim Pipeline)**：
-   - 严格在冷路径退场点（截图完成/取消、录屏停止、OCR 结束、窗口隐藏、插件停用）主动调用 `WinUtils::trimWorkingSet()`；
-   - 1000Hz 鼠标钩子与 60FPS 渲染热路径中绝对禁调，彻底杜绝软缺页卡顿。
-3. **WebView2 渲染管线生命周期收缩 (WebViewSuspend)**：
-   - 多窗口共享单例浏览器环境，隐藏时调用 `TrySuspend()` 深度休眠，归还 GPU 与 DOM 显存。
-4. **实机真实运行内存对比（同机同屏抓取）**：
-   - **`EasyTools.exe`（主进程全插件）**：常驻仅 **`58.18 MB`**（同机竞品 WGestures 2 占 220.98 MB、PixPin 占 244.41 MB）；
-   - **`EasyTools_Service.exe`（全盘 206 万文件索引）**：索引 206.4 万文件与 41.8 万目录，均摊仅 **`169 字节/文件`**。
-
----
-
-## 🛠️ 从源码构建与开发
-
-### 环境准备
-
-- **操作系统**：Windows 10 / 11 x64（ARM64 尚未进入正式 CI 与发布矩阵）
-- **编译工具链**：Visual Studio 2022 (安装 `C++ 桌面开发` 组件，支持 C++20 标准)
-- **脚本引擎**：PowerShell 7+ (pwsh)
-- **前端环境**：Node.js 20+ 及 npm
-- **C++ 包管理器**：[vcpkg](https://github.com/microsoft/vcpkg)
-- **安装包编译器**（可选）：[Inno Setup 6](https://jrsoftware.org/isdl.php)
-
-### 常用命令
-
-```powershell
-# 完整发布构建（包含前端编译、C++ Release 构建、全单元测试门禁与安装包生成）
-pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Configuration Release
-
-# 快速增量构建（跳过安装包压缩，仅输出 deploy_dist 绿色运行目录）
-pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick -SkipInstaller
-
-# 前端单独开发与静态检查
-cd ui
-npm run dev           # 启动 Vite 开发热重载服务器
-npm run lint          # 执行 ESLint 检查
-npm run i18n-check    # 执行多语言缺失键校验
-npm run check-css     # 执行 CSS 变量声明校验
-
-# 原生 C++ 单元测试 (787+ 断言)
-.\build\bin\Release\EasyToolsTests.exe
-```
-
----
-
-## 📄 开源许可证与作者署名
-
-- **开源协议**：本项目基于 [MIT License](LICENSE) 开源，允许商业化使用、修改与衍生。
-- **原作者官方署名**：**`Yy1 (@yuan278501381)`**
-- **GitHub 官方主页**：[https://github.com/yuan278501381](https://github.com/yuan278501381)
-- **官方代码仓库**：[https://github.com/yuan278501381/easyTools](https://github.com/yuan278501381/easyTools)
-
-```text
-Copyright (c) 2026 Yy1 (GitHub yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
-```
+EasyTools 采用 [MIT License](LICENSE) 发布。项目使用的第三方组件仍分别受其各自许可证约束。
