@@ -55,7 +55,9 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
     options->put_AdditionalBrowserArguments(
         L"--enable-features=OverlayScrollbar "
         L"--disable-background-networking "
-        L"--disable-component-update");
+        L"--disable-component-update "
+        L"--allow-no-sandbox-job "
+        L"--disable-features=RendererCodeIntegrity");
 
     const HRESULT startResult = CreateCoreWebView2EnvironmentWithOptions(
         nullptr, userDataPath.c_str(), options.Get(),

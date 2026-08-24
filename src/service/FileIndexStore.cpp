@@ -84,10 +84,6 @@ void FileIndexStore::upsert(const FileRecordInit& init) {
     if (init.fileReferenceNumber == EmptyKey) return;
     if (m_keys.empty()) rehash(1024);
 
-    const std::wstring normalized = SearchExpression::normalize(init.fileName);
-    const std::wstring initials = SearchExpression::normalize(PinyinEngine::GetInitials(init.fileName));
-    const std::wstring full = SearchExpression::normalize(PinyinEngine::GetFullPinyin(init.fileName));
-
     StoredFileRecord record{};
     record.frn = init.fileReferenceNumber;
     record.parentFrn = init.parentFileReferenceNumber;
@@ -98,13 +94,18 @@ void FileIndexStore::upsert(const FileRecordInit& init) {
     record.nameLength = static_cast<uint16_t>(std::min<size_t>(init.fileName.size(), 0xFFFF));
     record.flags = init.isDirectory ? StoredFileRecord::FlagDirectory : 0;
     record.nameOffset = m_arena.intern(std::wstring_view{init.fileName}.substr(0, record.nameLength));
-    record.normalizedOffset = m_arena.intern(std::wstring_view{normalized}.substr(0, record.nameLength));
 
-    // For plain ASCII names the pinyin engine just lowercases, producing exactly
-    // the normalized name. That is the overwhelming majority of files, so those
-    // records skip the side table entirely and read pinyin off the normalized
-    // view instead.
-    if (initials != normalized || full != normalized) {
+    // 仅对包含 CJK 汉字的文件生成拼音旁路索引，非汉字文件零额外存储开销
+    bool hasChinese = false;
+    for (wchar_t ch : init.fileName) {
+        if (static_cast<uint16_t>(ch) > 127 && (ch >= 0x4E00 && ch <= 0x9FFF)) {
+            hasChinese = true;
+            break;
+        }
+    }
+    if (hasChinese) {
+        const std::wstring initials = SearchExpression::normalize(PinyinEngine::GetInitials(init.fileName));
+        const std::wstring full = SearchExpression::normalize(PinyinEngine::GetFullPinyin(init.fileName));
         PinyinEntry entry{};
         entry.initialsLength = static_cast<uint16_t>(std::min<size_t>(initials.size(), 0xFFFF));
         entry.fullLength = static_cast<uint16_t>(std::min<size_t>(full.size(), 0xFFFF));
@@ -156,7 +157,7 @@ FileRecord FileIndexStore::view(const StoredFileRecord& record) const noexcept {
     out.fileReferenceNumber = record.frn;
     out.parentFileReferenceNumber = record.parentFrn;
     out.fileName = m_arena.view(record.nameOffset, record.nameLength);
-    out.normalizedName = m_arena.view(record.normalizedOffset, record.nameLength);
+    out.normalizedName = out.fileName;
     out.isDirectory = record.isDirectory();
     out.fileAttributes = record.attributes;
     out.fileSize = record.fileSize;
@@ -164,8 +165,8 @@ FileRecord FileIndexStore::view(const StoredFileRecord& record) const noexcept {
     out.lastWriteTime = record.lastWriteTime;
 
     if (record.pinyinSlot == 0) {
-        out.pinyinInitials = out.normalizedName;
-        out.pinyinFull = out.normalizedName;
+        out.pinyinInitials = out.fileName;
+        out.pinyinFull = out.fileName;
     } else {
         const auto& entry = m_pinyin[record.pinyinSlot];
         out.pinyinInitials = m_arena.view(entry.initialsOffset, entry.initialsLength);

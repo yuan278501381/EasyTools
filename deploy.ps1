@@ -18,6 +18,7 @@ param (
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
     [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
     [switch]$Coverage = $false,          # 启用 C++ 代码覆盖率分析与防回退门禁 (OpenCppCoverage)
+    [switch]$Install = $false,           # 构建完成后立即通过 CLI 执行静默安装与启动
     [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
 
@@ -25,11 +26,14 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
 
-$CMakeText = Get-Content (Join-Path $ScriptDir "CMakeLists.txt") -Raw
-if ($CMakeText -notmatch '(?s)project\s*\(\s*EasyTools\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
-    throw "无法从 CMakeLists.txt 读取 EasyTools 版本号"
+$VersionFile = Join-Path $ScriptDir "VERSION"
+if (-not (Test-Path -LiteralPath $VersionFile)) {
+    throw "缺少唯一版本源: $VersionFile"
 }
-$ProjectVersion = $Matches[1]
+$ProjectVersion = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+if ($ProjectVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "VERSION 必须是稳定 SemVer（例如 1.2.3），当前值: $ProjectVersion"
+}
 $WebView2Version = "1.0.4022.49"
 
 $TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
@@ -64,11 +68,6 @@ Write-Log "检查前端环境 (ui/)..."
 if (Test-Path "ui/package.json") {
     Push-Location ui
     try {
-        $UiPackage = Get-Content "package.json" -Raw | ConvertFrom-Json
-        if ($UiPackage.version -ne $ProjectVersion) {
-            throw "前端版本 $($UiPackage.version) 与项目版本 $ProjectVersion 不一致"
-        }
-
         if (-not $Quick -or -not (Test-Path "node_modules")) {
             Write-Log "执行 npm ci (锁定依赖)..."
             npm ci --prefer-offline --no-audit
@@ -486,7 +485,11 @@ if ($runningProcesses) {
     $remaining = Get-Process -Name "EasyTools*" -ErrorAction SilentlyContinue
     if ($remaining) {
         Write-Log "进程未在规定时间内退出，执行强制关闭 (Force Stop)..." "WARN"
-        $remaining | Stop-Process -Force
+        foreach ($p in $remaining) {
+            try {
+                Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            } catch { }
+        }
         Start-Sleep -Seconds 1
     }
 }
@@ -577,3 +580,8 @@ if (Test-Path $BackupDir) {
 }
 Write-Log "直接双击运行 deploy_dist/EasyTools.exe 即可启动工具。"
 Write-Log "======================================================="
+
+if ($Install) {
+    Write-Log "正在执行自动化 CLI 安装..." "INFO"
+    & pwsh.exe -File (Join-Path $ScriptDir "install.ps1") -Silent -Launch
+}

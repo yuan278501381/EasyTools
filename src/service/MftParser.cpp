@@ -13,6 +13,32 @@ std::wstring normalize(std::wstring_view value) {
     return SearchExpression::normalize(value);
 }
 
+uint64_t fileTimeToUint64(const FILETIME& value) noexcept {
+    ULARGE_INTEGER raw{};
+    raw.LowPart = value.dwLowDateTime;
+    raw.HighPart = value.dwHighDateTime;
+    return raw.QuadPart;
+}
+
+// FSCTL_ENUM_USN_DATA is deliberately fast, but its records do not contain a
+// file's size or creation time; USN_RECORD::TimeStamp is also the journal event
+// time rather than the authoritative last-write time. Hydrate only the small
+// final result set so the index stays compact while every displayed property is
+// accurate.
+void hydrateResultProperties(SearchResult& result) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(result.fullPath.c_str(), GetFileExInfoStandard, &data)) {
+        return;
+    }
+
+    result.isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    result.creationTime = fileTimeToUint64(data.ftCreationTime);
+    result.lastWriteTime = fileTimeToUint64(data.ftLastWriteTime);
+    result.fileSize = result.isDirectory
+        ? 0
+        : (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+}
+
 }  // namespace
 
 MftParser::MftParser() : m_DriveLetter('C'), m_hVolume(INVALID_HANDLE_VALUE) {
@@ -32,7 +58,7 @@ size_t MftParser::getFileCount() const {
 
 uint64_t MftParser::getApproximateIndexBytes() const {
     std::shared_lock lock(m_MapMutex);
-    return m_Store.approximateBytes() + m_FolderPaths.approximateBytes();
+    return m_Store.approximateBytes();
 }
 
 void MftParser::UsnListenerLoop() {
@@ -87,7 +113,6 @@ void MftParser::UsnListenerLoop() {
             }
             if (changed) {
                 m_Store.compactIfSparse();
-                rebuildFolderPaths();
                 m_IndexGeneration.fetch_add(1, std::memory_order_release);
             }
         }
@@ -263,10 +288,6 @@ void MftParser::EnumerateFilesViaDirectoryWalk(char driveLetter) {
     }
 
     flushBatch();
-    {
-        std::unique_lock lock(m_MapMutex);
-        rebuildFolderPaths();
-    }
     spdlog::info("Directory walk enumeration completed. Indexed {} files on drive {}:", count, driveLetter);
 }
 
@@ -275,7 +296,6 @@ void MftParser::EnumerateFiles() {
     {
         std::unique_lock lock(m_MapMutex);
         m_Store.clear();
-        m_FolderPaths.reset();
     }
     if (m_IsFallbackDirectoryWalk || m_hVolume == INVALID_HANDLE_VALUE) {
         EnumerateFilesViaDirectoryWalk(m_DriveLetter);
@@ -328,63 +348,12 @@ void MftParser::EnumerateFiles() {
         // during enumeration; afterwards only a trickle of USN updates arrives
         // and the lookup table is no longer worth its footprint.
         m_Store.releaseBuildScratch();
-        rebuildFolderPaths();
     }
     m_IndexGeneration.fetch_add(1, std::memory_order_release);
-    spdlog::info("MFT enumeration completed. Indexed {} files.", count);
-}
-
-void MftParser::rebuildFolderPaths() {
-    m_FolderPaths.reset();
-
-    // Returns a view into the folder table's arena, which stays valid because
-    // the table is only ever appended to between resets.
-    auto getFolderFullPath = [&](auto& self, DWORDLONG ref) -> std::wstring_view {
-        if (m_FolderPaths.contains(ref)) return m_FolderPaths.find(ref);
-
-        const auto* stored = m_Store.find(ref);
-        if (!stored) return {};
-
-        const FileRecord rec = m_Store.view(*stored);
-        if (rec.parentFileReferenceNumber == ref || rec.parentFileReferenceNumber == 0) {
-            std::wstring rootPath;
-            rootPath += static_cast<wchar_t>(m_DriveLetter);
-            rootPath += L":";
-            if (!rec.fileName.empty() && rec.fileName != L".") {
-                rootPath += L"\\";
-                rootPath += rec.fileName;
-            }
-            m_FolderPaths.set(ref, rootPath);
-            return m_FolderPaths.find(ref);
-        }
-
-        const std::wstring parentPath{self(self, rec.parentFileReferenceNumber)};
-        std::wstring curPath;
-        if (parentPath.empty()) {
-            curPath += static_cast<wchar_t>(m_DriveLetter);
-            curPath += L":\\";
-            curPath += rec.fileName;
-        } else {
-            curPath = parentPath;
-            if (!curPath.empty() && curPath.back() != L'\\') curPath += L'\\';
-            curPath += rec.fileName;
-        }
-        m_FolderPaths.set(ref, curPath);
-        return m_FolderPaths.find(ref);
-    };
-
-    m_Store.forEach([&](const easy::service::StoredFileRecord& record) {
-        if (record.isDirectory()) {
-            getFolderFullPath(getFolderFullPath, record.frn);
-        }
-    });
-
-    const uint64_t folderBytes = m_FolderPaths.approximateBytes();
     const uint64_t storeBytes = m_Store.approximateBytes();
-    spdlog::info("Drive {}: indexed {} records, {} folder paths ({} MB records+names, {} MB paths, {} B/file)",
-                 m_DriveLetter, m_Store.size(), m_FolderPaths.size(),
-                 storeBytes / (1024 * 1024), folderBytes / (1024 * 1024),
-                 m_Store.size() ? (storeBytes + folderBytes) / m_Store.size() : 0);
+    spdlog::info("Drive {}: MFT enumeration completed. Indexed {} files ({} MB records+names, {} B/file)",
+                 m_DriveLetter, m_Store.size(), storeBytes / (1024 * 1024),
+                 m_Store.size() ? storeBytes / m_Store.size() : 0);
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit,
@@ -445,51 +414,38 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     }
 
     auto calculateFolderPriority = [this](DWORDLONG parentRef) -> int {
-        const std::wstring_view folderPath = m_FolderPaths.find(parentRef);
-        if (!folderPath.empty()) {
-            std::wstring p = normalize(folderPath);
-            if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
-                p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
-                p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
-                p.find(L"\\.gradle") != std::wstring::npos ||
-                p.find(L"\\appdata\\local\\temp") != std::wstring::npos ||
-                p.find(L"\\windows") != std::wstring::npos ||
-                p.find(L"\\$recycle.bin") != std::wstring::npos ||
-                p.find(L"\\node_modules") != std::wstring::npos ||
-                p.find(L"\\.git") != std::wstring::npos ||
-                p.find(L"\\虚拟机共享文件夹") != std::wstring::npos ||
-                p.find(L"\\baidunetdiskdownload") != std::wstring::npos ||
-                p.find(L"\\wxwork") != std::wstring::npos ||
-                p.find(L"\\xwechat_files") != std::wstring::npos ||
-                p.find(L"\\wechat files") != std::wstring::npos ||
-                p.find(L"\\cefcache") != std::wstring::npos ||
-                p.find(L"\\crashpad") != std::wstring::npos ||
-                p.find(L"\\coverage_report") != std::wstring::npos ||
-                p.find(L"\\extensions") != std::wstring::npos) {
+        if (parentRef == 0) return 200;
+        int priority = (m_DriveLetter != 'C' && m_DriveLetter != 'c') ? 500 : 200;
+        DWORDLONG current = parentRef;
+        for (size_t depth = 0; depth < 32; ++depth) {
+            const auto* node = m_Store.find(current);
+            if (!node) break;
+            const FileRecord rec = m_Store.view(*node);
+            if (rec.fileName.empty()) break;
+            
+            std::wstring name = normalize(rec.fileName);
+            if (name == L"npm-cache" || name == L"pip" || name == L"go-build" ||
+                name == L".gradle" || name == L"temp" || name == L"windows" ||
+                name == L"$recycle.bin" || name == L"node_modules" || name == L".git" ||
+                name == L"虚拟机共享文件夹" || name == L"baidunetdiskdownload" ||
+                name == L"wxwork" || name == L"xwechat_files" || name == L"wechat files" ||
+                name == L"cefcache" || name == L"crashpad" || name == L"coverage_report" ||
+                name == L"extensions") {
                 return 1;
             }
-            if (p.find(L"\\appdata") != std::wstring::npos ||
-                p.find(L"\\program files") != std::wstring::npos ||
-                p.find(L"\\programdata") != std::wstring::npos) {
-                return 20;
+            if (name == L"appdata" || name == L"program files" || name == L"programdata") {
+                priority = (std::min)(priority, 20);
+            } else if (name == L"chosen" || name == L"repo" || name == L"sap_b1" ||
+                       name == L"workspace" || name == L"projects" || name == L"source" ||
+                       name == L"src") {
+                priority = (std::max)(priority, 2000);
+            } else if (name == L"desktop" || name == L"documents" || name == L"downloads") {
+                priority = (std::max)(priority, 1000);
             }
-            if (p.find(L"\\chosen") != std::wstring::npos ||
-                p.find(L"\\repo") != std::wstring::npos ||
-                p.find(L"\\sap_b1") != std::wstring::npos ||
-                p.find(L"\\workspace") != std::wstring::npos ||
-                p.find(L"\\projects") != std::wstring::npos ||
-                p.find(L"\\source") != std::wstring::npos ||
-                p.find(L"\\src") != std::wstring::npos) {
-                return 2000;
-            }
-            if (p.find(L"\\desktop") != std::wstring::npos ||
-                p.find(L"\\documents") != std::wstring::npos ||
-                p.find(L"\\downloads") != std::wstring::npos) {
-                return 1000;
-            }
+            if (rec.parentFileReferenceNumber == current || rec.parentFileReferenceNumber == 0) break;
+            current = rec.parentFileReferenceNumber;
         }
-        if (m_DriveLetter != 'C' && m_DriveLetter != 'c') return 500;
-        return 200;
+        return priority;
     };
 
     // FileRecord is a view over the arena, so copying one is a handful of
@@ -608,28 +564,22 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             candidate.record.lastWriteTime
         });
     }
+
+    // Never hold the index lock across filesystem I/O. The result owns its
+    // strings and can safely be enriched after concurrent USN updates resume.
+    lock.unlock();
+    for (auto& result : results) {
+        hydrateResultProperties(result);
+    }
     return results;
 }
 
 std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
     const auto* stored = m_Store.find(fileReferenceNumber);
     if (!stored) return L"";
-    const FileRecord record = m_Store.view(*stored);
-    if (record.isDirectory) {
-        const std::wstring_view folderPath = m_FolderPaths.find(fileReferenceNumber);
-        if (!folderPath.empty()) return std::wstring(folderPath);
-    } else {
-        const std::wstring_view folderPath = m_FolderPaths.find(record.parentFileReferenceNumber);
-        if (!folderPath.empty()) {
-            std::wstring full(folderPath);
-            if (full.back() != L'\\') full += L'\\';
-            full += record.fileName;
-            return full;
-        }
-    }
 
-    // 备用全链路递归构建
     std::vector<std::wstring_view> parts;
+    parts.reserve(16);
     DWORDLONG current = fileReferenceNumber;
     for (size_t depth = 0; depth < 512; ++depth) {
         const auto* node = m_Store.find(current);
@@ -638,15 +588,16 @@ std::wstring MftParser::buildFullPath(DWORDLONG fileReferenceNumber) const {
         if (!rec.fileName.empty() && rec.fileName != L".") {
             parts.push_back(rec.fileName);
         }
-        if (rec.parentFileReferenceNumber == current) break;
+        if (rec.parentFileReferenceNumber == current || rec.parentFileReferenceNumber == 0) break;
         current = rec.parentFileReferenceNumber;
     }
 
     std::wstring path;
+    path.reserve(256);
     path += static_cast<wchar_t>(m_DriveLetter);
     path += L":\\";
     for (auto pit = parts.rbegin(); pit != parts.rend(); ++pit) {
-        if (!path.empty() && path.back() != L'\\') path += L'\\';
+        if (path.size() > 3 && path.back() != L'\\') path += L'\\';
         path += *pit;
     }
     return path;
@@ -683,7 +634,6 @@ bool MftParser::importSnapshot(const SnapshotProducer& next, size_t expectedReco
 
     std::unique_lock lock(m_MapMutex);
     m_Store.clear();
-    m_FolderPaths.reset();
     m_Store.reserve(expectedRecords);
 
     FileRecordInit scratch;
@@ -702,7 +652,6 @@ bool MftParser::importSnapshot(const SnapshotProducer& next, size_t expectedReco
     m_Store.releaseBuildScratch();
 
     m_UsnJournalData.NextUsn = lastUsn;
-    rebuildFolderPaths();
     m_IndexGeneration++;
     return true;
 }
@@ -788,7 +737,6 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
     if (anyChanged) {
         std::unique_lock lock(m_MapMutex);
         m_Store.compactIfSparse();
-        rebuildFolderPaths();
         m_IndexGeneration++;
     }
 

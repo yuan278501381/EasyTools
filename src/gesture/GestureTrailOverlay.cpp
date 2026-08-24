@@ -219,7 +219,7 @@ void GestureTrailOverlay::applyThemeColorsLocked() {
         m_textBgBrush.ReleaseAndGetAddressOf()
     );
     m_toastTarget->CreateSolidColorBrush(
-        D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.95f),
+        D2D1::ColorF(trailRgb.r, trailRgb.g, trailRgb.b, 0.95f),
         m_themeBgBrush.ReleaseAndGetAddressOf()
     );
     m_toastTarget->CreateSolidColorBrush(
@@ -258,18 +258,27 @@ void GestureTrailOverlay::shutdown() {
 
 void GestureTrailOverlay::clearCanvas() {
     std::lock_guard lock(m_renderMutex);
-    if (!m_hwnd || !m_renderTarget || !m_memoryDC) return;
-    m_renderTarget->BeginDraw();
-    m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-    m_renderTarget->EndDraw();
+    clearCanvasLocked();
+}
 
-    HDC hdcScreen = GetDC(nullptr);
-    POINT ptSrc = { 0, 0 };
-    SIZE sz = { m_width, m_height };
-    POINT ptDst = { m_originX, m_originY };
-    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
-    ReleaseDC(nullptr, hdcScreen);
+void GestureTrailOverlay::clearCanvasLocked() {
+    if (m_memoryBits && m_height > 0 && m_memoryPitch > 0) {
+        std::memset(m_memoryBits, 0, static_cast<size_t>(m_memoryPitch * m_height));
+    }
+    if (m_toastBits && m_toastHeight > 0 && m_toastPitch > 0) {
+        std::memset(m_toastBits, 0, static_cast<size_t>(m_toastPitch * m_toastHeight));
+    }
+    if (m_hwnd && m_memoryDC && m_width > 0 && m_height > 0) {
+        HDC hdcScreen = GetDC(nullptr);
+        if (hdcScreen) {
+            POINT ptSrc = { 0, 0 };
+            SIZE sz = { m_width, m_height };
+            POINT ptDst = { m_originX, m_originY };
+            BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
+            ReleaseDC(nullptr, hdcScreen);
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,29 +287,43 @@ void GestureTrailOverlay::clearCanvas() {
 
 void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
     while (!stopToken.stop_requested()) {
-        std::unique_lock lock(m_renderSignalMutex);
-        m_renderCv.wait_for(lock, std::chrono::milliseconds(16), [&]() {
-            return m_hideRequested.load(std::memory_order_relaxed) ||
-                   m_fading.load(std::memory_order_relaxed) ||
-                   m_wakeRender.load(std::memory_order_relaxed) ||
-                   stopToken.stop_requested();
-        });
+        {
+            std::unique_lock lock(m_renderSignalMutex);
+            if (m_fading.load(std::memory_order_relaxed)) {
+                m_renderCv.wait_for(lock, std::chrono::milliseconds(16), [&]() {
+                    return m_hideRequested.load(std::memory_order_relaxed) ||
+                           m_wakeRender.load(std::memory_order_relaxed) ||
+                           stopToken.stop_requested();
+                });
+            } else {
+                m_renderCv.wait(lock, [&]() {
+                    return m_hideRequested.load(std::memory_order_relaxed) ||
+                           m_fading.load(std::memory_order_relaxed) ||
+                           m_wakeRender.load(std::memory_order_relaxed) ||
+                           stopToken.stop_requested();
+                });
+            }
 
-        if (stopToken.stop_requested()) break;
-        m_wakeRender.store(false, std::memory_order_relaxed);
-        lock.unlock();
+            if (stopToken.stop_requested()) break;
+            m_wakeRender.store(false, std::memory_order_relaxed);
+        }
 
         if (m_hideRequested.exchange(false, std::memory_order_acq_rel)) {
             applyHideOnRenderThread();
             continue;
         }
 
-        if (m_dismissPrevious.exchange(false, std::memory_order_acq_rel) &&
-            !m_wantVisible.load(std::memory_order_relaxed) &&
-            !m_fading.load(std::memory_order_relaxed)) {
-            if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
-            hideToastWindow();
-            m_visible.store(false, std::memory_order_relaxed);
+        if (m_dismissPrevious.exchange(false, std::memory_order_acq_rel)) {
+            {
+                std::lock_guard renderLock(m_renderMutex);
+                clearCanvasLocked();
+            }
+            if (!m_wantVisible.load(std::memory_order_relaxed) &&
+                !m_fading.load(std::memory_order_relaxed)) {
+                if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
+                hideToastWindow();
+                m_visible.store(false, std::memory_order_relaxed);
+            }
         }
 
         m_renderRequested.store(false, std::memory_order_relaxed);
@@ -336,6 +359,10 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
                         m_isRecognized.store(false, std::memory_order_relaxed);
                         m_wantVisible.store(false, std::memory_order_relaxed);
                         m_strokeSurfaceLive.store(false, std::memory_order_relaxed);
+                        {
+                            std::lock_guard renderLock(m_renderMutex);
+                            clearCanvasLocked();
+                        }
                         if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
                         hideToastWindow();
                         m_visible.store(false, std::memory_order_relaxed);
@@ -366,13 +393,14 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
-    raiseZOrderForDraw();
+    m_zOrderYielded.store(false, std::memory_order_release);
     m_trailEpoch.fetch_add(1, std::memory_order_acq_rel);
     m_hideRequested.store(false, std::memory_order_release);
     m_wantVisible.store(false, std::memory_order_release);
     m_strokeSurfaceLive.store(false, std::memory_order_release);
     m_fading.store(false, std::memory_order_release);
     m_fadeClockStarted.store(false, std::memory_order_release);
+    m_lastWakeTick.store(0, std::memory_order_release);
     m_fadeAlpha = 1.0f;
     {
         std::lock_guard lock(m_trailMutex);
@@ -395,8 +423,9 @@ void GestureTrailOverlay::addPoint(float x, float y) {
         if (!m_points.empty()) {
             float dx = x - m_points.back().x;
             float dy = y - m_points.back().y;
-            // 亚像素采样步长 (1.0px)，100% 忠实平滑捕捉轨迹
-            const float minimumDelta = 1.0f * m_dpiScale;
+            // 低级鼠标钩子的坐标已经是物理屏幕像素，不能再乘 DPI；否则
+            // 150%/200% 屏幕会跳点，视觉上像轨迹拖着鼠标一格一格地走。
+            constexpr float minimumDelta = 1.0f;
             if (dx * dx + dy * dy < minimumDelta * minimumDelta) return;
         }
         m_points.push_back({x, y, GetTickCount()});
@@ -406,11 +435,14 @@ void GestureTrailOverlay::addPoint(float x, float y) {
     if (hasVisibleTrail && m_hwnd) {
         m_fading.store(false, std::memory_order_release);
         m_fadeAlpha = 1.0f;
-        const bool firstVisible = !m_wantVisible.exchange(true, std::memory_order_acq_rel);
+        const bool firstVisible =
+            !m_wantVisible.exchange(true, std::memory_order_acq_rel);
         m_renderRequested.store(true, std::memory_order_release);
+        // 高频鼠标可能以 500/1000 Hz 上报。渲染线程只需要按 120 Hz 合并
+        // 最新点；松手和状态变化仍会无条件唤醒，不会丢掉最终一帧。
         const DWORD now = GetTickCount();
         const DWORD lastWake = m_lastWakeTick.load(std::memory_order_relaxed);
-        if (firstVisible || (now - lastWake) >= 16) {
+        if (firstVisible || now - lastWake >= 8) {
             m_lastWakeTick.store(now, std::memory_order_relaxed);
             m_wakeRender.store(true, std::memory_order_release);
             m_renderCv.notify_one();
@@ -509,7 +541,7 @@ void GestureTrailOverlay::yieldZOrderForInput() {
         }
     };
     lower(m_hwnd);
-    lower(m_toastHwnd);
+    // m_toastHwnd 为底部独立提示卡片，绝不能沉底，否则松手退出时的高亮变色卡片会被前台窗口遮挡！
     m_zOrderYielded.store(true, std::memory_order_release);
 }
 
@@ -526,6 +558,10 @@ void GestureTrailOverlay::raiseZOrderForDraw() {
 }
 
 void GestureTrailOverlay::applyHideOnRenderThread() {
+    {
+        std::lock_guard lock(m_renderMutex);
+        clearCanvasLocked();
+    }
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_HIDE);
     }
@@ -568,6 +604,7 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
         if (bmp) DeleteObject(bmp);
         return false;
     }
+    std::memset(bits, 0, static_cast<size_t>(width * 4 * height));
 
     HBITMAP selected = static_cast<HBITMAP>(SelectObject(m_memoryDC, bmp));
     if (m_memoryBitmap && selected == m_memoryBitmap) {
@@ -596,13 +633,6 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
 bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int y,
                                                int width, int height) {
     if (!hwnd || !memDC || width <= 0 || height <= 0) return false;
-    const bool toast = (hwnd == m_toastHwnd);
-    const void* bits = toast ? m_toastBits : m_memoryBits;
-    const int pitch = toast ? m_toastPitch : m_memoryPitch;
-    if (m_compositorReady && bits && pitch > 0 &&
-        presentCompositorLocked(hwnd, bits, pitch, x, y, width, height)) {
-        return true;
-    }
     HDC hdcScreen = GetDC(nullptr);
     if (!hdcScreen) return false;
     POINT ptSrc = {0, 0};
@@ -619,9 +649,8 @@ bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int 
     }
     // HWND_BOTTOM 沉底后 WS_EX_TOPMOST 位经常还在，旧逻辑会跳过插队，轨迹画在
     // 最大化 Electron / CEF 窗下面。沉底过就必须无条件回到 TOPMOST 组。
-    const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
-    if (overlayPresentShouldForceTopmost((exStyle & WS_EX_TOPMOST) != 0, yielded)) {
+    if (!yielded) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
@@ -681,6 +710,7 @@ bool GestureTrailOverlay::ensureToastSurfaceLocked(int width, int height) {
         if (bmp) DeleteObject(bmp);
         return false;
     }
+    std::memset(bits, 0, static_cast<size_t>(width * 4 * height));
     HBITMAP selected = static_cast<HBITMAP>(SelectObject(m_toastDC, bmp));
     if (m_toastBitmap && selected == m_toastBitmap) {
         DeleteObject(m_toastBitmap);
@@ -703,9 +733,12 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
         m_virtualH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     }
 
-    constexpr int kGrid = 128;
-    constexpr int kPad = 72;
-    constexpr int kMin = 256;
+    // 只为笔迹附近分配分层位图。256px 网格和 96px 余量让普通手势
+    // 通常一次分配即可完成，同时避免把 4K/超宽屏约 30MB 的整屏 DIB
+    // 在每一帧重新上传给 DWM。
+    constexpr int kGrid = 256;
+    constexpr int kPad = 96;
+    constexpr int kMin = 512;
     left = snapDown(left - kPad, kGrid);
     top = snapDown(top - kPad, kGrid);
     right = snapUp(right + kPad, kGrid);
@@ -715,27 +748,26 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
     top = (std::max)(top, m_virtualY);
     right = (std::min)(right, m_virtualX + m_virtualW);
     bottom = (std::min)(bottom, m_virtualY + m_virtualH);
-    if (right - left < kMin) right = left + kMin;
-    if (bottom - top < kMin) bottom = top + kMin;
-    if (right > m_virtualX + m_virtualW) {
-        right = m_virtualX + m_virtualW;
-        left = (std::max)(m_virtualX, right - (std::max)(kMin, right - left));
-    }
-    if (bottom > m_virtualY + m_virtualH) {
-        bottom = m_virtualY + m_virtualH;
-        top = (std::max)(m_virtualY, bottom - (std::max)(kMin, bottom - top));
-    }
+
+    auto ensureMinimumExtent = [](int& begin, int& end, int minExtent,
+                                  int boundBegin, int boundEnd) {
+        if (end - begin >= minExtent || boundEnd - boundBegin <= minExtent) return;
+        end = (std::min)(boundEnd, begin + minExtent);
+        begin = (std::max)(boundBegin, end - minExtent);
+    };
+    ensureMinimumExtent(left, right, kMin, m_virtualX, m_virtualX + m_virtualW);
+    ensureMinimumExtent(top, bottom, kMin, m_virtualY, m_virtualY + m_virtualH);
 
     const int neededW = (std::max)(1, right - left);
     const int neededH = (std::max)(1, bottom - top);
-    const bool live = m_strokeSurfaceLive.load(std::memory_order_relaxed);
-    if (live) {
-        growOverlayRect(left, top, right, bottom, m_originX, m_originY, m_width, m_height);
+    if (m_strokeSurfaceLive.load(std::memory_order_relaxed)) {
         if (overlaySurfaceContains(left, top, right, bottom,
                                    m_originX, m_originY, m_width, m_height) &&
             m_renderTarget && m_memoryBitmap) {
             return true;
         }
+        growOverlayRect(left, top, right, bottom,
+                        m_originX, m_originY, m_width, m_height);
         const bool ok = recreateBitmapLocked(
             left, top, (std::max)(1, right - left), (std::max)(1, bottom - top));
         if (ok) m_strokeSurfaceLive.store(true, std::memory_order_relaxed);
@@ -744,7 +776,7 @@ bool GestureTrailOverlay::fitSurface(int left, int top, int right, int bottom) {
 
     if (overlaySurfaceContains(left, top, right, bottom,
                                m_originX, m_originY, m_width, m_height) &&
-        overlayCanReuseSurface(neededW, neededH, m_width, m_height, 2) &&
+        overlayCanReuseSurface(neededW, neededH, m_width, m_height, 4) &&
         m_renderTarget && m_memoryBitmap) {
         m_strokeSurfaceLive.store(true, std::memory_order_relaxed);
         return true;
@@ -786,9 +818,10 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         nullptr, nullptr, hInstance, nullptr
     );
 
+    const DWORD layeredEx = static_cast<DWORD>(normalizeGestureOverlayExStyle(0));
+
     m_hwnd = CreateWindowExW(
-        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
-            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        layeredEx,
         OVERLAY_CLASS,
         L"EasyTools Gesture Trail",
         WS_POPUP,
@@ -805,6 +838,15 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
+                      normalizeGestureOverlayExStyle(
+                          GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE)));
+    const DWM_WINDOW_CORNER_PREFERENCE noCorners = DWMWCP_DONOTROUND;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                          &noCorners, sizeof(noCorners));
+    const BOOL disableTransitions = TRUE;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
+                          &disableTransitions, sizeof(disableTransitions));
     if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
         LOG_WARN("当前 Windows 版本无法从捕获中排除手势轨迹窗口: error={}", GetLastError());
     }
@@ -814,8 +856,7 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     m_height = 0;
 
     m_toastHwnd = CreateWindowExW(
-        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
-            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        layeredEx,
         OVERLAY_CLASS,
         L"EasyTools Gesture Toast",
         WS_POPUP,
@@ -829,6 +870,13 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     );
     if (m_toastHwnd) {
         SetWindowLongPtrW(m_toastHwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+        SetWindowLongPtrW(m_toastHwnd, GWL_EXSTYLE,
+                          normalizeGestureOverlayExStyle(
+                              GetWindowLongPtrW(m_toastHwnd, GWL_EXSTYLE)));
+        DwmSetWindowAttribute(m_toastHwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                              &noCorners, sizeof(noCorners));
+        DwmSetWindowAttribute(m_toastHwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
+                              &disableTransitions, sizeof(disableTransitions));
         if (!easy::core::WinUtils::excludeWindowFromCapture(m_toastHwnd)) {
             LOG_WARN("当前 Windows 版本无法从捕获中排除手势卡片窗口: error={}", GetLastError());
         }
@@ -837,18 +885,7 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         LOG_WARN("创建手势结果卡片窗口失败，轨迹仍可绘制");
     }
 
-    if (!ensureCompositorLocked()) {
-        const LONG_PTR layeredEx = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
-                                   WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-        if (m_hwnd) SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, layeredEx);
-        if (m_toastHwnd) SetWindowLongPtrW(m_toastHwnd, GWL_EXSTYLE, layeredEx);
-        LOG_WARN("手势覆盖层改用 Layered 回退（无法压过 Electron 合成器）");
-    } else {
-        const MARGINS margins{-1, -1, -1, -1};
-        if (m_hwnd) DwmExtendFrameIntoClientArea(m_hwnd, &margins);
-        if (m_toastHwnd) DwmExtendFrameIntoClientArea(m_toastHwnd, &margins);
-        LOG_INFO("手势覆盖层使用 DirectComposition 呈现");
-    }
+    LOG_INFO("手势覆盖层初始化完成 (原生分层窗口硬件合成加速管线已就绪)");
     return true;
 }
 
@@ -1094,7 +1131,12 @@ bool GestureTrailOverlay::createD2DResources() {
 }
 
 bool GestureTrailOverlay::ensureToastTargetLocked() {
-    if (m_toastTarget) return true;
+    if (m_toastTarget) {
+        if (!m_themeBgBrush || !m_textBgBrush || !m_textBrush) {
+            applyThemeColorsLocked();
+        }
+        return true;
+    }
     if (!m_d2dFactory || !m_toastHwnd) return false;
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_DEFAULT,
@@ -1258,34 +1300,39 @@ bool GestureTrailOverlay::render() {
             ComPtr<ID2D1GeometrySink> sink;
             if (SUCCEEDED(linePath->Open(sink.GetAddressOf())) && sink) {
                 sink->BeginFigure(getPt(0), D2D1_FIGURE_BEGIN_HOLLOW);
-                for (size_t i = 1; i < points.size(); ++i) {
-                    sink->AddLine(getPt(i));
+                if (points.size() == 2) {
+                    sink->AddLine(getPt(1));
+                } else {
+                    // C1 连续二次贝塞尔中点平滑算法 (Smooth Quadratic Bezier Spline)
+                    // 彻底消除折线多边形生硬棱角，还原真实行云流水般的顺滑手绘流动感
+                    const D2D1_POINT_2F p0 = getPt(0);
+                    const D2D1_POINT_2F p1 = getPt(1);
+                    sink->AddLine(D2D1::Point2F((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f));
+                    for (size_t i = 1; i < points.size() - 1; ++i) {
+                        const D2D1_POINT_2F pi = getPt(i);
+                        const D2D1_POINT_2F pi1 = getPt(i + 1);
+                        const D2D1_POINT_2F mid = D2D1::Point2F((pi.x + pi1.x) * 0.5f, (pi.y + pi1.y) * 0.5f);
+                        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(pi, mid));
+                    }
+                    sink->AddLine(getPt(points.size() - 1));
                 }
                 sink->EndFigure(D2D1_FIGURE_END_OPEN);
                 if (SUCCEEDED(sink->Close())) {
-                    auto fillWidened = [&](ID2D1SolidColorBrush* brush, float width, float opacity) {
-                        if (!brush || width <= 0.0f) return;
-                        ComPtr<ID2D1PathGeometry> fat;
-                        if (FAILED(m_d2dFactory->CreatePathGeometry(fat.GetAddressOf())) || !fat) return;
-                        ComPtr<ID2D1GeometrySink> fatSink;
-                        if (FAILED(fat->Open(fatSink.GetAddressOf())) || !fatSink) return;
-                        const HRESULT widenHr = linePath->Widen(
-                            width, m_strokeStyle.Get(), D2D1::Matrix3x2F::Identity(), 1.0f,
-                            fatSink.Get());
-                        if (FAILED(fatSink->Close()) || FAILED(widenHr)) return;
-                        brush->SetOpacity(opacity);
-                        m_renderTarget->FillGeometry(fat.Get(), brush);
-                    };
                     const float coreW = (std::max)(m_style.lineWidth * m_dpiScale, 4.0f);
                     const float outlineW = clampTrailOutlineWidth(m_style.outlineWidth) * m_dpiScale;
                     const float whiteW = trailOutlineWidenWidth(coreW, outlineW);
-                    if (whiteW > 0.0f) {
-                        fillWidened(m_outlineBrush.Get(), whiteW, 0.96f * m_fadeAlpha);
-                        fillWidened(activeGlow, coreW * 1.35f, 0.22f * m_fadeAlpha);
+                    if (whiteW > 0.0f && m_outlineBrush) {
+                        m_outlineBrush->SetOpacity(0.96f * m_fadeAlpha);
+                        m_renderTarget->DrawGeometry(linePath.Get(), m_outlineBrush.Get(), whiteW, m_strokeStyle.Get());
+
+                        activeGlow->SetOpacity(0.22f * m_fadeAlpha);
+                        m_renderTarget->DrawGeometry(linePath.Get(), activeGlow, coreW * 1.35f, m_strokeStyle.Get());
                     } else {
-                        fillWidened(activeGlow, coreW * 2.4f, 0.28f * m_fadeAlpha);
+                        activeGlow->SetOpacity(0.28f * m_fadeAlpha);
+                        m_renderTarget->DrawGeometry(linePath.Get(), activeGlow, coreW * 2.4f, m_strokeStyle.Get());
                     }
-                    fillWidened(activeLine, coreW, 0.96f * m_fadeAlpha);
+                    activeLine->SetOpacity(0.96f * m_fadeAlpha);
+                    m_renderTarget->DrawGeometry(linePath.Get(), activeLine, coreW, m_strokeStyle.Get());
                 }
             }
         }
@@ -1420,10 +1467,14 @@ bool GestureTrailOverlay::presentToastLocked(const std::string& resultText, bool
                 D2D1::RectF(centerX - boxW / 2.0f, centerY - boxH / 2.0f,
                             centerX + boxW / 2.0f, centerY + boxH / 2.0f),
                 16.0f * resultScale, 16.0f * resultScale);
-            if (m_fading.load(std::memory_order_relaxed) && m_themeBgBrush) {
+            const bool isFading = m_fading.load(std::memory_order_relaxed);
+            const bool isSuccess = (recognized || m_isRecognized.load(std::memory_order_relaxed));
+            if (isFading && isSuccess && m_themeBgBrush) {
+                // 手势松手退出/确认执行时：Toast 背景瞬间点亮为主题高亮色并平滑淡出
                 m_themeBgBrush->SetOpacity(0.95f * m_fadeAlpha);
                 m_toastTarget->FillRoundedRectangle(&rrect, m_themeBgBrush.Get());
             } else if (m_textBgBrush) {
+                // 手势实时绘制中（未松手）：Toast 保持深色半透明预览底板
                 m_textBgBrush->SetOpacity(0.82f * m_fadeAlpha);
                 m_toastTarget->FillRoundedRectangle(&rrect, m_textBgBrush.Get());
             }
@@ -1449,6 +1500,8 @@ bool GestureTrailOverlay::presentToastLocked(const std::string& resultText, bool
         LOG_WARN("手势结果卡片 Direct2D 帧提交失败");
         return false;
     }
+    SetWindowPos(m_toastHwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     return presentLayeredLocked(
         m_toastHwnd, m_toastDC, m_toastOriginX, m_toastOriginY, m_toastWidth, m_toastHeight);
 }

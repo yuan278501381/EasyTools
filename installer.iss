@@ -1,13 +1,14 @@
 [Defines]
 #ifndef EasyToolsVersion
-  #define EasyToolsVersion "1.0.0"
+  #error EasyToolsVersion must be supplied by deploy.ps1 from the root VERSION file
 #endif
 
 [Setup]
 AppName=EasyTools
 AppVersion={#EasyToolsVersion}
-AppPublisher=Yy1 (yuan278501381)
+AppPublisher=Yy1 (GitHub yuan278501381)
 AppPublisherURL=https://github.com/yuan278501381/easyTools
+AppCopyright=Copyright (c) 2026 Yy1 (GitHub yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
 AppSupportURL=https://github.com/yuan278501381/easyTools/issues
 AppUpdatesURL=https://github.com/yuan278501381/easyTools/releases
 DefaultDirName={autopf}\EasyTools
@@ -37,6 +38,10 @@ chinesesimplified.AppRunningPrompt=安装程序检测到 EasyTools 正在运行�
 english.AppRunningPrompt=Setup detected that EasyTools is currently running.%n%nWould you like to automatically close running instances of EasyTools and continue with the installation?
 chinesesimplified.InstallationAbortedByUser=安装已由用户取消。请关闭 EasyTools 后重新运行安装程序。
 english.InstallationAbortedByUser=Installation was cancelled by the user. Please close EasyTools and rerun setup.
+chinesesimplified.AppRunningUninstallPrompt=卸载程序检测到 EasyTools 正在运行。%n%n是否自动关闭 EasyTools 并继续卸载？
+english.AppRunningUninstallPrompt=Uninstall detected that EasyTools is currently running.%n%nWould you like to automatically close running instances of EasyTools and continue?
+chinesesimplified.UninstallAbortedByUser=卸载已由用户取消。请关闭 EasyTools 后重新运行卸载程序。
+english.UninstallAbortedByUser=Uninstall was cancelled by the user. Please close EasyTools and rerun uninstall.
 chinesesimplified.InstallingService=正在安装快速文件索引服务...
 english.InstallingService=Installing fast file search index service...
 chinesesimplified.StartingService=正在启动快速文件索引服务...
@@ -206,5 +211,32 @@ begin
     Exec('taskkill.exe', '/f /im EasyTools_Service.exe', '', SW_HIDE,
          ewWaitUntilTerminated, ResultCode);
     Sleep(300);
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+  
+  // 检查 EasyTools 是否在运行
+  if CheckForMutexes('Global\EasyTools_SingleInstance_Mutex') then
+  begin
+    // 弹出多语言确认提示框，用户确认后自动杀掉进程并继续卸载
+    if SuppressibleMsgBox(CustomMessage('AppRunningUninstallPrompt'), mbConfirmation, MB_YESNO, IDYES) = IDYES then
+    begin
+      Exec('taskkill.exe', '/f /im EasyTools.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      if ServiceExists then
+        Exec(ExpandConstant('{sys}\sc.exe'), 'stop EasyTools_SearchService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('taskkill.exe', '/f /im EasyTools_Service.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Sleep(600);
+    end
+    else
+    begin
+      SuppressibleMsgBox(CustomMessage('UninstallAbortedByUser'), mbInformation, MB_OK, IDOK);
+      Result := False;
+      Exit;
+    end;
   end;
 end;

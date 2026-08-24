@@ -5,6 +5,8 @@ from playwright.async_api import async_playwright
 
 async def render_banner():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(repo_root, "VERSION"), "r", encoding="utf-8") as f:
+        product_version = f.read().strip()
     logo_path = os.path.join(repo_root, "ui", "public", "Logo_Origin.png")
     output_dir = os.path.join(repo_root, "docs", "images")
     os.makedirs(output_dir, exist_ok=True)
@@ -151,7 +153,7 @@ async def render_banner():
     <div class="text-content">
       <div class="brand-title">
         <span>EasyTools</span>
-        <span class="version-tag">v1.0.0</span>
+        <span class="version-tag">v{product_version}</span>
       </div>
       <p class="subtitle">The Ultimate Windows Productivity Suite</p>
     </div>

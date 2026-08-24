@@ -537,7 +537,7 @@ void GestureEngine::beginTracking(const MouseEvent& event) {
         wchar_t startCls[256] = {};
         GetClassNameW(m_gestureStartWindow, startCls, 256);
         const LONG_PTR startEx = GetWindowLongPtrW(m_gestureStartWindow, GWL_EXSTYLE);
-        LOG_INFO("手势追踪开始: pos=({},{}) hwnd=0x{:X} class={} compositorSurface={}",
+        LOG_DEBUG("手势追踪开始: pos=({},{}) hwnd=0x{:X} class={} compositorSurface={}",
                  event.position.x, event.position.y,
                  reinterpret_cast<uintptr_t>(m_gestureStartWindow),
                  easy::core::WinUtils::wstringToUtf8(std::wstring(startCls)),

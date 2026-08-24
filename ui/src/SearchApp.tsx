@@ -523,6 +523,8 @@ const SearchResultRow = memo(function SearchResultRow({
   const parentFolder = columns.parent ? extractParentFolder(result.path) : '';
   const sizeText = columns.size ? formatFileSize(result.size, result.isDirectory) : '';
   const badge = columns.ext ? getFileTypeBadge(result.name, result.isDirectory) : null;
+  const modifiedText = columns.modified ? formatWindowsTime(result.lastWriteTime) : '';
+  const createdText = columns.created ? formatWindowsTime(result.creationTime) : '';
 
   return (
     <li
@@ -548,9 +550,6 @@ const SearchResultRow = memo(function SearchResultRow({
             {columns.name && (
               <span className="file-name" style={{ flex: `${columns.nameFlex} 1 0` }} title={result.name}>
                 <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
-                {badge && (
-                  <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>
-                )}
                 {Boolean(result.runCount && result.runCount > 0) && (
                   <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
                     打开 {result.runCount}次
@@ -558,29 +557,30 @@ const SearchResultRow = memo(function SearchResultRow({
                 )}
               </span>
             )}
+            {badge && <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>}
+            {columns.parent && (
+              <span className="file-parent-column" title={`所属文件夹：${parentFolder || '—'}`}>
+                <Folder size={11} aria-hidden="true" />
+                {parentFolder ? highlightMatch(parentFolder, queryKeywords) : '—'}
+              </span>
+            )}
             {columns.path && (
               <span className="file-path-inline" style={{ flex: `${columns.pathFlex} 1 0` }} title={result.path}>
-                {parentFolder && (
-                  <span className="file-parent-tag" title={`所属上级目录: ${parentFolder}`}>
-                    <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
-                    {highlightMatch(parentFolder, queryKeywords)}
-                  </span>
-                )}
                 <span className="file-path-text">{highlightMatch(result.path, queryKeywords)}</span>
               </span>
             )}
             <div className="file-meta-top">
-              {sizeText ? <span className="meta-size-badge">{sizeText}</span> : null}
-              {columns.modified && result.lastWriteTime ? (
+              {columns.size && <span className="meta-size-badge" title="大小">{sizeText || '—'}</span>}
+              {columns.modified && (
                 <span className="meta-date-mod" title="修改时间">
-                  {formatWindowsTime(result.lastWriteTime)}
+                  <span className="meta-field-label">修改</span>{modifiedText || '—'}
                 </span>
-              ) : null}
-              {columns.created && result.creationTime ? (
+              )}
+              {columns.created && (
                 <span className="meta-date-create" title="创建时间">
-                  {formatWindowsTime(result.creationTime)}
+                  <span className="meta-field-label">创建</span>{createdText || '—'}
                 </span>
-              ) : null}
+              )}
             </div>
           </div>
         ) : (
@@ -589,9 +589,6 @@ const SearchResultRow = memo(function SearchResultRow({
               {columns.name && (
                 <span className="file-name" title={result.name}>
                   <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
-                  {badge && (
-                    <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>
-                  )}
                   {Boolean(result.runCount && result.runCount > 0) && (
                     <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
                       打开 {result.runCount}次
@@ -599,32 +596,33 @@ const SearchResultRow = memo(function SearchResultRow({
                   )}
                 </span>
               )}
+              {badge && <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>}
               <div className="file-meta-top">
-                {sizeText ? <span className="meta-size-badge">{sizeText}</span> : null}
-                {columns.modified && result.lastWriteTime ? (
+                {columns.size && <span className="meta-size-badge" title="大小">{sizeText || '—'}</span>}
+                {columns.modified && (
                   <span className="meta-date-mod" title="修改时间">
-                    {formatWindowsTime(result.lastWriteTime)}
+                    <span className="meta-field-label">修改</span>{modifiedText || '—'}
                   </span>
-                ) : null}
+                )}
+                {columns.created && (
+                  <span className="meta-date-create" title="创建时间">
+                    <span className="meta-field-label">创建</span>{createdText || '—'}
+                  </span>
+                )}
               </div>
             </div>
             <div className="file-row-sub">
+              {columns.parent && (
+                <span className="file-parent-column" title={`所属文件夹：${parentFolder || '—'}`}>
+                  <Folder size={11} aria-hidden="true" />
+                  {parentFolder ? highlightMatch(parentFolder, queryKeywords) : '—'}
+                </span>
+              )}
               {columns.path && (
                 <div className="file-path-wrapper" title={result.path}>
-                  {parentFolder && (
-                    <span className="file-parent-tag" title={`所属上级目录: ${parentFolder}`}>
-                      <Folder size={11} className="file-parent-icon" style={{ marginRight: 3, verticalAlign: -1, display: 'inline-block' }} />
-                      {highlightMatch(parentFolder, queryKeywords)}
-                    </span>
-                  )}
                   <span className="file-path">{highlightMatch(result.path, queryKeywords)}</span>
                 </div>
               )}
-              {columns.created && result.creationTime ? (
-                <span className="meta-date-create" title="创建时间">
-                  创建 {formatWindowsTime(result.creationTime)}
-                </span>
-              ) : null}
             </div>
           </>
         )}
@@ -2208,7 +2206,7 @@ export default function SearchApp() {
   }, []);
 
   return (
-    <main className="search-app">
+    <main className={`search-app ${showViewSettings ? 'search-app--view-settings-open' : ''}`}>
       <section className="search-container" aria-label={t('search.title', '快速文件搜索')}>
         <div 
           className="search-input-wrapper"

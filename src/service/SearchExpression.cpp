@@ -240,6 +240,46 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
     return expr;
 }
 
+namespace {
+
+inline bool containsIgnoreCase(std::wstring_view haystack, std::wstring_view needle) noexcept {
+    if (needle.empty()) return true;
+    if (haystack.size() < needle.size()) return false;
+    const size_t maxPos = haystack.size() - needle.size();
+    const wchar_t firstNeedle = static_cast<wchar_t>(std::towlower(needle[0]));
+    for (size_t i = 0; i <= maxPos; ++i) {
+        if (static_cast<wchar_t>(std::towlower(haystack[i])) == firstNeedle) {
+            bool match = true;
+            for (size_t j = 1; j < needle.size(); ++j) {
+                if (static_cast<wchar_t>(std::towlower(haystack[i + j])) != static_cast<wchar_t>(std::towlower(needle[j]))) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+    }
+    return false;
+}
+
+inline bool equalsIgnoreCase(std::wstring_view a, std::wstring_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (static_cast<wchar_t>(std::towlower(a[i])) != static_cast<wchar_t>(std::towlower(b[i]))) return false;
+    }
+    return true;
+}
+
+inline bool startsWithIgnoreCase(std::wstring_view str, std::wstring_view prefix) noexcept {
+    if (str.size() < prefix.size()) return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (static_cast<wchar_t>(std::towlower(str[i])) != static_cast<wchar_t>(std::towlower(prefix[i]))) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
 template <typename PathSupplier>
 static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& record,
                                   wchar_t driveLetter, PathSupplier&& getPath, bool requiresFullPath) {
@@ -251,9 +291,9 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             else if (clause.pattern.empty()) matched = true;
             else {
                 if (clause.hasWildcard) {
-                    matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
+                    matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
                 } else {
-                    matched = record.normalizedName.find(clause.pattern) != std::wstring::npos;
+                    matched = containsIgnoreCase(record.fileName, clause.pattern);
                 }
             }
             break;
@@ -263,9 +303,9 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             else if (clause.pattern.empty()) matched = true;
             else {
                 if (clause.hasWildcard) {
-                    matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
+                    matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
                 } else {
-                    matched = record.normalizedName.find(clause.pattern) != std::wstring::npos;
+                    matched = containsIgnoreCase(record.fileName, clause.pattern);
                 }
             }
             break;
@@ -275,15 +315,14 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                 matched = false;
                 break;
             }
-            const auto dotPos = record.normalizedName.rfind(L'.');
-            if (dotPos == std::wstring::npos) {
+            const auto dotPos = record.fileName.rfind(L'.');
+            if (dotPos == std::wstring_view::npos) {
                 matched = false;
                 break;
             }
-            std::wstring_view fileExt(record.normalizedName.data() + dotPos + 1,
-                                      record.normalizedName.size() - dotPos - 1);
+            std::wstring_view fileExt = record.fileName.substr(dotPos + 1);
             for (const auto& ext : clause.extList) {
-                if (fileExt == ext) {
+                if (equalsIgnoreCase(fileExt, ext)) {
                     matched = true;
                     break;
                 }
@@ -301,7 +340,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             if (clause.hasWildcard) {
                 matched = SearchExpression::matchWildcard(clause.pattern, normPath);
             } else {
-                matched = normPath.find(clause.pattern) != std::wstring::npos;
+                matched = containsIgnoreCase(normPath, clause.pattern);
             }
             break;
         }
@@ -315,14 +354,14 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                 if (clause.hasWildcard) {
                     matched = SearchExpression::matchWildcard(clause.pattern, parentPath);
                 } else {
-                    matched = parentPath.find(clause.pattern) != std::wstring::npos;
+                    matched = containsIgnoreCase(parentPath, clause.pattern);
                 }
             }
             break;
         }
 
         case SearchFilterType::Exact:
-            matched = (record.normalizedName == clause.pattern);
+            matched = equalsIgnoreCase(record.fileName, clause.pattern);
             break;
 
         case SearchFilterType::Regex:
@@ -339,7 +378,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             if (clause.hasWildcard) {
                 matched = SearchExpression::matchWildcard(clause.rawPattern, record.fileName);
             } else {
-                matched = record.fileName.find(clause.rawPattern) != std::wstring::npos;
+                matched = record.fileName.find(clause.rawPattern) != std::wstring_view::npos;
             }
             if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
@@ -360,16 +399,16 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                           SearchExpression::matchWildcard(pat, record.pinyinInitials);
             } else {
                 const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
-                matched = (record.pinyinInitials.find(pat) != std::wstring::npos ||
-                           record.pinyinFull.find(pat) != std::wstring::npos);
+                matched = (containsIgnoreCase(record.pinyinInitials, pat) ||
+                           containsIgnoreCase(record.pinyinFull, pat));
             }
             break;
 
         case SearchFilterType::NoPinyin:
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
+                matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
             } else {
-                matched = record.normalizedName.find(clause.pattern) != std::wstring::npos;
+                matched = containsIgnoreCase(record.fileName, clause.pattern);
             }
             if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
@@ -378,7 +417,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                     if (clause.hasWildcard) {
                         matched = SearchExpression::matchWildcard(clause.pattern, normPath);
                     } else {
-                        matched = normPath.find(clause.pattern) != std::wstring::npos;
+                        matched = containsIgnoreCase(normPath, clause.pattern);
                     }
                 }
             }
@@ -393,19 +432,19 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
         default:
             // 1. 优先在文件名中匹配 (零路径回溯，极致毫秒级热路径)
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName);
+                matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
                 if (!matched && clause.isAsciiOnly) {
                     const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
                     matched = SearchExpression::matchWildcard(pat, record.pinyinFull) ||
                               SearchExpression::matchWildcard(pat, record.pinyinInitials);
                 }
             } else {
-                if (record.normalizedName.find(clause.pattern) != std::wstring::npos) {
+                if (containsIgnoreCase(record.fileName, clause.pattern)) {
                     matched = true;
                 } else if (clause.isAsciiOnly) {
                     const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
-                    matched = (record.pinyinInitials.find(pat) != std::wstring::npos ||
-                               record.pinyinFull.find(pat) != std::wstring::npos);
+                    matched = (containsIgnoreCase(record.pinyinInitials, pat) ||
+                               containsIgnoreCase(record.pinyinFull, pat));
                 }
             }
 
@@ -417,7 +456,7 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                     if (clause.hasWildcard) {
                         matched = SearchExpression::matchWildcard(clause.pattern, normPath);
                     } else {
-                        matched = normPath.find(clause.pattern) != std::wstring::npos;
+                        matched = containsIgnoreCase(normPath, clause.pattern);
                     }
                 }
             }
@@ -466,23 +505,23 @@ bool SearchExpression::matches(const FileRecord& record, wchar_t driveLetter,
 int SearchExpression::calculateRank(const FileRecord& record) const {
     if (m_hasContentFilter && !m_contentQuery.empty()) {
         std::wstring normContentQuery = normalize(m_contentQuery);
-        if (record.normalizedName.find(normContentQuery) != std::wstring::npos) {
+        if (containsIgnoreCase(record.fileName, normContentQuery)) {
             return 0;
         }
         return 1;
     }
     if (m_normalizedQuery.empty()) return 6;
-    if (record.normalizedName == m_normalizedQuery) return 0;
-    if (record.normalizedName.starts_with(m_normalizedQuery)) return 1;
+    if (equalsIgnoreCase(record.fileName, m_normalizedQuery)) return 0;
+    if (startsWithIgnoreCase(record.fileName, m_normalizedQuery)) return 1;
     if (m_isAsciiQuery) {
         const auto& q = m_cleanAsciiQuery.empty() ? m_normalizedQuery : m_cleanAsciiQuery;
-        if (record.pinyinFull.starts_with(q)) return 2;
-        if (record.pinyinInitials.starts_with(q)) return 3;
-        if (record.normalizedName.find(m_normalizedQuery) != std::wstring::npos) return 4;
-        if (record.pinyinFull.find(q) != std::wstring::npos) return 5;
-        if (record.pinyinInitials.find(q) != std::wstring::npos) return 6;
+        if (startsWithIgnoreCase(record.pinyinFull, q)) return 2;
+        if (startsWithIgnoreCase(record.pinyinInitials, q)) return 3;
+        if (containsIgnoreCase(record.fileName, m_normalizedQuery)) return 4;
+        if (containsIgnoreCase(record.pinyinFull, q)) return 5;
+        if (containsIgnoreCase(record.pinyinInitials, q)) return 6;
     } else {
-        if (record.normalizedName.find(m_normalizedQuery) != std::wstring::npos) return 4;
+        if (containsIgnoreCase(record.fileName, m_normalizedQuery)) return 4;
     }
     return 7;
 }

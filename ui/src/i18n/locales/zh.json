@@ -37,7 +37,8 @@
     "ai_assistant": "AI 悬浮助手",
     "color_picker": "取色与调色板",
     "clipboard_manager": "剪贴板灵感库",
-    "markdown_preview": "Markdown速览"
+    "markdown_preview": "Markdown速览",
+    "dialog_enhancer": "文件对话框助手"
   },
   "navSubtitle": {
     "stats": "按键和鼠标活动使用统计",
@@ -53,7 +54,8 @@
     "ai_assistant": "全局划词翻译、代码优化与智能对话悬浮窗",
     "color_picker": "像素级放大镜精准取色与常用调色板管理",
     "clipboard_manager": "无限历史记录、富文本检索与置顶常用语",
-    "markdown_preview": "单按空格快速预览 .md 与代码文件"
+    "markdown_preview": "单按空格快速预览 .md 与代码文件",
+    "dialog_enhancer": "应用路径专属记忆、资源管理器极速同频与吸附式悬浮胶囊"
   },
   "extension": {
     "statusRunning": "运行中",
@@ -237,6 +239,14 @@
       "keycast": {
         "name": "按键回显",
         "description": "在屏幕上实时显示快捷键，适合录制教程、演示和直播。"
+      },
+      "dialogenhancer": {
+        "name": "文件对话框助手",
+        "description": "智能记忆各应用专属目录与母工作区，支持资源管理器同频与吸附式悬浮胶囊。"
+      },
+      "dialog_enhancer": {
+        "name": "文件对话框助手",
+        "description": "智能记忆各应用专属目录与母工作区，支持资源管理器同频与吸附式悬浮胶囊。"
       }
     }
   },
@@ -809,6 +819,44 @@
     "pillSearch": "搜索",
     "quickControls": "快捷控制",
     "enabled": "已启用",
-    "disabled": "已停用"
+    "disabled": "已停用",
+    "restartToApply": "插件状态已更新",
+    "restartNow": "立即重启"
+  },
+  "dialog": {
+    "title": "文件对话框智能助手",
+    "generalGroup": "基础设置",
+    "enable": "启用文件对话框助手",
+    "enableDesc": "在第三方软件弹出打开/保存对话框时提供路径记忆与快速跳转增强",
+    "perAppMemory": "按应用程序独立记忆路径",
+    "perAppMemoryDesc": "自动记录每个软件（如 Word、Excel、VS Code）最后选择的文件夹，再次打开时自动就位",
+    "quickSwitch": "显示“资源管理器当前目录”入口",
+    "quickSwitchDesc": "工具条子功能：将当前资源管理器窗口的文件夹显示为第一个入口；关闭后仍保留“最近使用”和“工作区”",
+    "ribbonGroup": "文件对话框顶部快捷工具条",
+    "ribbonEnabled": "在文件对话框顶部显示快捷工具条",
+    "ribbonEnabledDesc": "总开关：在文件对话框顶部显示“资源管理器当前目录、最近使用、工作区”快捷入口",
+    "ribbonOptions": "工具条选项",
+    "ribbonPosition": "工具条显示位置",
+    "ribbonPositionTopRight": "右上角 (推荐)",
+    "ribbonPositionTopCenter": "顶部居中",
+    "favoritesGroup": "常用工作区收藏",
+    "favoritesDesc": "配置高频使用的项目文件夹，在所有文件对话框中一键秒级跳转",
+    "addFavorite": "添加常用文件夹",
+    "enterPath": "请输入文件夹绝对路径 (如 C:\\repo)",
+    "appMemoriesGroup": "已记忆的应用路径表",
+    "appMemoriesDesc": "查看各应用程序当前绑定的专属路径记忆，支持将某路径（如 C:\\repo）固定为该软件的默认主工作区",
+    "clearAllMemories": "清空所有应用记忆",
+    "processName": "应用程序进程",
+    "lastPath": "最后使用路径",
+    "lastUsed": "最近记录时间",
+    "noMemories": "暂无应用路径记忆",
+    "noFavorites": "暂未添加常用文件夹",
+    "blacklistGroup": "排除黑名单",
+    "blacklistDesc": "对特定软件静默，不注入路径记忆与悬浮胶囊",
+    "addBlacklist": "添加排除进程",
+    "enterProcessName": "请输入进程名 (如 game.exe)",
+    "pinWorkspace": "固定为主工作区",
+    "unpinWorkspace": "取消固定",
+    "fixedBadge": "固定默认"
   }
 }

@@ -24,6 +24,7 @@ import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
 import { SearchPage } from './pages/SearchPage';
+import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { bridgeRequest } from './hooks/useBridge';
@@ -38,12 +39,12 @@ type ThemePreference = Theme | 'system';
 
 const NAV_TITLE_KEYS: Record<NavId, string> = {
   stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
-  ocr: 'nav.ocr', history: 'nav.history', search: 'nav.search', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
+  ocr: 'nav.ocr', history: 'nav.history', search: 'nav.search', dialog_enhancer: 'nav.dialog_enhancer', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
   ai_assistant: 'nav.ai_assistant', color_picker: 'nav.color_picker', clipboard_manager: 'nav.clipboard_manager', markdown_preview: 'nav.markdown_preview',
 };
 const NAV_SUBTITLE_KEYS: Record<NavId, string> = {
   stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
-  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', search: 'navSubtitle.search', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
+  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', search: 'navSubtitle.search', dialog_enhancer: 'navSubtitle.dialog_enhancer', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
   ai_assistant: 'navSubtitle.ai_assistant', color_picker: 'navSubtitle.color_picker', clipboard_manager: 'navSubtitle.clipboard_manager', markdown_preview: 'navSubtitle.markdown_preview',
 };
 
@@ -191,7 +192,7 @@ function App() {
     };
   }, []);
 
-  const standardPluginIds = new Set(['gesture', 'capture', 'search', 'keycast']);
+  const standardPluginIds = new Set(['gesture', 'capture', 'search', 'keycast', 'dialogenhancer', 'dialog_enhancer']);
   const installedExtensionIds = plugins
     .filter((p) => !standardPluginIds.has(p.id))
     .map((p) => p.id);
@@ -199,16 +200,17 @@ function App() {
   // 渲染当前页面
   const renderPage = () => {
     switch (activeNav) {
-      case 'stats':     return <KeyStatsPage />;
-      case 'gesture':   return <GesturePage />;
-      case 'hotcorner': return <HotCornerPage />;
-      case 'capture':   return <CapturePage />;
-      case 'ocr':       return <OcrPage />;
-      case 'history':   return <HistoryPage />;
-      case 'search':    return <SearchPage />;
-      case 'plugins':   return <PluginsPage initialPlugins={plugins} />;
-      case 'general':   return <GeneralPage />;
-      case 'about':     return <AboutPage />;
+      case 'stats':           return <KeyStatsPage />;
+      case 'gesture':         return <GesturePage />;
+      case 'hotcorner':       return <HotCornerPage />;
+      case 'capture':         return <CapturePage />;
+      case 'ocr':             return <OcrPage />;
+      case 'history':         return <HistoryPage />;
+      case 'search':          return <SearchPage />;
+      case 'dialog_enhancer': return <DialogEnhancerPage />;
+      case 'plugins':         return <PluginsPage initialPlugins={plugins} />;
+      case 'general':         return <GeneralPage />;
+      case 'about':           return <AboutPage />;
       case 'ai_assistant':
       case 'color_picker':
       case 'clipboard_manager':

@@ -661,7 +661,7 @@ const std::vector<MarketplaceItem>& getMarketplaceCatalog() {
             "markdown_preview",
             "Markdown 桌面速览",
             "Markdown Quick Viewer",
-            "1.0.2",
+            "1.0.1",
             "Community Contributor",
             "单按空格快速预览 .md 与代码文件，支持 GitHub 风格渲染与数学公式",
             "Quick spacebar preview for markdown and code files with LaTeX & KaTeX support",

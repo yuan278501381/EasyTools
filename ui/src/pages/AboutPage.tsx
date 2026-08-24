@@ -74,7 +74,7 @@ export const AboutPage: FC = () => {
   const { t } = useTranslation();
   const [geekMode, setGeekMode] = useState(false);
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
-  const [version, setVersion] = useState('1.0.0');
+  const [version, setVersion] = useState(__EASYTOOLS_VERSION__);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null);
 
@@ -292,7 +292,7 @@ export const AboutPage: FC = () => {
       </SettingGroup>
 
       <div className="about-footer-copyright">
-        <p>Copyright © 2026 <strong>Yy1 (yuan278501381)</strong> & EasyTools Contributors.</p>
+        <p>Copyright © 2026 <strong>Yy1 (GitHub yuan278501381)</strong> & EasyTools Contributors.</p>
         <p className="about-footer-sub">Licensed under the <strong>MIT License</strong>. Designed with passion for extreme productivity.</p>
       </div>
     </div>

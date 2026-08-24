@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer, RotateCw } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
@@ -13,6 +13,8 @@ export default function TrayApp() {
   const [elevated, setElevated] = useState(false);
   const [elevating, setElevating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingRestart, setPendingRestart] = useState(false);
+  const pendingRestartRef = useRef(false);
   const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set(['capture', 'search', 'gesture']));
 
   // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 200px，仅高度自适应内容）
@@ -35,7 +37,7 @@ export default function TrayApp() {
     });
     ro.observe(menuRef.current);
     return () => ro.disconnect();
-  }, [reportSize, activePlugins, gesturePaused]);
+  }, [reportSize, activePlugins, gesturePaused, pendingRestart]);
 
   const refreshState = useCallback(() => {
     void bridgeRequest<{ elevated?: boolean }>('general.getSettings')
@@ -54,6 +56,14 @@ export default function TrayApp() {
       .catch(() => {});
   }, []);
 
+  const applyPendingRestart = useCallback(async () => {
+    if (!pendingRestartRef.current) return;
+    pendingRestartRef.current = false;
+    setPendingRestart(false);
+    void bridgeRequest('tray.hide').catch(() => {});
+    await bridgeRequest('app.restart').catch(() => {});
+  }, []);
+
   useEffect(() => {
     document.documentElement.dataset.surface = 'tray';
     refreshState();
@@ -61,13 +71,23 @@ export default function TrayApp() {
       refreshState();
       reportSize();
     };
+    const handleVisibility = () => {
+      if (document.hidden && pendingRestartRef.current) {
+        // 用户调整完多个插件后收起托盘，后台静默自动重启生效
+        pendingRestartRef.current = false;
+        setPendingRestart(false);
+        void bridgeRequest('app.restart').catch(() => {});
+      } else {
+        handleShow();
+      }
+    };
     window.addEventListener('tray:show', handleShow);
     window.addEventListener('focus', handleShow);
-    window.addEventListener('visibilitychange', handleShow);
+    window.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('tray:show', handleShow);
       window.removeEventListener('focus', handleShow);
-      window.removeEventListener('visibilitychange', handleShow);
+      window.removeEventListener('visibilitychange', handleVisibility);
       delete document.documentElement.dataset.surface;
     };
   }, [refreshState, reportSize]);
@@ -77,7 +97,12 @@ export default function TrayApp() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        void bridgeRequest('tray.hide').catch(() => {});
+        if (pendingRestartRef.current) {
+          pendingRestartRef.current = false;
+          void bridgeRequest('app.restart').catch(() => {});
+        } else {
+          void bridgeRequest('tray.hide').catch(() => {});
+        }
         return;
       }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -102,13 +127,25 @@ export default function TrayApp() {
     };
   }, []);
 
-  // 快捷胶囊开关（不收起托盘，即时响应并乐观更新）
+  // 快捷胶囊开关（不收起托盘，支持连续切换多个插件；标记待重启状态）
   const toggleGesture = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!activePlugins.has('gesture')) {
       setActivePlugins((prev) => new Set(prev).add('gesture'));
       setGesturePaused(false);
-      await bridgeRequest('plugins.setEnabled', { id: 'gesture', enabled: true }).catch(() => {});
+      try {
+        const res = await bridgeRequest<{ success: boolean; restartRequired?: boolean }>('plugins.setEnabled', { id: 'gesture', enabled: true });
+        if (res?.restartRequired) {
+          setPendingRestart(true);
+          pendingRestartRef.current = true;
+        }
+      } catch {
+        setActivePlugins((prev) => {
+          const next = new Set(prev);
+          next.delete('gesture');
+          return next;
+        });
+      }
       return;
     }
     const nextPaused = !gesturePaused;
@@ -130,7 +167,11 @@ export default function TrayApp() {
       return next;
     });
     try {
-      await bridgeRequest('plugins.setEnabled', { id, enabled: willEnable });
+      const res = await bridgeRequest<{ success: boolean; restartRequired?: boolean }>('plugins.setEnabled', { id, enabled: willEnable });
+      if (res?.restartRequired) {
+        setPendingRestart(true);
+        pendingRestartRef.current = true;
+      }
     } catch {
       setActivePlugins((prev) => {
         const next = new Set(prev);
@@ -229,6 +270,24 @@ export default function TrayApp() {
           <span className="tray-pill__dot" />
         </button>
       </div>
+
+      {/* 待生效智能提示条 (支持多选连续切换，点击立即重启生效或收起托盘后后台自动生效) */}
+      {pendingRestart && (
+        <button
+          type="button"
+          className="tray-restart-banner"
+          onClick={() => void applyPendingRestart()}
+          title={t('tray.restartToApply', 'Plugin settings updated (Click to restart now)')}
+        >
+          <span className="tray-restart-banner__info">
+            <RotateCw size={12} className="tray-menu__icon--spinning" />
+            <span>{t('tray.restartToApply', 'Settings updated')}</span>
+          </span>
+          <span className="tray-restart-banner__btn">
+            {t('tray.restartNow', 'Restart')}
+          </span>
+        </button>
+      )}
 
       <div className="tray-menu__divider" />
 

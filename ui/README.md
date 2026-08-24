@@ -27,5 +27,6 @@ npm run build
 - `i18n-check`：校验中英文键集合一致。
 - `build`：TypeScript 工程检查并生成单文件生产资源。
 
-版本号必须与根目录 `CMakeLists.txt` 的 `project(... VERSION ...)` 一致；
-根目录 `deploy.ps1` 会在发布前强制校验。
+产品版本只维护在根目录 `VERSION`。Vite 在开发与生产构建时读取该文件并
+注入 `__EASYTOOLS_VERSION__`；原生宿主仍会通过消息桥返回已编译版本。
+`package.json` 是私有前端工程清单，不再冒充产品版本源。

@@ -830,6 +830,7 @@ html[data-surface="search"] #root {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 10px;
 }
 
@@ -923,7 +924,31 @@ html[data-surface="search"] #root {
 .file-meta-top {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.file-parent-column {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    max-width: 180px;
+    padding: 1px 6px;
+    overflow: hidden;
+    color: var(--search-text-sub);
+    background: var(--search-surface-pill);
+    border: 1px solid var(--search-surface-pill-border);
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.file-parent-column svg {
     flex-shrink: 0;
 }
 
@@ -948,6 +973,11 @@ html[data-surface="search"] #root {
     color: var(--search-text-muted);
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
+}
+
+.meta-field-label {
+    margin-right: 4px;
+    color: var(--search-text-sub);
 }
 
 /* ── 紧凑密度 (Compact) ── */
@@ -975,6 +1005,17 @@ html[data-surface="search"] #root {
     justify-content: space-between;
     gap: 8px;
     width: 100%;
+}
+
+/* 设置面板打开时给结果真实让位，避免用户勾选属性后刚好被面板遮住。 */
+.search-app--view-settings-open .search-result-item {
+    right: 348px !important;
+}
+
+@media (max-width: 720px) {
+    .search-app--view-settings-open .search-result-item {
+        right: 0 !important;
+    }
 }
 .search-results.density-compact .file-row-sub {
     display: none;

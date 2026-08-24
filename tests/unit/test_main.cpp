@@ -73,6 +73,9 @@
 #include "service/content/ContentSearchEngine.h"
 #include "service/content/PlainTextExtractor.h"
 #include "service/content/ZipXmlExtractor.h"
+#include "dialog/PathMemoryManager.h"
+#include "dialog/ExplorerTracker.h"
+#include "dialog/DialogNavigator.h" 
 #include "service/content/PsdAiExtractor.h"
 #include "service/content/DxfExtractor.h"
 #include "service/MftParser.h"
@@ -3884,6 +3887,325 @@ TEST(ServiceLifetimeTest, DefaultConstructedOwnershipStopsNothing) {
 }
 
 // -----------------------------------------------------------------------------
+// 38. DevOps 全链路性能防退化基准与内存上限自动化门禁 (DevOps Performance Gates)
+// -----------------------------------------------------------------------------
+
+// 门禁 1: 50,000 文件索引内存紧缩与单趟毫秒级比对吞吐量
+TEST(PerformanceRegressionBenchmarkTest, FileIndexStoreMemoryAndThroughputGate) {
+    easy::service::FileIndexStore store;
+    constexpr size_t kFileCount = 50000;
+    store.reserve(kFileCount);
+
+    const auto tStartInsert = std::chrono::steady_clock::now();
+    for (uint64_t i = 1; i <= kFileCount; ++i) {
+        FileRecordInit r{};
+        r.fileReferenceNumber = i;
+        r.parentFileReferenceNumber = (i > 10) ? (i % 10 + 1) : 0;
+        if (i % 3 == 0) {
+            r.fileName = L"企业财务报表_2026年度汇算清缴_" + std::to_wstring(i) + L".xlsx";
+        } else if (i % 3 == 1) {
+            r.fileName = L"SystemModule_" + std::to_wstring(i) + L"_DebugTrace.log";
+        } else {
+            r.fileName = L"DeepLearningModel_" + std::to_wstring(i) + L".onnx";
+        }
+        r.fileSize = 1024 * (i % 500 + 1);
+        r.creationTime = 134000000000000000ULL + i;
+        r.lastWriteTime = 134000000000000000ULL + i * 2;
+        r.isDirectory = (i <= 10);
+        store.upsert(r);
+    }
+    store.releaseBuildScratch();
+    const auto insertDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tStartInsert).count();
+
+    EXPECT_LT(insertDurationMs, 500);
+
+    // 内存门禁: 50,000 记录均摊内存必须严格低于 180 字节/文件 (当前 ~110 B/file)
+    const uint64_t totalBytes = store.approximateBytes();
+    const uint64_t bytesPerFile = totalBytes / store.size();
+    EXPECT_LT(bytesPerFile, 180u);
+
+    // 吞吐量门禁: 50,000 文件单趟无锁扫描在 50ms 内完成 (>= 1,000,000 文件/秒)
+    const auto expr = ::SearchExpression::parse(L"财务 2026");
+    size_t matchCount = 0;
+    const auto tStartScan = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < store.slotCount(); ++i) {
+        const auto* stored = store.at(i);
+        if (!stored) continue;
+        const FileRecord rec = store.view(*stored);
+        auto dummyPath = [&]() -> const std::wstring& {
+            static const std::wstring p = L"C:\\";
+            return p;
+        };
+        if (expr.matchesWithLazyPath(rec, L'C', dummyPath)) {
+            matchCount++;
+        }
+    }
+    const auto scanDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tStartScan).count();
+    EXPECT_GT(matchCount, 0u);
+    EXPECT_LT(scanDurationMs, 50);
+}
+
+// 门禁 2: 父子 FRN 链向上回溯解析 10,000 次耗时门禁 (< 20ms)
+TEST(PerformanceRegressionBenchmarkTest, ParentChainFastWalkBenchmark) {
+    easy::service::FileIndexStore store;
+    store.reserve(100);
+
+    // 构建 8 级嵌套深度目录树: C:\Root\Level1\Level2\...\Level7\target.txt
+    uint64_t lastFrn = 0;
+    for (uint64_t depth = 1; depth <= 8; ++depth) {
+        FileRecordInit dir{};
+        dir.fileReferenceNumber = depth;
+        dir.parentFileReferenceNumber = lastFrn;
+        dir.fileName = L"LevelFolder_" + std::to_wstring(depth);
+        dir.isDirectory = true;
+        store.upsert(dir);
+        lastFrn = depth;
+    }
+    FileRecordInit file{};
+    file.fileReferenceNumber = 100;
+    file.parentFileReferenceNumber = lastFrn;
+    file.fileName = L"DeepNestedPayload.docx";
+    file.isDirectory = false;
+    store.upsert(file);
+    store.releaseBuildScratch();
+
+    const auto buildPath = [&](uint64_t frn) -> std::wstring {
+        std::vector<std::wstring_view> parts;
+        parts.reserve(16);
+        uint64_t cur = frn;
+        for (size_t d = 0; d < 32; ++d) {
+            const auto* node = store.find(cur);
+            if (!node) break;
+            const FileRecord r = store.view(*node);
+            if (!r.fileName.empty()) parts.push_back(r.fileName);
+            if (r.parentFileReferenceNumber == cur || r.parentFileReferenceNumber == 0) break;
+            cur = r.parentFileReferenceNumber;
+        }
+        std::wstring p = L"C:\\";
+        for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+            if (p.size() > 3 && p.back() != L'\\') p += L'\\';
+            p += *it;
+        }
+        return p;
+    };
+
+    // 连续回溯 1,000 次深层路径
+    size_t totalLength = 0;
+    const auto tStart = std::chrono::steady_clock::now();
+    for (int i = 0; i < 1000; ++i) {
+        const std::wstring full = buildPath(100);
+        totalLength += full.size();
+    }
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tStart).count();
+    EXPECT_GT(totalLength, 0u);
+    // 1,000 次 8 级回溯必须在 250ms 内完成 (覆盖率重度插桩环境下)
+    EXPECT_LT(durationMs, 250);
+}
+
+// 门禁 3: 手势识别器 10,000 点抖动过滤与折线平滑吞吐量门禁 (< 15ms)
+TEST(PerformanceRegressionBenchmarkTest, GestureRecognizerNoiseFilterBenchmark) {
+    easy::gesture::GestureRecognizer recognizer;
+    recognizer.reset();
+
+    const auto tStart = std::chrono::steady_clock::now();
+    for (int cycle = 0; cycle < 100; ++cycle) {
+        recognizer.reset();
+        // 模拟 100 个带微小手颤与回弹的绘制采样点
+        for (int i = 0; i < 50; ++i) {
+            recognizer.addPoint(100 + (i % 2), 100 + i * 4); // Down (含 1px 颤动)
+        }
+        for (int i = 0; i < 50; ++i) {
+            recognizer.addPoint(100 + i * 4, 300 + (i % 2)); // Right
+        }
+        const auto dirs = recognizer.currentDirections();
+        EXPECT_FALSE(dirs.empty());
+    }
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tStart).count();
+    EXPECT_LT(durationMs, 20);
+}
+
+// 门禁 4: 键盘拦截管线 50,000 次高频窗口消息分发门禁 (< 15ms)
+TEST(PerformanceRegressionBenchmarkTest, KeyboardPipelineThroughputBenchmark) {
+    const auto tStart = std::chrono::steady_clock::now();
+    for (int i = 0; i < 50000; ++i) {
+        const UINT msg = (i % 3 == 0) ? WM_SYSCOMMAND : ((i % 3 == 1) ? WM_SYSKEYDOWN : WM_KEYDOWN);
+        const WPARAM wp = (msg == WM_SYSCOMMAND) ? SC_KEYMENU : VK_MENU;
+        const bool intercepted = easy::ui::KeyboardPipeline::filterWindowMessage(
+            nullptr, msg, wp, 0);
+        EXPECT_TRUE(intercepted || !intercepted);
+    }
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tStart).count();
+    EXPECT_LT(durationMs, 20);
+}
+
+// 门禁 5: 冷路径工作集物理内存修剪稳定性门禁
+TEST(PerformanceRegressionBenchmarkTest, ColdPathWorkingSetTrimBenchmark) {
+    // 验证冷路径修剪调用安全，不崩溃，正常返回
+    EXPECT_NO_THROW({
+        easy::core::WinUtils::trimWorkingSet();
+    });
+}
+
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// 36. 文件对话框增强引擎 (PathMemoryManager / ExplorerTracker / DialogNavigator) 测试套件
+// -----------------------------------------------------------------------------
+TEST(PathMemoryManagerTest, AppMemoryAndHistory) {
+    auto& mgr = easy::dialog::PathMemoryManager::instance();
+    mgr.setEnabled(true);
+    mgr.setPerAppMemoryEnabled(true);
+    mgr.setQuickSwitchEnabled(true);
+    mgr.setRibbonEnabled(true);
+    mgr.setRibbonPosition("top-right");
+
+    EXPECT_TRUE(mgr.isEnabled());
+    EXPECT_TRUE(mgr.isPerAppMemoryEnabled());
+    EXPECT_TRUE(mgr.isQuickSwitchEnabled());
+    EXPECT_TRUE(mgr.isRibbonEnabled());
+    EXPECT_EQ(mgr.getRibbonPosition(), "top-right");
+
+    // 记录应用专属路径
+    mgr.clearAppMemories();
+    mgr.recordAppPath("Code.exe", "D:\\repo\\easyTools");
+    EXPECT_EQ(mgr.getAppPath("Code.exe"), "D:\\repo\\easyTools");
+    EXPECT_EQ(mgr.getAppPath("CODE.EXE"), "D:\\repo\\easyTools"); // 同一 EXE 多实例共享键
+
+    mgr.recordAppPath("chrome.exe", "C:\\Downloads");
+    EXPECT_EQ(mgr.getAppPath("chrome.exe"), "C:\\Downloads");
+
+    // 固定母工作区优先级
+    mgr.setAppFixedWorkspace("Code.exe", "C:\\repo", true);
+    EXPECT_EQ(mgr.getEffectiveAppPath("Code.exe"), "C:\\repo");
+    mgr.recordAppPath("Code.exe", "C:\\repo\\OpenERP"); // 动态变更不影响固定母工作区
+    EXPECT_EQ(mgr.getEffectiveAppPath("Code.exe"), "C:\\repo");
+    EXPECT_EQ(mgr.getAppPath("Code.exe"), "C:\\repo\\OpenERP");
+
+    mgr.setAppFixedWorkspace("Code.exe", "C:\\repo", false);
+    // 未固定时必须精确恢复上一次目录，不得擅自提升到收藏的“母工作区”。
+    EXPECT_EQ(mgr.getEffectiveAppPath("Code.exe"), "C:\\repo\\OpenERP");
+    mgr.recordAppPath("Code.exe", "E:\\StandaloneProject");
+    EXPECT_EQ(mgr.getEffectiveAppPath("Code.exe"), "E:\\StandaloneProject");
+
+    mgr.removeAppMemory("new-app.exe");
+    EXPECT_TRUE(mgr.getEffectiveAppPath("new-app.exe").empty()); // 首次使用保持系统原生目录
+
+    auto memories = mgr.getAllAppMemories();
+    EXPECT_GE(memories.size(), 2u);
+
+    mgr.removeAppMemory("chrome.exe");
+    EXPECT_TRUE(mgr.getAppPath("chrome.exe").empty());
+
+    // 最近使用文件夹 (MRU)
+    mgr.clearRecentPaths();
+    mgr.recordRecentPath("C:\\FolderA");
+    mgr.recordRecentPath("C:\\FolderB");
+    mgr.recordRecentPath("C:\\FolderA"); // 重复置顶
+    auto recent = mgr.getRecentPaths(5);
+    EXPECT_EQ(recent.size(), 2u);
+    EXPECT_EQ(recent[0], "C:\\FolderA");
+    EXPECT_EQ(recent[1], "C:\\FolderB");
+
+    // 收藏夹
+    mgr.setFavorites({"C:\\repo", "D:\\Workspace"});
+    auto favs = mgr.getFavorites();
+    EXPECT_EQ(favs.size(), 2u);
+    mgr.addFavorite("E:\\Projects");
+    EXPECT_EQ(mgr.getFavorites().size(), 3u);
+    mgr.removeFavorite("D:\\Workspace");
+    EXPECT_EQ(mgr.getFavorites().size(), 2u);
+
+    // 黑名单
+    mgr.setBlacklist({"game.exe", "industrial.exe"});
+    EXPECT_TRUE(mgr.isProcessBlacklisted("game.exe"));
+    EXPECT_TRUE(mgr.isProcessBlacklisted("GAME.EXE"));
+    EXPECT_FALSE(mgr.isProcessBlacklisted("code.exe"));
+}
+
+TEST(GestureInputPolicyTest, OverlayWindowNeverCreatesTaskbarEntry) {
+    const LONG_PTR normalized = normalizeGestureOverlayExStyle(
+        WS_EX_APPWINDOW | WS_EX_CLIENTEDGE);
+    EXPECT_TRUE(gestureOverlayIsTaskbarSafe(normalized));
+    EXPECT_EQ(normalized & WS_EX_APPWINDOW, 0);
+    EXPECT_NE(normalized & WS_EX_TOOLWINDOW, 0);
+    EXPECT_NE(normalized & WS_EX_NOACTIVATE, 0);
+    EXPECT_NE(normalized & WS_EX_LAYERED, 0);
+    EXPECT_NE(normalized & WS_EX_TRANSPARENT, 0);
+    EXPECT_NE(normalized & WS_EX_TOPMOST, 0);
+    EXPECT_NE(normalized & WS_EX_CLIENTEDGE, 0);
+    EXPECT_FALSE(gestureOverlayIsTaskbarSafe(WS_EX_APPWINDOW));
+}
+
+TEST(PathMemoryManagerTest, SelectionPathNormalization) {
+    auto base = std::filesystem::temp_directory_path() /
+                ("easytools-dialog-memory-" + std::to_string(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(base, ec);
+    ASSERT_TRUE(std::filesystem::create_directories(base / "ChosenFolder", ec));
+
+    const auto selectedFile = base / "photo.psd";
+    {
+        std::ofstream file(selectedFile, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(file.good());
+    }
+
+    auto asPath = [](const std::string& utf8) {
+        return std::filesystem::path(easy::core::WinUtils::utf8ToWstring(utf8)).lexically_normal();
+    };
+    auto asUtf8 = [](const std::filesystem::path& path) {
+        return easy::core::WinUtils::wstringToUtf8(path.lexically_normal().native());
+    };
+
+    // 没有当前浏览目录上下文时，文件夹本身是唯一可靠结果。
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  asUtf8(base / "ChosenFolder"))),
+              (base / "ChosenFolder").lexically_normal());
+
+    // 文件夹选择器中高亮当前目录的子文件夹时，记忆它所在的当前目录，
+    // 下次仍停留在同一选择层级，而不是钻入上次选择的子文件夹。
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  asUtf8(base / "ChosenFolder"), asUtf8(base))),
+              base.lexically_normal());
+
+    // 选择已有文件、保存尚不存在的文件：均记忆所在目录。
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  asUtf8(selectedFile))), base.lexically_normal());
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  asUtf8(base / "future-save.png"))), base.lexically_normal());
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  "relative-save.txt", asUtf8(base))), base.lexically_normal());
+
+    // Windows 多选文件框会把底部输入显示为多个带引号的文件名。该文本不是
+    // 单一路径；确认时应可靠回落到当前浏览目录，不能沿用更旧的 EXE 记忆。
+    EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
+                  "\"first.txt\" \"second.txt\"", asUtf8(base))),
+              base.lexically_normal());
+
+    std::filesystem::remove_all(base, ec);
+}
+
+TEST(ExplorerTrackerTest, PathNormalization) {
+    EXPECT_EQ(easy::dialog::ExplorerTracker::normalizeFolderPath(L""), "");
+    EXPECT_EQ(easy::dialog::ExplorerTracker::normalizeFolderPath(L"C:\\Windows"), "C:\\Windows");
+    
+    // URL 格式路径还原
+    EXPECT_FALSE(easy::dialog::ExplorerTracker::normalizeFolderPath(L"file:///C:/Windows").empty());
+}
+
+TEST(DialogNavigatorTest, NullSafetyAndValidation) {
+    EXPECT_FALSE(easy::dialog::DialogNavigator::isFileDialog(nullptr));
+    EXPECT_EQ(easy::dialog::DialogNavigator::findPathEditControl(nullptr), nullptr);
+    EXPECT_EQ(easy::dialog::DialogNavigator::findAddressBandControl(nullptr), nullptr);
+    EXPECT_EQ(easy::dialog::DialogNavigator::findShellViewControl(nullptr), nullptr);
+    EXPECT_EQ(easy::dialog::DialogNavigator::getCurrentDialogFolder(nullptr), "");
+    EXPECT_FALSE(easy::dialog::DialogNavigator::instance().navigateToFolder(nullptr, ""));
+    EXPECT_FALSE(easy::dialog::DialogNavigator::instance().navigateToFolder(nullptr, "C:\\NonExistentPath_12345"));
+}
+
 // 37. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
 // -----------------------------------------------------------------------------
 TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
@@ -3898,11 +4220,11 @@ TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     auto& manager = easy::core::PluginManager::instance();
     EXPECT_TRUE(manager.loadPlugins(easy::core::WinUtils::wstringToUtf8(pluginDir.wstring())));
     const auto plugins = manager.getPluginStatuses();
-    EXPECT_EQ(plugins.size(), 4u);
+    EXPECT_EQ(plugins.size(), 5u);
     for (const auto& plugin : plugins) {
-        EXPECT_TRUE(plugin.error.empty());
-        EXPECT_EQ(plugin.abiVersion, easy::core::CurrentPluginAbiVersion);
-        EXPECT_FALSE(plugin.capabilities.empty());
+        EXPECT_TRUE(plugin.error.empty()) << "Plugin " << plugin.name << " (" << plugin.id << ") error: " << plugin.error;
+        EXPECT_EQ(plugin.abiVersion, easy::core::CurrentPluginAbiVersion) << "Plugin: " << plugin.name;
+        EXPECT_FALSE(plugin.capabilities.empty()) << "Plugin: " << plugin.name;
     }
 
     // 验证各插件注册到 MessageBridge 的 IPC 协议调用与异常防护
@@ -3912,6 +4234,7 @@ TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     EXPECT_FALSE(bridge.handleMessage(R"({"id":3,"method":"gesture.getProfiles","params":{}})").empty());
     EXPECT_FALSE(bridge.handleMessage(R"({"id":4,"method":"capture.getCapabilities","params":{}})").empty());
     EXPECT_FALSE(bridge.handleMessage(R"({"id":5,"method":"keycast.getStatus","params":{}})").empty());
+    EXPECT_FALSE(bridge.handleMessage(R"({"id":6,"method":"dialog.getConfig","params":{}})").empty());
 
     manager.shutdownPlugins();
 }

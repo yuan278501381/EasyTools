@@ -65,6 +65,52 @@ afterEach(() => {
 });
 
 describe('VirtualSearchResults', () => {
+  it('renders every enabled result property, including authoritative timestamps', () => {
+    const item: SearchResult = {
+      name: 'report.pdf',
+      path: 'D:\\Chosen\\Project\\report.pdf',
+      isDirectory: false,
+      size: 2048,
+      creationTime: 134000000000000000,
+      lastWriteTime: 134001000000000000,
+    };
+    const allColumns: ColumnLayout = {
+      name: true, ext: true, parent: true, path: true, size: true,
+      modified: true, created: true, snippets: true, nameFlex: 1, pathFlex: 1,
+    };
+
+    const view = render(<VirtualSearchResults {...props([item])} columns={allColumns} />);
+
+    expect(view.getByText('report.pdf')).not.toBeNull();
+    expect(view.getByText('PDF')).not.toBeNull();
+    expect(view.getByTitle('所属文件夹：Project')).not.toBeNull();
+    expect(view.getByTitle(item.path)).not.toBeNull();
+    expect(view.getByTitle('大小').textContent).toBe('2.0 KB');
+    expect(view.getByTitle('修改时间').textContent).toMatch(/^修改\d{4}-\d{2}-\d{2}/);
+    expect(view.getByTitle('创建时间').textContent).toMatch(/^创建\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('keeps type and parent properties independent from name and full path', () => {
+    const item: SearchResult = {
+      name: 'report.pdf',
+      path: 'D:\\Chosen\\Project\\report.pdf',
+      isDirectory: false,
+    };
+    const independentColumns: ColumnLayout = {
+      ...columns,
+      name: false,
+      ext: true,
+      parent: true,
+      path: false,
+    };
+
+    const view = render(<VirtualSearchResults {...props([item])} columns={independentColumns} />);
+
+    expect(view.getByText('PDF')).not.toBeNull();
+    expect(view.getByTitle('所属文件夹：Project')).not.toBeNull();
+    expect(view.queryByTitle(item.path)).toBeNull();
+  });
+
   it('keeps a 100k result DOM window bounded and mounts the far active option', () => {
     const items = results(100_000);
     const view = render(<VirtualSearchResults {...props(items)} />);

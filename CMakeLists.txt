@@ -4,8 +4,14 @@ cmake_minimum_required(VERSION 3.25)
 # EasyTools — 高性能桌面效率工具 (Microkernel Architecture)
 # ─────────────────────────────────────────────────────────────────────────────
 
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" EASYTOOLS_VERSION)
+string(STRIP "${EASYTOOLS_VERSION}" EASYTOOLS_VERSION)
+if(NOT EASYTOOLS_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain exactly one stable SemVer value (for example 1.2.3)")
+endif()
+
 project(EasyTools
-    VERSION 1.0.0
+    VERSION ${EASYTOOLS_VERSION}
     DESCRIPTION "High-Performance Modular Windows Productivity Tool"
     LANGUAGES CXX C
 )
@@ -120,6 +126,7 @@ file(GLOB_RECURSE UI_SOURCES CONFIGURE_DEPENDS "src/ui/*.cpp" "src/ui/*.h")
 file(GLOB_RECURSE OCR_SOURCES CONFIGURE_DEPENDS "src/ocr/*.cpp" "src/ocr/*.h")
 file(GLOB_RECURSE SEARCH_SOURCES CONFIGURE_DEPENDS "src/search/*.cpp" "src/search/*.h")
 file(GLOB_RECURSE SERVICE_SOURCES CONFIGURE_DEPENDS "src/service/*.cpp" "src/service/*.h")
+file(GLOB_RECURSE DIALOG_SOURCES CONFIGURE_DEPENDS "src/dialog/*.cpp" "src/dialog/*.h")
 
 set(HOST_SOURCES src/main.cpp ${TRAY_SOURCES} ${UI_SOURCES} src/EasyTools.rc)
 
@@ -188,6 +195,17 @@ target_include_directories(Plugin_Search PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Search PRIVATE EasyCore nlohmann_json::nlohmann_json spdlog::spdlog advapi32 shell32 bcrypt)
 set_target_properties(Plugin_Search PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
+# ── 3.7. Plugin_DialogEnhancer (动态库) ────────────────────────────────────────
+add_library(Plugin_DialogEnhancer SHARED ${DIALOG_SOURCES})
+easytools_add_version_resource(Plugin_DialogEnhancer "EasyTools Dialog Enhancer Plugin" "Plugin_DialogEnhancer.dll" VFT_DLL)
+easytools_add_plugin_manifest(Plugin_DialogEnhancer)
+target_compile_definitions(Plugin_DialogEnhancer PRIVATE PLUGIN_EXPORTS)
+target_include_directories(Plugin_DialogEnhancer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(Plugin_DialogEnhancer PRIVATE EasyCore
+    d2d1 dwrite msimg32 user32 shell32 shcore ole32 oleaut32 shlwapi
+)
+set_target_properties(Plugin_DialogEnhancer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
+
 # ── 4. EasyTools Host (可执行文件) ─────────────────────────────────────────────
 # 这里移除没有扩展名的 rc 防止出问题，rc通常会被收集进去
 add_executable(EasyTools WIN32 ${HOST_SOURCES})
@@ -200,7 +218,7 @@ target_link_libraries(EasyTools PRIVATE EasyCore
 # A runnable host build must contain the same validated plugin bundle that the
 # installer ships. Depending on every plugin also prevents stale DLLs from a
 # previous build being paired with missing or outdated manifests.
-add_dependencies(EasyTools Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search)
+add_dependencies(EasyTools Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search Plugin_DialogEnhancer)
 add_custom_command(TARGET EasyTools POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:EasyTools>/plugins"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -219,6 +237,10 @@ add_custom_command(TARGET EasyTools POST_BUILD
         "$<TARGET_FILE:Plugin_Search>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_Search>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE_DIR:Plugin_Search>/Plugin_Search.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_Search.plugin.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:Plugin_DialogEnhancer>" "$<TARGET_FILE_DIR:EasyTools>/plugins/$<TARGET_FILE_NAME:Plugin_DialogEnhancer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:Plugin_DialogEnhancer>/Plugin_DialogEnhancer.plugin.json" "$<TARGET_FILE_DIR:EasyTools>/plugins/Plugin_DialogEnhancer.plugin.json"
     COMMENT "Deploying validated plugin bundle beside EasyTools..."
 )
 
@@ -271,11 +293,14 @@ if(BUILD_TESTING)
         src/service/content/PsdAiExtractor.cpp
         src/service/content/DxfExtractor.cpp
         src/service/content/ContentSearchEngine.cpp
+        src/dialog/PathMemoryManager.cpp
+        src/dialog/ExplorerTracker.cpp
+        src/dialog/DialogNavigator.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
     target_include_directories(EasyToolsTests PRIVATE "${WEBVIEW2_DIR}/build/native/include")
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid shlwapi
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)
@@ -300,6 +325,16 @@ if(BUILD_TESTING)
     target_include_directories(EasyToolsNativeOverlayPreview PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(EasyToolsNativeOverlayPreview PRIVATE EasyCore
         d2d1 dwrite shcore user32 gdi32 dwmapi msimg32)
+
+    # Cross-process IFileDialog integration gate. It is intentionally
+    # excluded from normal builds because it briefly opens a real native dialog.
+    add_executable(EasyToolsDialogNavigatorIntegration EXCLUDE_FROM_ALL
+        tests/integration/dialog_navigator_integration.cpp
+        src/dialog/DialogNavigator.cpp
+    )
+    target_include_directories(EasyToolsDialogNavigatorIntegration PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(EasyToolsDialogNavigatorIntegration PRIVATE EasyCore
+        user32 shell32 shlwapi ole32 UIAutomationCore)
 endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
@@ -313,5 +348,5 @@ endif()
 
 # ── 安装规则 ──────────────────────────────────────────────────────────────────
 install(TARGETS EasyTools EasyTools_Service EasyCore RUNTIME DESTINATION bin)
-install(TARGETS Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search RUNTIME DESTINATION bin/plugins)
+install(TARGETS Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search Plugin_DialogEnhancer RUNTIME DESTINATION bin/plugins)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/resources/" DESTINATION bin/resources)

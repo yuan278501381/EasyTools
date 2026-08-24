@@ -285,7 +285,7 @@ public:
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
                 {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
                 {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
-                {"runAsAdmin", config.get<bool>("/general/runAsAdmin", false)}
+                {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)}
             };
         });
 

@@ -109,6 +109,22 @@ inline bool overlayCanReuseSurface(int neededW, int neededH,
     return existingArea <= neededArea * static_cast<long long>(maxAreaFactor);
 }
 
+/// 轨迹与结果卡片始终是无激活、鼠标穿透的工具窗口。无论调用方传入
+/// 什么历史样式，都必须剥离 APPWINDOW，否则 Explorer 会为临时覆盖层
+/// 创建任务栏按钮。
+inline LONG_PTR normalizeGestureOverlayExStyle(LONG_PTR current) noexcept {
+    constexpr LONG_PTR required = WS_EX_LAYERED | WS_EX_TRANSPARENT |
+                                  WS_EX_TOPMOST | WS_EX_NOACTIVATE |
+                                  WS_EX_TOOLWINDOW;
+    return (current | required) & ~static_cast<LONG_PTR>(WS_EX_APPWINDOW);
+}
+
+inline bool gestureOverlayIsTaskbarSafe(LONG_PTR exStyle) noexcept {
+    return (exStyle & WS_EX_TOOLWINDOW) != 0 &&
+           (exStyle & WS_EX_APPWINDOW) == 0 &&
+           (exStyle & WS_EX_NOACTIVATE) != 0;
+}
+
 /// 松手结果卡片必须真正画出来，淡出时钟才能走。否则动作已经执行，用户只看到空白。
 inline bool gestureFrameReadyToFade(bool trailPresented, bool toastRequired,
                                     bool toastPresented) noexcept {

@@ -1,6 +1,5 @@
 #pragma once
 #include "FileIndexStore.h"
-#include "FolderPathTable.h"
 #include "SearchExpression.h"
 #include <windows.h>
 #include <winioctl.h>
@@ -93,8 +92,6 @@ private:
     bool QueryUsnJournal();
     void EnumerateFilesViaDirectoryWalk(char driveLetter);
     std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
-    void rebuildFolderPaths();
 
-    easy::service::FolderPathTable m_FolderPaths;
     bool m_IsFallbackDirectoryWalk{false};
 };

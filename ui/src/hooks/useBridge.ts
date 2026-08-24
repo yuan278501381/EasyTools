@@ -150,10 +150,10 @@ export function useBridgeEvent(eventName: string, handler: MessageHandler) {
 
 // ── 开发模式 Mock 数据 ──────────────────────────────────────────────────────
 let mockPlugins = [
-  { id: 'capture', name: 'Capture', version: '1.0.0', fileName: 'Plugin_Capture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
-  { id: 'gesture', name: 'Gesture', version: '1.0.0', fileName: 'Plugin_Gesture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
-  { id: 'keycast', name: 'Keycast', version: '1.0.0', fileName: 'Plugin_Keycast.dll', enabled: false, active: false, restartRequired: false, state: 'disabled' },
-  { id: 'search', name: 'Search', version: '1.0.0', fileName: 'Plugin_Search.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+  { id: 'capture', name: 'Capture', version: __EASYTOOLS_VERSION__, fileName: 'Plugin_Capture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+  { id: 'gesture', name: 'Gesture', version: __EASYTOOLS_VERSION__, fileName: 'Plugin_Gesture.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
+  { id: 'keycast', name: 'Keycast', version: __EASYTOOLS_VERSION__, fileName: 'Plugin_Keycast.dll', enabled: false, active: false, restartRequired: false, state: 'disabled' },
+  { id: 'search', name: 'Search', version: __EASYTOOLS_VERSION__, fileName: 'Plugin_Search.dll', enabled: true, active: true, restartRequired: false, state: 'running' },
 ];
 
 function getMockResponse(method: string, params: Record<string, unknown> = {}): unknown {
@@ -215,7 +215,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
         trailVisible: true,
         targetMode: 'underPointer',
         elevated: false,
-        runAsAdmin: false,
+        runAsAdmin: true,
       };
 
     case 'gesture.getScopeRules':
@@ -244,7 +244,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
 
     case 'general.getSettings':
       return {
-        language: 'zh-CN', autoStart: false, runAsAdmin: false, elevated: false, theme: 'light',
+        language: 'zh-CN', autoStart: false, runAsAdmin: true, elevated: false, theme: 'light',
         logLevel: 'info', minimizeToTray: true, checkUpdates: true,
       };
 
@@ -296,7 +296,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
       return { memoryMB: 42.5, cpuPercent: 0.8, screenshotLatencyMs: 0, gestureLatencyMs: 1.2, uiRenderLatencyMs: 4.1 };
 
     case 'app.getSystemInfo':
-      return { version: '1.0.0', cpuArch: 'x64', cpuCores: 12, totalMemoryGB: 32, dpiScale: 1 };
+      return { version: __EASYTOOLS_VERSION__, cpuArch: 'x64', cpuCores: 12, totalMemoryGB: 32, dpiScale: 1 };
 
     case 'app.checkForUpdates':
       return { success: true, started: false };

@@ -39,9 +39,8 @@ struct TrailStyle {
     float lineWidth     = 3.0f;     // 线条宽度
     float outlineWidth  = 2.5f;     // 白色描边宽度，0 表示关闭
     float startOpacity  = 0.9f;     // 起点不透明度
-    float endOpacity    = 0.2f;     // 终点不透明度（渐隐）
-    float fadeHoldMs    = 160.0f;   // 松手后先完整停住，让动作名可被读到
-    float fadeOutMs     = 280.0f;   // 随后平滑淡出
+    float fadeHoldMs    = 80.0f;    // 松手确认瞬间高亮主题色保持 80ms，提供干脆有力的瞬态变色正反馈
+    float fadeOutMs     = 120.0f;   // 随后 120ms 极速指数淡出，总耗时 200ms，绝不拖沓
     uint32_t lineColor  = 0x7C3AED; // 线条颜色 (RGB, 紫色)
     uint32_t resultBg   = 0x000000; // 结果背景色
     float resultFontSize = 24.0f;   // 结果文字大小（会按窗口 DPI 缩放）
@@ -116,6 +115,7 @@ private:
     bool fitSurface(int left, int top, int right, int bottom);
     bool recreateBitmapLocked(int x, int y, int width, int height);
     bool presentLayeredLocked(HWND hwnd, HDC memDC, int x, int y, int width, int height);
+    void clearCanvasLocked();
     bool ensureCompositorLocked();
     bool presentCompositorLocked(HWND hwnd, const void* bits, int pitch,
                                  int x, int y, int width, int height);

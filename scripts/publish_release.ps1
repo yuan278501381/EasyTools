@@ -1,5 +1,5 @@
 param(
-    [string]$Tag = "v1.0.0",
+    [string]$Tag = "",
     [switch]$ForceRebuild = $false
 )
 
@@ -8,50 +8,38 @@ $ScriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Defi
 if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
 Set-Location $ScriptDir
 
-$CleanVersion = $Tag.TrimStart('v', 'V')
+$VersionFile = Join-Path $ScriptDir "VERSION"
+if (-not (Test-Path -LiteralPath $VersionFile)) {
+    throw "缺少唯一版本源: $VersionFile"
+}
+$ProjectVersion = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+if ($ProjectVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "VERSION 必须是稳定 SemVer（例如 1.2.3），当前值: $ProjectVersion"
+}
+
+if ([string]::IsNullOrWhiteSpace($Tag)) {
+    $Tag = "v$ProjectVersion"
+}
+if ($Tag -notmatch '^v\d+\.\d+\.\d+$') {
+    throw "发布标签必须使用 vMAJOR.MINOR.PATCH 格式，当前值: $Tag"
+}
+$CleanVersion = $Tag.Substring(1)
+if ($CleanVersion -ne $ProjectVersion) {
+    throw "发布标签 $Tag 与 VERSION ($ProjectVersion) 不一致。请只修改根目录 VERSION。"
+}
+
+$DirtyFiles = @(git status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0) { throw "无法读取 Git 工作树状态" }
+if ($DirtyFiles.Count -gt 0) {
+    throw "发布要求干净工作树；请先审查并提交所有改动。"
+}
 
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "发布 EasyTools $Tag (版本号: $CleanVersion) 到 GitHub Releases" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
-# 1. 自动化版本号级联对齐 (SSOT: 确保 CMakeLists.txt / ui/package.json / installer.iss 严格一致)
-$CMakeFile = Join-Path $ScriptDir "CMakeLists.txt"
-$CMakeContent = Get-Content $CMakeFile -Raw
-if ($CMakeContent -match 'project\s*\(\s*EasyTools\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
-    $CurrentCMakeVer = $Matches[1]
-    if ($CurrentCMakeVer -ne $CleanVersion) {
-        Write-Host "[AUTO-SYNC] 更新 CMakeLists.txt 版本: $CurrentCMakeVer -> $CleanVersion" -ForegroundColor Yellow
-        $CMakeContent = $CMakeContent -replace 'project\s*\(\s*EasyTools\s+VERSION\s+[0-9]+\.[0-9]+\.[0-9]+', "project(EasyTools`n    VERSION $CleanVersion"
-        $CMakeContent | Out-File $CMakeFile -Encoding utf8
-        $ForceRebuild = $true
-    }
-}
-
-$UiPackageFile = Join-Path $ScriptDir "ui\package.json"
-if (Test-Path $UiPackageFile) {
-    $UiPkg = Get-Content $UiPackageFile -Raw | ConvertFrom-Json
-    if ($UiPkg.version -ne $CleanVersion) {
-        Write-Host "[AUTO-SYNC] 更新 ui/package.json 版本: $($UiPkg.version) -> $CleanVersion" -ForegroundColor Yellow
-        $UiPkgText = Get-Content $UiPackageFile -Raw
-        $UiPkgText = $UiPkgText -replace '"version":\s*"[^"]+"', "`"version`": `"$CleanVersion`""
-        $UiPkgText | Out-File $UiPackageFile -Encoding utf8
-        $ForceRebuild = $true
-    }
-}
-
-$InstallerFile = Join-Path $ScriptDir "installer.iss"
-if (Test-Path $InstallerFile) {
-    $IssContent = Get-Content $InstallerFile -Raw
-    if ($IssContent -match '#define EasyToolsVersion "([^"]+)"') {
-        if ($Matches[1] -ne $CleanVersion) {
-            Write-Host "[AUTO-SYNC] 更新 installer.iss 版本: $($Matches[1]) -> $CleanVersion" -ForegroundColor Yellow
-            $IssContent = $IssContent -replace '#define EasyToolsVersion "[^"]+"', "#define EasyToolsVersion `"$CleanVersion`""
-            $IssContent | Out-File $InstallerFile -Encoding utf8
-        }
-    }
-}
-
-# 2. 如果版本有更新或强制重构，触发 deploy.ps1 重新打包
+# VERSION 是唯一产品版本源。发布过程只读取和校验，绝不在构建中改写源码。
+# 如果强制重构或尚无安装包，触发 deploy.ps1 重新打包。
 if ($ForceRebuild -or -not (Test-Path "Output\EasyTools-Setup.exe")) {
     Write-Host "[BUILD] 触发全量一键构建部署流水线..." -ForegroundColor Cyan
     & pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick
@@ -94,79 +82,24 @@ $ChecksumFile = "$ReleaseDir\SHA256SUMS.txt"
 $Checksums | Out-File -FilePath $ChecksumFile -Encoding utf8
 Write-Host "[OK] 校验和文件已生成: $ChecksumFile" -ForegroundColor Green
 
-git tag $Tag -f
-git push origin $Tag -f
+$HeadCommit = (git rev-parse HEAD).Trim()
+$ExistingTagCommit = git rev-list -n 1 $Tag 2>$null
+if ($LASTEXITCODE -eq 0) {
+    if ($ExistingTagCommit.Trim() -ne $HeadCommit) {
+        throw "标签 $Tag 已指向其他提交；发行标签不可移动或强制覆盖。"
+    }
+    Write-Host "[OK] 标签 $Tag 已正确指向当前提交" -ForegroundColor Green
+} else {
+    git tag -a $Tag -m "EasyTools $Tag"
+    if ($LASTEXITCODE -ne 0) { throw "创建标签 $Tag 失败" }
+}
+git push origin "refs/tags/$Tag"
+if ($LASTEXITCODE -ne 0) { throw "推送标签 $Tag 失败" }
 
-$Notes = @"
-# EasyTools $Tag 官方正式版发布说明
-
-EasyTools 是一款专为 Windows 平台打造的现代化、高能效、模块化桌面效率工具套件。采用 C++20 原生内核与现代 Web 技术驱动，融合高精度全局鼠标手势、全能截屏/长截图/录屏/离线 OCR、NTFS 毫秒级极速全盘搜索、按键回显 HUD 与轻量文件预览，兼具极致性能、高分屏自适应与人机工程学易用性。
-
----
-
-## 核心架构与系统特性
-
-### 1. 极致性能与低开销运行时
-- **C++20 原生高性能内核**：核心引擎完全采用 C++20 编写，消除中间层运行时开销与垃圾回收（GC）停顿；
-- **冷热分离物理内存修剪（Working Set Trimming）**：
-  - 严守「冷路径退场修剪，热操作期间绝不修剪」原则；
-  - 在截图完成、录屏停止、OCR 识别结束或窗口隐藏等生命周期终端，自动释放大尺寸位图缓冲区并主动归还物理内存至操作系统；
-  - 严禁在 1000Hz 鼠标钩子、60FPS 渲染循环或键盘连击流等热路径触发修剪，从根源杜绝软缺页卡顿；
-- **DirectComposition 硬件合成加速**：手势轨迹与 HUD 浮窗原生接入 DirectComposition 硬件合成渲染管线，在高刷屏（120Hz/144Hz/240Hz）与多显示器环境下彻底消除画面撕裂与帧延迟；
-- **High-DPI 与全屏缩放完美自适应**：全面覆盖 Per-Monitor DPI Awareness V2，底层启用 RAW_PIXELS 物理像素精准对齐，在 Windows 125%/150%/175%/200% 缩放下字字锐利。
-
-### 2. 模块化原生插件体系（Plugin Architecture）
-- **ABI 稳定型 C 导出接口**：支持功能模块物理隔离与动态热插拔；
-- **独立配置隔离**：每个插件拥有专属配置模型与生命周期管理，单模块崩溃不影响主进程稳定运行。
-
----
-
-## 核心功能矩阵与易用性设计
-
-### 1. 全局智能鼠标手势（Plugin_Gesture）
-- **抗倾斜磁吸判定算法**：引入基准方向磁吸区容差与连续折线拟合算法，彻底解决绘制「下」手势轻微左斜被误判为「下-左」组合的痛点；
-- **穿透式目标窗口命中测试**：重构覆盖层命中测试与 Z-Order 避让机制，手势触发的快捷键与窗口控制 100% 精准投递至光标下方的实际目标应用；
-- **单窗口与复杂框架智能关窗兜底**：针对单标签页浏览器、CEF、Qt 等无损关窗场景，智能执行层级升格或平滑回退至 Alt+F4；
-- **全屏免打扰放行机制**：检测到大型 3D 游戏或全屏独占生产力软件时，自动放行右键操作；
-- **丰富动作矩阵**：支持多达数十种预设指令，涵盖网页前后导航、标签页切换、窗口最大化/最小化/关闭/置顶、全屏切换、全局多媒体播放控制、截图与即时搜索。
-
-### 2. 多合一高能截屏、长截图与录屏（Plugin_Capture）
-- **DXGI / D3D11 桌面复用极速抓取**：毫秒级首帧捕获，支持多显示器跨屏连续截取；
-- **智能边缘吸附与窗口嗅探**：自动感知当前鼠标悬浮的顶级窗口与子控件边界；
-- **特征匹配无缝长截图**：高精度拼接算法，向下滚动时实时比对帧重叠区并平滑缝合；
-- **硬件加速高清录屏**：原生支持 H.264、H.265 (HEVC) 与 WebM VP9 编码，集成 WASAPI 扬声器回环音频采集；
-- **会话级热键动态武装（HotkeyArmScope）**：录屏暂停/继续专属快捷键（默认 Ctrl+Shift+P）仅在录制会话活跃时武装，日常状态自动释放，彻底杜绝与 VS Code、Cursor 等代码编辑器命令面板的快捷键冲突；
-- **离线 / 在线双模 OCR 文字识别**：截屏后一键离线提取文字与表格数据，保护隐私安全。
-
-### 3. NTFS 毫秒级极速全盘搜索（Plugin_Search）
-- **底层 USN Journal / MFT 解析**：直接读取 NTFS 主文件表，数百万文件秒级索引建立与增量监控；
-- **普通权限平滑降级（SCM Fallback）**：非管理员权限启动时，若无法调用系统服务控制器，自动平滑降级为便携索引引擎，开箱即用；
-- **虚拟化长列表渲染**：前端虚拟滚动支撑十万级搜索结果实时流式展示，按键响应低至亚毫秒。
-
-### 4. 屏幕按键回显（Plugin_Keycast）
-- **低延迟无感 HUD 悬浮窗**：实时捕捉并以现代磨砂质感显式展示键盘击键组合；
-- **细粒度视觉定制**：支持自定义字体大小、背景透明度、动效淡出时长与屏幕显示位置。
-
-### 5. 即时文件快速预览（Plugin_QuickLook）
-- **空格键一键预览**：无需打开庞大的专用软件，按空格键即可瞬间预览 Markdown、源码、高清图片、音视频、PDF 与压缩包内容。
-
-### 6. 人机工程学设置中心与视觉体验
-- **现代 Fluent / Mica 磨砂玻璃质感**：基于 Chromium WebView2 构建的顶级响应式用户界面，支持暗黑模式、明亮模式与系统主题跟随；
-- **舒适黄金比例默认尺寸**：设置窗口采用 1100x750 舒适默认尺寸，配合智能屏幕自适应居中，消除压迫感；
-- **以管理员身份运行与 UAC 平滑重启联动**：通用设置提供管理员运行开关，点击后即可联动 Windows UAC 提权并无缝重启当前实例；
-- **优雅启动微反馈**：程序启动就绪后于屏幕底部中央以高反差白边悬浮 Toast 优雅提示，零焦点抢占，倒计时结束后即时清爽关闭。
-
----
-
-## 开源版权与项目信息
-
-- **项目主页**：https://github.com/yuan278501381/easyTools
-- **原作者**：Yy1 (yuan278501381) - https://github.com/yuan278501381
-- **开源许可证**：MIT License (Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors)
-"@
-
-$NotesFile = "$ReleaseDir\RELEASE_NOTES.md"
-$Notes | Out-File -FilePath $NotesFile -Encoding utf8
+$NotesFile = Join-Path $ScriptDir "docs\RELEASE_NOTES_$Tag.md"
+if (-not (Test-Path $NotesFile)) {
+    $NotesFile = Join-Path $ScriptDir "CHANGELOG.md"
+}
 
 gh release create $Tag $TargetSetup $TargetZip $ChecksumFile --title "EasyTools $Tag (Windows x64)" --notes-file $NotesFile --latest
 

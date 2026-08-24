@@ -31,7 +31,14 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $UIDir = Join-Path $ProjectRoot "ui"
-$Version = "1.0.0"
+$VersionFile = Join-Path $ProjectRoot "VERSION"
+if (-not (Test-Path -LiteralPath $VersionFile)) {
+    throw "缺少唯一版本源: $VersionFile"
+}
+$Version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "VERSION 必须是稳定 SemVer（例如 1.2.3），当前值: $Version"
+}
 
 Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║  EasyTools v$Version - Build Script                           ║" -ForegroundColor Cyan

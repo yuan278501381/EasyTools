@@ -169,7 +169,7 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
     sei.nShow = SW_SHOWNORMAL;
     if (!ShellExecuteExW(&sei)) {
         // 用户在 UAC 弹窗点击了“否”或提权失败，重新占有单例锁以普通权限继续运行
-        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\EasyTools_SingleInstance_Mutex_v1");
+        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
         return false;
     }
     if (sei.hProcess) CloseHandle(sei.hProcess);
@@ -236,7 +236,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     const bool elevateSuppressed = hasCommandLineFlag(L"--no-elevate") ||
         commandLinePathValue(L"--performance-baseline-output=").has_value();
     if (easy::core::shouldAutoElevateOnStartup(
-            easy::core::ConfigManager::instance().get<bool>("/general/runAsAdmin", false),
+            easy::core::ConfigManager::instance().get<bool>("/general/runAsAdmin", true),
             easy::core::WinUtils::isCurrentProcessElevated(),
             elevateSuppressed)) {
         if (launchElevatedSuccessor(false)) {
@@ -818,8 +818,12 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         }
     );
 
-    // 8. 用户主动启动时预热设置页；开机静默驻留保持 WebView2 完全按需，
-    // 避免后台常驻 Chromium 进程和数十 MB 内存。
+    // 8. 托盘菜单是常驻入口：启动后立即在隐藏窗口中完成 WebView2、前端
+    // chunk 与状态数据预热。这样第一次左/右键打开时直接显示完整菜单，
+    // 不把 React Suspense 的“正在加载”暴露给用户。
+    easy::ui::TrayWindow::instance().preload(GetModuleHandleW(nullptr));
+
+    // 用户主动启动时预热设置页；开机静默驻留不额外预热完整设置页。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
     // 全局搜索窗口默认按需创建以避免常驻 Chromium 进程；需要极致首开速度的用户

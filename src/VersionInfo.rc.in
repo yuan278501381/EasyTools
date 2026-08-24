@@ -17,11 +17,12 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName", "EasyTools Project\0"
+            VALUE "CompanyName", "Yy1 (GitHub yuan278501381)\0"
             VALUE "FileDescription", "@EASYTOOLS_FILE_DESCRIPTION@\0"
             VALUE "FileVersion", "@PROJECT_VERSION@.0\0"
             VALUE "InternalName", "@TARGET@\0"
-            VALUE "LegalCopyright", "Copyright (C) @EASYTOOLS_COPYRIGHT_YEAR@ EasyTools contributors\0"
+            VALUE "LegalCopyright", "Copyright (C) @EASYTOOLS_COPYRIGHT_YEAR@ Yy1 (GitHub yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors\0"
+            VALUE "LegalTrademarks", "EasyTools by Yy1 (GitHub yuan278501381)\0"
             VALUE "OriginalFilename", "@EASYTOOLS_ORIGINAL_FILENAME@\0"
             VALUE "ProductName", "EasyTools\0"
             VALUE "ProductVersion", "@PROJECT_VERSION@.0\0"

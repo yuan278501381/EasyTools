@@ -23,7 +23,6 @@ struct StoredFileRecord {
     uint64_t lastWriteTime = 0;
     uint32_t attributes = 0;
     uint32_t nameOffset = 0;
-    uint32_t normalizedOffset = 0;
     uint32_t pinyinSlot = 0;  // 0 == no pinyin
     uint16_t nameLength = 0;
     uint8_t flags = 0;

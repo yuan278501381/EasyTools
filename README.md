@@ -20,7 +20,7 @@
   <strong>一款追求低干扰交互、可靠响应与 High-DPI 体验的 Windows 现代化桌面效率工具集</strong>
 </p>
 
-[🚀 快速开始](#-快速开始-quick-start) • [✨ 全功能特性详解](#-全功能特性详解) • [⌨️ 快捷键与手势速查](#-快捷键与手势速查) • [🏗️ 架构与内存收缩体系](#-架构与极致内存收缩体系) • [🛠️ 源码构建与开发](#-从源码构建与开发) • [📄 开源协议与署名](#-开源许可证与作者署名)
+[🚀 快速开始](#-快速开始-quick-start) • [✨ 全功能特性详解](#-全功能特性详解) • [⌨️ 快捷键与手势速查](#-快捷键与手势速查) • [🏗️ 架构与内存收缩体系](#-架构与极致内存收缩体系) • [⚡ 性能调优实录](#-性能调优与极致内存收缩实录) • [🛠️ 源码构建与开发](#-从源码构建与开发) • [📄 开源协议与署名](#-开源许可证与作者署名)
 
 </div>
 
@@ -462,13 +462,24 @@ sequenceDiagram
 
 ---
 
-### 5. 核心架构亮点
+## ⚡ 性能调优与极致内存收缩实录
 
-1. **单 Environment 多窗口复用**：设置窗口、搜索浮窗、托盘菜单与快捷预览共享同一个 WebView2 浏览器环境，减少重复初始化；具体内存收益需在目标设备上通过基准验证；
-2. **冷路径退场修剪与深度休眠**：窗口隐藏时通过 `ICoreWebView2_3::TrySuspend()` 挂起 Chromium 渲染管线，并在截图/录屏/OCR 等重型任务结束后主动调用 `WinUtils::trimWorkingSet()` 归还物理工作集；
-3. **原子性按键投递模型**：快捷键执行在单次 `SendInput` 调用中原子性提交完整 Down + Up 序列，彻底杜绝多线程环境下的按键粘滞与幽灵按键叠加；
-4. **Per-Monitor V2 High-DPI 渲染矫正**：统一通过 `syncWebViewDpi` 切换 `COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS` 并注入 `RasterizationScale`，解决 150%/200% 缩放下的二次放大模糊，保证 4K 屏幕像素级锐利；
-5. **双轨搜索服务降级**：管理员环境连接 SCM 系统服务，普通用户自动降级为当前进程内便携索引引擎，确保全平台无缝可用。
+> 📖 **完整技术实录请查阅专页**：👉 **[EasyTools 性能调优与极致内存收缩实录 (docs/performance-tuning.md)](docs/performance-tuning.md)**
+
+EasyTools 在架构设计与全场景落地中推行严密的基准测试与全链路观测。以下为关键调优成果概要：
+
+1. **全盘搜索服务内存紧缩 (FileIndexStore)**：
+   - 彻底移除 `StoredFileRecord` 中的小写冗余字段，消除 `StringArena` 200+ 万条小写规范化副本，立省全盘字符串内存；
+   - 引入单趟即时大小写无关匹配算法（`containsIgnoreCase` / `matchWildcard`），无小写缓存损耗且毫秒级响应；
+   - 纯英文/数字文件零拼音旁路开销，仅对包含 CJK 汉字的文件按需生成拼音索引。
+2. **冷热路径物理工作集修剪 (Memory Trim Pipeline)**：
+   - 严格在冷路径退场点（截图完成/取消、录屏停止、OCR 结束、窗口隐藏、插件停用）主动调用 `WinUtils::trimWorkingSet()`；
+   - 1000Hz 鼠标钩子与 60FPS 渲染热路径中绝对禁调，彻底杜绝软缺页卡顿。
+3. **WebView2 渲染管线生命周期收缩 (WebViewSuspend)**：
+   - 多窗口共享单例浏览器环境，隐藏时调用 `TrySuspend()` 深度休眠，归还 GPU 与 DOM 显存。
+4. **实机真实运行内存对比（同机同屏抓取）**：
+   - **`EasyTools.exe`（主进程全插件）**：常驻仅 **`58.18 MB`**（同机竞品 WGestures 2 占 220.98 MB、PixPin 占 244.41 MB）；
+   - **`EasyTools_Service.exe`（全盘 206 万文件索引）**：索引 206.4 万文件与 41.8 万目录，均摊仅 **`169 字节/文件`**。
 
 ---
 
@@ -513,5 +524,5 @@ npm run check-css     # 执行 CSS 变量声明校验
 - **官方代码仓库**：[https://github.com/yuan278501381/easyTools](https://github.com/yuan278501381/easyTools)
 
 ```text
-Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors
+Copyright (c) 2026 Yy1 (GitHub yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
 ```

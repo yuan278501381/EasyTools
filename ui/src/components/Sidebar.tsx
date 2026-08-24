@@ -30,6 +30,7 @@ import {
   Pipette,
   ClipboardList,
   FileCode2,
+  FolderSymlink,
 } from 'lucide-react';
 import './Sidebar.css';
 import { EasyToolsBolt } from './EasyToolsBolt';
@@ -42,6 +43,7 @@ export type NavId =
   | 'ocr'
   | 'history'
   | 'search'
+  | 'dialog_enhancer'
   | 'plugins'
   | 'general'
   | 'about'
@@ -54,15 +56,16 @@ interface NavItem {
   id: NavId;
   icon: ReactNode;
   labelKey: string;
-  requiresPlugin?: 'gesture' | 'capture' | 'search';
+  requiresPlugin?: 'gesture' | 'capture' | 'search' | 'dialogenhancer' | 'dialog_enhancer';
 }
 
 const PRIMARY_NAV_ITEMS: NavItem[] = [
   { id: 'general', icon: <Settings size={20} strokeWidth={2.2} />, labelKey: 'nav.settings' },
   { id: 'plugins', icon: <Boxes size={20} strokeWidth={2.2} />, labelKey: 'nav.plugins' },
-  { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
   { id: 'search',  icon: <Search size={20} strokeWidth={2.2} />, labelKey: 'nav.search', requiresPlugin: 'search' },
   { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture', requiresPlugin: 'gesture' },
+  { id: 'dialog_enhancer', icon: <FolderSymlink size={20} strokeWidth={2.2} />, labelKey: 'nav.dialog_enhancer', requiresPlugin: 'dialogenhancer' },
+  { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
   { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner', requiresPlugin: 'gesture' },
   { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history', requiresPlugin: 'capture' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr', requiresPlugin: 'capture' },

@@ -37,7 +37,8 @@
     "ai_assistant": "AI Assistant",
     "color_picker": "Color Picker",
     "clipboard_manager": "Clipboard Pro",
-    "markdown_preview": "Markdown Viewer"
+    "markdown_preview": "Markdown Viewer",
+    "dialog_enhancer": "Dialog Enhancer"
   },
   "navSubtitle": {
     "stats": "Keystrokes and mouse usage activity",
@@ -53,7 +54,8 @@
     "ai_assistant": "AI translation, explain, and floating dialog window",
     "color_picker": "Pixel magnifier precision color picker & palette manager",
     "clipboard_manager": "Unlimited clipboard history, search and pinned snippets",
-    "markdown_preview": "Spacebar quick look for markdown and code files"
+    "markdown_preview": "Spacebar quick look for markdown and code files",
+    "dialog_enhancer": "Smart path recall, Explorer Quick Switch, and attached floating ribbon"
   },
   "extension": {
     "statusRunning": "Running",
@@ -237,6 +239,14 @@
       "keycast": {
         "name": "Keycast Overlay",
         "description": "Show shortcuts on screen for tutorials, presentations, and live streams."
+      },
+      "dialogenhancer": {
+        "name": "Dialog Enhancer",
+        "description": "Smart folder memory and root workspace pinning with Context Ribbon and Explorer Sync."
+      },
+      "dialog_enhancer": {
+        "name": "Dialog Enhancer",
+        "description": "Smart folder memory and root workspace pinning with Context Ribbon and Explorer Sync."
       }
     }
   },
@@ -809,6 +819,44 @@
     "pillSearch": "Search",
     "quickControls": "Quick Controls",
     "enabled": "Enabled",
-    "disabled": "Disabled"
+    "disabled": "Disabled",
+    "restartToApply": "Plugin settings updated",
+    "restartNow": "Restart now"
+  },
+  "dialog": {
+    "title": "File Dialog Enhancer",
+    "generalGroup": "General Settings",
+    "enable": "Enable Dialog Enhancer",
+    "enableDesc": "Enhance Open/Save file dialogs with path recall and instant navigation",
+    "perAppMemory": "Per-Application Path Memory",
+    "perAppMemoryDesc": "Remember the last selected folder for each app (e.g. Word, Excel, VS Code) and restore it automatically",
+    "quickSwitch": "Show File Explorer current folder",
+    "quickSwitchDesc": "Toolbar option: show the active File Explorer folder as the first shortcut; Recents and Workspaces remain available when disabled",
+    "ribbonGroup": "File Dialog Shortcut Toolbar",
+    "ribbonEnabled": "Show shortcut toolbar above file dialogs",
+    "ribbonEnabledDesc": "Master switch: show File Explorer Current Folder, Recents, and Workspaces shortcuts above file dialogs",
+    "ribbonOptions": "Toolbar options",
+    "ribbonPosition": "Toolbar position",
+    "ribbonPositionTopRight": "Top Right (Recommended)",
+    "ribbonPositionTopCenter": "Top Center",
+    "favoritesGroup": "Favorite Workspaces",
+    "favoritesDesc": "Pin frequently used project folders for 1-click access across all dialogs",
+    "addFavorite": "Add Favorite Folder",
+    "enterPath": "Enter absolute folder path (e.g. C:\\repo)",
+    "appMemoriesGroup": "Application Path Memories",
+    "appMemoriesDesc": "Inspect saved directory memories per process. You can pin a root workspace (e.g. C:\\repo) as the default location.",
+    "clearAllMemories": "Clear All Memories",
+    "processName": "Process Name",
+    "lastPath": "Last Visited Path",
+    "lastUsed": "Last Recorded",
+    "noMemories": "No application path memories yet",
+    "noFavorites": "No favorite folders added yet",
+    "blacklistGroup": "Process Blacklist",
+    "blacklistDesc": "Disable dialog enhancements for specific processes",
+    "addBlacklist": "Add Blacklist Process",
+    "enterProcessName": "Enter process name (e.g. game.exe)",
+    "pinWorkspace": "Pin as Default Workspace",
+    "unpinWorkspace": "Unpin",
+    "fixedBadge": "Fixed Root"
   }
 }

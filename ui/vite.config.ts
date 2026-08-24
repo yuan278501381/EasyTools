@@ -4,6 +4,12 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 
+const versionFile = path.resolve(__dirname, '../VERSION')
+const easyToolsVersion = fs.readFileSync(versionFile, 'utf-8').trim()
+if (!/^\d+\.\d+\.\d+$/.test(easyToolsVersion)) {
+  throw new Error(`Invalid EasyTools VERSION: ${easyToolsVersion}`)
+}
+
 // 自定义插件：将 Vite 动态分配的端口写入本地文件，供 C++ 后端在开发模式下动态读取
 function writeDevServerUrl(): Plugin {
   return {
@@ -26,6 +32,9 @@ function writeDevServerUrl(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
+  define: {
+    __EASYTOOLS_VERSION__: JSON.stringify(easyToolsVersion),
+  },
   plugins: [react(), writeDevServerUrl()],
   build: {
     // 保持表面入口的动态边界：Search/Tray/QuickLook 不再与设置中心一起被

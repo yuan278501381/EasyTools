@@ -378,7 +378,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
                 text={enabled ? t('extension.statusRunning') : t('extension.statusDisabled')}
                 variant={enabled ? 'success' : 'muted'}
               />
-              <Badge text={`v${plugin?.version || '1.0.0'}`} variant="primary" />
+              <Badge text={plugin?.version ? `v${plugin.version}` : '—'} variant="primary" />
             </div>
             <p className="extension-hero-desc">
               {t(subtitleKey, { defaultValue: plugin?.fileName || 'EasyTools Extension Module' })}

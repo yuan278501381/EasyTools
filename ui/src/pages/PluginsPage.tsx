@@ -7,6 +7,7 @@ import {
   FileCode2,
   FileSearch,
   FolderDown,
+  FolderSymlink,
   Keyboard,
   MousePointer2,
   Pipette,
@@ -78,13 +79,15 @@ const ICONS = {
   capture: Camera,
   search: FileSearch,
   keycast: Keyboard,
+  dialogenhancer: FolderSymlink,
+  dialog_enhancer: FolderSymlink,
   ai_assistant: Bot,
   color_picker: Pipette,
   clipboard_manager: ClipboardList,
   markdown_preview: FileCode2,
 } as const;
 
-const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast']);
+const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast', 'dialogenhancer', 'dialog_enhancer']);
 
 export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
   const { t, i18n } = useTranslation();
