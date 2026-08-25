@@ -153,7 +153,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
     setSavingId(plugin.id);
     setPlugins((items) => items.map((item) => item.id === plugin.id ? { ...item, enabled } : item));
     try {
-      const result = await bridgeRequest<UpdateResult>('plugins.setEnabled', { id: plugin.id, enabled });
+      const result = await bridgeRequest<UpdateResult>('plugins.setEnabled', { id: plugin.id, enabled }, { silent: true });
       if (!result.success) throw new Error(result.error || t('plugins.saveFailed'));
       await refresh();
       toast.success(enabled ? t('plugins.enabledSaved') : t('plugins.disabledSaved'), {

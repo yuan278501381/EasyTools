@@ -5,7 +5,6 @@
 import { useState, useEffect, type FC } from 'react';
 import { Card, Toggle, SettingRow, SettingGroup, Select, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
-import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
   FolderSymlink,
@@ -80,13 +79,13 @@ export const DialogEnhancerPage: FC = () => {
   }, []);
 
   const updateConfig = async (patch: Partial<DialogConfig>) => {
+    const previous = config;
     const next = { ...config, ...patch };
     setConfig(next);
     try {
       await bridgeRequest('dialog.updateConfig', patch as Record<string, unknown>);
-      toast.success(t('common.save'));
     } catch {
-      toast.error('保存失败');
+      setConfig(previous);
     }
   };
 
@@ -97,9 +96,8 @@ export const DialogEnhancerPage: FC = () => {
       await bridgeRequest('dialog.addFavorite', { path });
       setFavorites((prev) => [...prev.filter((p) => p !== path), path]);
       setNewFavoriteInput('');
-      toast.success(t('common.save'));
     } catch {
-      toast.error('添加失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -107,9 +105,8 @@ export const DialogEnhancerPage: FC = () => {
     try {
       await bridgeRequest('dialog.removeFavorite', { path });
       setFavorites((prev) => prev.filter((p) => p !== path));
-      toast.success(t('common.delete'));
     } catch {
-      toast.error('删除失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -125,9 +122,8 @@ export const DialogEnhancerPage: FC = () => {
       setAppMemories((prev) => prev.map((m) =>
         m.processName === item.processName ? { ...m, isFixed: nextFixed, fixedWorkspace: targetPath } : m
       ));
-      toast.success(nextFixed ? '已固定为默认母工作区' : '已取消固定');
     } catch {
-      toast.error('操作失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -135,9 +131,8 @@ export const DialogEnhancerPage: FC = () => {
     try {
       await bridgeRequest('dialog.removeAppMemory', { processName: proc });
       setAppMemories((prev) => prev.filter((m) => m.processName !== proc));
-      toast.success(t('common.delete'));
     } catch {
-      toast.error('删除失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -145,9 +140,8 @@ export const DialogEnhancerPage: FC = () => {
     try {
       await bridgeRequest('dialog.clearAppMemories');
       setAppMemories([]);
-      toast.success(t('common.delete'));
     } catch {
-      toast.error('清空失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -159,9 +153,8 @@ export const DialogEnhancerPage: FC = () => {
       await bridgeRequest('dialog.setBlacklist', { blacklist: next });
       setBlacklist(next);
       setNewBlacklistInput('');
-      toast.success(t('common.save'));
     } catch {
-      toast.error('添加失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 
@@ -170,9 +163,8 @@ export const DialogEnhancerPage: FC = () => {
       const next = blacklist.filter((p) => p !== proc);
       await bridgeRequest('dialog.setBlacklist', { blacklist: next });
       setBlacklist(next);
-      toast.success(t('common.delete'));
     } catch {
-      toast.error('删除失败');
+      // 错误已由 bridgeRequest 自动拦截提示
     }
   };
 

@@ -70,10 +70,61 @@ function initGlobalListener() {
   });
 }
 
+export interface BridgeRequestOptions {
+  silent?: boolean;
+  toastMessage?: string;
+}
+
+const EXPLICIT_SETTINGS_METHODS = new Set([
+  'general.updateSettings',
+  'capture.updateSettings',
+  'recording.updateSettings',
+  'gesture.updateSettings',
+  'gesture.updateScopeRules',
+  'gesture.setTriggerState',
+  'gesture.saveMappings',
+  'search.saveSettings',
+  'dialog.updateConfig',
+  'dialog.addFavorite',
+  'dialog.removeFavorite',
+  'dialog.setWorkspace',
+  'dialog.toggleFixState',
+  'dialog.setAppFixedWorkspace',
+  'dialog.addBlacklist',
+  'dialog.removeBlacklist',
+  'dialog.setBlacklist',
+  'dialog.removeAppMemory',
+  'dialog.clearAppMemories',
+  'hotcorner.updateSettings',
+  'ocr.updateSettings',
+  'config.set',
+  'plugins.setEnabled',
+  'hotkey.rebind',
+]);
+
 /**
- * 向 C++ 发送请求
+ * 智能判定当前 IPC 请求是否为设置保存/更新操作
+ * 包含精确匹配与通配后缀规则，天然兼容未来所有新增模块与设置项
  */
-export function bridgeRequest<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+export function isSettingsMutationMethod(method: string): boolean {
+  if (EXPLICIT_SETTINGS_METHODS.has(method)) return true;
+  return (
+    method.endsWith('.updateSettings') ||
+    method.endsWith('.saveSettings') ||
+    method.endsWith('.updateConfig') ||
+    method.endsWith('.saveConfig') ||
+    method.endsWith('.setSettings')
+  );
+}
+
+/**
+ * 向 C++ 发送请求（内置设置保存状态全链路智能拦截）
+ */
+export function bridgeRequest<T = unknown>(
+  method: string,
+  params: Record<string, unknown> = {},
+  options?: BridgeRequestOptions
+): Promise<T> {
   initGlobalListener();
 
   return new Promise((resolve, reject) => {
@@ -86,10 +137,55 @@ export function bridgeRequest<T = unknown>(method: string, params: Record<string
       : 10_000;
     const timeoutId = setTimeout(() => {
       if (pendingRequests.delete(id)) {
-        reject(new Error(`Bridge request timeout: ${method}`));
+        const error = new Error(`Bridge request timeout: ${method}`);
+        if (!options?.silent && isSettingsMutationMethod(method)) {
+          window.dispatchEvent(new CustomEvent('easytools:settings-save-failed', {
+            detail: { message: error.message, type: 'error' }
+          }));
+        }
+        reject(error);
       }
     }, timeoutMs);
-    pendingRequests.set(id, { resolve: resolve as (v: unknown) => void, reject, timeoutId });
+
+    const handleSuccess = (rawResult: unknown) => {
+      const resultObj = rawResult && typeof rawResult === 'object' ? (rawResult as Record<string, unknown>) : null;
+      const isFailed = resultObj?.success === false;
+
+      if (!options?.silent && isSettingsMutationMethod(method)) {
+        if (isFailed) {
+          const errDetail = typeof resultObj?.error === 'string' ? resultObj.error : undefined;
+          window.dispatchEvent(new CustomEvent('easytools:settings-save-failed', {
+            detail: { message: errDetail, type: 'error' }
+          }));
+        } else {
+          window.dispatchEvent(new CustomEvent('easytools:settings-saved', {
+            detail: { message: options?.toastMessage, type: 'success' }
+          }));
+        }
+      }
+      resolve(rawResult as T);
+    };
+
+    const handleFailure = (reason: unknown) => {
+      if (!options?.silent && isSettingsMutationMethod(method)) {
+        let errMessage: string | undefined;
+        if (typeof reason === 'string') {
+          errMessage = reason;
+        } else if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as Error).message === 'string') {
+          errMessage = (reason as Error).message;
+        }
+        window.dispatchEvent(new CustomEvent('easytools:settings-save-failed', {
+          detail: { message: errMessage, type: 'error' }
+        }));
+      }
+      reject(reason instanceof BridgeError ? reason : new BridgeError(reason));
+    };
+
+    pendingRequests.set(id, {
+      resolve: handleSuccess,
+      reject: handleFailure,
+      timeoutId,
+    });
 
     const message = JSON.stringify({ id, method, params });
 
@@ -99,14 +195,14 @@ export function bridgeRequest<T = unknown>(method: string, params: Record<string
       } catch (error) {
         pendingRequests.delete(id);
         clearTimeout(timeoutId);
-        reject(new BridgeError(error));
+        handleFailure(error);
       }
     } else {
       // 开发模式下模拟响应
       console.warn('[Bridge] WebView2 not available, mocking response for:', method);
       pendingRequests.delete(id);
       clearTimeout(timeoutId);
-      resolve(getMockResponse(method, params) as T);
+      handleSuccess(getMockResponse(method, params));
     }
   });
 }

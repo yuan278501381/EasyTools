@@ -78,13 +78,13 @@ export const SearchPage: FC = () => {
   }, []);
 
   const saveSetting = async <K extends keyof SearchSettings>(key: K, value: SearchSettings[K]) => {
+    const previous = settings[key];
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     try {
       await bridgeRequest('search.saveSettings', { [key]: value });
-      toast.success(t('searchPage.saved', '搜索设置已保存'));
     } catch {
-      toast.error(t('searchPage.saveFailed', '保存设置失败'));
+      setSettings(prev => ({ ...prev, [key]: previous }));
     }
   };
 
@@ -98,12 +98,9 @@ export const SearchPage: FC = () => {
         await saveSetting('hotkey', res.shortcut ?? newKey);
         const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
         if (Array.isArray(refreshed)) setHotkeys(refreshed);
-        toast.success(t('searchPage.hotkeySaved', '搜索快捷键已更新'));
-      } else {
-        toast.error(t('searchPage.hotkeyFailed', '快捷键可能已被其他程序占用'));
       }
     } catch {
-      toast.error(t('searchPage.hotkeyFailed', '快捷键注册失败'));
+      // 错误已由 bridgeRequest 自动提示失败
     }
   };
 

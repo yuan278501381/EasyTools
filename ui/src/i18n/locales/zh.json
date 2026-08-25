@@ -20,6 +20,9 @@
     "empty": "暂无数据",
     "close": "关闭",
     "saving": "保存中...",
+    "saved": "已保存",
+    "saveFailed": "保存失败",
+    "saveFailedDetail": "保存失败: {{detail}}",
     "moveUp": "上移",
     "moveDown": "下移"
   },

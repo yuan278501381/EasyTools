@@ -20,6 +20,9 @@
     "empty": "No data",
     "close": "Close",
     "saving": "Saving...",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "saveFailedDetail": "Save failed: {{detail}}",
     "moveUp": "Move up",
     "moveDown": "Move down"
   },

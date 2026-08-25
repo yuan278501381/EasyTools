@@ -34,23 +34,9 @@ import {
 } from 'lucide-react';
 import './Sidebar.css';
 import { EasyToolsBolt } from './EasyToolsBolt';
+import { type NavId } from '../pages/registry';
 
-export type NavId =
-  | 'stats'
-  | 'gesture'
-  | 'hotcorner'
-  | 'capture'
-  | 'ocr'
-  | 'history'
-  | 'search'
-  | 'dialog_enhancer'
-  | 'plugins'
-  | 'general'
-  | 'about'
-  | 'ai_assistant'
-  | 'color_picker'
-  | 'clipboard_manager'
-  | 'markdown_preview';
+export type { NavId };
 
 interface NavItem {
   id: NavId;

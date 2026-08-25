@@ -79,7 +79,6 @@ export const OcrPage: FC = () => {
       setShortcut(result.shortcut ?? value);
       const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
       if (Array.isArray(refreshed)) setHotkeys(refreshed);
-      toast.success(t('common.save'));
     } catch (error) {
       toast.error(t('hotkey.bindFailed'), { description: String(error) });
       const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');

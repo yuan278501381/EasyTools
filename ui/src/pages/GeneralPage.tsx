@@ -68,7 +68,7 @@ export const GeneralPage: FC = () => {
 
   const { t, i18n } = useTranslation();
 
-  const handleAccentChange = (id: string, label: string) => {
+  const handleAccentChange = (id: string) => {
     setAccent(id);
     try {
       localStorage.setItem('easytools:accent-color', id);
@@ -77,7 +77,6 @@ export const GeneralPage: FC = () => {
     }
     bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: id }).catch(console.error);
     window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: id }));
-    toast.success(t('general.accentApplied', { name: label }));
   };
 
   // 初始化获取设置
@@ -360,7 +359,7 @@ export const GeneralPage: FC = () => {
                     key={preset.id}
                     type="button"
                     className={`general-accent-btn ${isSelected ? 'active' : ''}`}
-                    onClick={() => handleAccentChange(preset.id, label)}
+                    onClick={() => handleAccentChange(preset.id)}
                     style={{ '--accent-dot-color': preset.color } as React.CSSProperties}
                     title={label}
                   >

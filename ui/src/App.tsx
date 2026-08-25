@@ -27,6 +27,8 @@ import { SearchPage } from './pages/SearchPage';
 import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
 import { OnboardingModal } from './components/OnboardingModal';
+import { SavedToast } from './components/SavedToast';
+import { getPageMetadata } from './pages/registry';
 import { bridgeRequest } from './hooks/useBridge';
 import { Toaster } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -37,23 +39,12 @@ import './App.css';
 type Theme = 'dark' | 'light';
 type ThemePreference = Theme | 'system';
 
-const NAV_TITLE_KEYS: Record<NavId, string> = {
-  stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
-  ocr: 'nav.ocr', history: 'nav.history', search: 'nav.search', dialog_enhancer: 'nav.dialog_enhancer', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
-  ai_assistant: 'nav.ai_assistant', color_picker: 'nav.color_picker', clipboard_manager: 'nav.clipboard_manager', markdown_preview: 'nav.markdown_preview',
-};
-const NAV_SUBTITLE_KEYS: Record<NavId, string> = {
-  stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
-  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', search: 'navSubtitle.search', dialog_enhancer: 'navSubtitle.dialog_enhancer', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
-  ai_assistant: 'navSubtitle.ai_assistant', color_picker: 'navSubtitle.color_picker', clipboard_manager: 'navSubtitle.clipboard_manager', markdown_preview: 'navSubtitle.markdown_preview',
-};
-
 function App() {
   const { t, i18n } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>(() => {
     try {
       const saved = localStorage.getItem('easytools:last-nav');
-      if (saved && saved in NAV_TITLE_KEYS) {
+      if (saved) {
         return saved as NavId;
       }
     } catch {
@@ -264,9 +255,9 @@ function App() {
         <header className="app__header">
           <div className="app__header-text">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(NAV_TITLE_KEYS[activeNav] as any)}</h1>
+            <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(getPageMetadata(activeNav).titleKey as any)}</h1>
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <p className="app__header-subtitle">{t(NAV_SUBTITLE_KEYS[activeNav] as any)}</p>
+            <p className="app__header-subtitle">{t(getPageMetadata(activeNav).subtitleKey as any)}</p>
           </div>
         </header>
 
@@ -274,6 +265,9 @@ function App() {
         <div className="app__content" key={activeNav}>
           {renderPage()}
         </div>
+
+        {/* ── 世界级浮动胶囊已保存 Toast ─────────────────── */}
+        <SavedToast />
       </main>
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
     </div>
