@@ -117,7 +117,7 @@ export const GesturePage: FC = () => {
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#3B82F6');
   const [trailWidth, setTrailWidth] = useState(2.5);
-  const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
+  const [trailOutlineWidth, setTrailOutlineWidth] = useState(1.5);
   const [elevated, setElevated] = useState(false);
   
   // Profiles & Rules
@@ -186,7 +186,7 @@ export const GesturePage: FC = () => {
         setTrailColorMode(state.trailColorMode ?? 'auto');
         setTrailColor(state.trailColor ?? '#3B82F6');
         setTrailWidth(state.trailWidth ?? 2.5);
-        setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
+        setTrailOutlineWidth(state.trailOutlineWidth ?? 1.5);
         setInitialTimeoutMs(state.initialTimeoutMs ?? 500);
         setMinSegmentDistance(state.minSegmentDistance ?? 24);
         setElevated(state.elevated ?? false);

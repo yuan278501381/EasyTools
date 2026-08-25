@@ -437,7 +437,7 @@
     "trailOutline": "白色描边",
     "trailOutlineDesc": "在轨迹外侧加一圈白边，深色和浅色桌面上都更清晰",
     "trailOutlineNone": "关闭",
-    "trailOutlineFine": "细 (1.5px)",
+    "trailOutlineFine": "细 (1.5px) (默认)",
     "trailOutlineStandard": "标准 (2.5px)",
     "trailOutlineBold": "粗 (4.0px)",
     "scribbleCancel": "乱晃即时反悔取消",

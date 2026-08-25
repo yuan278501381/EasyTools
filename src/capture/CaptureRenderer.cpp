@@ -465,6 +465,14 @@ void CaptureRenderer::drawSizeInfo(const D2D1_RECT_F& rect, CaptureState& state)
                              m_infoTextBrush.Get());
 }
 
+static bool isDarkThemeActive() {
+    auto& cfg = easy::core::ConfigManager::instance();
+    const std::string theme = cfg.get<std::string>("/general/theme", "system");
+    if (theme == "dark") return true;
+    if (theme == "light") return false;
+    return easy::core::WinUtils::isSystemTaskbarDark();
+}
+
 void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState& state) {
     rebuildCaptureToolbar(state, selectionRect, m_renderTarget->GetSize());
     if (state.toolbarButtons.empty()) return;
@@ -480,13 +488,17 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
     auto bgRect = D2D1::RectF(
         bounds.left - 8.0f * scale, bounds.top - 6.0f * scale,
         bounds.right + 8.0f * scale, bounds.bottom + 6.0f * scale);
-    // 磨砂玻璃 HUD 面板（替代原扁平深色条）
-    drawGlassPanel(bgRect, 9.0f, false);
+    
+    const bool isDark = isDarkThemeActive();
+    // 磨砂玻璃 HUD 面板（自适应全局深浅色）
+    drawGlassPanel(bgRect, 9.0f * scale, false);
 
     // 分组分隔线（工具 | 颜色 | 命令），提升辨识度
     if (state.mode != OverlayMode::RecordRegion && state.toolbarButtons.size() >= 25) {
         ComPtr<ID2D1SolidColorBrush> sep;
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.14f), sep.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(
+            isDark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f) : D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f),
+            sep.GetAddressOf());
         float y0 = state.toolbarButtons.front().rect.top + 3.0f;
         float y1 = state.toolbarButtons.front().rect.bottom - 3.0f;
         auto drawSep = [&](size_t l, size_t r) {
@@ -510,11 +522,27 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
     ComPtr<ID2D1SolidColorBrush> dangerBrush;
     ComPtr<ID2D1SolidColorBrush> confirmBrush;
     ComPtr<ID2D1SolidColorBrush> hoverBrush;
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.09f), buttonBrush.GetAddressOf());
+    ComPtr<ID2D1SolidColorBrush> iconBrush;
+    ComPtr<ID2D1SolidColorBrush> activeIconBrush;
+    ComPtr<ID2D1SolidColorBrush> tipTextBrush;
+
+    if (isDark) {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), buttonBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f), hoverBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.95f, 0.97f, 0.95f), iconBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), activeIconBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.95f, 0.97f, 0.95f), tipTextBrush.GetAddressOf());
+    } else {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.04f), buttonBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.09f), hoverBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.18f, 0.22f, 0.92f), iconBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), activeIconBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.15f, 0.95f), tipTextBrush.GetAddressOf());
+    }
+
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.95f), activeBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.22f, 0.22f, 0.88f), dangerBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.72f, 0.42f, 0.95f), confirmBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.22f), hoverBrush.GetAddressOf());
 
     for (const auto& button : state.toolbarButtons) {
         bool isTool = button.command == ToolbarCommand::SelectTool;
@@ -528,7 +556,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         auto rounded = D2D1::RoundedRect(button.rect, 5.0f * scale, 5.0f * scale);
 
         if (isColor) {
-            // 颜色色板: 用色块填充, 当前色加白色描边, 悬停加淡描边
+            // 颜色色板: 用色块填充, 当前色加高对比描边, 悬停加淡描边
             ComPtr<ID2D1SolidColorBrush> swatch;
             m_renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(button.color.r / 255.0f, button.color.g / 255.0f,
@@ -539,7 +567,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
                                  button.color.g == state.currentColor.g &&
                                  button.color.b == state.currentColor.b;
             if (isActiveColor) {
-                m_renderTarget->DrawRoundedRectangle(rounded, m_infoTextBrush.Get(), 2.0f);
+                m_renderTarget->DrawRoundedRectangle(rounded, activeBrush.Get(), 2.0f);
             } else if (isHovered && hoverBrush) {
                 m_renderTarget->DrawRoundedRectangle(rounded, hoverBrush.Get(), 1.5f);
             }
@@ -554,11 +582,13 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
 
         if (isActiveTool) {
-            m_renderTarget->DrawRoundedRectangle(rounded, m_infoTextBrush.Get(), 1.2f);
+            m_renderTarget->DrawRoundedRectangle(rounded, activeIconBrush.Get(), 1.2f);
         }
 
-        // 矢量图标绘制（全 DPI 极致锐利，绝无字体行高倾斜）
-        drawVectorButtonIcon(button, button.rect, m_infoTextBrush.Get(), scale);
+        // 矢量图标绘制（全 DPI 极致锐利，根据按钮状态动态使用纯白或炭黑画刷）
+        auto* currentIconBrush = (isActiveTool || (isConfirm && isHovered) || (isDanger && isHovered))
+                               ? activeIconBrush.Get() : iconBrush.Get();
+        drawVectorButtonIcon(button, button.rect, currentIconBrush, scale);
     }
 
     // 悬停浮层提示：把生僻字形翻译成「名称 + 快捷键」
@@ -583,7 +613,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
         m_renderTarget->DrawText(tip.c_str(), static_cast<UINT32>(tip.size()),
                                  m_infoTextFormat.Get(),
                                  D2D1::RectF(tx, ty, tx + tw, ty + th),
-                                 m_infoTextBrush.Get());
+                                 tipTextBrush.Get());
         break;
     }
 }
@@ -597,165 +627,225 @@ void CaptureRenderer::drawVectorButtonIcon(const ToolbarButton& button, const D2
 
     switch (button.command) {
         case ToolbarCommand::Confirm: {
-            // 精美勾号 ✓
-            D2D1_POINT_2F p1{cx - 5.5f * scale, cy};
-            D2D1_POINT_2F p2{cx - 1.5f * scale, cy + 4.0f * scale};
-            D2D1_POINT_2F p3{cx + 5.5f * scale, cy - 4.5f * scale};
-            m_renderTarget->DrawLine(p1, p2, brush, 2.0f * scale);
-            m_renderTarget->DrawLine(p2, p3, brush, 2.0f * scale);
+            // 黄金比例平滑对勾 ✓
+            D2D1_POINT_2F p1{cx - 5.5f * scale, cy - 0.2f * scale};
+            D2D1_POINT_2F p2{cx - 1.8f * scale, cy + 4.2f * scale};
+            D2D1_POINT_2F p3{cx + 5.8f * scale, cy - 4.8f * scale};
+            m_renderTarget->DrawLine(p1, p2, brush, 2.2f * scale);
+            m_renderTarget->DrawLine(p2, p3, brush, 2.2f * scale);
             return;
         }
         case ToolbarCommand::Cancel: {
-            // 精美叉号 ✕
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.5f * scale, cy - 4.5f * scale),
-                                     D2D1::Point2F(cx + 4.5f * scale, cy + 4.5f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.5f * scale, cy - 4.5f * scale),
-                                     D2D1::Point2F(cx - 4.5f * scale, cy + 4.5f * scale), brush, 1.8f * scale);
+            // 精致对称叉号 ✕
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.2f * scale, cy - 4.2f * scale),
+                                     D2D1::Point2F(cx + 4.2f * scale, cy + 4.2f * scale), brush, 2.0f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.2f * scale, cy - 4.2f * scale),
+                                     D2D1::Point2F(cx - 4.2f * scale, cy + 4.2f * scale), brush, 2.0f * scale);
             return;
         }
         case ToolbarCommand::Undo: {
-            // 撤销回退弧线 ↩
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.0f * scale, cy + 3.0f * scale),
-                                     D2D1::Point2F(cx + 4.0f * scale, cy - 1.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx - 3.0f * scale, cy - 1.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx - 0.5f * scale, cy - 4.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx - 0.5f * scale, cy + 2.0f * scale), brush, 1.6f * scale);
+            // 撤销平滑回折圆弧 ↩
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.0f * scale, cy + 4.0f * scale),
+                                     D2D1::Point2F(cx + 4.0f * scale, cy - 0.5f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.0f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx - 3.5f * scale, cy - 0.5f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx - 0.5f * scale, cy - 3.8f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx - 0.5f * scale, cy + 2.8f * scale), brush, 1.8f * scale);
             return;
         }
         case ToolbarCommand::Redo: {
-            // 重做弧线 ↪
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * scale, cy + 3.0f * scale),
-                                     D2D1::Point2F(cx - 4.0f * scale, cy - 1.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx + 3.0f * scale, cy - 1.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 3.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx + 0.5f * scale, cy - 4.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 3.0f * scale, cy - 1.0f * scale),
-                                     D2D1::Point2F(cx + 0.5f * scale, cy + 2.0f * scale), brush, 1.6f * scale);
+            // 重做平滑回折圆弧 ↪
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * scale, cy + 4.0f * scale),
+                                     D2D1::Point2F(cx - 4.0f * scale, cy - 0.5f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx + 3.5f * scale, cy - 0.5f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 3.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx + 0.5f * scale, cy - 3.8f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 3.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx + 0.5f * scale, cy + 2.8f * scale), brush, 1.8f * scale);
             return;
         }
         case ToolbarCommand::Clear: {
-            // 清空退格 ⌫
-            auto box = D2D1::RectF(cx - 5.0f * scale, cy - 4.5f * scale, cx + 5.0f * scale, cy + 4.5f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 1.5f * scale, 1.5f * scale), brush, 1.4f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.5f * scale, cy - 2.5f * scale),
-                                     D2D1::Point2F(cx + 2.5f * scale, cy + 2.5f * scale), brush, 1.4f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 2.5f * scale, cy - 2.5f * scale),
-                                     D2D1::Point2F(cx - 2.5f * scale, cy + 2.5f * scale), brush, 1.4f * scale);
+            // 精致垃圾桶 🗑️ (桶盖 + 桶身 + 竖向格栅)
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 5.0f * scale, cy - 3.5f * scale),
+                                     D2D1::Point2F(cx + 5.0f * scale, cy - 3.5f * scale), brush, 1.5f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.8f * scale, cy - 5.0f * scale),
+                                     D2D1::Point2F(cx + 1.8f * scale, cy - 5.0f * scale), brush, 1.4f * scale);
+            auto bin = D2D1::RectF(cx - 4.0f * scale, cy - 2.5f * scale, cx + 4.0f * scale, cy + 5.2f * scale);
+            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(bin, 1.5f * scale, 1.5f * scale), brush, 1.4f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx - 1.5f * scale, cy + 3.5f * scale), brush, 1.2f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.5f * scale, cy - 0.5f * scale),
+                                     D2D1::Point2F(cx + 1.5f * scale, cy + 3.5f * scale), brush, 1.2f * scale);
             return;
         }
         case ToolbarCommand::ToggleCornerRadius: {
-            // 选区圆角调节图标 ╭╮
+            // 选区圆角调节图标 ╭╮ (外框带大圆角 + 中心定位点)
             auto box = D2D1::RectF(cx - 5.5f * scale, cy - 4.5f * scale, cx + 5.5f * scale, cy + 4.5f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 3.5f * scale, 3.5f * scale), brush, 1.5f * scale);
+            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 3.5f * scale, 3.5f * scale), brush, 1.6f * scale);
+            m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 1.2f * scale, 1.2f * scale), brush);
             return;
         }
         case ToolbarCommand::ExtractText: {
-            // OCR 提取文字 [T]
-            auto box = D2D1::RectF(cx - 5.5f * scale, cy - 5.5f * scale, cx + 5.5f * scale, cy + 5.5f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 1.5f * scale, 1.5f * scale), brush, 1.2f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.0f * scale, cy - 2.5f * scale),
-                                     D2D1::Point2F(cx + 3.0f * scale, cy - 2.5f * scale), brush, 1.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 2.5f * scale),
-                                     D2D1::Point2F(cx, cy + 3.5f * scale), brush, 1.5f * scale);
+            // OCR 提取文字 (四角扫描取景框 [ T ])
+            float r = 5.2f * scale;
+            float arm = 2.4f * scale;
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy - r + arm), D2D1::Point2F(cx - r, cy - r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy - r), D2D1::Point2F(cx - r + arm, cy - r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + r - arm, cy - r), D2D1::Point2F(cx + r, cy - r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + r, cy - r), D2D1::Point2F(cx + r, cy - r + arm), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy + r - arm), D2D1::Point2F(cx - r, cy + r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy + r), D2D1::Point2F(cx - r + arm, cy + r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + r - arm, cy + r), D2D1::Point2F(cx + r, cy + r), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + r, cy + r), D2D1::Point2F(cx + r, cy + r - arm), brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.8f * scale, cy - 2.6f * scale),
+                                     D2D1::Point2F(cx + 2.8f * scale, cy - 2.6f * scale), brush, 1.5f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 2.6f * scale),
+                                     D2D1::Point2F(cx, cy + 3.0f * scale), brush, 1.5f * scale);
             return;
         }
         case ToolbarCommand::PinWindow: {
-            // 图钉 📌
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 4.5f * scale), D2D1::Point2F(cx, cy + 1.0f * scale), brush, 2.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.0f * scale, cy + 1.0f * scale), D2D1::Point2F(cx + 4.0f * scale, cy + 1.0f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 1.0f * scale), D2D1::Point2F(cx, cy + 5.5f * scale), brush, 1.2f * scale);
+            // 现代 45° 办公金属图钉 📌 (针头圆盖 + 针身台阶 + 细长针尖)
+            D2D1_POINT_2F pTip{cx - 5.0f * scale, cy + 5.0f * scale};
+            D2D1_POINT_2F pBase{cx - 1.5f * scale, cy + 1.5f * scale};
+            m_renderTarget->DrawLine(pTip, pBase, brush, 1.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(pBase.x - 3.0f * scale, pBase.y - 1.0f * scale),
+                                     D2D1::Point2F(pBase.x + 1.0f * scale, pBase.y + 3.0f * scale), brush, 2.0f * scale);
+            m_renderTarget->DrawLine(pBase, D2D1::Point2F(cx + 3.5f * scale, cy - 3.5f * scale), brush, 2.6f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.5f * scale, cy - 5.5f * scale),
+                                     D2D1::Point2F(cx + 5.5f * scale, cy - 1.5f * scale), brush, 2.0f * scale);
             return;
         }
         case ToolbarCommand::ScrollCapture: {
-            // 长截图 ⤓
-            auto box = D2D1::RectF(cx - 4.5f * scale, cy - 5.5f * scale, cx + 4.5f * scale, cy + 5.5f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 1.0f * scale, 1.0f * scale), brush, 1.2f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 3.0f * scale), D2D1::Point2F(cx, cy + 3.0f * scale), brush, 1.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 3.0f * scale), D2D1::Point2F(cx - 2.5f * scale, cy + 0.5f * scale), brush, 1.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 3.0f * scale), D2D1::Point2F(cx + 2.5f * scale, cy + 0.5f * scale), brush, 1.5f * scale);
+            // 长截图 (双层滚动页面轮廓 + 向下贯穿展开箭头)
+            auto page = D2D1::RectF(cx - 4.5f * scale, cy - 5.5f * scale, cx + 4.5f * scale, cy + 1.0f * scale);
+            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(page, 1.2f * scale, 1.2f * scale), brush, 1.2f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 2.0f * scale),
+                                     D2D1::Point2F(cx, cy + 5.0f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 5.0f * scale),
+                                     D2D1::Point2F(cx - 2.8f * scale, cy + 2.4f * scale), brush, 1.8f * scale);
+            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 5.0f * scale),
+                                     D2D1::Point2F(cx + 2.8f * scale, cy + 2.4f * scale), brush, 1.8f * scale);
             return;
         }
         case ToolbarCommand::SelectTool: {
             switch (button.tool) {
                 case MarkupTool::Rectangle: {
+                    // 圆角规整矩形框
                     auto box = D2D1::RectF(cx - half, cy - half * 0.8f, cx + half, cy + half * 0.8f);
-                    m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 1.5f * scale, 1.5f * scale), brush, 1.5f * scale);
+                    m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush, 1.5f * scale);
                     return;
                 }
                 case MarkupTool::Ellipse: {
+                    // 黄金比例优雅椭圆
                     auto ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), half, half * 0.8f);
                     m_renderTarget->DrawEllipse(ellipse, brush, 1.5f * scale);
                     return;
                 }
                 case MarkupTool::Arrow: {
-                    D2D1_POINT_2F start{cx - half * 0.8f, cy + half * 0.8f};
-                    D2D1_POINT_2F end{cx + half * 0.8f, cy - half * 0.8f};
-                    m_renderTarget->DrawLine(start, end, brush, 1.8f * scale);
-                    m_renderTarget->DrawLine(end, D2D1::Point2F(end.x - 5.0f * scale, end.y), brush, 1.8f * scale);
-                    m_renderTarget->DrawLine(end, D2D1::Point2F(end.x, end.y + 5.0f * scale), brush, 1.8f * scale);
+                    // 45° 现代引导箭头 (主干 + 对称规整内折双翼)
+                    D2D1_POINT_2F pStart{cx - 5.0f * scale, cy + 5.0f * scale};
+                    D2D1_POINT_2F pEnd{cx + 4.5f * scale, cy - 4.5f * scale};
+                    m_renderTarget->DrawLine(pStart, pEnd, brush, 1.8f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 0.5f * scale, cy - 4.5f * scale), pEnd, brush, 1.8f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.5f * scale, cy - 0.5f * scale), pEnd, brush, 1.8f * scale);
                     return;
                 }
                 case MarkupTool::Pen: {
-                    D2D1_POINT_2F start{cx - half * 0.7f, cy + half * 0.7f};
-                    D2D1_POINT_2F end{cx + half * 0.7f, cy - half * 0.7f};
-                    m_renderTarget->DrawLine(start, end, brush, 2.0f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(start.x - 1.0f * scale, start.y + 1.0f * scale),
-                                             D2D1::Point2F(start.x + 1.0f * scale, start.y - 1.0f * scale), brush, 1.5f * scale);
+                    // 45° 专业手绘铅笔 (三角笔尖 + 笔身矩形)
+                    D2D1_POINT_2F tip{cx - 5.2f * scale, cy + 5.2f * scale};
+                    D2D1_POINT_2F b1{cx - 3.2f * scale, cy + 5.2f * scale};
+                    D2D1_POINT_2F b2{cx - 5.2f * scale, cy + 3.2f * scale};
+                    m_renderTarget->DrawLine(tip, b1, brush, 1.5f * scale);
+                    m_renderTarget->DrawLine(tip, b2, brush, 1.5f * scale);
+                    m_renderTarget->DrawLine(b1, D2D1::Point2F(cx + 4.5f * scale, cy - 2.5f * scale), brush, 1.5f * scale);
+                    m_renderTarget->DrawLine(b2, D2D1::Point2F(cx + 2.5f * scale, cy - 4.5f * scale), brush, 1.5f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.5f * scale, cy - 2.5f * scale),
+                                             D2D1::Point2F(cx + 2.5f * scale, cy - 4.5f * scale), brush, 1.5f * scale);
                     return;
                 }
                 case MarkupTool::Highlight: {
-                    auto box = D2D1::RectF(cx - half, cy - 2.5f * scale, cx + half, cy + 2.5f * scale);
-                    m_renderTarget->FillRectangle(box, brush);
+                    // 荧光马克笔 (斜切笔头 + 笔身)
+                    auto tipBox = D2D1::RectF(cx - 5.5f * scale, cy - 1.5f * scale, cx + 5.5f * scale, cy + 3.5f * scale);
+                    m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(tipBox, 1.0f * scale, 1.0f * scale), brush);
+                    D2D1_POINT_2F p1{cx - 3.0f * scale, cy - 5.0f * scale};
+                    D2D1_POINT_2F p2{cx + 4.5f * scale, cy - 2.0f * scale};
+                    m_renderTarget->DrawLine(p1, p2, brush, 2.2f * scale);
                     return;
                 }
                 case MarkupTool::Mosaic: {
-                    float u = 3.5f * scale;
-                    auto b1 = D2D1::RectF(cx - u, cy - u, cx, cy);
-                    auto b2 = D2D1::RectF(cx, cy - u, cx + u, cy);
-                    auto b3 = D2D1::RectF(cx - u, cy, cx, cy + u);
-                    auto b4 = D2D1::RectF(cx, cy, cx + u, cy + u);
-                    m_renderTarget->FillRectangle(b1, brush);
-                    m_renderTarget->DrawRectangle(b2, brush, 1.0f * scale);
-                    m_renderTarget->DrawRectangle(b3, brush, 1.0f * scale);
-                    m_renderTarget->FillRectangle(b4, brush);
+                    // 3x3 棋盘格像素矩阵 (9 像素交错实心与镂空)
+                    float s = 2.8f * scale;
+                    float g = 0.7f * scale;
+                    for (int row = -1; row <= 1; ++row) {
+                        for (int col = -1; col <= 1; ++col) {
+                            float x = cx + col * (s + g) - s * 0.5f;
+                            float y = cy + row * (s + g) - s * 0.5f;
+                            auto cell = D2D1::RectF(x, y, x + s, y + s);
+                            if ((row + col) % 2 == 0) {
+                                m_renderTarget->FillRectangle(cell, brush);
+                            } else {
+                                m_renderTarget->DrawRectangle(cell, brush, 0.9f * scale);
+                            }
+                        }
+                    }
                     return;
                 }
                 case MarkupTool::Text: {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.5f * scale, cy - 5.0f * scale),
-                                             D2D1::Point2F(cx + 4.5f * scale, cy - 5.0f * scale), brush, 1.8f * scale);
+                    // 世界级衬线大写「T」(横梁衬线 + 垂直立柱 + 稳固底座)
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 5.2f * scale, cy - 5.0f * scale),
+                                             D2D1::Point2F(cx + 5.2f * scale, cy - 5.0f * scale), brush, 1.8f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 5.2f * scale, cy - 5.0f * scale),
+                                             D2D1::Point2F(cx - 5.2f * scale, cy - 3.2f * scale), brush, 1.4f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 5.2f * scale, cy - 5.0f * scale),
+                                             D2D1::Point2F(cx + 5.2f * scale, cy - 3.2f * scale), brush, 1.4f * scale);
                     m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 5.0f * scale),
                                              D2D1::Point2F(cx, cy + 5.0f * scale), brush, 1.8f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.5f * scale, cy + 5.0f * scale),
+                                             D2D1::Point2F(cx + 2.5f * scale, cy + 5.0f * scale), brush, 1.4f * scale);
                     return;
                 }
                 case MarkupTool::Number: {
-                    auto circle = D2D1::Ellipse(D2D1::Point2F(cx, cy), 5.5f * scale, 5.5f * scale);
-                    m_renderTarget->DrawEllipse(circle, brush, 1.4f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 3.0f * scale),
-                                             D2D1::Point2F(cx, cy + 3.0f * scale), brush, 1.5f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.5f * scale, cy - 1.5f * scale),
-                                             D2D1::Point2F(cx, cy - 3.0f * scale), brush, 1.5f * scale);
+                    // 圆形徽章序号「①」(圆环 + 居中清晰数字 1)
+                    m_renderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 5.8f * scale, 5.8f * scale), brush, 1.4f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.8f * scale, cy - 2.0f * scale),
+                                             D2D1::Point2F(cx + 0.2f * scale, cy - 3.6f * scale), brush, 1.6f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 0.2f * scale, cy - 3.6f * scale),
+                                             D2D1::Point2F(cx + 0.2f * scale, cy + 3.6f * scale), brush, 1.8f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.8f * scale, cy + 3.6f * scale),
+                                             D2D1::Point2F(cx + 2.2f * scale, cy + 3.6f * scale), brush, 1.4f * scale);
                     return;
                 }
                 case MarkupTool::Magnifier: {
-                    auto circle = D2D1::Ellipse(D2D1::Point2F(cx - 1.5f * scale, cy - 1.5f * scale), 4.5f * scale, 4.5f * scale);
-                    m_renderTarget->DrawEllipse(circle, brush, 1.5f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.8f * scale, cy + 1.8f * scale),
-                                             D2D1::Point2F(cx + 5.5f * scale, cy + 5.5f * scale), brush, 2.0f * scale);
+                    // 拟物光学放大镜 (45° 镜片圆环 + 粗手柄)
+                    D2D1_POINT_2F mCenter{cx - 1.6f * scale, cy - 1.6f * scale};
+                    m_renderTarget->DrawEllipse(D2D1::Ellipse(mCenter, 4.4f * scale, 4.4f * scale), brush, 1.6f * scale);
+                    D2D1_POINT_2F hStart{cx + 1.8f * scale, cy + 1.8f * scale};
+                    D2D1_POINT_2F hEnd{cx + 5.6f * scale, cy + 5.6f * scale};
+                    m_renderTarget->DrawLine(hStart, hEnd, brush, 2.4f * scale);
                     return;
                 }
                 case MarkupTool::Watermark: {
-                    auto box = D2D1::RectF(cx - 5.5f * scale, cy - 4.0f * scale, cx + 5.5f * scale, cy + 4.0f * scale);
+                    // 倾斜印章图章 (圆角边框 + 排版双线)
+                    auto box = D2D1::RectF(cx - 5.5f * scale, cy - 4.5f * scale, cx + 5.5f * scale, cy + 4.5f * scale);
                     m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush, 1.4f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.0f * scale, cy), D2D1::Point2F(cx + 3.0f * scale, cy), brush, 1.2f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.2f * scale, cy - 1.2f * scale),
+                                             D2D1::Point2F(cx + 3.2f * scale, cy - 1.2f * scale), brush, 1.2f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.2f * scale, cy + 1.8f * scale),
+                                             D2D1::Point2F(cx + 2.2f * scale, cy + 1.8f * scale), brush, 1.2f * scale);
                     return;
                 }
                 case MarkupTool::Inpaint: {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 5.5f * scale), D2D1::Point2F(cx, cy + 5.5f * scale), brush, 1.5f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 5.5f * scale, cy), D2D1::Point2F(cx + 5.5f * scale, cy), brush, 1.5f * scale);
+                    // 魔法消除棒 ✨ (45° 魔法棒身 + 璀璨四芒星)
+                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.5f * scale, cy + 5.0f * scale),
+                                             D2D1::Point2F(cx + 1.5f * scale, cy - 1.0f * scale), brush, 2.0f * scale);
+                    D2D1_POINT_2F sCenter{cx + 3.5f * scale, cy - 3.5f * scale};
+                    m_renderTarget->DrawLine(D2D1::Point2F(sCenter.x, sCenter.y - 3.0f * scale),
+                                             D2D1::Point2F(sCenter.x, sCenter.y + 3.0f * scale), brush, 1.4f * scale);
+                    m_renderTarget->DrawLine(D2D1::Point2F(sCenter.x - 3.0f * scale, sCenter.y),
+                                             D2D1::Point2F(sCenter.x + 3.0f * scale, sCenter.y), brush, 1.4f * scale);
                     return;
                 }
                 default: break;
@@ -776,12 +866,19 @@ void CaptureRenderer::drawGlassPanel(const D2D1_RECT_F& rect, float radius, bool
     if (!m_renderTarget) return;
     auto rr = D2D1::RoundedRect(rect, radius, radius);
 
+    const bool isDark = isDarkThemeActive();
     ComPtr<ID2D1SolidColorBrush> tint, sheen, border;
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.07f, 0.10f, 0.74f), tint.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.16f), sheen.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.12f), border.GetAddressOf());
+    if (isDark) {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.11f, 0.11f, 0.15f, 0.88f), tint.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.16f), sheen.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), border.GetAddressOf());
+    } else {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.97f, 0.97f, 0.99f, 0.92f), tint.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), sheen.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f), border.GetAddressOf());
+    }
 
-    // 透视玻璃：圆角裁剪 → 透出未暗化的背后画面 → 深色蒙版（图层，较重）。
+    // 透视玻璃：圆角裁剪 → 透出未暗化的背后画面 → 深/浅色蒙版
     bool glass = false;
     if (seeThrough && m_d2dFactory && m_screenBitmap) {
         ComPtr<ID2D1RoundedRectangleGeometry> geo;
@@ -802,7 +899,7 @@ void CaptureRenderer::drawGlassPanel(const D2D1_RECT_F& rect, float radius, bool
         }
     }
     if (!glass) {
-        // 廉价磨砂：半透明深色直接叠加在当前帧上（透出已暗化的背后画面），无图层开销。
+        // 磨砂效果：半透明深/浅色直接叠加在当前帧上
         if (tint) m_renderTarget->FillRoundedRectangle(rr, tint.Get());
         else m_renderTarget->FillRoundedRectangle(rr, m_infoBgBrush.Get());
     }

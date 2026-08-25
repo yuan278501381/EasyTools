@@ -283,7 +283,7 @@ public:
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6")},
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
-                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
+                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 1.5f)},
                 {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
                 {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)}
             };
@@ -352,7 +352,7 @@ public:
             std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6"));
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
             float trailOutlineWidth = clampTrailOutlineWidth(
-                params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)));
+                params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 1.5f)));
 
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},

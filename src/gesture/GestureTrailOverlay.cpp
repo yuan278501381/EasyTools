@@ -121,7 +121,7 @@ void GestureTrailOverlay::applyThemeColorsLocked() {
     const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#3B82F6");
     m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 2.5f);
     m_style.outlineWidth = clampTrailOutlineWidth(
-        cfg.get<float>("/gesture/trailOutlineWidth", 2.5f));
+        cfg.get<float>("/gesture/trailOutlineWidth", 1.5f));
 
     const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
     const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);

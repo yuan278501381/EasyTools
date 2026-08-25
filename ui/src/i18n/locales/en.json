@@ -433,7 +433,7 @@
     "trailOutline": "White Outline",
     "trailOutlineDesc": "Add a white stroke around the trail so it stays readable on any wallpaper",
     "trailOutlineNone": "Off",
-    "trailOutlineFine": "Fine (1.5px)",
+    "trailOutlineFine": "Fine (1.5px) (Default)",
     "trailOutlineStandard": "Standard (2.5px)",
     "trailOutlineBold": "Bold (4.0px)",
     "scribbleCancel": "Scribble to Cancel",
