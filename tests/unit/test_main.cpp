@@ -4415,8 +4415,64 @@ TEST(SpotlightOverlayTest, KeyboardAndMouseInteraction) {
     // 5. 动效更新
     spotlight.tickAnimation();
     spotlight.dismiss();
-    spotlight.tickAnimation();
+    spotlight.resetDefaults();
+}
 
+TEST(SpotlightOverlayTest, LocalBoundingBoxAndFocusAssistExclusion) {
+    auto& spotlight = easy::ui::SpotlightOverlay::instance();
+    spotlight.resetDefaults();
+
+    // 1. 空状态视口计算
+    auto boundsEmpty = spotlight.calculateViewportBoundsLocked();
+    EXPECT_FALSE(boundsEmpty.isFullscreen);
+    EXPECT_EQ(boundsEmpty.w, 0);
+    EXPECT_EQ(boundsEmpty.h, 0);
+
+    // 2. 开启点击水波纹
+    auto s = spotlight.getSettings();
+    s.clickRippleEnabled = true;
+    s.mouseTrailEnabled = true;
+    spotlight.updateSettings(s);
+
+    const int targetX = 300;
+    const int targetY = 400;
+    POINT clickPt{targetX, targetY};
+    spotlight.onMouseDown(0, clickPt);
+
+    auto boundsRipple = spotlight.calculateViewportBoundsLocked();
+    EXPECT_FALSE(boundsRipple.isFullscreen);
+    EXPECT_GT(boundsRipple.w, 0);
+    EXPECT_GT(boundsRipple.h, 0);
+    // 局部包围盒尺寸应紧凑 (远小于全屏 1920x1080)
+    EXPECT_LE(boundsRipple.w, 300);
+    EXPECT_LE(boundsRipple.h, 300);
+    // 局部包围盒应包住点击坐标
+    const int rx = boundsRipple.x;
+    const int rw = boundsRipple.w;
+    const int ry = boundsRipple.y;
+    const int rh = boundsRipple.h;
+    EXPECT_LE(rx, targetX);
+    EXPECT_GE(rx + rw, targetX);
+    EXPECT_LE(ry, targetY);
+    EXPECT_GE(ry + rh, targetY);
+
+    // 3. 触发聚光灯模式
+    spotlight.trigger(POINT{500, 500}, false);
+    auto boundsSpotlight = spotlight.calculateViewportBoundsLocked();
+    EXPECT_TRUE(boundsSpotlight.isFullscreen);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (vw > 2 && vh > 2) {
+        // 验证避让 1 像素以打破 Windows 11 Shell 的全屏独占判定 (防止触发 Focus Assist 专注助手铃铛)
+        const int expectedW = vw - 1;
+        const int expectedH = vh - 1;
+        EXPECT_EQ(boundsSpotlight.w, expectedW);
+        EXPECT_EQ(boundsSpotlight.h, expectedH);
+    }
+
+    // 4. 重置并退出
+    spotlight.dismiss();
+    spotlight.tickAnimation();
     spotlight.resetDefaults();
 }
 

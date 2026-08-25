@@ -165,11 +165,70 @@ SpotlightSettings SpotlightOverlay::getSettings() const {
 void SpotlightOverlay::resetDefaults() {
     SpotlightSettings def;
     updateSettings(def);
+    std::lock_guard lock(m_mutex);
+    m_animState = AnimState::Idle;
+    m_currentAlpha = 0.0f;
+    m_ripples.clear();
+    m_trail.clear();
+    m_ctrlPressCount = 0;
+    m_lastCtrlDownTime = {};
 }
 
 bool SpotlightOverlay::isActive() const {
     std::lock_guard lock(m_mutex);
     return m_animState != AnimState::Idle || !m_ripples.empty() || !m_trail.empty();
+}
+
+SpotlightOverlay::ViewportBounds SpotlightOverlay::calculateViewportBoundsLocked() const {
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+    if (m_animState != AnimState::Idle) {
+        // 聚光灯全屏暗角模式：为防止 Windows 11 Shell 触发 Focus Assist（专注助手/全屏免打扰），
+        // 窗口物理尺寸避让 1 像素，打破 Explorer 的全屏独占判定条件。
+        int safeW = (vw > 2) ? (vw - 1) : vw;
+        int safeH = (vh > 2) ? (vh - 1) : vh;
+        return {vx, vy, safeW, safeH, true};
+    }
+
+    if (m_ripples.empty() && m_trail.empty()) {
+        return {0, 0, 0, 0, false};
+    }
+
+    // 局部自适应动态包围盒 (Dynamic Union Bounding Box)
+    int minX = INT_MAX, minY = INT_MAX, maxX = INT_MIN, maxY = INT_MIN;
+    for (const auto& rip : m_ripples) {
+        int r = static_cast<int>(rip.maxRadius + 24.0f);
+        minX = (std::min)(minX, static_cast<int>(rip.pt.x - r));
+        minY = (std::min)(minY, static_cast<int>(rip.pt.y - r));
+        maxX = (std::max)(maxX, static_cast<int>(rip.pt.x + r));
+        maxY = (std::max)(maxY, static_cast<int>(rip.pt.y + r));
+    }
+    for (const auto& p : m_trail) {
+        int r = static_cast<int>(p.size + 24.0f);
+        minX = (std::min)(minX, static_cast<int>(p.pt.x - r));
+        minY = (std::min)(minY, static_cast<int>(p.pt.y - r));
+        maxX = (std::max)(maxX, static_cast<int>(p.pt.x + r));
+        maxY = (std::max)(maxY, static_cast<int>(p.pt.y + r));
+    }
+
+    minX = (std::clamp)(minX, vx, vx + vw - 1);
+    minY = (std::clamp)(minY, vy, vy + vh - 1);
+    maxX = (std::clamp)(maxX, minX + 1, vx + vw);
+    maxY = (std::clamp)(maxY, minY + 1, vy + vh);
+
+    int w = maxX - minX;
+    int h = maxY - minY;
+
+    // 按 16 像素网格向上对齐，避免每帧尺寸微变导致 DIB Surface 频繁重新分配
+    int alignedW = ((w + 15) / 16) * 16;
+    int alignedH = ((h + 15) / 16) * 16;
+    alignedW = (std::min)(alignedW, vw);
+    alignedH = (std::min)(alignedH, vh);
+
+    return {minX, minY, alignedW, alignedH, false};
 }
 
 void SpotlightOverlay::trigger(POINT pt, bool autoFetch) {
@@ -191,16 +250,6 @@ void SpotlightOverlay::trigger(POINT pt, bool autoFetch) {
         GetCursorPos(&pt);
     }
     m_targetPos = pt;
-
-    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-    if (!ensureSurface(vw, vh)) return;
-
-    SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
 
     m_animState = AnimState::FadeIn;
     m_animStartTime = std::chrono::steady_clock::now();
@@ -275,16 +324,6 @@ void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     if (button == 1) color = m_settings.rightClickColor;
     else if (button == 2) color = m_settings.middleClickColor;
 
-    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-    if (!ensureSurface(vw, vh)) return;
-
-    SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-
     ClickRipple rip;
     rip.pt = pt;
     rip.startTime = std::chrono::steady_clock::now();
@@ -297,6 +336,7 @@ void SpotlightOverlay::onMouseDown(int button, POINT pt) {
         SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
         m_timerRunning = true;
     }
+    render();
 }
 
 void SpotlightOverlay::onMouseMove(POINT pt) {
@@ -326,33 +366,24 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
             }
 
             if (dist > 6.0f) {
-                int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-                int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                TrailParticle p;
+                p.pt = pt;
+                p.time = now;
+                p.size = 9.0f;
+                p.durationMs = 380.0f;
+                p.color = m_settings.spotlightColor;
+                m_trail.push_back(p);
 
-                if (ensureSurface(vw, vh)) {
-                    SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-
-                    TrailParticle p;
-                    p.pt = pt;
-                    p.time = now;
-                    p.size = 9.0f;
-                    p.durationMs = 380.0f;
-                    p.color = m_settings.spotlightColor;
-                    m_trail.push_back(p);
-
-                    // 限制最大粒子队列
-                    if (m_trail.size() > 40) {
-                        m_trail.erase(m_trail.begin(), m_trail.begin() + (m_trail.size() - 40));
-                    }
-
-                    if (!m_timerRunning) {
-                        SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
-                        m_timerRunning = true;
-                    }
+                // 限制最大粒子队列
+                if (m_trail.size() > 40) {
+                    m_trail.erase(m_trail.begin(), m_trail.begin() + (m_trail.size() - 40));
                 }
+
+                if (!m_timerRunning) {
+                    SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
+                    m_timerRunning = true;
+                }
+                render();
             }
         }
     }
@@ -540,7 +571,14 @@ void SpotlightOverlay::discardResources() {
 }
 
 void SpotlightOverlay::render() {
-    if (!m_hwnd || !m_memDc || m_surfaceW <= 0 || m_surfaceH <= 0) return;
+    if (!m_hwnd) return;
+
+    ViewportBounds bounds = calculateViewportBoundsLocked();
+    if (bounds.w <= 0 || bounds.h <= 0) {
+        return;
+    }
+
+    if (!ensureSurface(bounds.w, bounds.h)) return;
     if (!createResources()) return;
 
     RECT rc = {0, 0, m_surfaceW, m_surfaceH};
@@ -549,28 +587,26 @@ void SpotlightOverlay::render() {
     m_dcRenderTarget->BeginDraw();
     m_dcRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0.0f));
 
-    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
     auto now = std::chrono::steady_clock::now();
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. 绘制聚光灯 (GPU 径向渐变刷：全屏电影级微晕暗角 + 鼠标镂空 + 呼吸发光光环)
     // ─────────────────────────────────────────────────────────────────────────
     if (m_animState != AnimState::Idle && m_currentAlpha > 0.01f) {
-        float localCenterX = static_cast<float>(m_targetPos.x - vx);
-        float localCenterY = static_cast<float>(m_targetPos.y - vy);
-        float radius = static_cast<float>(std::max(40, m_settings.spotlightSize)) / 2.0f;
+        float localCenterX = static_cast<float>(m_targetPos.x - bounds.x);
+        float localCenterY = static_cast<float>(m_targetPos.y - bounds.y);
+        float radius = static_cast<float>((std::max)(40, m_settings.spotlightSize)) / 2.0f;
         float alpha = m_currentAlpha;
 
         D2D1_COLOR_F baseColor = parseColor(m_settings.spotlightColor, 1.0f);
         float outerRadius = radius + 90.0f;
         if (outerRadius < 100.0f) outerRadius = 100.0f;
 
-        float stopTransparentInner = std::clamp((radius - 4.0f) / outerRadius, 0.0f, 0.90f);
-        float stopRingInner = std::clamp(radius / outerRadius, 0.01f, 0.92f);
-        float stopRingCore = std::clamp((radius + 3.0f) / outerRadius, 0.02f, 0.94f);
-        float stopGlowOuter = std::clamp((radius + 18.0f) / outerRadius, 0.03f, 0.96f);
-        float stopDarkFade = std::clamp((radius + 55.0f) / outerRadius, 0.04f, 0.98f);
+        float stopTransparentInner = (std::clamp)((radius - 4.0f) / outerRadius, 0.0f, 0.90f);
+        float stopRingInner = (std::clamp)(radius / outerRadius, 0.01f, 0.92f);
+        float stopRingCore = (std::clamp)((radius + 3.0f) / outerRadius, 0.02f, 0.94f);
+        float stopGlowOuter = (std::clamp)((radius + 18.0f) / outerRadius, 0.03f, 0.96f);
+        float stopDarkFade = (std::clamp)((radius + 55.0f) / outerRadius, 0.04f, 0.98f);
 
         D2D1_GRADIENT_STOP stops[7] = {
             { 0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
@@ -619,12 +655,12 @@ void SpotlightOverlay::render() {
     for (size_t i = 0; i < m_trail.size(); ++i) {
         const auto& p = m_trail[i];
         auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
-        float progress = std::clamp(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
+        float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
         float alpha = (1.0f - progress) * (1.0f - progress) * 0.85f;
         float r = p.size * (1.0f - progress * 0.65f);
 
-        float px = static_cast<float>(p.pt.x - vx);
-        float py = static_cast<float>(p.pt.y - vy);
+        float px = static_cast<float>(p.pt.x - bounds.x);
+        float py = static_cast<float>(p.pt.y - bounds.y);
 
         D2D1_COLOR_F c = parseColor(p.color, alpha);
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trailBrush;
@@ -636,8 +672,8 @@ void SpotlightOverlay::render() {
             // 与相邻粒子间连线形成彗尾光带
             if (i + 1 < m_trail.size()) {
                 const auto& nextP = m_trail[i + 1];
-                float nx = static_cast<float>(nextP.pt.x - vx);
-                float ny = static_cast<float>(nextP.pt.y - vy);
+                float nx = static_cast<float>(nextP.pt.x - bounds.x);
+                float ny = static_cast<float>(nextP.pt.y - bounds.y);
                 float dx = nx - px;
                 float dy = ny - py;
                 float dist = std::sqrt(dx * dx + dy * dy);
@@ -658,14 +694,14 @@ void SpotlightOverlay::render() {
     // ─────────────────────────────────────────────────────────────────────────
     for (const auto& rip : m_ripples) {
         auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - rip.startTime).count();
-        float progress = std::clamp(static_cast<float>(el) / rip.durationMs, 0.0f, 1.0f);
+        float progress = (std::clamp)(static_cast<float>(el) / rip.durationMs, 0.0f, 1.0f);
         float ease = 1.0f - std::pow(1.0f - progress, 3.0f); // Cubic Ease-Out
         float currentRadius = 6.0f + (rip.maxRadius - 6.0f) * ease;
         float alpha = (1.0f - ease) * (1.0f - progress * 0.2f);
-        float strokeW = std::max(0.6f, 3.6f * (1.0f - ease * 0.8f));
+        float strokeW = (std::max)(0.6f, 3.6f * (1.0f - ease * 0.8f));
 
-        float cx = static_cast<float>(rip.pt.x - vx);
-        float cy = static_cast<float>(rip.pt.y - vy);
+        float cx = static_cast<float>(rip.pt.x - bounds.x);
+        float cy = static_cast<float>(rip.pt.y - bounds.y);
 
         D2D1_COLOR_F baseC = parseColor(rip.color, 1.0f);
 
@@ -727,7 +763,7 @@ void SpotlightOverlay::render() {
                 m_dcRenderTarget->DrawEllipse(
                     D2D1::Ellipse(D2D1::Point2F(cx, cy), subRadius, subRadius),
                     waveBrush2.Get(),
-                    std::max(0.5f, strokeW * 0.6f)
+                    (std::max)(0.5f, strokeW * 0.6f)
                 );
             }
         }
@@ -739,10 +775,13 @@ void SpotlightOverlay::render() {
         return;
     }
 
-    // 4. UpdateLayeredWindow
+    // 4. 同步定位并提交局部/全屏分层窗口
+    SetWindowPos(m_hwnd, HWND_TOPMOST, bounds.x, bounds.y, bounds.w, bounds.h,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+
     POINT ptSrc = {0, 0};
-    POINT ptDst = {vx, vy};
-    SIZE sizeDst = {m_surfaceW, m_surfaceH};
+    POINT ptDst = {bounds.x, bounds.y};
+    SIZE sizeDst = {bounds.w, bounds.h};
     BLENDFUNCTION blend{};
     blend.BlendOp = AC_SRC_OVER;
     blend.BlendFlags = 0;

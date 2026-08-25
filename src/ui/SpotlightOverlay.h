@@ -60,6 +60,15 @@ public:
     void tickAnimation();
     D2D1_COLOR_F parseColor(const std::string& hexStr, float alpha) const;
 
+    struct ViewportBounds {
+        int x = 0;
+        int y = 0;
+        int w = 0;
+        int h = 0;
+        bool isFullscreen = false;
+    };
+    ViewportBounds calculateViewportBoundsLocked() const;
+
 private:
     SpotlightOverlay() = default;
     ~SpotlightOverlay() = default;
@@ -67,6 +76,7 @@ private:
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void render();
     bool createResources();
+
     void discardResources();
     bool ensureSurface(int width, int height);
     void releaseSurface();
