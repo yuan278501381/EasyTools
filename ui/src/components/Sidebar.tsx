@@ -11,7 +11,7 @@ import { type ReactNode, type FC, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart3,
-  MousePointer2,
+  Mouse,
   Camera,
   FileText,
   Settings,
@@ -31,7 +31,7 @@ import {
   ClipboardList,
   FileCode2,
   FolderSymlink,
-  SunMedium,
+  Sparkles,
   Keyboard,
 } from 'lucide-react';
 import './Sidebar.css';
@@ -54,13 +54,13 @@ const SYSTEM_NAV_ITEMS: NavItem[] = [
 
 const CORE_TOOL_NAV_ITEMS: NavItem[] = [
   { id: 'search',  icon: <Search size={20} strokeWidth={2.2} />, labelKey: 'nav.search', requiresPlugin: 'search' },
-  { id: 'gesture', icon: <MousePointer2 size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture', requiresPlugin: 'gesture' },
+  { id: 'gesture', icon: <Mouse size={20} strokeWidth={2.2} />, labelKey: 'nav.gesture', requiresPlugin: 'gesture' },
   { id: 'hotcorner', icon: <MonitorUp size={20} strokeWidth={2.2} />, labelKey: 'nav.hotcorner', requiresPlugin: 'gesture' },
   { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
   { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history', requiresPlugin: 'capture' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr', requiresPlugin: 'capture' },
   { id: 'keycast', icon: <Keyboard size={20} strokeWidth={2.2} />, labelKey: 'nav.keycast', requiresPlugin: 'keycast' },
-  { id: 'spotlight', icon: <SunMedium size={20} strokeWidth={2.2} />, labelKey: 'nav.spotlight' },
+  { id: 'spotlight', icon: <Sparkles size={20} strokeWidth={2.2} />, labelKey: 'nav.spotlight' },
   { id: 'dialog_enhancer', icon: <FolderSymlink size={20} strokeWidth={2.2} />, labelKey: 'nav.dialog_enhancer', requiresPlugin: 'dialogenhancer' },
 ];
 

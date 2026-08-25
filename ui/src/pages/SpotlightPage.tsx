@@ -8,7 +8,6 @@ import { Card, Toggle, SettingGroup, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import {
-  SunMedium,
   MousePointerClick,
   RotateCcw,
   Play,
@@ -280,7 +279,7 @@ export const SpotlightPage: FC = () => {
       </SettingGroup>
 
       {/* ── 3. 外观样式 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('spotlight.appearanceSection', '外观样式')} icon={<SunMedium size={18} />}>
+      <SettingGroup title={t('spotlight.appearanceSection', '外观样式')} icon={<Sparkles size={18} />}>
         <div className="spotlight-page__grid">
           {/* 聚光灯发光颜色 (双态胶囊) */}
           <ColorSegmentControl

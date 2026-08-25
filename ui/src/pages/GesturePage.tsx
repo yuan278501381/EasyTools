@@ -37,7 +37,7 @@ import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  MousePointer2,
+  Mouse,
   Hand,
   Edit3,
   Trash2,
@@ -706,7 +706,7 @@ export const GesturePage: FC = () => {
   return (
     <div className="gesture-page" style={{ animation: 'fadeIn 0.3s ease', paddingBottom: '2.5rem' }}>
       {/* ── 顶部全局开关与触发设置 ──────────────────────────────────── */}
-      <SettingGroup title={tr('gesture.title')} icon={<MousePointer2 size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={tr('gesture.title')} icon={<Mouse size={20} strokeWidth={2.2} />}>
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />

@@ -16,7 +16,7 @@
   transition: all 0.15s ease;
 }
 
-/* 🟢 全局正常生效 */
+/* State: 全局正常生效 */
 .hotkey-badge.badge-active {
   background: rgba(16, 185, 129, 0.08);
   color: #059669;
@@ -29,7 +29,7 @@
   border: 1px solid rgba(16, 185, 129, 0.28);
 }
 
-/* 🔵 仅会话/录屏时生效 (条件触发) */
+/* State: 仅会话/录屏时生效 (条件触发) */
 .hotkey-badge.badge-session {
   background: rgba(14, 165, 233, 0.08);
   color: #0284c7;
@@ -42,7 +42,7 @@
   border: 1px solid rgba(56, 189, 248, 0.28);
 }
 
-/* 🟠 内部冲突 */
+/* State: 内部冲突 */
 .hotkey-badge.badge-warning {
   background: rgba(245, 158, 11, 0.08);
   color: #d97706;
@@ -55,7 +55,7 @@
   border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
-/* 🔴 外部占用 */
+/* State: 外部占用 */
 .hotkey-badge.badge-danger {
   background: rgba(239, 68, 68, 0.08);
   color: #dc2626;
@@ -68,7 +68,7 @@
   border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
-/* ⚪ 未绑定 */
+/* State: 未绑定 */
 .hotkey-badge.badge-disabled {
   background: rgba(0, 0, 0, 0.03);
   color: var(--text-muted, #64748b);

@@ -9,7 +9,7 @@ import {
   FolderDown,
   FolderSymlink,
   Keyboard,
-  MousePointer2,
+  Mouse,
   Pipette,
   Puzzle,
   RotateCw,
@@ -75,7 +75,7 @@ const CATEGORY_KEY_MAP: Record<string, string> = {
 };
 
 const ICONS = {
-  gesture: MousePointer2,
+  gesture: Mouse,
   capture: Camera,
   search: FileSearch,
   keycast: Keyboard,

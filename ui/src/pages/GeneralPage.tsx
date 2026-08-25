@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -539,7 +539,17 @@ export const GeneralPage: FC = () => {
                 color: settings.isPortableMode ? '#10b981' : '#3b82f6',
                 border: `1px solid ${settings.isPortableMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.25)'}`
               }}>
-                {settings.isPortableMode ? `📦 ${t('general.portableModeActive')}` : `💻 ${t('general.portableModeStandard')}`}
+                {settings.isPortableMode ? (
+                  <>
+                    <Package size={14} strokeWidth={2.2} />
+                    <span>{t('general.portableModeActive')}</span>
+                  </>
+                ) : (
+                  <>
+                    <HardDrive size={14} strokeWidth={2.2} />
+                    <span>{t('general.portableModeStandard')}</span>
+                  </>
+                )}
               </span>
               {settings.dataDirectory && (
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'ui-monospace, monospace' }} title={settings.dataDirectory}>

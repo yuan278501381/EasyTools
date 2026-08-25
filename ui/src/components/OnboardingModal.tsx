@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type FC } from 'react';
 import { Button } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import {
-  Search, Camera, MousePointer2, Keyboard, Sparkles, FolderSymlink,
+  Search, Camera, Mouse, Keyboard, Sparkles, FolderSymlink,
   ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import './OnboardingModal.css';
@@ -115,7 +115,7 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <MousePointer2 size={22} />
+                  <Mouse size={22} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureGesture')}</span>
                 <span className="onboarding__feature-desc">{t('onboarding.featureGestureDesc')}</span>
