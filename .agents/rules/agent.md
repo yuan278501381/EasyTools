@@ -26,3 +26,9 @@ trigger: always_on
    - 原作者官方署名：`Yy1 (yuan278501381)`（展示格式 `Yy1 (@yuan278501381)`）。
    - GitHub 官方主页：`https://github.com/yuan278501381`。
    - 开源协议：严格遵循 MIT License，所有关于页、发布元数据与 LICENSE 文件保持版权一致性。
+8、浮层视口与专注助手全屏避让标准（FocusAssistAvoidance）：
+   - 局部动态包围盒优先：鼠标点击水波纹、移动流光轨迹、手势划线等局部特效，严禁创建或调整为全屏窗口，必须按活跃元素并集计算局部最小包围盒（100~300px 微型视口），彻底消除全屏合成延迟并从底层阻断 Windows Shell 误判全屏触发 🔔z 专注助手（免打扰）铃铛。
+   - 聚光灯全屏暗角几何避让：必须覆盖全屏的暗角渐变窗口，物理尺寸避让 1 像素（vw-1, vh-1），打破 Windows `SHQueryUserNotificationState` 全屏独占检测逻辑。
+9、零 Emoji 矢量化与统一设计语言红线：
+   - 严禁在 UI 状态徽章、提示标签及正文中内嵌 Unicode 彩色 Emoji 字符。
+   - 全面采用 Lucide 高精度矢量 SVG 图标与玻璃拟态胶囊微徽章，保障世界级桌面软件原生设计质感。
