@@ -27,8 +27,8 @@ struct SpotlightSettings {
     // 鼠标点击与轨迹特效 (演示辅助)
     bool clickRippleEnabled = false;
     bool mouseTrailEnabled = false;
-    std::string clickRippleStyle = "ripple_ring";      // ripple_ring, sparkle_burst, target_pulse, soft_glow
-    std::string mouseTrailStyle = "stardust_orbs";     // stardust_orbs, aurora_ribbon, sonar_pulses, classic_comet
+    std::string clickRippleStyle = "sparkle_burst";    // sparkle_burst (默认), ripple_ring, target_pulse, soft_glow
+    std::string mouseTrailStyle = "sonar_pulses";      // sonar_pulses (默认), stardust_orbs, aurora_ribbon, classic_comet
     std::string mouseTrailColorMode = "rainbow";       // rainbow, accent
     std::string leftClickColor = "auto";
     std::string rightClickColor = "#fb7185";

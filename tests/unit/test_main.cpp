@@ -4305,7 +4305,10 @@ TEST(SpotlightOverlayTest, SettingsAndDefaults) {
     EXPECT_EQ(s.holdDurationMs, 800);
     EXPECT_EQ(s.shakeThreshold, 7);
     EXPECT_FALSE(s.clickRippleEnabled);
+    EXPECT_EQ(s.clickRippleStyle, "sparkle_burst");
     EXPECT_FALSE(s.mouseTrailEnabled);
+    EXPECT_EQ(s.mouseTrailStyle, "sonar_pulses");
+    EXPECT_EQ(s.mouseTrailColorMode, "rainbow");
     EXPECT_EQ(s.leftClickColor, "auto");
     EXPECT_EQ(s.rightClickColor, "#fb7185");
     EXPECT_EQ(s.middleClickColor, "#fbbf24");

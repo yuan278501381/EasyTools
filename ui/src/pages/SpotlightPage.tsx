@@ -55,9 +55,9 @@ const DEFAULT_SETTINGS: SpotlightSettings = {
   shakeThreshold: 7,
 
   clickRippleEnabled: false,
-  clickRippleStyle: 'ripple_ring',
+  clickRippleStyle: 'sparkle_burst',
   mouseTrailEnabled: false,
-  mouseTrailStyle: 'stardust_orbs',
+  mouseTrailStyle: 'sonar_pulses',
   mouseTrailColorMode: 'rainbow',
   leftClickColor: 'auto',
   rightClickColor: '#fb7185',
@@ -411,7 +411,7 @@ export const SpotlightPage: FC = () => {
                     <Waves size={16} />
                     <span>{t('spotlight.styleRippleRing', '流体光圈冲击波')}</span>
                   </div>
-                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', '双层半透明流体冲击波光环平滑向外扩散，经典直观 (推荐)')}</span>
+                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', '双层半透明流体冲击波光环平滑向外扩散，经典直观')}</span>
                 </div>
 
                 {/* 2. 星芒微粒迸发 */}
@@ -481,7 +481,7 @@ export const SpotlightPage: FC = () => {
                       <Sparkles size={16} />
                       <span>{t('spotlight.styleStardustOrbs', '七彩星尘光球')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', '大中小错落的七彩微型浮动光球，轻盈通透不遮挡文字，守护专注心流 (推荐)')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', '大中小错落的七彩微型浮动光球，轻盈通透不遮挡文字，守护专注心流')}</span>
                   </div>
 
                   {/* 2. 极光流体丝带 */}
@@ -535,7 +535,7 @@ export const SpotlightPage: FC = () => {
                     onClick={() => saveSetting('mouseTrailColorMode', 'rainbow')}
                   >
                     <Rainbow size={14} />
-                    <span>{t('spotlight.trailColorModeRainbow', '七彩流光谱系 (推荐)')}</span>
+                    <span>{t('spotlight.trailColorModeRainbow', '七彩流光谱系')}</span>
                   </button>
                   <button
                     type="button"

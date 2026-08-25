@@ -79,9 +79,9 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
     m_settings.shakeThreshold = cfg.get<int>("/spotlight/shakeThreshold", 7);
 
     m_settings.clickRippleEnabled = cfg.get<bool>("/spotlight/clickRippleEnabled", false);
-    m_settings.clickRippleStyle = cfg.get<std::string>("/spotlight/clickRippleStyle", "ripple_ring");
+    m_settings.clickRippleStyle = cfg.get<std::string>("/spotlight/clickRippleStyle", "sparkle_burst");
     m_settings.mouseTrailEnabled = cfg.get<bool>("/spotlight/mouseTrailEnabled", false);
-    m_settings.mouseTrailStyle = cfg.get<std::string>("/spotlight/mouseTrailStyle", "stardust_orbs");
+    m_settings.mouseTrailStyle = cfg.get<std::string>("/spotlight/mouseTrailStyle", "sonar_pulses");
     m_settings.mouseTrailColorMode = cfg.get<std::string>("/spotlight/mouseTrailColorMode", "rainbow");
     m_settings.leftClickColor = cfg.get<std::string>("/spotlight/leftClickColor", "auto");
     m_settings.rightClickColor = cfg.get<std::string>("/spotlight/rightClickColor", "#fb7185");
