@@ -74,12 +74,17 @@ public:
     ViewportBounds calculateViewportBoundsLocked() const;
 
     enum class TrailParticleKind {
-        OrbMain,     // 主能量光球 (6.5px ~ 8.0px, 带微光晕)
-        OrbSub,      // 次级漂浮球 (3.5px ~ 5.0px)
-        Sparklet,    // 伴生微星 (1.5px ~ 2.5px, 随机微偏移)
-        RibbonNode,  // 极光流丝平滑节点
-        SonarRing,   // 扩散声纳微环
-        CometDot     // 经典彗星连线点
+        OrbMain,      // 主能量光球 (6.5px ~ 8.0px, 带微光晕)
+        OrbSub,       // 次级漂浮球 (3.5px ~ 5.0px)
+        Sparklet,     // 伴生微星 (1.5px ~ 2.5px, 随机微偏移)
+        RibbonNode,   // 极光流丝平滑节点
+        SonarRing,    // 扩散声纳微环
+        CometDot,     // 经典彗星连线点
+        QuantumOrb,   // 量子引力公转微子
+        TeslaBolt,    // 特斯拉高能电浆跳跃点
+        InkStroke,    // 宣纸水墨动态笔触
+        GridRuler,    // CAD 矢量直角刻度
+        DewBubble     // 晨露微气泡
     };
 
     struct ClickSparkle {
@@ -88,6 +93,7 @@ public:
         float vx = 0.0f;
         float vy = 0.0f;
         float size = 3.0f;
+        float extra = 0.0f;
     };
 
 private:
@@ -138,9 +144,10 @@ private:
         POINT pt;
         std::chrono::steady_clock::time_point startTime;
         std::string color;
-        std::string style = "ripple_ring";
+        std::string style = "sparkle_burst";
         float maxRadius = 42.0f;
         float durationMs = 450.0f;
+        float extraAngle = 0.0f;
         std::vector<ClickSparkle> sparklets;
     };
     std::vector<ClickRipple> m_ripples;
@@ -149,11 +156,13 @@ private:
     struct TrailParticle {
         POINT pt;
         std::chrono::steady_clock::time_point time;
-        TrailParticleKind kind = TrailParticleKind::OrbMain;
+        TrailParticleKind kind = TrailParticleKind::SonarRing;
         float size = 7.5f;
         float durationMs = 280.0f;
         std::string color;
         float hue = 0.0f;
+        float speed = 0.0f;
+        float extra = 0.0f;
     };
     std::vector<TrailParticle> m_trail;
     float m_trailHue = 195.0f; // 七彩色相累加器

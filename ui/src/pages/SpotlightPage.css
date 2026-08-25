@@ -221,7 +221,7 @@
 
 .spotlight-page__style-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 10px;
   width: 100%;
 }
@@ -266,6 +266,42 @@
 }
 
 .spotlight-page__style-card-desc {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 内嵌从属面板 (Nested Inset Sub-Panel) 打造世界级空间层次
+ * ───────────────────────────────────────────────────────────────────────────── */
+.spotlight-page__inset-panel {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spotlight-page__section-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spotlight-page__section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spotlight-page__section-desc {
   font-size: 0.83rem;
   color: var(--text-secondary);
   line-height: 1.4;

@@ -19,6 +19,13 @@ import {
   Flame,
   CircleDot,
   Rainbow,
+  Atom,
+  Zap,
+  PenTool,
+  Compass,
+  Droplets,
+  Shield,
+  Circle,
 } from 'lucide-react';
 import './SpotlightPage.css';
 
@@ -384,119 +391,205 @@ export const SpotlightPage: FC = () => {
         </div>
       </SettingGroup>
 
-      {/* ── 4. 鼠标点击与轨迹特效 (演示辅助) ────────────────────────── */}
+      {/* ── 4. 鼠标点击与轨迹特效 (演示辅助 - 独立功能卡片与内嵌从属面板) ── */}
       <SettingGroup title={t('spotlight.mouseFxSection', '鼠标点击与轨迹特效')} icon={<MousePointerClick size={18} />}>
+        {/* 4.1 鼠标点击特效独立卡片 */}
         <Card>
           <Toggle
             id="spotlight-click-ripple"
             label={t('spotlight.clickRipple', '显示点击光圈')}
-            description={t('spotlight.clickRippleDesc', '在鼠标点击位置显示短暂的流体点击光圈与冲击波。')}
+            description={t('spotlight.clickRippleDesc', '在鼠标点击位置呈现灵动视觉反馈与微粒动效。')}
             checked={settings.clickRippleEnabled}
             onChange={(v) => saveSetting('clickRippleEnabled', v)}
           />
 
           {settings.clickRippleEnabled && (
-            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--card-border)' }}>
-              <div style={{ marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <span className="spotlight-page__prop-title">{t('spotlight.clickStyle', '点击动效风格')}</span>
-                <span className="spotlight-page__prop-desc">{t('spotlight.clickStyleDesc', '选择鼠标点击时的视觉波纹与反馈形态')}</span>
+            <div className="spotlight-page__inset-panel">
+              {/* 点击动效风格矩阵 */}
+              <div>
+                <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
+                  <span className="spotlight-page__section-title">
+                    <Sparkles size={15} />
+                    <span>{t('spotlight.clickStyle', '点击动效风格')}</span>
+                  </span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.clickStyleDesc', '选择鼠标点击时的视觉波纹与微粒反馈形态')}</span>
+                </div>
+                <div className="spotlight-page__style-grid">
+                  {/* 1. 星芒微粒迸发 (默认) */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'sparkle_burst' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'sparkle_burst')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Sparkles size={16} />
+                      <span>{t('spotlight.styleSparkleBurst', '星芒微粒迸发')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSparkleBurstDesc', '点击瞬间向四周迸发数颗微型星芒光粒，灵动活泼')}</span>
+                  </div>
+
+                  {/* 2. 流体光圈冲击波 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'ripple_ring' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'ripple_ring')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Waves size={16} />
+                      <span>{t('spotlight.styleRippleRing', '流体光圈冲击波')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', '双层半透明流体冲击波光环平滑向外扩散，经典直观')}</span>
+                  </div>
+
+                  {/* 3. 精密雷达靶心 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'target_pulse' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'target_pulse')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Crosshair size={16} />
+                      <span>{t('spotlight.styleTargetPulse', '精密雷达靶心')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTargetPulseDesc', '极细科技感准星与向中心收缩的聚焦环，精准指引视线')}</span>
+                  </div>
+
+                  {/* 4. 柔光微晕气泡 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'soft_glow' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'soft_glow')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <CircleDot size={16} />
+                      <span>{t('spotlight.styleSoftGlow', '柔光微晕气泡')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSoftGlowDesc', '极简羽化径向微光晕，温润轻柔，零干扰不刺眼')}</span>
+                  </div>
+
+                  {/* 5. 超新星微爆发 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'supernova' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'supernova')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Flame size={16} />
+                      <span>{t('spotlight.styleSupernova', '超新星微爆发')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSupernovaDesc', '高能微核心瞬间坍缩并喷射环形光子激波，视觉张力充沛')}</span>
+                  </div>
+
+                  {/* 6. 电磁脉冲放电 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'emp_discharge' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'emp_discharge')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Zap size={16} />
+                      <span>{t('spotlight.styleEmpDischarge', '电磁脉冲放电')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleEmpDischargeDesc', '微型高频折线电弧向四周瞬间放电，极具极客科技感')}</span>
+                  </div>
+
+                  {/* 7. 宣纸墨滴晕染 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'ink_droplet' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'ink_droplet')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Droplets size={16} />
+                      <span>{t('spotlight.styleInkDroplet', '宣纸墨滴晕染')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleInkDropletDesc', '水墨在宣纸上缓缓化开的温润质感，极简东方美学')}</span>
+                  </div>
+
+                  {/* 8. 六边形蜂巢锁定 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'hexagon_lock' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'hexagon_lock')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Shield size={16} />
+                      <span>{t('spotlight.styleHexagonLock', '六边形蜂巢锁定')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleHexagonLockDesc', '正六边形几何线框旋转收缩锁定，精准硬核')}</span>
+                  </div>
+
+                  {/* 9. 微气泡轻破 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.clickRippleStyle === 'bubble_pop' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('clickRippleStyle', 'bubble_pop')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Circle size={16} />
+                      <span>{t('spotlight.styleBubblePop', '微气泡轻破')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBubblePopDesc', '晶莹透明微气泡瞬间破裂飞散出极细水雾微粒')}</span>
+                  </div>
+                </div>
               </div>
-              <div className="spotlight-page__style-grid">
-                {/* 1. 流体光圈冲击波 */}
-                <div
-                  className={`spotlight-page__style-card ${settings.clickRippleStyle === 'ripple_ring' ? 'spotlight-page__style-card--active' : ''}`}
-                  onClick={() => saveSetting('clickRippleStyle', 'ripple_ring')}
-                >
-                  <div className="spotlight-page__style-card-header">
-                    <Waves size={16} />
-                    <span>{t('spotlight.styleRippleRing', '流体光圈冲击波')}</span>
-                  </div>
-                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', '双层半透明流体冲击波光环平滑向外扩散，经典直观')}</span>
-                </div>
 
-                {/* 2. 星芒微粒迸发 */}
-                <div
-                  className={`spotlight-page__style-card ${settings.clickRippleStyle === 'sparkle_burst' ? 'spotlight-page__style-card--active' : ''}`}
-                  onClick={() => saveSetting('clickRippleStyle', 'sparkle_burst')}
-                >
-                  <div className="spotlight-page__style-card-header">
-                    <Sparkles size={16} />
-                    <span>{t('spotlight.styleSparkleBurst', '星芒微粒迸发')}</span>
-                  </div>
-                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleSparkleBurstDesc', '点击瞬间向四周迸发数颗微型星芒光粒，灵动活泼')}</span>
+              {/* 独立按键点击颜色 */}
+              <div style={{ paddingTop: '12px', borderTop: '1px solid var(--input-border)' }}>
+                <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
+                  <span className="spotlight-page__section-title">
+                    <Palette size={15} />
+                    <span>{t('spotlight.clickColorsSection', '独立按键色彩体系')}</span>
+                  </span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.clickColorsSectionDesc', '分别为鼠标左键、右键与中键设置专属点击色彩')}</span>
                 </div>
+                <div className="spotlight-page__grid">
+                  {/* 左键颜色 */}
+                  <ColorSegmentControl
+                    label={t('spotlight.leftClickColor', '左键点击颜色')}
+                    value={settings.leftClickColor}
+                    defaultCustomFallback="#3b82f6"
+                    brandAccentHex={currentBrandAccentHex}
+                    onChange={(val) => saveSetting('leftClickColor', val)}
+                  />
 
-                {/* 3. 精密雷达靶心 */}
-                <div
-                  className={`spotlight-page__style-card ${settings.clickRippleStyle === 'target_pulse' ? 'spotlight-page__style-card--active' : ''}`}
-                  onClick={() => saveSetting('clickRippleStyle', 'target_pulse')}
-                >
-                  <div className="spotlight-page__style-card-header">
-                    <Crosshair size={16} />
-                    <span>{t('spotlight.styleTargetPulse', '精密雷达靶心')}</span>
-                  </div>
-                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleTargetPulseDesc', '极细科技感准星与向中心收缩的聚焦环，精准指引视线')}</span>
-                </div>
+                  {/* 右键颜色 */}
+                  <ColorSegmentControl
+                    label={t('spotlight.rightClickColor', '右键点击颜色')}
+                    value={settings.rightClickColor}
+                    defaultCustomFallback="#fb7185"
+                    brandAccentHex={currentBrandAccentHex}
+                    onChange={(val) => saveSetting('rightClickColor', val)}
+                  />
 
-                {/* 4. 柔光微晕气泡 */}
-                <div
-                  className={`spotlight-page__style-card ${settings.clickRippleStyle === 'soft_glow' ? 'spotlight-page__style-card--active' : ''}`}
-                  onClick={() => saveSetting('clickRippleStyle', 'soft_glow')}
-                >
-                  <div className="spotlight-page__style-card-header">
-                    <CircleDot size={16} />
-                    <span>{t('spotlight.styleSoftGlow', '柔光微晕气泡')}</span>
-                  </div>
-                  <span className="spotlight-page__style-card-desc">{t('spotlight.styleSoftGlowDesc', '极简羽化径向微光晕，温润轻柔，零干扰不刺眼')}</span>
+                  {/* 中键颜色 */}
+                  <ColorSegmentControl
+                    label={t('spotlight.middleClickColor', '中键点击颜色')}
+                    value={settings.middleClickColor}
+                    defaultCustomFallback="#fbbf24"
+                    brandAccentHex={currentBrandAccentHex}
+                    onChange={(val) => saveSetting('middleClickColor', val)}
+                  />
                 </div>
               </div>
             </div>
           )}
+        </Card>
 
-          <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--card-border)' }}>
-            <Toggle
-              id="spotlight-mouse-trail"
-              label={t('spotlight.mouseTrail', '显示鼠标轨迹')}
-              description={t('spotlight.mouseTrailDesc', '在鼠标移动路径上显示渐隐彩色轨迹。')}
-              checked={settings.mouseTrailEnabled}
-              onChange={(v) => saveSetting('mouseTrailEnabled', v)}
-            />
-          </div>
+        {/* 4.2 鼠标移动轨迹独立卡片 */}
+        <Card>
+          <Toggle
+            id="spotlight-mouse-trail"
+            label={t('spotlight.mouseTrail', '显示鼠标轨迹')}
+            description={t('spotlight.mouseTrailDesc', '在鼠标移动路径上呈现渐隐流动光效与微粒子。')}
+            checked={settings.mouseTrailEnabled}
+            onChange={(v) => saveSetting('mouseTrailEnabled', v)}
+          />
 
           {settings.mouseTrailEnabled && (
-            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* 轨迹风格 */}
+            <div className="spotlight-page__inset-panel">
+              {/* 轨迹风格矩阵 */}
               <div>
-                <div style={{ marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span className="spotlight-page__prop-title">{t('spotlight.trailStyle', '轨迹动效风格')}</span>
-                  <span className="spotlight-page__prop-desc">{t('spotlight.trailStyleDesc', '选择适合您演示或日常工作习惯的鼠标轨迹形态')}</span>
+                <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
+                  <span className="spotlight-page__section-title">
+                    <Waves size={15} />
+                    <span>{t('spotlight.trailStyle', '轨迹动效风格')}</span>
+                  </span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.trailStyleDesc', '选择适合您演示或日常工作习惯的鼠标轨迹形态')}</span>
                 </div>
                 <div className="spotlight-page__style-grid">
-                  {/* 1. 七彩星尘光球 */}
-                  <div
-                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'stardust_orbs' ? 'spotlight-page__style-card--active' : ''}`}
-                    onClick={() => saveSetting('mouseTrailStyle', 'stardust_orbs')}
-                  >
-                    <div className="spotlight-page__style-card-header">
-                      <Sparkles size={16} />
-                      <span>{t('spotlight.styleStardustOrbs', '七彩星尘光球')}</span>
-                    </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', '大中小错落的七彩微型浮动光球，轻盈通透不遮挡文字，守护专注心流')}</span>
-                  </div>
-
-                  {/* 2. 极光流体丝带 */}
-                  <div
-                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'aurora_ribbon' ? 'spotlight-page__style-card--active' : ''}`}
-                    onClick={() => saveSetting('mouseTrailStyle', 'aurora_ribbon')}
-                  >
-                    <div className="spotlight-page__style-card-header">
-                      <Waves size={16} />
-                      <span>{t('spotlight.styleAuroraRibbon', '极光流体丝带')}</span>
-                    </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRibbonDesc', '极细半透明流体渐变丝带，优雅锐利')}</span>
-                  </div>
-
-                  {/* 3. 彩色声纳微环 */}
+                  {/* 1. 彩色声纳微环 (默认) */}
                   <div
                     className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'sonar_pulses' ? 'spotlight-page__style-card--active' : ''}`}
                     onClick={() => saveSetting('mouseTrailStyle', 'sonar_pulses')}
@@ -508,7 +601,91 @@ export const SpotlightPage: FC = () => {
                     <span className="spotlight-page__style-card-desc">{t('spotlight.styleSonarPulsesDesc', '大间距彩色微光足迹环，95% 空间通透')}</span>
                   </div>
 
-                  {/* 4. 经典彗星流光 */}
+                  {/* 2. 七彩星尘光球 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'stardust_orbs' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'stardust_orbs')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Sparkles size={16} />
+                      <span>{t('spotlight.styleStardustOrbs', '七彩星尘光球')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', '大中小错落的七彩微型浮动光球，轻盈通透不遮挡文字，守护专注心流')}</span>
+                  </div>
+
+                  {/* 3. 量子引力微子 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'quantum_lens' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'quantum_lens')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Atom size={16} />
+                      <span>{t('spotlight.styleQuantumLens', '量子引力微子')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleQuantumLensDesc', '微光子沿轨道自旋公转，模拟微观量子引力透镜场')}</span>
+                  </div>
+
+                  {/* 4. 特斯拉电弧微流 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'tesla_arc' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'tesla_arc')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Zap size={16} />
+                      <span>{t('spotlight.styleTeslaArc', '特斯拉电弧微流')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTeslaArcDesc', '前后节点间生成高能微电浆跳跃折线，赛博朋克质感')}</span>
+                  </div>
+
+                  {/* 5. 宣纸水墨烟云 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'zen_ink' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'zen_ink')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <PenTool size={16} />
+                      <span>{t('spotlight.styleZenInk', '宣纸水墨烟云')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleZenInkDesc', '随移动速度动态改变粗细的宣纸水墨笔触与渐隐烟流')}</span>
+                  </div>
+
+                  {/* 6. CAD 矢量标尺 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'blueprint_grid' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'blueprint_grid')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Compass size={16} />
+                      <span>{t('spotlight.styleBlueprintGrid', 'CAD 矢量标尺')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBlueprintGridDesc', '节点呈现极细十字瞄准线与直角网格，精准工业制图感')}</span>
+                  </div>
+
+                  {/* 7. 晨露微气泡 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'morning_dew' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'morning_dew')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Droplets size={16} />
+                      <span>{t('spotlight.styleMorningDew', '晨露微气泡')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleMorningDewDesc', '晶莹剔透向上微漂浮的小露珠，自然灵动')}</span>
+                  </div>
+
+                  {/* 8. 极光流体丝带 */}
+                  <div
+                    className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'aurora_ribbon' ? 'spotlight-page__style-card--active' : ''}`}
+                    onClick={() => saveSetting('mouseTrailStyle', 'aurora_ribbon')}
+                  >
+                    <div className="spotlight-page__style-card-header">
+                      <Waves size={16} />
+                      <span>{t('spotlight.styleAuroraRibbon', '极光流体丝带')}</span>
+                    </div>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRibbonDesc', '极细半透明流体渐变丝带，优雅锐利')}</span>
+                  </div>
+
+                  {/* 9. 经典彗星流光 */}
                   <div
                     className={`spotlight-page__style-card ${settings.mouseTrailStyle === 'classic_comet' ? 'spotlight-page__style-card--active' : ''}`}
                     onClick={() => saveSetting('mouseTrailStyle', 'classic_comet')}
@@ -523,63 +700,35 @@ export const SpotlightPage: FC = () => {
               </div>
 
               {/* 轨迹色彩模式 */}
-              <div className="spotlight-page__prop-card" style={{ marginTop: '4px' }}>
-                <div className="spotlight-page__prop-header">
-                  <span className="spotlight-page__prop-title">{t('spotlight.trailColorMode', '轨迹色彩模式')}</span>
-                  <span className="spotlight-page__prop-desc">{t('spotlight.trailColorModeDesc', '设置轨迹颜色流转规则')}</span>
-                </div>
-                <div className="spotlight-page__capsule-wrap" style={{ maxWidth: '380px' }}>
-                  <button
-                    type="button"
-                    className={`spotlight-page__capsule-btn ${settings.mouseTrailColorMode === 'rainbow' ? 'spotlight-page__capsule-btn--active' : ''}`}
-                    onClick={() => saveSetting('mouseTrailColorMode', 'rainbow')}
-                  >
-                    <Rainbow size={14} />
-                    <span>{t('spotlight.trailColorModeRainbow', '七彩流光谱系')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`spotlight-page__capsule-btn ${settings.mouseTrailColorMode === 'accent' ? 'spotlight-page__capsule-btn--active' : ''}`}
-                    onClick={() => saveSetting('mouseTrailColorMode', 'accent')}
-                  >
-                    <Palette size={14} />
-                    <span>{t('spotlight.trailColorModeAccent', '跟随强调色 / 自定义')}</span>
-                  </button>
+              <div style={{ paddingTop: '12px', borderTop: '1px solid var(--input-border)' }}>
+                <div className="spotlight-page__prop-card" style={{ background: 'var(--card-bg)' }}>
+                  <div className="spotlight-page__prop-header">
+                    <span className="spotlight-page__prop-title">{t('spotlight.trailColorMode', '轨迹色彩模式')}</span>
+                    <span className="spotlight-page__prop-desc">{t('spotlight.trailColorModeDesc', '设置轨迹颜色流转规则')}</span>
+                  </div>
+                  <div className="spotlight-page__capsule-wrap" style={{ maxWidth: '380px' }}>
+                    <button
+                      type="button"
+                      className={`spotlight-page__capsule-btn ${settings.mouseTrailColorMode === 'rainbow' ? 'spotlight-page__capsule-btn--active active' : ''}`}
+                      onClick={() => saveSetting('mouseTrailColorMode', 'rainbow')}
+                    >
+                      <Rainbow size={14} />
+                      <span>{t('spotlight.trailColorModeRainbow', '七彩流光谱系')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`spotlight-page__capsule-btn ${settings.mouseTrailColorMode === 'accent' ? 'spotlight-page__capsule-btn--active active' : ''}`}
+                      onClick={() => saveSetting('mouseTrailColorMode', 'accent')}
+                    >
+                      <Palette size={14} />
+                      <span>{t('spotlight.trailColorModeAccent', '跟随强调色 / 自定义')}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </Card>
-
-        {/* 独立按键点击颜色 (双态胶囊体系) */}
-        <div className="spotlight-page__grid" style={{ marginTop: '16px' }}>
-          {/* 左键颜色 */}
-          <ColorSegmentControl
-            label={t('spotlight.leftClickColor', '左键点击颜色')}
-            value={settings.leftClickColor}
-            defaultCustomFallback="#3b82f6"
-            brandAccentHex={currentBrandAccentHex}
-            onChange={(val) => saveSetting('leftClickColor', val)}
-          />
-
-          {/* 右键颜色 */}
-          <ColorSegmentControl
-            label={t('spotlight.rightClickColor', '右键点击颜色')}
-            value={settings.rightClickColor}
-            defaultCustomFallback="#fb7185"
-            brandAccentHex={currentBrandAccentHex}
-            onChange={(val) => saveSetting('rightClickColor', val)}
-          />
-
-          {/* 中键颜色 */}
-          <ColorSegmentControl
-            label={t('spotlight.middleClickColor', '中键点击颜色')}
-            value={settings.middleClickColor}
-            defaultCustomFallback="#fbbf24"
-            brandAccentHex={currentBrandAccentHex}
-            onChange={(val) => saveSetting('middleClickColor', val)}
-          />
-        </div>
       </SettingGroup>
 
       {/* ── 底部即刻体验栏 ──────────────────────────────────────────── */}

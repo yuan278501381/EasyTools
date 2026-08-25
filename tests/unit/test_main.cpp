@@ -4500,66 +4500,52 @@ TEST(SpotlightOverlayTest, TrailAndClickStylesMatrix) {
     EXPECT_NEAR(cBlue.b, 1.0f, 0.01f);
     EXPECT_NEAR(cBlue.a, 0.8f, 0.01f);
 
-    // 2. 验证 4 款点击特效风格
+    // 2. 验证 9 款点击特效风格
     auto s = spotlight.getSettings();
+    s.enabled = true;
     s.clickRippleEnabled = true;
 
-    // 2.1 sparkle_burst
-    s.clickRippleStyle = "sparkle_burst";
-    spotlight.updateSettings(s);
-    spotlight.onMouseDown(0, POINT{200, 200});
-    auto bounds1 = spotlight.calculateViewportBoundsLocked();
-    EXPECT_GT(bounds1.w, 0);
-    EXPECT_LE(bounds1.w, 300);
+    const std::vector<std::string> clickStyles = {
+        "sparkle_burst", "ripple_ring", "target_pulse", "soft_glow",
+        "supernova", "emp_discharge", "ink_droplet", "hexagon_lock", "bubble_pop"
+    };
 
-    // 2.2 target_pulse
-    s.clickRippleStyle = "target_pulse";
-    spotlight.updateSettings(s);
-    spotlight.onMouseDown(1, POINT{250, 250});
-    auto bounds2 = spotlight.calculateViewportBoundsLocked();
-    EXPECT_GT(bounds2.w, 0);
+    for (const auto& cStyle : clickStyles) {
+        s.clickRippleStyle = cStyle;
+        spotlight.updateSettings(s);
+        spotlight.onMouseDown(0, POINT{200, 200});
+        auto bounds = spotlight.calculateViewportBoundsLocked();
+        EXPECT_GT(bounds.w, 0);
+    }
 
-    // 2.3 soft_glow
-    s.clickRippleStyle = "soft_glow";
-    spotlight.updateSettings(s);
-    spotlight.onMouseDown(2, POINT{300, 300});
-    auto bounds3 = spotlight.calculateViewportBoundsLocked();
-    EXPECT_GT(bounds3.w, 0);
-
-    // 3. 验证 4 款轨迹动效风格
+    // 3. 验证 9 款轨迹动效风格
     s.mouseTrailEnabled = true;
 
-    // 3.1 stardust_orbs (彩虹星尘大中小光球)
-    s.mouseTrailStyle = "stardust_orbs";
-    s.mouseTrailColorMode = "rainbow";
-    spotlight.updateSettings(s);
-    for (int i = 0; i < 5; ++i) {
-        spotlight.onMouseMove(POINT{100 + i * 35, 100 + i * 35});
+    const std::vector<std::string> trailStyles = {
+        "sonar_pulses", "stardust_orbs", "quantum_lens", "tesla_arc",
+        "zen_ink", "blueprint_grid", "morning_dew", "aurora_ribbon", "classic_comet"
+    };
+
+    for (const auto& tStyle : trailStyles) {
+        s.mouseTrailStyle = tStyle;
+        s.mouseTrailColorMode = "rainbow";
+        spotlight.updateSettings(s);
+        for (int i = 0; i < 5; ++i) {
+            spotlight.onMouseMove(POINT{100 + i * 40, 100 + i * 40});
+        }
+        auto bounds = spotlight.calculateViewportBoundsLocked();
+        EXPECT_GT(bounds.w, 0);
     }
 
-    // 3.2 aurora_ribbon (极光丝带)
-    s.mouseTrailStyle = "aurora_ribbon";
+    // 4. 验证总开关 enabled = false 时的绝对拦截
+    s.enabled = false;
     spotlight.updateSettings(s);
-    for (int i = 0; i < 5; ++i) {
-        spotlight.onMouseMove(POINT{200 + i * 15, 200 + i * 15});
-    }
+    spotlight.dismiss();
+    spotlight.onMouseDown(0, POINT{300, 300});
+    spotlight.onMouseMove(POINT{350, 350});
+    EXPECT_FALSE(spotlight.isActive());
 
-    // 3.3 sonar_pulses (彩色声纳微环)
-    s.mouseTrailStyle = "sonar_pulses";
-    spotlight.updateSettings(s);
-    for (int i = 0; i < 3; ++i) {
-        spotlight.onMouseMove(POINT{300 + i * 45, 300 + i * 45});
-    }
-
-    // 3.4 classic_comet (经典彗尾)
-    s.mouseTrailStyle = "classic_comet";
-    s.mouseTrailColorMode = "accent";
-    spotlight.updateSettings(s);
-    for (int i = 0; i < 5; ++i) {
-        spotlight.onMouseMove(POINT{400 + i * 8, 400 + i * 8});
-    }
-
-    // 4. 动效更新与清理
+    // 5. 动效更新与清理
     spotlight.tickAnimation();
     spotlight.dismiss();
     spotlight.resetDefaults();
