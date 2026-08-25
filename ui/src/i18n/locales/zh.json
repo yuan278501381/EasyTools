@@ -798,6 +798,8 @@
     "caseDesc": "默认不区分大小写；可随时在搜索词中使用 case: 前缀临时开启",
     "keepServiceTitle": "退出后保持索引常驻",
     "keepServiceDesc": "索引常驻约占数百 MB 内存。默认随主程序一起退出并释放，代价是下次首搜需等待几秒重建；开启后始终秒开",
+    "autoBypassFullscreen": "全屏游戏/视频免打扰",
+    "autoBypassFullscreenDesc": "前台处于全屏独占应用时自动免打扰忽略快捷键，防止 3D 游戏或全屏观影时误唤出搜索框",
     "maxResultsTitle": "最大返回结果数",
     "maxResultsDesc": "限制单次查询返回条目数以保证极致流畅度",
     "saved": "搜索设置已保存",

@@ -798,6 +798,8 @@
     "caseDesc": "Match exact case; can also be toggled with case: prefix in query",
     "keepServiceTitle": "Keep Index Resident After Exit",
     "keepServiceDesc": "The index holds several hundred MB. By default it exits with the app and frees that memory, at the cost of a few seconds before the first search; keep it resident for instant search",
+    "autoBypassFullscreen": "Fullscreen Game/Video Bypass",
+    "autoBypassFullscreenDesc": "Automatically suppress search hotkey when foreground window is in exclusive fullscreen mode to prevent disrupting gaming or video playback",
     "maxResultsTitle": "Maximum Results",
     "maxResultsDesc": "Limit results count to maintain 60 FPS performance",
     "saved": "Search settings saved",

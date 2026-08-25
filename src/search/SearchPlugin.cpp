@@ -769,6 +769,7 @@ public:
             bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
             bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
             bool keepServiceRunning = cfg.get<bool>("/search/keepServiceRunning", false);
+            bool autoBypassFullscreen = cfg.get<bool>("/search/autoBypassFullscreen", true);
 
             return {
                 {"keepServiceRunning", keepServiceRunning},
@@ -781,7 +782,8 @@ public:
                 {"enabledDrives", enabledDrives},
                 {"excludePatterns", excludePatterns},
                 {"excludeHidden", excludeHidden},
-                {"excludeSystem", excludeSystem}
+                {"excludeSystem", excludeSystem},
+                {"autoBypassFullscreen", autoBypassFullscreen}
             };
         });
 
@@ -819,6 +821,9 @@ public:
             }
             if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
                 cfg.set("/search/keepServiceRunning", params["keepServiceRunning"].get<bool>());
+            }
+            if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
+                cfg.set("/search/autoBypassFullscreen", params["autoBypassFullscreen"].get<bool>());
             }
             return {{"success", true}};
         });

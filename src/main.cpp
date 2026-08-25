@@ -63,6 +63,7 @@
 #include "ui/TrayWindow.h"
 #include "ui/ToastOverlay.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "gesture/GestureInputPolicy.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
@@ -539,19 +540,32 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             "/hotkeys/Toggle Search", searchFallback.toString());
         const auto searchHotkey = searchText.empty() ? easy::core::HotkeyDef{}
             : easy::core::HotkeyDef::fromString(searchText).value_or(searchFallback);
-        easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, []() {
+        auto toggleSearchSafe = []() {
             auto& searchWnd = easy::ui::SearchWindow::instance();
-            if (searchWnd.isVisible()) searchWnd.hide();
-            else searchWnd.show(GetModuleHandleW(nullptr));
+            if (searchWnd.isVisible()) {
+                searchWnd.hide();
+                return;
+            }
+            if (easy::core::ConfigManager::instance().get<bool>("/search/autoBypassFullscreen", true)) {
+                HWND fg = GetForegroundWindow();
+                if (fg && easy::core::WinUtils::isWindowFullscreen(fg)) {
+                    const std::wstring classWide = easy::core::WinUtils::getWindowClassName(fg);
+                    if (easy::gesture::shouldAutoBypassFullscreenGestures(true, easy::gesture::isProductivityToolkitClassName(classWide))) {
+                        LOG_INFO("前台处于全屏独占应用，自动免打扰跳过搜索窗口呼出: hwnd=0x{:X}", reinterpret_cast<uintptr_t>(fg));
+                        return;
+                    }
+                }
+            }
+            searchWnd.show(GetModuleHandleW(nullptr));
+        };
+
+        easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, [toggleSearchSafe]() {
+            toggleSearchSafe();
         });
 
         easy::core::MessageBridge::instance().registerHandler(
-            "search.toggle", [](const nlohmann::json&) -> nlohmann::json {
-                if (easy::ui::SearchWindow::instance().isVisible()) {
-                    easy::ui::SearchWindow::instance().hide();
-                } else {
-                    easy::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
-                }
+            "search.toggle", [toggleSearchSafe](const nlohmann::json&) -> nlohmann::json {
+                toggleSearchSafe();
                 return {{"success", true}};
             });
         easy::core::MessageBridge::instance().registerHandler(
