@@ -97,6 +97,7 @@ const EXPLICIT_SETTINGS_METHODS = new Set([
   'dialog.clearAppMemories',
   'hotcorner.updateSettings',
   'ocr.updateSettings',
+  'keycast.updateSettings',
   'config.set',
   'plugins.setEnabled',
   'hotkey.rebind',

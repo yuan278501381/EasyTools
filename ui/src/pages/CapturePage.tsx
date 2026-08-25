@@ -21,6 +21,7 @@ interface CaptureSettings {
   showCrosshair: boolean;
   autoDetectWindow: boolean;
   showShortcutHints: boolean;
+  autoBypassFullscreen?: boolean;
   shortcut?: string;
   saveDirectory?: string;
 }
@@ -63,6 +64,7 @@ export const CapturePage: FC = () => {
   const [capture, setCapture] = useState<CaptureSettings>({
     format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
     showCrosshair: false, autoDetectWindow: true, showShortcutHints: true,
+    autoBypassFullscreen: true,
   });
   const [recording, setRecording] = useState<RecordingSettings>({
     format: 'mp4_h264', fps: 30, bitrate: 8, includeCursor: true, showClickEffects: false,
@@ -292,6 +294,13 @@ export const CapturePage: FC = () => {
             description={t('capture.showShortcutHintsDesc')}
             checked={capture.showShortcutHints}
             onChange={(v) => updateCapture('showShortcutHints', v)}
+          />
+          <Toggle
+            id="capture-auto-bypass"
+            label={t('capture.autoBypassFullscreen')}
+            description={t('capture.autoBypassFullscreenDesc')}
+            checked={capture.autoBypassFullscreen ?? true}
+            onChange={(v) => updateCapture('autoBypassFullscreen', v)}
           />
         </Card>
       </SettingGroup>

@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include <atomic>
 
 namespace easy::keycast {
 
@@ -22,6 +23,10 @@ public:
     // push a new keystroke combination to display
     void pushKey(const std::string& keyStr);
 
+    /// 全屏免打扰
+    void setAutoBypassFullscreen(bool enable) { m_autoBypassFullscreen.store(enable); }
+    bool autoBypassFullscreen() const { return m_autoBypassFullscreen.load(); }
+
 private:
     KeycastOverlay() = default;
     ~KeycastOverlay() = default;
@@ -33,6 +38,7 @@ private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd = nullptr;
+    std::atomic<bool> m_autoBypassFullscreen{true};
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;

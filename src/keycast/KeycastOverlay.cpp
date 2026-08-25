@@ -5,6 +5,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/utils/ThemeUtils.h"
 #include "core/config/ConfigManager.h"
+#include "gesture/GestureInputPolicy.h"
 #include <algorithm>
 #include <vector>
 #include <cmath>
@@ -52,6 +53,8 @@ bool KeycastOverlay::init() {
     if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
         LOG_WARN("当前 Windows 版本无法从捕获中排除按键回显: error={}", GetLastError());
     }
+
+    m_autoBypassFullscreen.store(easy::core::ConfigManager::instance().get<bool>("/keycast/autoBypassFullscreen", true));
 
     // Graphics resources stay lazy until the first keystroke so a disabled or
     // unused plugin does not allocate a large high-DPI backing bitmap.

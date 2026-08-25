@@ -29,6 +29,7 @@ interface CornerAction {
 
 interface HotCornerSettings {
   enabled: boolean;
+  autoBypassFullscreen?: boolean;
   delay: number;
   corners: Record<CornerPosition, CornerAction>;
 }
@@ -47,6 +48,7 @@ const CORNER_POSITIONS: { key: CornerPosition; cssClass: string; labelKey: 'hotc
 
 const DEFAULT_SETTINGS: HotCornerSettings = {
   enabled: false,
+  autoBypassFullscreen: true,
   delay: 300,
   corners: {
     topLeft:     { commandIndex: -1 },
@@ -134,6 +136,13 @@ export const HotCornerPage: FC = () => {
             description={t('hotcorner.enabledDesc')}
             checked={settings.enabled}
             onChange={(v) => updateSetting('enabled', v)}
+          />
+          <Toggle
+            id="hotcorner-auto-bypass"
+            label={t('hotcorner.autoBypassFullscreen')}
+            description={t('hotcorner.autoBypassFullscreenDesc')}
+            checked={settings.autoBypassFullscreen ?? true}
+            onChange={(v) => updateSetting('autoBypassFullscreen', v)}
           />
         </Card>
       </SettingGroup>

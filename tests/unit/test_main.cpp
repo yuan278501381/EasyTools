@@ -3411,6 +3411,11 @@ TEST(HotCornerEngineTest, DetectionAndConfiguration) {
     engine.setTriggerDelay(150);
     EXPECT_EQ(engine.triggerDelay(), 150);
 
+    engine.setAutoBypassFullscreen(false);
+    EXPECT_FALSE(engine.autoBypassFullscreen());
+    engine.setAutoBypassFullscreen(true);
+    EXPECT_TRUE(engine.autoBypassFullscreen());
+
     engine.setCornerAction(HotCorner::TopLeft, "app:taskview");
     EXPECT_EQ(engine.getCornerAction(HotCorner::TopLeft), "app:taskview");
     engine.setCornerAction(HotCorner::BottomRight, "app:desktop");

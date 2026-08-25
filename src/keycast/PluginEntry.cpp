@@ -2,6 +2,8 @@
 #include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
 #include "core/hotkey/KeyboardHook.h"
+#include "core/ipc/MessageBridge.h"
+#include "core/config/ConfigManager.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
 
@@ -25,12 +27,36 @@ public:
             KeycastOverlay::instance().pushKey(sequence);
         });
 
+        auto& mb = easy::core::MessageBridge::instance();
+        mb.registerHandler("keycast.getSettings", [](const nlohmann::json&) -> nlohmann::json {
+            auto& overlay = KeycastOverlay::instance();
+            return {
+                {"autoBypassFullscreen", overlay.autoBypassFullscreen()}
+            };
+        });
+
+        mb.registerHandler("keycast.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
+            if (!params.is_object() || params.empty()) {
+                return {{"success", false}, {"error", "no settings supplied"}};
+            }
+            if (params.contains("autoBypassFullscreen")) {
+                if (!params["autoBypassFullscreen"].is_boolean()) {
+                    return {{"success", false}, {"error", "autoBypassFullscreen must be boolean"}};
+                }
+                const bool val = params["autoBypassFullscreen"].get<bool>();
+                easy::core::ConfigManager::instance().set("/keycast/autoBypassFullscreen", val);
+                KeycastOverlay::instance().setAutoBypassFullscreen(val);
+            }
+            return {{"success", true}};
+        });
+
         return true;
     }
 
     void shutdown() override {
         LOG_INFO("Keycast Plugin shutdown");
         
+        easy::core::MessageBridge::instance().unregisterHandlersByPrefix("keycast.");
         easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
         
         // Cleanup Overlay UI

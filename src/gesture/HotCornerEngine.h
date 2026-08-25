@@ -48,6 +48,10 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled() const { return m_enabled.load(); }
 
+    /// 全屏免打扰
+    void setAutoBypassFullscreen(bool enable) { m_autoBypassFullscreen.store(enable); }
+    bool autoBypassFullscreen() const { return m_autoBypassFullscreen.load(); }
+
     /// 设置触发延迟（毫秒）
     void setTriggerDelay(int ms) { m_triggerDelayMs.store(ms); }
     int triggerDelay() const { return m_triggerDelayMs.load(); }
@@ -65,6 +69,7 @@ private:
 
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_enabled{true};
+    std::atomic<bool> m_autoBypassFullscreen{true}; // 默认开启全屏免打扰
     std::atomic<int> m_triggerDelayMs{300}; // 默认停留 300 毫秒触发
 
     std::thread m_thread;

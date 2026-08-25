@@ -1,7 +1,9 @@
 #include "gesture/HotCornerEngine.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
+#include "core/utils/WinUtils.h"
 #include "gesture/BuiltinCommands.h"
+#include "gesture/GestureInputPolicy.h"
 #include <algorithm>
 
 namespace easy::gesture {
@@ -104,6 +106,19 @@ void HotCornerEngine::workerThread() {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cornerEnterTime).count();
 
             if (elapsed >= m_triggerDelayMs.load()) {
+                // 检查全屏免打扰
+                if (m_autoBypassFullscreen.load()) {
+                    HWND fg = GetForegroundWindow();
+                    if (fg && easy::core::WinUtils::isWindowFullscreen(fg)) {
+                        const std::wstring classWide = easy::core::WinUtils::getWindowClassName(fg);
+                        if (shouldAutoBypassFullscreenGestures(true, isProductivityToolkitClassName(classWide))) {
+                            LOG_TRACE("前台处于全屏独占，触发角自动静默: hwnd=0x{:X}", reinterpret_cast<uintptr_t>(fg));
+                            triggered = true;
+                            continue;
+                        }
+                    }
+                }
+
                 // 检查冷却
                 if (now - lastTriggerTime >= cooldownDuration) {
                     std::string cmd = getCornerAction(currentCorner);
