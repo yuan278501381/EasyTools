@@ -22,6 +22,8 @@ export const SavedToast: FC = () => {
     type: 'success',
   });
 
+  const visibleRef = useRef(false);
+  const exitingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -42,13 +44,17 @@ export const SavedToast: FC = () => {
   }, []);
 
   const dismiss = useCallback(() => {
-    if (!visible || exiting) return;
+    if (!visibleRef.current || exitingRef.current) return;
+    exitingRef.current = true;
     setExiting(true);
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     exitTimerRef.current = setTimeout(() => {
+      visibleRef.current = false;
+      exitingRef.current = false;
       setVisible(false);
       setExiting(false);
     }, 180);
-  }, [visible, exiting]);
+  }, []);
 
   const triggerToast = useCallback((detail?: SavedToastDetail, defaultType: SavedToastType = 'success') => {
     const toastType = detail?.type || defaultType;
@@ -58,18 +64,19 @@ export const SavedToast: FC = () => {
     }
 
     setToastData({ message: text, type: toastType });
+    exitingRef.current = false;
     setExiting(false);
 
-    if (visible) {
+    if (visibleRef.current) {
       // 当前已在展示，触发微脉冲动效并延展倒计时
       setPulsing(false);
       if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-      // requestAnimationFrame 保证动画重置生效
       requestAnimationFrame(() => {
         setPulsing(true);
         pulseTimerRef.current = setTimeout(() => setPulsing(false), 260);
       });
     } else {
+      visibleRef.current = true;
       setVisible(true);
     }
 
@@ -78,7 +85,7 @@ export const SavedToast: FC = () => {
     timerRef.current = setTimeout(() => {
       dismiss();
     }, duration);
-  }, [dismiss, t, visible]);
+  }, [dismiss, t]);
 
   useEffect(() => {
     const handleSaved = (e: Event) => {
