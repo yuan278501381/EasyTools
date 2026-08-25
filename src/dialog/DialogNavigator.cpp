@@ -205,13 +205,16 @@ std::wstring uiaGetValue(IUIAutomationElement* elem) {
     return result;
 }
 
-// 枚举子控件上下文结构体（Legacy 模式使用）
+// 枚举子控件上下文结构体
 struct EnumChildContext {
     HWND editHwnd{nullptr};
     HWND comboBoxHwnd{nullptr};
     HWND addressBandHwnd{nullptr};
     HWND shellViewHwnd{nullptr};
+    HWND namespaceTreeHwnd{nullptr};
     HWND okButtonHwnd{nullptr};
+    bool hasTabControl{false};
+    bool hasDefView{false};
 };
 
 BOOL CALLBACK EnumFileDialogChildren(HWND hwnd, LPARAM lParam) {
@@ -222,9 +225,15 @@ BOOL CALLBACK EnumFileDialogChildren(HWND hwnd, LPARAM lParam) {
     GetClassNameW(hwnd, className, 64);
     int ctrlId = GetDlgCtrlID(hwnd);
 
-    if (wcscmp(className, L"SHELLDLL_DefView") == 0 || wcscmp(className, L"DirectUIHWND") == 0) {
+    if (wcscmp(className, L"SHELLDLL_DefView") == 0) {
+        ctx->hasDefView = true;
         if (!ctx->shellViewHwnd) ctx->shellViewHwnd = hwnd;
+    } else if (wcscmp(className, L"NamespaceTreeControl") == 0) {
+        ctx->namespaceTreeHwnd = hwnd;
+    } else if (wcscmp(className, L"SysTabControl32") == 0) {
+        ctx->hasTabControl = true;
     }
+    
     if (wcscmp(className, L"ComboBoxEx32") == 0) {
         ctx->comboBoxHwnd = hwnd;
     } else if (wcscmp(className, L"Edit") == 0) {
@@ -278,11 +287,27 @@ bool DialogNavigator::isFileDialog(HWND hwnd) {
 
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid == GetCurrentProcessId()) return false;
+    if (pid == 0 || pid == GetCurrentProcessId()) return false;
 
     EnumChildContext ctx;
     EnumChildWindows(hwnd, EnumFileDialogChildren, reinterpret_cast<LPARAM>(&ctx));
-    return ctx.shellViewHwnd != nullptr || (ctx.editHwnd && ctx.okButtonHwnd) || ctx.comboBoxHwnd;
+
+    // 1. 属性页对话框（包含 SysTabControl32）绝对不是文件对话框
+    if (ctx.hasTabControl) return false;
+
+    // 2. Modern 文件对话框判定：必须有核心文件列表视图 SHELLDLL_DefView，或者包含左侧导航树 NamespaceTreeControl
+    if (ctx.hasDefView) return true;
+    if (ctx.namespaceTreeHwnd && (ctx.addressBandHwnd || ctx.okButtonHwnd)) return true;
+
+    // 3. Legacy 传统文件对话框判定：必须能成功响应 CDM_GETFOLDERPATH 消息
+    wchar_t cdmBuf[MAX_PATH] = {0};
+    LRESULT lr = 0;
+    if (sendMessageWithTimeout(hwnd, CDM_GETFOLDERPATH, MAX_PATH,
+                               reinterpret_cast<LPARAM>(cdmBuf), lr, 100) && lr > 0) {
+        return true;
+    }
+
+    return false;
 }
 
 // ============================================================

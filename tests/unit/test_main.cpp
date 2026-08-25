@@ -4240,6 +4240,15 @@ TEST(DialogNavigatorTest, NullSafetyAndValidation) {
     EXPECT_FALSE(easy::dialog::DialogNavigator::instance().navigateToFolder(nullptr, "C:\\NonExistentPath_12345"));
 }
 
+TEST(DialogNavigatorTest, NonFileDialogExclusion) {
+    // 验证自身创建的普通窗口绝不会被误判为文件对话框
+    HWND hwnd = CreateWindowExW(0, L"STATIC", L"TestDialog", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+    if (hwnd) {
+        EXPECT_FALSE(easy::dialog::DialogNavigator::isFileDialog(hwnd));
+        DestroyWindow(hwnd);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 56. 选区圆角手柄交互与实时调节测试套件
 // -----------------------------------------------------------------------------
