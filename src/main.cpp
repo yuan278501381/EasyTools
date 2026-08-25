@@ -895,7 +895,10 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             {"holdDurationMs", s.holdDurationMs},
             {"shakeThreshold", s.shakeThreshold},
             {"clickRippleEnabled", s.clickRippleEnabled},
+            {"clickRippleStyle", s.clickRippleStyle},
             {"mouseTrailEnabled", s.mouseTrailEnabled},
+            {"mouseTrailStyle", s.mouseTrailStyle},
+            {"mouseTrailColorMode", s.mouseTrailColorMode},
             {"leftClickColor", s.leftClickColor},
             {"rightClickColor", s.rightClickColor},
             {"middleClickColor", s.middleClickColor}
@@ -915,7 +918,10 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         if (params.contains("shakeThreshold") && params["shakeThreshold"].is_number()) s.shakeThreshold = params["shakeThreshold"].get<int>();
 
         if (params.contains("clickRippleEnabled") && params["clickRippleEnabled"].is_boolean()) s.clickRippleEnabled = params["clickRippleEnabled"].get<bool>();
+        if (params.contains("clickRippleStyle") && params["clickRippleStyle"].is_string()) s.clickRippleStyle = params["clickRippleStyle"].get<std::string>();
         if (params.contains("mouseTrailEnabled") && params["mouseTrailEnabled"].is_boolean()) s.mouseTrailEnabled = params["mouseTrailEnabled"].get<bool>();
+        if (params.contains("mouseTrailStyle") && params["mouseTrailStyle"].is_string()) s.mouseTrailStyle = params["mouseTrailStyle"].get<std::string>();
+        if (params.contains("mouseTrailColorMode") && params["mouseTrailColorMode"].is_string()) s.mouseTrailColorMode = params["mouseTrailColorMode"].get<std::string>();
         if (params.contains("leftClickColor") && params["leftClickColor"].is_string()) s.leftClickColor = params["leftClickColor"].get<std::string>();
         if (params.contains("rightClickColor") && params["rightClickColor"].is_string()) s.rightClickColor = params["rightClickColor"].get<std::string>();
         if (params.contains("middleClickColor") && params["middleClickColor"].is_string()) s.middleClickColor = params["middleClickColor"].get<std::string>();
