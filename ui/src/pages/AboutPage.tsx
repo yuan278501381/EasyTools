@@ -170,7 +170,7 @@ export const AboutPage: FC = () => {
         <div className="about-grand-showcase__aura"></div>
         <div className="about-grand-showcase__logo-container">
           <img
-            src="/Logo.png"
+            src="/Logo_Origin.png"
             width={180}
             height={180}
             className="about-grand-showcase__logo"
