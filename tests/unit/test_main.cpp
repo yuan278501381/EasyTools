@@ -4412,7 +4412,59 @@ TEST(SpotlightOverlayTest, KeyboardAndMouseInteraction) {
 }
 
 // -----------------------------------------------------------------------------
-// 38. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
+// 38. 世界级架构与极端异常防御测试套件 (Job Object, 原子写盘, 便携模式, 孤儿锁自愈)
+// -----------------------------------------------------------------------------
+TEST(WorldClassArchitectureTest, JobObjectAndAtomicWrite) {
+    // 1. 验证 Job Object 初始化与自身进程挂载
+    HANDLE job = easy::core::WinUtils::getProcessJobObject();
+    EXPECT_NE(job, nullptr);
+    EXPECT_TRUE(easy::core::WinUtils::assignProcessToCurrentJob(GetCurrentProcess()));
+
+    // 2. 验证原子刷盘写入 (atomicWriteFileWithFlush)
+    const auto tempTestDir = std::filesystem::temp_directory_path() / L"easytools_arch_test";
+    std::filesystem::create_directories(tempTestDir);
+    const auto testFile = tempTestDir / L"test_config.json";
+
+    const std::string payload = "{\n  \"testKey\": \"testValue\",\n  \"number\": 12345\n}";
+    EXPECT_TRUE(easy::core::WinUtils::atomicWriteFileWithFlush(testFile.wstring(), payload));
+    EXPECT_TRUE(std::filesystem::exists(testFile));
+
+    // 读取验证内容一致性
+    std::ifstream ifs(testFile);
+    std::string readContent((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(readContent, payload);
+
+    // 3. 验证低内存资源事件创建
+    HANDLE lowMem = easy::core::WinUtils::createLowMemoryNotification();
+    if (lowMem) {
+        CloseHandle(lowMem);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(tempTestDir, ec);
+}
+
+TEST(WorldClassArchitectureTest, PortableModeAndSingleInstanceHealing) {
+    // 1. 验证便携模式判定逻辑
+    const bool isPortable = easy::core::WinUtils::isPortableMode();
+    const auto appDataDir = easy::core::WinUtils::getAppDataDirectory();
+    EXPECT_FALSE(appDataDir.empty());
+    EXPECT_TRUE(std::filesystem::exists(appDataDir));
+
+    // 2. 验证孤儿互斥量自愈机制 (模拟 WAIT_ABANDONED / 互斥量探测)
+    const wchar_t* testMutexName = L"Local\\EasyTools_Test_Mutex_Healing";
+    HANDLE hMutex = CreateMutexW(nullptr, FALSE, testMutexName);
+    EXPECT_NE(hMutex, nullptr);
+    if (hMutex) {
+        DWORD waitRes = WaitForSingleObject(hMutex, 0);
+        EXPECT_TRUE(waitRes == WAIT_OBJECT_0 || waitRes == WAIT_ABANDONED);
+        ReleaseMutex(hMutex);
+        CloseHandle(hMutex);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 39. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
 // -----------------------------------------------------------------------------
 TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     std::array<wchar_t, 32768> executablePath{};

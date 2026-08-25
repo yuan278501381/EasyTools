@@ -410,6 +410,7 @@ static bool ensureSearchServiceRunning() {
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
             g_serviceSpawnedByUs.store(true);
+            easy::core::WinUtils::assignProcessToCurrentJob(pi.hProcess);
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
         } else {

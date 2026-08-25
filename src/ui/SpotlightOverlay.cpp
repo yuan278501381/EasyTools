@@ -716,7 +716,11 @@ void SpotlightOverlay::render() {
         }
     }
 
-    m_dcRenderTarget->EndDraw();
+    HRESULT hrDraw = m_dcRenderTarget->EndDraw();
+    if (hrDraw == D2DERR_RECREATE_TARGET || hrDraw == static_cast<HRESULT>(0x887A0007L) /* DXGI_ERROR_DEVICE_RESET */) {
+        discardResources();
+        return;
+    }
 
     // 4. UpdateLayeredWindow
     POINT ptSrc = {0, 0};

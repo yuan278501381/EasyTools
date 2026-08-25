@@ -211,7 +211,7 @@ add_executable(EasyTools WIN32 ${HOST_SOURCES})
 easytools_add_version_resource(EasyTools "EasyTools Desktop Productivity Toolkit" "EasyTools.exe" VFT_APP)
 target_include_directories(EasyTools PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(EasyTools PRIVATE EasyCore
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32
 )
 
 # A runnable host build must contain the same validated plugin bundle that the

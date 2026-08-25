@@ -20,6 +20,9 @@ interface GeneralSettings {
   elevated?: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
+  showOnboarding?: boolean;
+  isPortableMode?: boolean;
+  dataDirectory?: string;
   language: string;
   logLevel: string;
   theme: string;
@@ -320,6 +323,13 @@ export const GeneralPage: FC = () => {
             checked={settings.checkUpdates}
             onChange={(v) => updateSetting('checkUpdates', v)}
           />
+          <Toggle
+            id="showOnboarding"
+            label={t('general.showOnboarding')}
+            description={t('general.showOnboardingDesc')}
+            checked={settings.showOnboarding ?? false}
+            onChange={(v) => updateSetting('showOnboarding', v)}
+          />
         </Card>
       </SettingGroup>
 
@@ -511,6 +521,33 @@ export const GeneralPage: FC = () => {
       {/* ── 数据管理 ────────────────────────────────────────────── */}
       <SettingGroup title={t('general.dataManagement')} icon={<Database size={20} strokeWidth={2.5} />}>
         <Card>
+          <SettingRow
+            label={t('general.portableMode')}
+            description={t('general.portableModeDesc')}
+            layout="vertical"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '12px', marginTop: '6px' }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.83rem',
+                fontWeight: 600,
+                backgroundColor: settings.isPortableMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.12)',
+                color: settings.isPortableMode ? '#10b981' : '#3b82f6',
+                border: `1px solid ${settings.isPortableMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.25)'}`
+              }}>
+                {settings.isPortableMode ? `📦 ${t('general.portableModeActive')}` : `💻 ${t('general.portableModeStandard')}`}
+              </span>
+              {settings.dataDirectory && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'ui-monospace, monospace' }} title={settings.dataDirectory}>
+                  {settings.dataDirectory}
+                </span>
+              )}
+            </div>
+          </SettingRow>
           <SettingRow label={t('general.exportConfig')} description={t('general.exportConfigDesc')}>
             <Button variant="ghost" onClick={handleExportConfig}>
               <Download size={16} />

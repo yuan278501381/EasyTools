@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
+#include <wtsapi32.h>
 
 #include <atomic>
 #include <chrono>
@@ -196,7 +197,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 0;
     }
 
-    // ── 2. COM 初始化 ────────────────────────────────────────────────────
+    // ── 2. COM 初始化与 Job Object 生命周期绑定 ──────────────────────────
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         MessageBoxW(nullptr, L"COM 初始化失败", L"EasyTools 错误", MB_OK | MB_ICONERROR);
@@ -204,6 +205,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         g_singleInstanceMutex = nullptr;
         return 1;
     }
+
+    // 绑定当前进程树至 Job Object (带 KILL_ON_JOB_CLOSE 死亡绑定)
+    easy::core::WinUtils::getProcessJobObject();
 
     // ── 3. 崩溃处理器 ───────────────────────────────────────────────────
     auto dumpDir = easy::core::WinUtils::getAppDataDirectory() / L"crashdumps";
@@ -266,6 +270,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 1;
     }
     easy::core::MainThreadDispatcher::instance().initialize(hwndMessage);
+    WTSRegisterSessionNotification(hwndMessage, NOTIFY_FOR_THIS_SESSION);
 
     // ── 7. 初始化其他子系统 ──────────────────────────────────────────────
     const bool silentStart = hasCommandLineFlag(L"--silent");
@@ -387,10 +392,15 @@ bool checkSingleInstance() {
     const int maxRetries = (restartPid > 0) ? 30 : 1;
     for (int retry = 0; retry < maxRetries; ++retry) {
         g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
-        if (g_singleInstanceMutex && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return true;
-        }
         if (g_singleInstanceMutex) {
+            const DWORD waitResult = WaitForSingleObject(g_singleInstanceMutex, 0);
+            if (waitResult == WAIT_OBJECT_0) {
+                return true;
+            }
+            if (waitResult == WAIT_ABANDONED) {
+                // 上一个持有互斥量的进程异常被强杀或崩溃，操作系统已将孤儿锁授予当前进程，自愈启动
+                return true;
+            }
             CloseHandle(g_singleInstanceMutex);
             g_singleInstanceMutex = nullptr;
         }
@@ -1119,7 +1129,19 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return 0;
     }
 
+    if (msg == WM_WTSSESSION_CHANGE) {
+        if (wParam == WTS_SESSION_LOCK || wParam == WTS_SESSION_LOGOFF) {
+            LOG_INFO("检测到 Windows 系统会话锁屏或注销 (0x{:X})，主动挂起渲染并释放物理内存", wParam);
+            easy::ui::SpotlightOverlay::instance().dismiss();
+            easy::core::WinUtils::trimWorkingSet();
+        } else if (wParam == WTS_SESSION_UNLOCK) {
+            LOG_INFO("检测到 Windows 系统会话解锁，恢复正常工作状态");
+        }
+        return 0;
+    }
+
     if (msg == WM_CLOSE || msg == WM_DESTROY) {
+        WTSUnRegisterSessionNotification(hwnd);
         PostQuitMessage(0);
         return 0;
     }

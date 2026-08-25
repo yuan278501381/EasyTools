@@ -35,15 +35,40 @@ public:
         return std::filesystem::path(path).parent_path();
     }
 
-    /// 获取 AppData/Local/EasyTools 目录（自动创建）
+    /// 判断是否处于绿色便携模式 (Portable Mode)
+    static bool isPortableMode() {
+        const auto exeDir = getExeDirectory();
+        std::error_code ec;
+        if (std::filesystem::is_directory(exeDir / L".easytools", ec)) return true;
+        if (std::filesystem::is_directory(exeDir / L"data", ec)) return true;
+        if (std::filesystem::is_directory(exeDir / L"portable_data", ec)) return true;
+        return false;
+    }
+
+    /// 获取应用数据根目录（优先使用主程序目录下 .easytools / data 便携目录，否则使用 LocalAppData）
     static std::filesystem::path getAppDataDirectory() {
+        const auto exeDir = getExeDirectory();
+        std::error_code ec;
+        
+        // 1. 便携模式检测：若主程序同级目录下存在 .easytools 或 data 目录，优先作为数据根目录
+        if (std::filesystem::is_directory(exeDir / L".easytools", ec)) {
+            return exeDir / L".easytools";
+        }
+        if (std::filesystem::is_directory(exeDir / L"data", ec)) {
+            return exeDir / L"data";
+        }
+        if (std::filesystem::is_directory(exeDir / L"portable_data", ec)) {
+            return exeDir / L"portable_data";
+        }
+
+        // 2. 标准系统模式：回退到 %LOCALAPPDATA%\EasyTools
         wchar_t path[MAX_PATH] = {};
         if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path))) {
             auto dir = std::filesystem::path(path) / L"EasyTools";
-            std::filesystem::create_directories(dir);
+            std::filesystem::create_directories(dir, ec);
             return dir;
         }
-        return getExeDirectory() / L"data";
+        return exeDir / L"data";
     }
 
     /// 获取日志目录
@@ -698,6 +723,80 @@ public:
 
         // 默认回退深色
         return true;
+    }
+
+    /// 获取/初始化进程级 Job Object (带 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+    static HANDLE getProcessJobObject() {
+        static HANDLE s_job = []() -> HANDLE {
+            HANDLE job = CreateJobObjectW(nullptr, nullptr);
+            if (!job) return nullptr;
+
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+            jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli))) {
+                CloseHandle(job);
+                return nullptr;
+            }
+            // 将当前主进程绑定到 Job Object
+            AssignProcessToJobObject(job, GetCurrentProcess());
+            return job;
+        }();
+        return s_job;
+    }
+
+    /// 将派生子进程安全加入到当前进程树的 Job Object 中
+    static bool assignProcessToCurrentJob(HANDLE hProcess) {
+        if (!hProcess) return false;
+        HANDLE job = getProcessJobObject();
+        if (!job) return false;
+        return AssignProcessToJobObject(job, hProcess) != FALSE;
+    }
+
+    /// 强制将文件句柄对应的未写缓冲刷入物理存储硬件 (FlushFileBuffers)
+    static bool flushFileToPhysicalDisk(HANDLE hFile) {
+        if (!hFile || hFile == INVALID_HANDLE_VALUE) return false;
+        return FlushFileBuffers(hFile) != FALSE;
+    }
+
+    /// 原子级写入文件 (写临时文件 + 物理硬件落盘 + ReplaceFile/MoveFileEx 原子替换)
+    static bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::string& data) {
+        if (targetPath.empty()) return false;
+        std::wstring tempPath = targetPath + L"." + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(GetTickCount64()) + L".tmp";
+        
+        HANDLE hFile = CreateFileW(
+            tempPath.c_str(),
+            GENERIC_WRITE,
+            0,
+            nullptr,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
+            nullptr
+        );
+        if (hFile == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+
+        DWORD bytesWritten = 0;
+        BOOL writeOk = WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), &bytesWritten, nullptr);
+        if (writeOk && bytesWritten == data.size()) {
+            FlushFileBuffers(hFile);
+        } else {
+            CloseHandle(hFile);
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
+        CloseHandle(hFile);
+
+        if (!MoveFileExW(tempPath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    /// 创建系统低物理内存状态事件通知句柄
+    static HANDLE createLowMemoryNotification() {
+        return CreateMemoryResourceNotification(LowMemoryResourceNotification);
     }
 };
 

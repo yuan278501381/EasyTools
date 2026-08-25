@@ -1142,6 +1142,9 @@ void MessageBridge::registerBuiltinHandlers() {
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
             {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},
+            {"showOnboarding", config.get<bool>("/general/showOnboarding", !config.get<bool>("/app/onboardingCompleted", false))},
+            {"isPortableMode", WinUtils::isPortableMode()},
+            {"dataDirectory", WinUtils::wstringToUtf8(WinUtils::getAppDataDirectory().wstring())},
             {"language", config.get<std::string>("/general/language", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
@@ -1150,7 +1153,7 @@ void MessageBridge::registerBuiltinHandlers() {
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
         static const std::unordered_set<std::string> boolKeys = {
-            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled"
+            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled", "showOnboarding"
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};
@@ -1186,6 +1189,10 @@ void MessageBridge::registerBuiltinHandlers() {
         }
         if (params.contains("autoStart") && !setAutoStart(params["autoStart"].get<bool>())) {
             return {{"success", false}, {"error", "failed to update auto-start"}};
+        }
+        if (params.contains("showOnboarding")) {
+            const bool showOb = params["showOnboarding"].get<bool>();
+            config.set<bool>("/app/onboardingCompleted", !showOb);
         }
         const bool saved = config.mergePatch({{"general", params}}, "/general");
         if (!saved) {
