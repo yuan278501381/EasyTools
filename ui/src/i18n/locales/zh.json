@@ -42,12 +42,13 @@
     "clipboard_manager": "剪贴板灵感库",
     "markdown_preview": "Markdown速览",
     "keycast": "按键回显",
-    "spotlight": "寻找鼠标",
+    "spotlight": "鼠标演示与特效",
     "dialog_enhancer": "文件对话框助手"
   },
   "navSubtitle": {
     "stats": "按键和鼠标活动使用统计",
     "plugins": "按需启用功能，保持轻量与专注",
+    "spotlight": "光标聚光灯聚焦、点击波纹与移动流光轨迹",
     "gesture": "配置手势动作映射和作用域规则",
     "hotcorner": "屏幕四角触发快捷动作",
     "capture": "截图、贴图、长截图和屏幕录制设置",
@@ -269,6 +270,10 @@
       "dialog_enhancer": {
         "name": "文件对话框助手",
         "description": "在软件中打开或保存文件时，一键秒切到当前浏览文件夹与常用目录，自动记住各软件专属路径，告别层层翻找。"
+      },
+      "spotlight": {
+        "name": "鼠标演示与特效",
+        "description": "提供光标快速聚焦、鼠标左/中/右键点击波纹动效与移动轨迹流光，专为会议演示与教学录屏打造。"
       }
     }
   },
@@ -893,11 +898,12 @@
     "fixedBadge": "固定默认"
   },
   "spotlight": {
-    "title": "寻找鼠标",
-    "subtitle": "在寻找光标时启用聚光灯效果。",
+    "title": "鼠标演示与特效",
+    "subtitle": "提供光标快速聚焦、鼠标左/中/右键点击波纹动效与移动轨迹流光，专为会议演示与教学录屏打造。",
     "resetDefaults": "恢复默认",
-    "mainToggle": "寻找鼠标",
-    "mainToggleDesc": "在寻找光标时启用聚光灯效果。",
+    "mainToggle": "启用鼠标演示与特效",
+    "mainToggleDesc": "开启后可使用光标聚光灯、点击水波纹动画及移动轨迹特效。",
+    "pluginDesc": "提供光标快速聚焦、鼠标左/中/右键点击波纹动效与移动轨迹流光，专为会议演示与教学录屏打造。",
     "autoBypassFullscreen": "全屏游戏/视频免打扰",
     "autoBypassFullscreenDesc": "前台处于全屏独占应用时自动免打扰忽略触发，防止 3D 游戏或观影时被干扰",
     "triggerSection": "触发方式",

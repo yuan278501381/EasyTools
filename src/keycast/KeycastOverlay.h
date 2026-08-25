@@ -61,6 +61,7 @@ private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd = nullptr;
+    HWND m_helperOwnerHwnd = nullptr;
     KeycastSettings m_settings;
     mutable std::mutex m_settingsMutex;
 

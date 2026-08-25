@@ -141,7 +141,7 @@ target_include_directories(EasyCore PUBLIC
 )
 target_link_libraries(EasyCore PUBLIC
     spdlog::spdlog nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} fmt::fmt
-    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp crypt32 uiautomationcore oleaut32
+    user32 shell32 advapi32 dbghelp psapi shlwapi winhttp crypt32 uiautomationcore oleaut32 dwmapi
 )
 
 # ── 2. Plugin_Gesture (动态库) ────────────────────────────────────────────────
@@ -182,7 +182,7 @@ easytools_add_plugin_manifest(Plugin_Keycast)
 target_compile_definitions(Plugin_Keycast PRIVATE PLUGIN_EXPORTS)
 target_include_directories(Plugin_Keycast PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Plugin_Keycast PRIVATE EasyCore
-    d2d1 dwrite msimg32 user32 shell32 shcore
+    d2d1 dwrite msimg32 user32 shell32 shcore dwmapi
 )
 set_target_properties(Plugin_Keycast PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
@@ -211,7 +211,7 @@ add_executable(EasyTools WIN32 ${HOST_SOURCES})
 easytools_add_version_resource(EasyTools "EasyTools Desktop Productivity Toolkit" "EasyTools.exe" VFT_APP)
 target_include_directories(EasyTools PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(EasyTools PRIVATE EasyCore
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32 dwmapi
 )
 
 # A runnable host build must contain the same validated plugin bundle that the

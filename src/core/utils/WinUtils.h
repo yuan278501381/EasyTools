@@ -14,6 +14,7 @@
 #include <shlobj.h>
 #include <shldisp.h>
 #include <exdisp.h>
+#include <dwmapi.h>
 #include <wrl/client.h>
 #include <string>
 #include <filesystem>
@@ -797,6 +798,37 @@ public:
     /// 创建系统低物理内存状态事件通知句柄
     static HANDLE createLowMemoryNotification() {
         return CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    }
+
+    /// 创建轻量级不可见辅助宿主窗口，用于隔绝 Overlay 窗口在 Windows 任务栏与通知区域产生图标
+    static HWND createOverlayHelperOwner(HINSTANCE hInstance, const wchar_t* name = L"EasyTools_OverlayHelperOwner") {
+        return CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            L"STATIC",
+            name,
+            WS_POPUP,
+            0, 0, 0, 0,
+            nullptr, nullptr, hInstance, nullptr
+        );
+    }
+
+    /// 将窗口样式标准化为绝对不污染任务栏与 Alt+Tab 的零泄漏 Overlay 窗口
+    static void applyTaskbarSafeOverlayStyle(HWND hwnd) {
+        if (!hwnd) return;
+        LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        constexpr LONG_PTR required = WS_EX_LAYERED | WS_EX_TRANSPARENT |
+                                      WS_EX_TOPMOST | WS_EX_NOACTIVATE |
+                                      WS_EX_TOOLWINDOW;
+        exStyle = (exStyle | required) & ~static_cast<LONG_PTR>(WS_EX_APPWINDOW);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
+
+        const DWM_WINDOW_CORNER_PREFERENCE noCorners = DWMWCP_DONOTROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                              &noCorners, sizeof(noCorners));
+        const BOOL disableTransitions = TRUE;
+        DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
+                              &disableTransitions, sizeof(disableTransitions));
+        excludeWindowFromCapture(hwnd);
     }
 };
 

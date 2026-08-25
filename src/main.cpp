@@ -865,11 +865,22 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
-    // 5. 鼠标聚光灯 Overlay 初始化与 IPC 注册
+    // 5. 鼠标演示与特效 (Spotlight) Overlay 初始化与 IPC 注册
     easy::ui::SpotlightOverlay::instance().initialize(GetModuleHandleW(nullptr));
     easy::core::KeyboardHook::instance().setKeyboardActivityCallback([](DWORD vk, WPARAM wp) {
         easy::ui::SpotlightOverlay::instance().onKeyboardEvent(vk, wp);
     });
+
+    easy::core::EventBus::instance().subscribe<easy::core::SpotlightStateChangedEvent>(
+        [](const easy::core::SpotlightStateChangedEvent& e) {
+            auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+            s.enabled = e.enabled;
+            easy::ui::SpotlightOverlay::instance().updateSettings(s);
+            if (!e.enabled) {
+                easy::ui::SpotlightOverlay::instance().dismiss();
+            }
+        }
+    );
 
     easy::core::MessageBridge::instance().registerHandler("spotlight.getSettings", [](const nlohmann::json&) -> nlohmann::json {
         auto s = easy::ui::SpotlightOverlay::instance().getSettings();

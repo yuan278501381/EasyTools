@@ -36,23 +36,27 @@ bool KeycastOverlay::init() {
 
     RegisterClassExW(&wcex);
 
+    m_helperOwnerHwnd = easy::core::WinUtils::createOverlayHelperOwner(wcex.hInstance, L"EasyTools_KeycastHelperOwner");
+
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         wcex.lpszClassName,
         L"EasyTools Keycast",
         WS_POPUP,
         0, 0, 1, 1,
-        nullptr, nullptr, wcex.hInstance, nullptr
+        m_helperOwnerHwnd, nullptr, wcex.hInstance, nullptr
     );
 
     if (!m_hwnd) {
         LOG_ERROR("Failed to create KeycastOverlay window");
+        if (m_helperOwnerHwnd) {
+            DestroyWindow(m_helperOwnerHwnd);
+            m_helperOwnerHwnd = nullptr;
+        }
         return false;
     }
 
-    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
-        LOG_WARN("当前 Windows 版本无法从捕获中排除按键回显: error={}", GetLastError());
-    }
+    easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd);
 
     auto& cfg = easy::core::ConfigManager::instance();
     {
@@ -69,7 +73,8 @@ bool KeycastOverlay::init() {
 
     // Graphics resources stay lazy until the first keystroke so a disabled or
     // unused plugin does not allocate a large high-DPI backing bitmap.
-    ShowWindow(m_hwnd, SW_HIDE);
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
     return true;
 }
 
@@ -78,6 +83,10 @@ void KeycastOverlay::cleanup() {
         KillTimer(m_hwnd, ANIMATION_TIMER_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+    }
+    if (m_helperOwnerHwnd) {
+        DestroyWindow(m_helperOwnerHwnd);
+        m_helperOwnerHwnd = nullptr;
     }
 
     discardResources();

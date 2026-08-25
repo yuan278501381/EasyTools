@@ -62,6 +62,7 @@ private:
 
 private:
     HWND m_hwnd = nullptr;
+    HWND m_helperOwnerHwnd = nullptr;
     bool m_visible = false;
     POINT m_centerPt = {0, 0};
     int m_hoverIndex = -1;

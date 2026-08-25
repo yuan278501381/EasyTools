@@ -76,22 +76,34 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
     wc.lpszClassName = SPOTLIGHT_CLASS;
     RegisterClassExW(&wc);
 
+    m_helperOwnerHwnd = easy::core::WinUtils::createOverlayHelperOwner(hInstance, L"EasyTools_SpotlightHelperOwner");
+
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         SPOTLIGHT_CLASS, L"",
         WS_POPUP,
         0, 0, 1, 1,
-        nullptr, nullptr, hInstance, nullptr
+        m_helperOwnerHwnd, nullptr, hInstance, nullptr
     );
 
-    if (!m_hwnd) return false;
+    if (!m_hwnd) {
+        if (m_helperOwnerHwnd) {
+            DestroyWindow(m_helperOwnerHwnd);
+            m_helperOwnerHwnd = nullptr;
+        }
+        return false;
+    }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    easy::core::WinUtils::excludeWindowFromCapture(m_hwnd);
+    easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd);
 
     if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf()))) {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+        if (m_helperOwnerHwnd) {
+            DestroyWindow(m_helperOwnerHwnd);
+            m_helperOwnerHwnd = nullptr;
+        }
         return false;
     }
 
@@ -106,7 +118,7 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
         }
     );
 
-    LOG_INFO("鼠标聚光灯与演示特效 Overlay 初始化完成");
+    LOG_INFO("鼠标演示与特效 Overlay 初始化完成 (Taskbar Safe)");
     return true;
 }
 
@@ -116,6 +128,10 @@ void SpotlightOverlay::shutdown() {
         KillTimer(m_hwnd, TIMER_ANIM_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+    }
+    if (m_helperOwnerHwnd) {
+        DestroyWindow(m_helperOwnerHwnd);
+        m_helperOwnerHwnd = nullptr;
     }
     m_d2dFactory.Reset();
 }
@@ -184,7 +200,7 @@ void SpotlightOverlay::trigger(POINT pt, bool autoFetch) {
     if (!ensureSurface(vw, vh)) return;
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
 
     m_animState = AnimState::FadeIn;
     m_animStartTime = std::chrono::steady_clock::now();
@@ -267,7 +283,7 @@ void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     if (!ensureSurface(vw, vh)) return;
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
 
     ClickRipple rip;
     rip.pt = pt;
@@ -317,7 +333,7 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
 
                 if (ensureSurface(vw, vh)) {
                     SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
-                                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
 
                     TrailParticle p;
                     p.pt = pt;
@@ -445,7 +461,8 @@ void SpotlightOverlay::hideNow() {
         KillTimer(m_hwnd, TIMER_ANIM_ID);
         m_timerRunning = false;
     }
-    ShowWindow(m_hwnd, SW_HIDE);
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
     releaseSurface();
     discardResources();
     // 冷路径释放物理内存

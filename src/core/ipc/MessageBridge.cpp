@@ -15,7 +15,6 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/events/EventBus.h"
-
 #include <algorithm>
 #include <cstddef>
 #include <condition_variable>
@@ -763,7 +762,8 @@ const std::vector<MarketplaceItem>& getMarketplaceCatalog() {
 
 bool isCoreBuiltinPlugin(const std::string& id) {
     return id == "gesture" || id == "capture" || id == "search" ||
-           id == "keycast" || id == "dialogenhancer" || id == "dialog_enhancer";
+           id == "keycast" || id == "dialogenhancer" || id == "dialog_enhancer" ||
+           id == "spotlight";
 }
 
 bool isExtensionInstalled(const std::string& id) {
@@ -820,6 +820,25 @@ void MessageBridge::registerBuiltinHandlers() {
             });
         }
 
+        // 内置核心模块：鼠标演示与特效 (spotlight)
+        const bool spotlightEnabled = ConfigManager::instance().get<bool>("/spotlight/enabled", true);
+        plugins.push_back({
+            {"id", "spotlight"},
+            {"name", "鼠标演示与特效"},
+            {"version", "1.0.1"},
+            {"fileName", "EasyTools.exe"},
+            {"abiVersion", 1},
+            {"capabilities", {"spotlight", "click-ripple", "mouse-trail"}},
+            {"permissions", {"low-level-mouse-hook", "direct2d-overlay"}},
+            {"enabled", spotlightEnabled},
+            {"active", spotlightEnabled},
+            {"restartRequired", false},
+            {"state", spotlightEnabled ? "running" : "disabled"},
+            {"error", ""},
+            {"isExtension", false}
+        });
+        existingIds.insert("spotlight");
+
         // 合并已安装的扩展插件
         auto& config = ConfigManager::instance();
         auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
@@ -854,6 +873,12 @@ void MessageBridge::registerBuiltinHandlers() {
         }
         const std::string id = params["id"].get<std::string>();
         const bool enabled = params["enabled"].get<bool>();
+
+        if (id == "spotlight") {
+            ConfigManager::instance().set<bool>("/spotlight/enabled", enabled);
+            EventBus::instance().publish(SpotlightStateChangedEvent{enabled});
+            return {{"success", true}, {"restartRequired", false}};
+        }
 
         if (isExtensionInstalled(id)) {
             return {

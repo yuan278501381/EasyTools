@@ -42,12 +42,13 @@
     "clipboard_manager": "Clipboard Pro",
     "markdown_preview": "Markdown Viewer",
     "keycast": "Keycast",
-    "spotlight": "Find My Mouse",
+    "spotlight": "Mouse FX & Highlights",
     "dialog_enhancer": "Dialog Enhancer"
   },
   "navSubtitle": {
     "stats": "Keystrokes and mouse usage activity",
     "plugins": "Enable only the features you need",
+    "spotlight": "Spotlight cursor focus, click ripples, and motion trails",
     "gesture": "Configure gesture mappings and scopes",
     "hotcorner": "Trigger actions by moving mouse to screen corners",
     "capture": "Settings for screen capture and recording",
@@ -269,6 +270,10 @@
       "dialog_enhancer": {
         "name": "Dialog Enhancer",
         "description": "Instantly jump to active Explorer folders and favorite directories in Open/Save dialogs, with automatic per-app folder memory."
+      },
+      "spotlight": {
+        "name": "Mouse Presentation & FX",
+        "description": "Spotlight cursor focus, click ripple effects, and motion trails for demos and screencasts."
       }
     }
   },
@@ -893,11 +898,12 @@
     "fixedBadge": "Fixed Root"
   },
   "spotlight": {
-    "title": "Find My Mouse",
-    "subtitle": "Enable spotlight effect when locating the cursor.",
+    "title": "Mouse Presentation & FX",
+    "subtitle": "Spotlight cursor focus, click ripple effects, and motion trails for demos and screencasts.",
     "resetDefaults": "Reset to Defaults",
-    "mainToggle": "Find My Mouse",
-    "mainToggleDesc": "Enable spotlight effect when locating the cursor.",
+    "mainToggle": "Enable Mouse Presentation & FX",
+    "mainToggleDesc": "Enable spotlight cursor focus, click ripples, and motion trail effects.",
+    "pluginDesc": "Spotlight cursor focus, click ripple effects, and motion trails for demos and screencasts.",
     "autoBypassFullscreen": "Fullscreen Game/Video Bypass",
     "autoBypassFullscreenDesc": "Automatically suppress spotlight when foreground window is in exclusive fullscreen mode to prevent disrupting gaming or video playback",
     "triggerSection": "Trigger Methods",

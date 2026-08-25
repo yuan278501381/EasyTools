@@ -79,6 +79,7 @@ const ICONS = {
   capture: Camera,
   search: FileSearch,
   keycast: Keyboard,
+  spotlight: Sparkles,
   dialogenhancer: FolderSymlink,
   dialog_enhancer: FolderSymlink,
   ai_assistant: Bot,
@@ -87,7 +88,7 @@ const ICONS = {
   markdown_preview: FileCode2,
 } as const;
 
-const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast', 'dialogenhancer', 'dialog_enhancer']);
+const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast', 'spotlight', 'dialogenhancer', 'dialog_enhancer']);
 
 const PLUGIN_DISPLAY_ORDER: Record<string, number> = {
   search: 1,
@@ -96,6 +97,7 @@ const PLUGIN_DISPLAY_ORDER: Record<string, number> = {
   dialogenhancer: 4,
   dialog_enhancer: 4,
   keycast: 5,
+  spotlight: 6,
 };
 
 export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {

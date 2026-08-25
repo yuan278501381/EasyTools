@@ -4463,6 +4463,26 @@ TEST(WorldClassArchitectureTest, PortableModeAndSingleInstanceHealing) {
     }
 }
 
+TEST(WorldClassArchitectureTest, TaskbarSafetyAndHelperOwner) {
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    HWND helper = easy::core::WinUtils::createOverlayHelperOwner(hInst, L"EasyTools_UnitTest_Helper");
+    EXPECT_NE(helper, nullptr);
+
+    if (helper) {
+        LONG_PTR exStyle = GetWindowLongPtrW(helper, GWL_EXSTYLE);
+        EXPECT_TRUE((exStyle & WS_EX_TOOLWINDOW) != 0);
+        EXPECT_TRUE((exStyle & WS_EX_NOACTIVATE) != 0);
+        EXPECT_TRUE((exStyle & WS_EX_APPWINDOW) == 0);
+
+        easy::core::WinUtils::applyTaskbarSafeOverlayStyle(helper);
+        LONG_PTR updatedExStyle = GetWindowLongPtrW(helper, GWL_EXSTYLE);
+        EXPECT_TRUE((updatedExStyle & WS_EX_TOOLWINDOW) != 0);
+        EXPECT_TRUE((updatedExStyle & WS_EX_APPWINDOW) == 0);
+
+        DestroyWindow(helper);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 39. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
 // -----------------------------------------------------------------------------

@@ -118,6 +118,11 @@ struct ActionToggleGesturePauseEvent {};
 /// 取消正在进行的瞬时 UI（手势追踪、轮盘菜单）。Esc 发出，不吞掉按键。
 struct CancelTransientUiEvent {};
 
+/// 鼠标演示与特效启用状态变化事件
+struct SpotlightStateChangedEvent {
+    bool enabled = true;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────// 显示全局 Toast 的事件
 struct ShowToastEvent {
     std::wstring message;

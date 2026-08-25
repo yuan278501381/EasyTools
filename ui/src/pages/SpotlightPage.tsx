@@ -233,7 +233,7 @@ export const SpotlightPage: FC = () => {
       {/* ── 顶部操作栏 ──────────────────────────────────────────────── */}
       <div className="spotlight-page__header">
         <div className="spotlight-page__title-wrap">
-          <h2 className="spotlight-page__title">{t('spotlight.title', '寻找鼠标')}</h2>
+          <h2 className="spotlight-page__title">{t('spotlight.title', '鼠标演示与特效')}</h2>
         </div>
         <Button variant="ghost" onClick={handleResetDefaults} title={t('spotlight.resetDefaults', '恢复默认')}>
           <RotateCcw size={14} style={{ marginRight: 6 }} />
@@ -245,8 +245,8 @@ export const SpotlightPage: FC = () => {
       <Card>
         <Toggle
           id="spotlight-main-enabled"
-          label={t('spotlight.mainToggle', '寻找鼠标')}
-          description={t('spotlight.mainToggleDesc', '在寻找光标时启用聚光灯效果。')}
+          label={t('spotlight.mainToggle', '启用鼠标演示与特效')}
+          description={t('spotlight.mainToggleDesc', '开启后可使用光标聚光灯、点击水波纹动画及移动轨迹特效。')}
           checked={settings.enabled}
           onChange={(v) => saveSetting('enabled', v)}
         />

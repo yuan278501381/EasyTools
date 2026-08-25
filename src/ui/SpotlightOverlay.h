@@ -73,6 +73,7 @@ private:
     void hideNow();
 
     HWND m_hwnd = nullptr;
+    HWND m_helperOwnerHwnd = nullptr;
     SpotlightSettings m_settings;
     mutable std::mutex m_mutex;
 
