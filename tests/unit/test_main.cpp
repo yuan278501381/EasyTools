@@ -4476,6 +4476,92 @@ TEST(SpotlightOverlayTest, LocalBoundingBoxAndFocusAssistExclusion) {
     spotlight.resetDefaults();
 }
 
+TEST(SpotlightOverlayTest, TrailAndClickStylesMatrix) {
+    auto& spotlight = easy::ui::SpotlightOverlay::instance();
+    spotlight.resetDefaults();
+
+    // 1. 验证 HSL 颜色转换算法
+    D2D1_COLOR_F cRed = easy::ui::SpotlightOverlay::hslToRgb(0.0f, 1.0f, 0.5f, 1.0f);
+    EXPECT_NEAR(cRed.r, 1.0f, 0.01f);
+    EXPECT_NEAR(cRed.g, 0.0f, 0.01f);
+    EXPECT_NEAR(cRed.b, 0.0f, 0.01f);
+
+    D2D1_COLOR_F cGreen = easy::ui::SpotlightOverlay::hslToRgb(120.0f, 1.0f, 0.5f, 1.0f);
+    EXPECT_NEAR(cGreen.r, 0.0f, 0.01f);
+    EXPECT_NEAR(cGreen.g, 1.0f, 0.01f);
+    EXPECT_NEAR(cGreen.b, 0.0f, 0.01f);
+
+    D2D1_COLOR_F cBlue = easy::ui::SpotlightOverlay::hslToRgb(240.0f, 1.0f, 0.5f, 0.8f);
+    EXPECT_NEAR(cBlue.r, 0.0f, 0.01f);
+    EXPECT_NEAR(cBlue.g, 0.0f, 0.01f);
+    EXPECT_NEAR(cBlue.b, 1.0f, 0.01f);
+    EXPECT_NEAR(cBlue.a, 0.8f, 0.01f);
+
+    // 2. 验证 4 款点击特效风格
+    auto s = spotlight.getSettings();
+    s.clickRippleEnabled = true;
+
+    // 2.1 sparkle_burst
+    s.clickRippleStyle = "sparkle_burst";
+    spotlight.updateSettings(s);
+    spotlight.onMouseDown(0, POINT{200, 200});
+    auto bounds1 = spotlight.calculateViewportBoundsLocked();
+    EXPECT_GT(bounds1.w, 0);
+    EXPECT_LE(bounds1.w, 300);
+
+    // 2.2 target_pulse
+    s.clickRippleStyle = "target_pulse";
+    spotlight.updateSettings(s);
+    spotlight.onMouseDown(1, POINT{250, 250});
+    auto bounds2 = spotlight.calculateViewportBoundsLocked();
+    EXPECT_GT(bounds2.w, 0);
+
+    // 2.3 soft_glow
+    s.clickRippleStyle = "soft_glow";
+    spotlight.updateSettings(s);
+    spotlight.onMouseDown(2, POINT{300, 300});
+    auto bounds3 = spotlight.calculateViewportBoundsLocked();
+    EXPECT_GT(bounds3.w, 0);
+
+    // 3. 验证 4 款轨迹动效风格
+    s.mouseTrailEnabled = true;
+
+    // 3.1 stardust_orbs (彩虹星尘大中小光球)
+    s.mouseTrailStyle = "stardust_orbs";
+    s.mouseTrailColorMode = "rainbow";
+    spotlight.updateSettings(s);
+    for (int i = 0; i < 5; ++i) {
+        spotlight.onMouseMove(POINT{100 + i * 35, 100 + i * 35});
+    }
+
+    // 3.2 aurora_ribbon (极光丝带)
+    s.mouseTrailStyle = "aurora_ribbon";
+    spotlight.updateSettings(s);
+    for (int i = 0; i < 5; ++i) {
+        spotlight.onMouseMove(POINT{200 + i * 15, 200 + i * 15});
+    }
+
+    // 3.3 sonar_pulses (彩色声纳微环)
+    s.mouseTrailStyle = "sonar_pulses";
+    spotlight.updateSettings(s);
+    for (int i = 0; i < 3; ++i) {
+        spotlight.onMouseMove(POINT{300 + i * 45, 300 + i * 45});
+    }
+
+    // 3.4 classic_comet (经典彗尾)
+    s.mouseTrailStyle = "classic_comet";
+    s.mouseTrailColorMode = "accent";
+    spotlight.updateSettings(s);
+    for (int i = 0; i < 5; ++i) {
+        spotlight.onMouseMove(POINT{400 + i * 8, 400 + i * 8});
+    }
+
+    // 4. 动效更新与清理
+    spotlight.tickAnimation();
+    spotlight.dismiss();
+    spotlight.resetDefaults();
+}
+
 // -----------------------------------------------------------------------------
 // 38. 世界级架构与极端异常防御测试套件 (Job Object, 原子写盘, 便携模式, 孤儿锁自愈)
 // -----------------------------------------------------------------------------

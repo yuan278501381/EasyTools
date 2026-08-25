@@ -21,6 +21,22 @@ SpotlightOverlay& SpotlightOverlay::instance() {
     return inst;
 }
 
+D2D1_COLOR_F SpotlightOverlay::hslToRgb(float h, float s, float l, float alpha) {
+    while (h < 0.0f) h += 360.0f;
+    while (h >= 360.0f) h -= 360.0f;
+    float c = (1.0f - std::abs(2.0f * l - 1.0f)) * s;
+    float x = c * (1.0f - std::abs(std::fmod(h / 60.0f, 2.0f) - 1.0f));
+    float m = l - c / 2.0f;
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    if (h < 60.0f) { r = c; g = x; b = 0.0f; }
+    else if (h < 120.0f) { r = x; g = c; b = 0.0f; }
+    else if (h < 180.0f) { r = 0.0f; g = c; b = x; }
+    else if (h < 240.0f) { r = 0.0f; g = x; b = c; }
+    else if (h < 300.0f) { r = x; g = 0.0f; b = c; }
+    else { r = c; g = 0.0f; b = x; }
+    return D2D1::ColorF(r + m, g + m, b + m, alpha);
+}
+
 D2D1_COLOR_F SpotlightOverlay::parseColor(const std::string& hexStr, float alpha) const {
     std::string s = hexStr;
     if (s.empty() || s == "auto") {
@@ -63,7 +79,10 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
     m_settings.shakeThreshold = cfg.get<int>("/spotlight/shakeThreshold", 7);
 
     m_settings.clickRippleEnabled = cfg.get<bool>("/spotlight/clickRippleEnabled", false);
+    m_settings.clickRippleStyle = cfg.get<std::string>("/spotlight/clickRippleStyle", "ripple_ring");
     m_settings.mouseTrailEnabled = cfg.get<bool>("/spotlight/mouseTrailEnabled", false);
+    m_settings.mouseTrailStyle = cfg.get<std::string>("/spotlight/mouseTrailStyle", "stardust_orbs");
+    m_settings.mouseTrailColorMode = cfg.get<std::string>("/spotlight/mouseTrailColorMode", "rainbow");
     m_settings.leftClickColor = cfg.get<std::string>("/spotlight/leftClickColor", "auto");
     m_settings.rightClickColor = cfg.get<std::string>("/spotlight/rightClickColor", "#fb7185");
     m_settings.middleClickColor = cfg.get<std::string>("/spotlight/middleClickColor", "#fbbf24");
@@ -151,7 +170,10 @@ void SpotlightOverlay::updateSettings(const SpotlightSettings& settings) {
     cfg.set("/spotlight/shakeThreshold", m_settings.shakeThreshold);
 
     cfg.set("/spotlight/clickRippleEnabled", m_settings.clickRippleEnabled);
+    cfg.set("/spotlight/clickRippleStyle", m_settings.clickRippleStyle);
     cfg.set("/spotlight/mouseTrailEnabled", m_settings.mouseTrailEnabled);
+    cfg.set("/spotlight/mouseTrailStyle", m_settings.mouseTrailStyle);
+    cfg.set("/spotlight/mouseTrailColorMode", m_settings.mouseTrailColorMode);
     cfg.set("/spotlight/leftClickColor", m_settings.leftClickColor);
     cfg.set("/spotlight/rightClickColor", m_settings.rightClickColor);
     cfg.set("/spotlight/middleClickColor", m_settings.middleClickColor);
@@ -186,8 +208,7 @@ SpotlightOverlay::ViewportBounds SpotlightOverlay::calculateViewportBoundsLocked
     int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
     if (m_animState != AnimState::Idle) {
-        // 聚光灯全屏暗角模式：为防止 Windows 11 Shell 触发 Focus Assist（专注助手/全屏免打扰），
-        // 窗口物理尺寸避让 1 像素，打破 Explorer 的全屏独占判定条件。
+        // 聚光灯全屏暗角模式：物理尺寸微调避让 1 像素，打破 Explorer 全屏独占判定
         int safeW = (vw > 2) ? (vw - 1) : vw;
         int safeH = (vh > 2) ? (vh - 1) : vh;
         return {vx, vy, safeW, safeH, true};
@@ -207,7 +228,7 @@ SpotlightOverlay::ViewportBounds SpotlightOverlay::calculateViewportBoundsLocked
         maxY = (std::max)(maxY, static_cast<int>(rip.pt.y + r));
     }
     for (const auto& p : m_trail) {
-        int r = static_cast<int>(p.size + 24.0f);
+        int r = static_cast<int>(p.size + 16.0f);
         minX = (std::min)(minX, static_cast<int>(p.pt.x - r));
         minY = (std::min)(minY, static_cast<int>(p.pt.y - r));
         maxX = (std::max)(maxX, static_cast<int>(p.pt.x + r));
@@ -328,8 +349,35 @@ void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     rip.pt = pt;
     rip.startTime = std::chrono::steady_clock::now();
     rip.color = color;
-    rip.maxRadius = 52.0f;
-    rip.durationMs = 450.0f;
+    rip.style = m_settings.clickRippleStyle;
+
+    if (rip.style == "sparkle_burst") {
+        rip.maxRadius = 32.0f;
+        rip.durationMs = 380.0f;
+        // 生成 6 颗带初速度的星芒微粒
+        for (int i = 0; i < 6; ++i) {
+            float angle = static_cast<float>(i) * (3.14159265f / 3.0f) + 0.2f;
+            float speed = 22.0f + static_cast<float>((i * 7) % 15);
+            ClickSparkle sp;
+            sp.x = static_cast<float>(pt.x);
+            sp.y = static_cast<float>(pt.y);
+            sp.vx = std::cos(angle) * speed;
+            sp.vy = std::sin(angle) * speed;
+            sp.size = 2.5f + static_cast<float>((i % 3)) * 0.8f;
+            rip.sparklets.push_back(sp);
+        }
+    } else if (rip.style == "target_pulse") {
+        rip.maxRadius = 36.0f;
+        rip.durationMs = 340.0f;
+    } else if (rip.style == "soft_glow") {
+        rip.maxRadius = 28.0f;
+        rip.durationMs = 280.0f;
+    } else {
+        // ripple_ring
+        rip.maxRadius = 52.0f;
+        rip.durationMs = 450.0f;
+    }
+
     m_ripples.push_back(rip);
 
     if (!m_timerRunning) {
@@ -365,18 +413,96 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
                 dist = 100.0f;
             }
 
-            if (dist > 6.0f) {
-                TrailParticle p;
-                p.pt = pt;
-                p.time = now;
-                p.size = 9.0f;
-                p.durationMs = 380.0f;
-                p.color = m_settings.spotlightColor;
-                m_trail.push_back(p);
+            const std::string& style = m_settings.mouseTrailStyle;
+            float threshold = 28.0f; // 默认 stardust_orbs 大步进
+            if (style == "aurora_ribbon") threshold = 10.0f;
+            else if (style == "sonar_pulses") threshold = 42.0f;
+            else if (style == "classic_comet") threshold = 6.0f;
+
+            if (dist >= threshold) {
+                if (style == "stardust_orbs") {
+                    m_trailHue = std::fmod(m_trailHue + 18.0f, 360.0f);
+                    // 1.1 主透亮能量球 (6.5px ~ 7.5px)
+                    TrailParticle pMain;
+                    pMain.pt = pt;
+                    pMain.time = now;
+                    pMain.kind = TrailParticleKind::OrbMain;
+                    pMain.size = 7.2f;
+                    pMain.durationMs = 280.0f;
+                    pMain.color = m_settings.spotlightColor;
+                    pMain.hue = m_trailHue;
+                    m_trail.push_back(pMain);
+
+                    // 1.2 伴生微星 (1.8px, 轻微空间偏移)
+                    static int subCounter = 0;
+                    subCounter++;
+                    float angleOffset = static_cast<float>((subCounter * 73) % 360) * (3.14159265f / 180.0f);
+                    float offsetDist = 5.0f + static_cast<float>((subCounter * 5) % 4);
+                    POINT sparkletPt{
+                        pt.x + static_cast<LONG>(std::cos(angleOffset) * offsetDist),
+                        pt.y + static_cast<LONG>(std::sin(angleOffset) * offsetDist)
+                    };
+                    TrailParticle pSpark;
+                    pSpark.pt = sparkletPt;
+                    pSpark.time = now;
+                    pSpark.kind = TrailParticleKind::Sparklet;
+                    pSpark.size = 2.0f;
+                    pSpark.durationMs = 210.0f;
+                    pSpark.color = m_settings.spotlightColor;
+                    pSpark.hue = std::fmod(m_trailHue + 12.0f, 360.0f);
+                    m_trail.push_back(pSpark);
+
+                    // 1.3 偶尔插入次级球 (4.0px)
+                    if (subCounter % 2 == 0) {
+                        TrailParticle pSub;
+                        pSub.pt = POINT{pt.x - static_cast<LONG>(std::cos(angleOffset) * 3.0f),
+                                        pt.y - static_cast<LONG>(std::sin(angleOffset) * 3.0f)};
+                        pSub.time = now;
+                        pSub.kind = TrailParticleKind::OrbSub;
+                        pSub.size = 4.0f;
+                        pSub.durationMs = 240.0f;
+                        pSub.color = m_settings.spotlightColor;
+                        pSub.hue = std::fmod(m_trailHue - 10.0f, 360.0f);
+                        m_trail.push_back(pSub);
+                    }
+                } else if (style == "aurora_ribbon") {
+                    m_trailHue = std::fmod(m_trailHue + 6.0f, 360.0f);
+                    TrailParticle p;
+                    p.pt = pt;
+                    p.time = now;
+                    p.kind = TrailParticleKind::RibbonNode;
+                    p.size = 2.2f;
+                    p.durationMs = 300.0f;
+                    p.color = m_settings.spotlightColor;
+                    p.hue = m_trailHue;
+                    m_trail.push_back(p);
+                } else if (style == "sonar_pulses") {
+                    m_trailHue = std::fmod(m_trailHue + 38.0f, 360.0f);
+                    TrailParticle p;
+                    p.pt = pt;
+                    p.time = now;
+                    p.kind = TrailParticleKind::SonarRing;
+                    p.size = 16.0f;
+                    p.durationMs = 360.0f;
+                    p.color = m_settings.spotlightColor;
+                    p.hue = m_trailHue;
+                    m_trail.push_back(p);
+                } else {
+                    // classic_comet
+                    TrailParticle p;
+                    p.pt = pt;
+                    p.time = now;
+                    p.kind = TrailParticleKind::CometDot;
+                    p.size = 8.5f;
+                    p.durationMs = 360.0f;
+                    p.color = m_settings.spotlightColor;
+                    p.hue = m_trailHue;
+                    m_trail.push_back(p);
+                }
 
                 // 限制最大粒子队列
-                if (m_trail.size() > 40) {
-                    m_trail.erase(m_trail.begin(), m_trail.begin() + (m_trail.size() - 40));
+                if (m_trail.size() > 48) {
+                    m_trail.erase(m_trail.begin(), m_trail.begin() + (m_trail.size() - 48));
                 }
 
                 if (!m_timerRunning) {
@@ -650,121 +776,227 @@ void SpotlightOverlay::render() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. 绘制鼠标轨迹流光粒子与彗尾光带
+    // 2. 绘制鼠标轨迹特效 (4 款世界级风格渲染管线)
     // ─────────────────────────────────────────────────────────────────────────
-    for (size_t i = 0; i < m_trail.size(); ++i) {
-        const auto& p = m_trail[i];
-        auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
-        float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
-        float alpha = (1.0f - progress) * (1.0f - progress) * 0.85f;
-        float r = p.size * (1.0f - progress * 0.65f);
+    const std::string& trailStyle = m_settings.mouseTrailStyle;
+    const bool isRainbow = (m_settings.mouseTrailColorMode == "rainbow");
 
-        float px = static_cast<float>(p.pt.x - bounds.x);
-        float py = static_cast<float>(p.pt.y - bounds.y);
+    if (trailStyle == "stardust_orbs") {
+        // 2.1 梦幻七彩星尘大中小光球
+        for (size_t i = 0; i < m_trail.size(); ++i) {
+            const auto& p = m_trail[i];
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
+            float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
+            float ease = (1.0f - progress) * (1.0f - progress);
+            float alpha = ease * 0.90f;
+            float r = p.size * (1.0f - progress * 0.45f);
 
-        D2D1_COLOR_F c = parseColor(p.color, alpha);
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trailBrush;
-        m_dcRenderTarget->CreateSolidColorBrush(c, trailBrush.GetAddressOf());
-        if (trailBrush) {
-            // 彗星粒子
-            m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(px, py), r, r), trailBrush.Get());
+            float px = static_cast<float>(p.pt.x - bounds.x);
+            float py = static_cast<float>(p.pt.y - bounds.y);
 
-            // 与相邻粒子间连线形成彗尾光带
+            D2D1_COLOR_F c = isRainbow ? hslToRgb(p.hue, 0.85f, 0.60f, alpha) : parseColor(p.color, alpha);
+
+            // 主球绘制外层柔光 Bloom
+            if (p.kind == TrailParticleKind::OrbMain) {
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> haloBrush;
+                D2D1_COLOR_F haloC = isRainbow ? hslToRgb(p.hue, 0.85f, 0.65f, alpha * 0.35f) : parseColor(p.color, alpha * 0.35f);
+                m_dcRenderTarget->CreateSolidColorBrush(haloC, haloBrush.GetAddressOf());
+                if (haloBrush) {
+                    m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(px, py), r + 2.0f, r + 2.0f), haloBrush.Get());
+                }
+            }
+
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> orbBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(c, orbBrush.GetAddressOf());
+            if (orbBrush) {
+                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(px, py), r, r), orbBrush.Get());
+            }
+        }
+    } else if (trailStyle == "aurora_ribbon") {
+        // 2.2 极光轻量流体丝带
+        for (size_t i = 0; i < m_trail.size(); ++i) {
+            const auto& p = m_trail[i];
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
+            float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
+            float alpha = (1.0f - progress) * 0.75f;
+            float px = static_cast<float>(p.pt.x - bounds.x);
+            float py = static_cast<float>(p.pt.y - bounds.y);
+
+            D2D1_COLOR_F c = isRainbow ? hslToRgb(p.hue, 0.85f, 0.62f, alpha) : parseColor(p.color, alpha);
+
             if (i + 1 < m_trail.size()) {
                 const auto& nextP = m_trail[i + 1];
                 float nx = static_cast<float>(nextP.pt.x - bounds.x);
                 float ny = static_cast<float>(nextP.pt.y - bounds.y);
-                float dx = nx - px;
-                float dy = ny - py;
-                float dist = std::sqrt(dx * dx + dy * dy);
-                if (dist < 45.0f && dist > 1.0f) {
-                    m_dcRenderTarget->DrawLine(
-                        D2D1::Point2F(px, py),
-                        D2D1::Point2F(nx, ny),
-                        trailBrush.Get(),
-                        r * 1.6f
-                    );
+                float dist = std::sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py));
+                if (dist < 40.0f && dist > 1.0f) {
+                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> lineBrush;
+                    m_dcRenderTarget->CreateSolidColorBrush(c, lineBrush.GetAddressOf());
+                    if (lineBrush) {
+                        float stroke = (std::max)(0.8f, 2.2f * (1.0f - progress * 0.6f));
+                        m_dcRenderTarget->DrawLine(D2D1::Point2F(px, py), D2D1::Point2F(nx, ny), lineBrush.Get(), stroke);
+                    }
+                }
+            }
+        }
+    } else if (trailStyle == "sonar_pulses") {
+        // 2.3 稀疏彩色声纳微环
+        for (const auto& p : m_trail) {
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
+            float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
+            float ease = 1.0f - std::pow(1.0f - progress, 2.5f);
+            float currentR = 3.0f + p.size * ease;
+            float alpha = (1.0f - ease) * 0.80f;
+            float px = static_cast<float>(p.pt.x - bounds.x);
+            float py = static_cast<float>(p.pt.y - bounds.y);
+
+            D2D1_COLOR_F c = isRainbow ? hslToRgb(p.hue, 0.85f, 0.60f, alpha) : parseColor(p.color, alpha);
+
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ringBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(c, ringBrush.GetAddressOf());
+            if (ringBrush) {
+                m_dcRenderTarget->DrawEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(px, py), currentR, currentR),
+                    ringBrush.Get(),
+                    (std::max)(0.6f, 1.5f * (1.0f - ease * 0.6f))
+                );
+            }
+        }
+    } else {
+        // 2.4 经典彗星连线流光
+        for (size_t i = 0; i < m_trail.size(); ++i) {
+            const auto& p = m_trail[i];
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
+            float progress = (std::clamp)(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
+            float alpha = (1.0f - progress) * (1.0f - progress) * 0.85f;
+            float r = p.size * (1.0f - progress * 0.65f);
+
+            float px = static_cast<float>(p.pt.x - bounds.x);
+            float py = static_cast<float>(p.pt.y - bounds.y);
+
+            D2D1_COLOR_F c = isRainbow ? hslToRgb(p.hue, 0.85f, 0.60f, alpha) : parseColor(p.color, alpha);
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trailBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(c, trailBrush.GetAddressOf());
+            if (trailBrush) {
+                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(px, py), r, r), trailBrush.Get());
+                if (i + 1 < m_trail.size()) {
+                    const auto& nextP = m_trail[i + 1];
+                    float nx = static_cast<float>(nextP.pt.x - bounds.x);
+                    float ny = static_cast<float>(nextP.pt.y - bounds.y);
+                    float dist = std::sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py));
+                    if (dist < 45.0f && dist > 1.0f) {
+                        m_dcRenderTarget->DrawLine(
+                            D2D1::Point2F(px, py),
+                            D2D1::Point2F(nx, ny),
+                            trailBrush.Get(),
+                            r * 1.5f
+                        );
+                    }
                 }
             }
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. 绘制鼠标点击顶级流体水波纹 (Cubic Ease-Out 扩散 + Bloom 脉冲)
+    // 3. 绘制鼠标点击特效 (4 款世界级风格渲染管线)
     // ─────────────────────────────────────────────────────────────────────────
     for (const auto& rip : m_ripples) {
         auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - rip.startTime).count();
         float progress = (std::clamp)(static_cast<float>(el) / rip.durationMs, 0.0f, 1.0f);
         float ease = 1.0f - std::pow(1.0f - progress, 3.0f); // Cubic Ease-Out
-        float currentRadius = 6.0f + (rip.maxRadius - 6.0f) * ease;
-        float alpha = (1.0f - ease) * (1.0f - progress * 0.2f);
-        float strokeW = (std::max)(0.6f, 3.6f * (1.0f - ease * 0.8f));
-
         float cx = static_cast<float>(rip.pt.x - bounds.x);
         float cy = static_cast<float>(rip.pt.y - bounds.y);
-
         D2D1_COLOR_F baseC = parseColor(rip.color, 1.0f);
 
-        // 3.1 中心高光微闪点 (点击瞬间凝聚爆发)
-        if (progress < 0.35f) {
-            float sparkA = (1.0f - progress / 0.35f) * 0.95f;
-            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sparkBrush;
-            m_dcRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(1.0f, 1.0f, 1.0f, sparkA),
-                sparkBrush.GetAddressOf()
-            );
-            if (sparkBrush) {
-                float sparkR = 3.5f * (1.0f - progress / 0.35f);
-                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), sparkR, sparkR), sparkBrush.Get());
+        if (rip.style == "sparkle_burst") {
+            // 3.1 星芒微粒迸发
+            for (const auto& sp : rip.sparklets) {
+                float sx = cx + sp.vx * ease * (rip.maxRadius / 22.0f);
+                float sy = cy + sp.vy * ease * (rip.maxRadius / 22.0f);
+                float sa = (1.0f - progress) * 0.95f;
+                float sr = (std::max)(0.6f, sp.size * (1.0f - progress * 0.5f));
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sparkBrush;
+                m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, sa), sparkBrush.GetAddressOf());
+                if (sparkBrush) {
+                    m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sx, sy), sr, sr), sparkBrush.Get());
+                }
             }
-        }
-
-        // 3.2 主冲击水波纹 (流体外扩)
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush1;
-        m_dcRenderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.95f * alpha),
-            waveBrush1.GetAddressOf()
-        );
-        if (waveBrush1) {
-            m_dcRenderTarget->DrawEllipse(
-                D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius, currentRadius),
-                waveBrush1.Get(),
-                strokeW
-            );
-        }
-
-        // 3.3 外层环境柔光 Bloom
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> bloomBrush;
-        m_dcRenderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.25f * alpha),
-            bloomBrush.GetAddressOf()
-        );
-        if (bloomBrush) {
-            m_dcRenderTarget->DrawEllipse(
-                D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius + 2.5f, currentRadius + 2.5f),
-                bloomBrush.Get(),
-                strokeW * 1.8f
-            );
-        }
-
-        // 3.4 第二道流体微波纹 (层叠回波)
-        if (progress > 0.12f) {
-            float subProgress = (progress - 0.12f) / 0.88f;
-            float subEase = 1.0f - std::pow(1.0f - subProgress, 2.5f);
-            float subRadius = 4.0f + (rip.maxRadius * 0.68f) * subEase;
-            float subAlpha = (1.0f - subEase) * 0.55f;
-
-            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush2;
-            m_dcRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(baseC.r, baseC.g, baseC.b, subAlpha),
-                waveBrush2.GetAddressOf()
-            );
-            if (waveBrush2) {
+            // 中心微闪光点
+            if (progress < 0.35f) {
+                float centerA = (1.0f - progress / 0.35f) * 0.90f;
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> cBrush;
+                m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, centerA), cBrush.GetAddressOf());
+                if (cBrush) {
+                    m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 3.0f, 3.0f), cBrush.Get());
+                }
+            }
+        } else if (rip.style == "target_pulse") {
+            // 3.2 精密雷达靶心
+            float shrinkR = rip.maxRadius * (1.0f - std::pow(progress, 0.7f));
+            float alpha = (1.0f - progress) * 0.90f;
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> targetBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, alpha), targetBrush.GetAddressOf());
+            if (targetBrush) {
+                float lineLen = 14.0f * (1.0f - progress * 0.35f);
+                m_dcRenderTarget->DrawLine(D2D1::Point2F(cx - lineLen, cy), D2D1::Point2F(cx + lineLen, cy), targetBrush.Get(), 1.2f);
+                m_dcRenderTarget->DrawLine(D2D1::Point2F(cx, cy - lineLen), D2D1::Point2F(cx, cy + lineLen), targetBrush.Get(), 1.2f);
                 m_dcRenderTarget->DrawEllipse(
-                    D2D1::Ellipse(D2D1::Point2F(cx, cy), subRadius, subRadius),
-                    waveBrush2.Get(),
-                    (std::max)(0.5f, strokeW * 0.6f)
+                    D2D1::Ellipse(D2D1::Point2F(cx, cy), (std::max)(2.5f, shrinkR), (std::max)(2.5f, shrinkR)),
+                    targetBrush.Get(),
+                    1.5f
                 );
+            }
+        } else if (rip.style == "soft_glow") {
+            // 3.3 柔光微晕气泡
+            float glowR = 8.0f + rip.maxRadius * ease;
+            float alpha = (1.0f - ease) * 0.45f;
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> glowBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, alpha), glowBrush.GetAddressOf());
+            if (glowBrush) {
+                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), glowR, glowR), glowBrush.Get());
+            }
+        } else {
+            // 3.4 流体光圈冲击波 (经典双层扩散)
+            float currentRadius = 6.0f + (rip.maxRadius - 6.0f) * ease;
+            float alpha = (1.0f - ease) * (1.0f - progress * 0.2f);
+            float strokeW = (std::max)(0.6f, 3.6f * (1.0f - ease * 0.8f));
+
+            // 中心高光微闪点
+            if (progress < 0.35f) {
+                float sparkA = (1.0f - progress / 0.35f) * 0.95f;
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sparkBrush;
+                m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, sparkA), sparkBrush.GetAddressOf());
+                if (sparkBrush) {
+                    float sparkR = 3.5f * (1.0f - progress / 0.35f);
+                    m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), sparkR, sparkR), sparkBrush.Get());
+                }
+            }
+
+            // 主冲击光环
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush1;
+            m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.95f * alpha), waveBrush1.GetAddressOf());
+            if (waveBrush1) {
+                m_dcRenderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius, currentRadius), waveBrush1.Get(), strokeW);
+            }
+
+            // 外层 Bloom 晕染
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> bloomBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.25f * alpha), bloomBrush.GetAddressOf());
+            if (bloomBrush) {
+                m_dcRenderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius + 2.5f, currentRadius + 2.5f), bloomBrush.Get(), strokeW * 1.8f);
+            }
+
+            // 第二道回波
+            if (progress > 0.12f) {
+                float subProgress = (progress - 0.12f) / 0.88f;
+                float subEase = 1.0f - std::pow(1.0f - subProgress, 2.5f);
+                float subRadius = 4.0f + (rip.maxRadius * 0.68f) * subEase;
+                float subAlpha = (1.0f - subEase) * 0.55f;
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush2;
+                m_dcRenderTarget->CreateSolidColorBrush(D2D1::ColorF(baseC.r, baseC.g, baseC.b, subAlpha), waveBrush2.GetAddressOf());
+                if (waveBrush2) {
+                    m_dcRenderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), subRadius, subRadius), waveBrush2.Get(), (std::max)(0.5f, strokeW * 0.6f));
+                }
             }
         }
     }

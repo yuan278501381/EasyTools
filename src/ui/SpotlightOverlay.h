@@ -27,6 +27,9 @@ struct SpotlightSettings {
     // 鼠标点击与轨迹特效 (演示辅助)
     bool clickRippleEnabled = false;
     bool mouseTrailEnabled = false;
+    std::string clickRippleStyle = "ripple_ring";      // ripple_ring, sparkle_burst, target_pulse, soft_glow
+    std::string mouseTrailStyle = "stardust_orbs";     // stardust_orbs, aurora_ribbon, sonar_pulses, classic_comet
+    std::string mouseTrailColorMode = "rainbow";       // rainbow, accent
     std::string leftClickColor = "auto";
     std::string rightClickColor = "#fb7185";
     std::string middleClickColor = "#fbbf24";
@@ -59,6 +62,7 @@ public:
     void onMouseDown(int button, POINT pt); // 0: Left, 1: Right, 2: Middle
     void tickAnimation();
     D2D1_COLOR_F parseColor(const std::string& hexStr, float alpha) const;
+    static D2D1_COLOR_F hslToRgb(float h, float s, float l, float alpha);
 
     struct ViewportBounds {
         int x = 0;
@@ -68,6 +72,23 @@ public:
         bool isFullscreen = false;
     };
     ViewportBounds calculateViewportBoundsLocked() const;
+
+    enum class TrailParticleKind {
+        OrbMain,     // 主能量光球 (6.5px ~ 8.0px, 带微光晕)
+        OrbSub,      // 次级漂浮球 (3.5px ~ 5.0px)
+        Sparklet,    // 伴生微星 (1.5px ~ 2.5px, 随机微偏移)
+        RibbonNode,  // 极光流丝平滑节点
+        SonarRing,   // 扩散声纳微环
+        CometDot     // 经典彗星连线点
+    };
+
+    struct ClickSparkle {
+        float x = 0.0f;
+        float y = 0.0f;
+        float vx = 0.0f;
+        float vy = 0.0f;
+        float size = 3.0f;
+    };
 
 private:
     SpotlightOverlay() = default;
@@ -117,20 +138,25 @@ private:
         POINT pt;
         std::chrono::steady_clock::time_point startTime;
         std::string color;
+        std::string style = "ripple_ring";
         float maxRadius = 42.0f;
         float durationMs = 450.0f;
+        std::vector<ClickSparkle> sparklets;
     };
     std::vector<ClickRipple> m_ripples;
 
-    // 鼠标流光/轨迹粒子数据
+    // 鼠标流光/星尘轨迹微粒数据
     struct TrailParticle {
         POINT pt;
         std::chrono::steady_clock::time_point time;
-        float size = 8.0f;
-        float durationMs = 380.0f;
+        TrailParticleKind kind = TrailParticleKind::OrbMain;
+        float size = 7.5f;
+        float durationMs = 280.0f;
         std::string color;
+        float hue = 0.0f;
     };
     std::vector<TrailParticle> m_trail;
+    float m_trailHue = 195.0f; // 七彩色相累加器
 
     // DIB Surface
     HDC m_memDc = nullptr;

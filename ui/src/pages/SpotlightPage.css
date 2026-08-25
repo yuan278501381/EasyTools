@@ -219,6 +219,58 @@
   cursor: pointer;
 }
 
+.spotlight-page__style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.spotlight-page__style-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.spotlight-page__style-card:hover {
+  border-color: var(--primary-dim);
+  background: var(--card-hover);
+  transform: translateY(-1px);
+}
+
+.spotlight-page__style-card--active {
+  border-color: var(--primary);
+  background: var(--primary-dim);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.spotlight-page__style-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.spotlight-page__style-card--active .spotlight-page__style-card-header {
+  color: var(--primary);
+}
+
+.spotlight-page__style-card-desc {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 .spotlight-page__action-footer {
   display: flex;
   align-items: center;
