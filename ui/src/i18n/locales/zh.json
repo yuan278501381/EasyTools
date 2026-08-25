@@ -917,6 +917,8 @@
     "middleClickColor": "中键点击颜色",
     "followBrandAccent": "跟随品牌色",
     "customColor": "自定义颜色",
+    "restoreFollowBrand": "恢复跟随品牌色",
+    "restoreFollowBrandDesc": "一键切回并实时联动 EasyTools 品牌主色",
     "testSpotlight": "立即体验聚光灯",
     "saved": "聚光灯设置已保存",
     "saveFailed": "保存聚光灯设置失败",

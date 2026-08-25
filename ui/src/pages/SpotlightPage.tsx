@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * SpotlightPage.tsx — 寻找鼠标与演示特效配置中心
+ * SpotlightPage.tsx — 寻找鼠标与演示特效配置中心 (世界级 UX 双态色彩体系)
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
@@ -14,6 +14,7 @@ import {
   Play,
   Activity,
   Sparkles,
+  Palette,
 } from 'lucide-react';
 import './SpotlightPage.css';
 
@@ -62,15 +63,110 @@ const ACCENT_COLOR_MAP: Record<string, string> = {
   violet: '#8b5cf6',
 };
 
+/** 颜色双态分段胶囊组件 */
+interface ColorSegmentControlProps {
+  label: string;
+  desc?: string;
+  value: string;
+  defaultCustomFallback: string;
+  brandAccentHex: string;
+  onChange: (val: string) => void;
+}
+
+const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
+  label,
+  desc,
+  value,
+  defaultCustomFallback,
+  brandAccentHex,
+  onChange,
+}) => {
+  const { t } = useTranslation();
+  const isAuto = value === 'auto';
+  const displayHex = isAuto ? brandAccentHex : value;
+
+  return (
+    <div className="spotlight-page__prop-card spotlight-page__color-card">
+      <div className="spotlight-page__prop-header">
+        <span className="spotlight-page__prop-title">{label}</span>
+        {desc && <span className="spotlight-page__prop-desc">{desc}</span>}
+      </div>
+
+      {/* 双态胶囊选择器 */}
+      <div className="spotlight-page__capsule-wrap">
+        <button
+          type="button"
+          className={`spotlight-page__capsule-btn ${isAuto ? 'active' : ''}`}
+          onClick={() => onChange('auto')}
+        >
+          <Sparkles size={13} />
+          <span>{t('spotlight.followBrandAccent', '跟随品牌色')}</span>
+          <span className="spotlight-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
+        </button>
+
+        <button
+          type="button"
+          className={`spotlight-page__capsule-btn ${!isAuto ? 'active' : ''}`}
+          onClick={() => {
+            if (isAuto) {
+              onChange(defaultCustomFallback);
+            }
+          }}
+        >
+          <Palette size={13} />
+          <span>{t('spotlight.customColor', '自定义颜色')}</span>
+        </button>
+      </div>
+
+      {/* 色彩展示与调色盘操作 */}
+      <div className="spotlight-page__prop-body">
+        <div className="spotlight-page__color-row">
+          <div className="spotlight-page__color-info">
+            <span className="spotlight-page__color-hex">{displayHex.toUpperCase()}</span>
+            {!isAuto && (
+              <button
+                type="button"
+                className="spotlight-page__restore-capsule"
+                onClick={() => onChange('auto')}
+                title={t('spotlight.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 品牌主色')}
+              >
+                <RotateCcw size={11} />
+                <span>{t('spotlight.restoreFollowBrand', '恢复跟随品牌色')}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="spotlight-page__color-picker-wrap">
+            <div
+              className="spotlight-page__color-swatch"
+              style={{ backgroundColor: displayHex }}
+              title={isAuto ? t('spotlight.followBrandAccent') : displayHex}
+            />
+            {!isAuto && (
+              <input
+                type="color"
+                className="spotlight-page__color-input"
+                value={displayHex}
+                onChange={(e) => onChange(e.target.value)}
+                aria-label={label}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const SpotlightPage: FC = () => {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<SpotlightSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [accent, setAccent] = useState<string>(() => {
     try {
-      return localStorage.getItem('easytools:accent-color') || 'violet';
+      return localStorage.getItem('easytools:accent-color') || 'blue';
     } catch {
-      return 'violet';
+      return 'blue';
     }
   });
 
@@ -126,12 +222,7 @@ export const SpotlightPage: FC = () => {
     }
   };
 
-  const resolveColorHex = (val: string) => {
-    if (!val || val === 'auto') {
-      return ACCENT_COLOR_MAP[accent] || '#8b5cf6';
-    }
-    return val;
-  };
+  const currentBrandAccentHex = ACCENT_COLOR_MAP[accent] || '#3b82f6';
 
   if (loading) {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', '加载中...')}</div>;
@@ -191,46 +282,15 @@ export const SpotlightPage: FC = () => {
       {/* ── 3. 外观样式 ────────────────────────────────────────────── */}
       <SettingGroup title={t('spotlight.appearanceSection', '外观样式')} icon={<SunMedium size={18} />}>
         <div className="spotlight-page__grid">
-          {/* 聚光灯发光颜色 */}
-          <div className="spotlight-page__prop-card">
-            <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.spotlightColor', '聚光灯颜色')}</span>
-              <span className="spotlight-page__prop-desc">{t('spotlight.spotlightColorDesc', '外部发光颜色。')}</span>
-            </div>
-            <div className="spotlight-page__prop-body">
-              <div className="spotlight-page__color-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="spotlight-page__color-hex">
-                    {settings.spotlightColor === 'auto' ? `${t('spotlight.followBrandAccent')} (${resolveColorHex('auto')})` : settings.spotlightColor}
-                  </span>
-                  {settings.spotlightColor !== 'auto' && (
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 2 }}
-                      onClick={() => saveSetting('spotlightColor', 'auto')}
-                      title={t('spotlight.followBrandAccent')}
-                    >
-                      <Sparkles size={11} />
-                      <span>{t('spotlight.followBrandAccent')}</span>
-                    </button>
-                  )}
-                </div>
-                <div className="spotlight-page__color-picker-wrap">
-                  <div
-                    className="spotlight-page__color-swatch"
-                    style={{ backgroundColor: resolveColorHex(settings.spotlightColor) }}
-                  />
-                  <input
-                    type="color"
-                    className="spotlight-page__color-input"
-                    value={resolveColorHex(settings.spotlightColor)}
-                    onChange={(e) => saveSetting('spotlightColor', e.target.value)}
-                    aria-label={t('spotlight.spotlightColor', '聚光灯颜色')}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* 聚光灯发光颜色 (双态胶囊) */}
+          <ColorSegmentControl
+            label={t('spotlight.spotlightColor', '聚光灯颜色')}
+            desc={t('spotlight.spotlightColorDesc', '外部发光颜色。')}
+            value={settings.spotlightColor}
+            defaultCustomFallback="#3b82f6"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('spotlightColor', val)}
+          />
 
           {/* 聚光灯大小 */}
           <div className="spotlight-page__prop-card">
@@ -320,144 +380,51 @@ export const SpotlightPage: FC = () => {
           <Toggle
             id="spotlight-click-ripple"
             label={t('spotlight.clickRipple', '显示点击光圈')}
-            description={t('spotlight.clickRippleDesc', '在鼠标点击位置显示短暂的点击光圈。')}
+            description={t('spotlight.clickRippleDesc', '在鼠标点击位置显示短暂的流体点击光圈与冲击波。')}
             checked={settings.clickRippleEnabled}
             onChange={(v) => saveSetting('clickRippleEnabled', v)}
           />
           <Toggle
             id="spotlight-mouse-trail"
             label={t('spotlight.mouseTrail', '显示鼠标轨迹')}
-            description={t('spotlight.mouseTrailDesc', '在鼠标移动路径上显示逐渐淡出的彩色轨迹。')}
+            description={t('spotlight.mouseTrailDesc', '在鼠标移动路径上显示渐隐流光彗星轨迹。')}
             checked={settings.mouseTrailEnabled}
             onChange={(v) => saveSetting('mouseTrailEnabled', v)}
           />
         </Card>
 
-        {/* 独立按键点击颜色 */}
+        {/* 独立按键点击颜色 (双态胶囊体系) */}
         <div className="spotlight-page__grid" style={{ marginTop: '16px' }}>
           {/* 左键颜色 */}
-          <div className="spotlight-page__prop-card">
-            <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.leftClickColor', '左键点击颜色')}</span>
-            </div>
-            <div className="spotlight-page__prop-body">
-              <div className="spotlight-page__color-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="spotlight-page__color-hex">
-                    {settings.leftClickColor === 'auto' ? `${t('spotlight.followBrandAccent')} (${resolveColorHex('auto')})` : settings.leftClickColor}
-                  </span>
-                  {settings.leftClickColor !== 'auto' && (
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 2 }}
-                      onClick={() => saveSetting('leftClickColor', 'auto')}
-                      title={t('spotlight.followBrandAccent')}
-                    >
-                      <Sparkles size={11} />
-                      <span>{t('spotlight.followBrandAccent')}</span>
-                    </button>
-                  )}
-                </div>
-                <div className="spotlight-page__color-picker-wrap">
-                  <div
-                    className="spotlight-page__color-swatch"
-                    style={{ backgroundColor: resolveColorHex(settings.leftClickColor) }}
-                  />
-                  <input
-                    type="color"
-                    className="spotlight-page__color-input"
-                    value={resolveColorHex(settings.leftClickColor)}
-                    onChange={(e) => saveSetting('leftClickColor', e.target.value)}
-                    aria-label={t('spotlight.leftClickColor', '左键点击颜色')}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <ColorSegmentControl
+            label={t('spotlight.leftClickColor', '左键点击颜色')}
+            value={settings.leftClickColor}
+            defaultCustomFallback="#3b82f6"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('leftClickColor', val)}
+          />
 
           {/* 右键颜色 */}
-          <div className="spotlight-page__prop-card">
-            <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.rightClickColor', '右键点击颜色')}</span>
-            </div>
-            <div className="spotlight-page__prop-body">
-              <div className="spotlight-page__color-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="spotlight-page__color-hex">
-                    {settings.rightClickColor === 'auto' ? `${t('spotlight.followBrandAccent')} (${resolveColorHex('auto')})` : settings.rightClickColor}
-                  </span>
-                  {settings.rightClickColor !== 'auto' && (
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 2 }}
-                      onClick={() => saveSetting('rightClickColor', 'auto')}
-                      title={t('spotlight.followBrandAccent')}
-                    >
-                      <Sparkles size={11} />
-                      <span>{t('spotlight.followBrandAccent')}</span>
-                    </button>
-                  )}
-                </div>
-                <div className="spotlight-page__color-picker-wrap">
-                  <div
-                    className="spotlight-page__color-swatch"
-                    style={{ backgroundColor: resolveColorHex(settings.rightClickColor) }}
-                  />
-                  <input
-                    type="color"
-                    className="spotlight-page__color-input"
-                    value={resolveColorHex(settings.rightClickColor)}
-                    onChange={(e) => saveSetting('rightClickColor', e.target.value)}
-                    aria-label={t('spotlight.rightClickColor', '右键点击颜色')}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <ColorSegmentControl
+            label={t('spotlight.rightClickColor', '右键点击颜色')}
+            value={settings.rightClickColor}
+            defaultCustomFallback="#fb7185"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('rightClickColor', val)}
+          />
 
           {/* 中键颜色 */}
-          <div className="spotlight-page__prop-card">
-            <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.middleClickColor', '中键点击颜色')}</span>
-            </div>
-            <div className="spotlight-page__prop-body">
-              <div className="spotlight-page__color-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="spotlight-page__color-hex">
-                    {settings.middleClickColor === 'auto' ? `${t('spotlight.followBrandAccent')} (${resolveColorHex('auto')})` : settings.middleClickColor}
-                  </span>
-                  {settings.middleClickColor !== 'auto' && (
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 2 }}
-                      onClick={() => saveSetting('middleClickColor', 'auto')}
-                      title={t('spotlight.followBrandAccent')}
-                    >
-                      <Sparkles size={11} />
-                      <span>{t('spotlight.followBrandAccent')}</span>
-                    </button>
-                  )}
-                </div>
-                <div className="spotlight-page__color-picker-wrap">
-                  <div
-                    className="spotlight-page__color-swatch"
-                    style={{ backgroundColor: resolveColorHex(settings.middleClickColor) }}
-                  />
-                  <input
-                    type="color"
-                    className="spotlight-page__color-input"
-                    value={resolveColorHex(settings.middleClickColor)}
-                    onChange={(e) => saveSetting('middleClickColor', e.target.value)}
-                    aria-label={t('spotlight.middleClickColor', '中键点击颜色')}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <ColorSegmentControl
+            label={t('spotlight.middleClickColor', '中键点击颜色')}
+            value={settings.middleClickColor}
+            defaultCustomFallback="#fbbf24"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('middleClickColor', val)}
+          />
         </div>
       </SettingGroup>
 
-      {/* ── 5. 即刻体验 ────────────────────────────────────────────── */}
+      {/* ── 底部即刻体验栏 ──────────────────────────────────────────── */}
       <div className="spotlight-page__action-footer">
         <Button variant="primary" onClick={handleTestSpotlight}>
           <Play size={14} style={{ marginRight: 6 }} />

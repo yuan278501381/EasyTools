@@ -917,6 +917,8 @@
     "middleClickColor": "Middle Click Color",
     "followBrandAccent": "Follow Brand Accent",
     "customColor": "Custom Color",
+    "restoreFollowBrand": "Follow Brand Accent",
+    "restoreFollowBrandDesc": "Switch back and link dynamically to EasyTools brand accent color",
     "testSpotlight": "Try Spotlight Now",
     "saved": "Spotlight settings saved",
     "saveFailed": "Failed to save spotlight settings",

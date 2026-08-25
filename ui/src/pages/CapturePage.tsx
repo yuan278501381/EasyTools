@@ -221,6 +221,13 @@ export const CapturePage: FC = () => {
             </div>
           </SettingRow>
           <Toggle
+            id="capture-auto-bypass"
+            label={t('capture.autoBypassFullscreen')}
+            description={t('capture.autoBypassFullscreenDesc')}
+            checked={capture.autoBypassFullscreen ?? true}
+            onChange={(v) => updateCapture('autoBypassFullscreen', v)}
+          />
+          <Toggle
             id="capture-copy-clipboard"
             label={t('capture.copyToClipboard')}
             description={t('capture.copyToClipboardDesc')}
@@ -294,13 +301,6 @@ export const CapturePage: FC = () => {
             description={t('capture.showShortcutHintsDesc')}
             checked={capture.showShortcutHints}
             onChange={(v) => updateCapture('showShortcutHints', v)}
-          />
-          <Toggle
-            id="capture-auto-bypass"
-            label={t('capture.autoBypassFullscreen')}
-            description={t('capture.autoBypassFullscreenDesc')}
-            checked={capture.autoBypassFullscreen ?? true}
-            onChange={(v) => updateCapture('autoBypassFullscreen', v)}
           />
         </Card>
       </SettingGroup>

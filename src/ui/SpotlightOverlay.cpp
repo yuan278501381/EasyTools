@@ -24,13 +24,14 @@ SpotlightOverlay& SpotlightOverlay::instance() {
 D2D1_COLOR_F SpotlightOverlay::parseColor(const std::string& hexStr, float alpha) const {
     std::string s = hexStr;
     if (s.empty() || s == "auto") {
-        std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "violet");
+        std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
         if (accent == "blue") s = "#3b82f6";
         else if (accent == "cyan") s = "#06b6d4";
         else if (accent == "amber") s = "#f59e0b";
         else if (accent == "mint") s = "#10b981";
         else if (accent == "coral") s = "#f43f5e";
-        else s = "#8b5cf6"; // violet
+        else if (accent == "violet") s = "#8b5cf6";
+        else s = "#3b82f6"; // 默认蓝色
     }
     if (!s.empty() && s.front() == '#') {
         s = s.substr(1);
@@ -46,7 +47,7 @@ D2D1_COLOR_F SpotlightOverlay::parseColor(const std::string& hexStr, float alpha
             // fallback
         }
     }
-    return D2D1::ColorF(0.545f, 0.361f, 0.965f, alpha);
+    return D2D1::ColorF(0.231f, 0.510f, 0.965f, alpha);
 }
 
 bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
@@ -536,7 +537,7 @@ void SpotlightOverlay::render() {
     auto now = std::chrono::steady_clock::now();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. 绘制聚光灯 (全屏半透明暗化 + 鼠标镂空 + 发光环)
+    // 1. 绘制聚光灯 (GPU 径向渐变刷：全屏电影级微晕暗角 + 鼠标镂空 + 呼吸发光光环)
     // ─────────────────────────────────────────────────────────────────────────
     if (m_animState != AnimState::Idle && m_currentAlpha > 0.01f) {
         float localCenterX = static_cast<float>(m_targetPos.x - vx);
@@ -544,54 +545,43 @@ void SpotlightOverlay::render() {
         float radius = static_cast<float>(std::max(40, m_settings.spotlightSize)) / 2.0f;
         float alpha = m_currentAlpha;
 
-        Microsoft::WRL::ComPtr<ID2D1RectangleGeometry> screenGeo;
-        Microsoft::WRL::ComPtr<ID2D1EllipseGeometry> holeGeo;
-        Microsoft::WRL::ComPtr<ID2D1PathGeometry> combinedGeo;
-
-        D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, static_cast<float>(m_surfaceW), static_cast<float>(m_surfaceH));
-        m_d2dFactory->CreateRectangleGeometry(fullRect, screenGeo.GetAddressOf());
-
-        D2D1_ELLIPSE holeEllipse = D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), radius, radius);
-        m_d2dFactory->CreateEllipseGeometry(holeEllipse, holeGeo.GetAddressOf());
-
-        m_d2dFactory->CreatePathGeometry(combinedGeo.GetAddressOf());
-        Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
-        if (combinedGeo && SUCCEEDED(combinedGeo->Open(sink.GetAddressOf()))) {
-            screenGeo->CombineWithGeometry(holeGeo.Get(), D2D1_COMBINE_MODE_EXCLUDE, nullptr, sink.Get());
-            sink->Close();
-
-            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dimBrush;
-            m_dcRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.65f * alpha),
-                dimBrush.GetAddressOf()
-            );
-            if (dimBrush) {
-                m_dcRenderTarget->FillGeometry(combinedGeo.Get(), dimBrush.Get());
-            }
-        }
-
-        // 外发光光晕
-        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> stopCollection;
         D2D1_COLOR_F baseColor = parseColor(m_settings.spotlightColor, 1.0f);
-        D2D1_GRADIENT_STOP stops[3] = {
-            { 0.0f, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.45f * alpha) },
-            { 0.7f, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.15f * alpha) },
-            { 1.0f, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.0f) }
+        float outerRadius = radius + 90.0f;
+        if (outerRadius < 100.0f) outerRadius = 100.0f;
+
+        float stopTransparentInner = std::clamp((radius - 4.0f) / outerRadius, 0.0f, 0.90f);
+        float stopRingInner = std::clamp(radius / outerRadius, 0.01f, 0.92f);
+        float stopRingCore = std::clamp((radius + 3.0f) / outerRadius, 0.02f, 0.94f);
+        float stopGlowOuter = std::clamp((radius + 18.0f) / outerRadius, 0.03f, 0.96f);
+        float stopDarkFade = std::clamp((radius + 55.0f) / outerRadius, 0.04f, 0.98f);
+
+        D2D1_GRADIENT_STOP stops[7] = {
+            { 0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
+            { stopTransparentInner, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
+            { stopRingInner, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.90f * alpha) },
+            { stopRingCore, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.85f * alpha) },
+            { stopGlowOuter, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.28f * alpha) },
+            { stopDarkFade, D2D1::ColorF(0.02f, 0.03f, 0.06f, 0.62f * alpha) },
+            { 1.0f, D2D1::ColorF(0.02f, 0.03f, 0.06f, 0.62f * alpha) }
         };
-        if (SUCCEEDED(m_dcRenderTarget->CreateGradientStopCollection(stops, 3, stopCollection.GetAddressOf()))) {
-            float glowRadius = radius + 32.0f;
-            D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES glowProps = D2D1::RadialGradientBrushProperties(
+
+        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> stopCollection;
+        if (SUCCEEDED(m_dcRenderTarget->CreateGradientStopCollection(
+                stops, 7, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, stopCollection.GetAddressOf()))) {
+            D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES radialProps = D2D1::RadialGradientBrushProperties(
                 D2D1::Point2F(localCenterX, localCenterY),
                 D2D1::Point2F(0, 0),
-                glowRadius, glowRadius
+                outerRadius, outerRadius
             );
-            Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> glowBrush;
-            if (SUCCEEDED(m_dcRenderTarget->CreateRadialGradientBrush(glowProps, stopCollection.Get(), glowBrush.GetAddressOf()))) {
-                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), glowRadius, glowRadius), glowBrush.Get());
+            Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> radialBrush;
+            if (SUCCEEDED(m_dcRenderTarget->CreateRadialGradientBrush(
+                    radialProps, stopCollection.Get(), radialBrush.GetAddressOf()))) {
+                D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, static_cast<float>(m_surfaceW), static_cast<float>(m_surfaceH));
+                m_dcRenderTarget->FillRectangle(fullRect, radialBrush.Get());
             }
         }
 
-        // 高亮外轮廓圈
+        // 次像素高亮微光细环 (科技感光泽)
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ringBrush;
         m_dcRenderTarget->CreateSolidColorBrush(
             D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.95f * alpha),
@@ -601,19 +591,20 @@ void SpotlightOverlay::render() {
             m_dcRenderTarget->DrawEllipse(
                 D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), radius, radius),
                 ringBrush.Get(),
-                3.5f
+                2.0f
             );
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. 绘制鼠标轨迹流光粒子 (图 5 所示)
+    // 2. 绘制鼠标轨迹流光粒子与彗尾光带
     // ─────────────────────────────────────────────────────────────────────────
-    for (const auto& p : m_trail) {
+    for (size_t i = 0; i < m_trail.size(); ++i) {
+        const auto& p = m_trail[i];
         auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - p.time).count();
         float progress = std::clamp(static_cast<float>(el) / p.durationMs, 0.0f, 1.0f);
-        float alpha = (1.0f - progress) * 0.85f;
-        float r = p.size * (1.0f - progress * 0.4f);
+        float alpha = (1.0f - progress) * (1.0f - progress) * 0.85f;
+        float r = p.size * (1.0f - progress * 0.65f);
 
         float px = static_cast<float>(p.pt.x - vx);
         float py = static_cast<float>(p.pt.y - vy);
@@ -622,62 +613,104 @@ void SpotlightOverlay::render() {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trailBrush;
         m_dcRenderTarget->CreateSolidColorBrush(c, trailBrush.GetAddressOf());
         if (trailBrush) {
+            // 彗星粒子
             m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(px, py), r, r), trailBrush.Get());
+
+            // 与相邻粒子间连线形成彗尾光带
+            if (i + 1 < m_trail.size()) {
+                const auto& nextP = m_trail[i + 1];
+                float nx = static_cast<float>(nextP.pt.x - vx);
+                float ny = static_cast<float>(nextP.pt.y - vy);
+                float dx = nx - px;
+                float dy = ny - py;
+                float dist = std::sqrt(dx * dx + dy * dy);
+                if (dist < 45.0f && dist > 1.0f) {
+                    m_dcRenderTarget->DrawLine(
+                        D2D1::Point2F(px, py),
+                        D2D1::Point2F(nx, ny),
+                        trailBrush.Get(),
+                        r * 1.6f
+                    );
+                }
+            }
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. 绘制鼠标点击水波纹光圈 (图 3, 图 4 所示)
+    // 3. 绘制鼠标点击顶级流体水波纹 (Cubic Ease-Out 扩散 + Bloom 脉冲)
     // ─────────────────────────────────────────────────────────────────────────
     for (const auto& rip : m_ripples) {
         auto el = std::chrono::duration_cast<std::chrono::milliseconds>(now - rip.startTime).count();
         float progress = std::clamp(static_cast<float>(el) / rip.durationMs, 0.0f, 1.0f);
-        float alpha = (1.0f - progress);
+        float ease = 1.0f - std::pow(1.0f - progress, 3.0f); // Cubic Ease-Out
+        float currentRadius = 6.0f + (rip.maxRadius - 6.0f) * ease;
+        float alpha = (1.0f - ease) * (1.0f - progress * 0.2f);
+        float strokeW = std::max(0.6f, 3.6f * (1.0f - ease * 0.8f));
 
         float cx = static_cast<float>(rip.pt.x - vx);
         float cy = static_cast<float>(rip.pt.y - vy);
-        float currentRadius = 8.0f + rip.maxRadius * std::sin(progress * 1.57079f); // ease-out
 
         D2D1_COLOR_F baseC = parseColor(rip.color, 1.0f);
 
-        // 内层中心实心亮点
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> centerBrush;
-        m_dcRenderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.8f * alpha),
-            centerBrush.GetAddressOf()
-        );
-        if (centerBrush) {
-            m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 6.0f * (1.0f - progress * 0.5f), 6.0f * (1.0f - progress * 0.5f)), centerBrush.Get());
+        // 3.1 中心高光微闪点 (点击瞬间凝聚爆发)
+        if (progress < 0.35f) {
+            float sparkA = (1.0f - progress / 0.35f) * 0.95f;
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sparkBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(1.0f, 1.0f, 1.0f, sparkA),
+                sparkBrush.GetAddressOf()
+            );
+            if (sparkBrush) {
+                float sparkR = 3.5f * (1.0f - progress / 0.35f);
+                m_dcRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), sparkR, sparkR), sparkBrush.Get());
+            }
         }
 
-        // 外层水波扩散波纹圈 (双重同心光圈)
+        // 3.2 主冲击水波纹 (流体外扩)
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush1;
         m_dcRenderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.9f * alpha),
+            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.95f * alpha),
             waveBrush1.GetAddressOf()
         );
         if (waveBrush1) {
             m_dcRenderTarget->DrawEllipse(
                 D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius, currentRadius),
                 waveBrush1.Get(),
-                2.5f * (1.0f - progress * 0.3f)
+                strokeW
             );
         }
 
-        // 第二道滞后辅助微波纹 (波纹层叠感)
-        if (progress > 0.15f) {
-            float subProgress = (progress - 0.15f) / 0.85f;
-            float subRadius = 4.0f + (rip.maxRadius * 0.65f) * std::sin(subProgress * 1.57079f);
+        // 3.3 外层环境柔光 Bloom
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> bloomBrush;
+        m_dcRenderTarget->CreateSolidColorBrush(
+            D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.25f * alpha),
+            bloomBrush.GetAddressOf()
+        );
+        if (bloomBrush) {
+            m_dcRenderTarget->DrawEllipse(
+                D2D1::Ellipse(D2D1::Point2F(cx, cy), currentRadius + 2.5f, currentRadius + 2.5f),
+                bloomBrush.Get(),
+                strokeW * 1.8f
+            );
+        }
+
+        // 3.4 第二道流体微波纹 (层叠回波)
+        if (progress > 0.12f) {
+            float subProgress = (progress - 0.12f) / 0.88f;
+            float subEase = 1.0f - std::pow(1.0f - subProgress, 2.5f);
+            float subRadius = 4.0f + (rip.maxRadius * 0.68f) * subEase;
+            float subAlpha = (1.0f - subEase) * 0.55f;
+
             Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush2;
             m_dcRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(baseC.r, baseC.g, baseC.b, 0.5f * (1.0f - subProgress)),
+                D2D1::ColorF(baseC.r, baseC.g, baseC.b, subAlpha),
                 waveBrush2.GetAddressOf()
             );
             if (waveBrush2) {
                 m_dcRenderTarget->DrawEllipse(
                     D2D1::Ellipse(D2D1::Point2F(cx, cy), subRadius, subRadius),
                     waveBrush2.Get(),
-                    1.8f
+                    std::max(0.5f, strokeW * 0.6f)
                 );
             }
         }

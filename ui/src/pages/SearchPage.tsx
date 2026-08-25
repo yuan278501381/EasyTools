@@ -167,6 +167,17 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
+                label={t('searchPage.autoBypassFullscreen', '全屏游戏/视频免打扰')}
+                description={t('searchPage.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰忽略快捷键，防止 3D 游戏或全屏观影时误唤出搜索框')}
+              >
+                <Toggle
+                  id="search-auto-bypass-toggle"
+                  checked={settings.autoBypassFullscreen ?? true}
+                  onChange={v => saveSetting('autoBypassFullscreen', v)}
+                />
+              </SettingRow>
+
+              <SettingRow
                 label={t('searchPage.quickTest', '立即体验搜索')}
                 description={t('searchPage.quickTestDesc', '测试浮动搜索条的动画弹出与响应速度')}
               >
@@ -221,17 +232,6 @@ export const SearchPage: FC = () => {
                   id="search-keep-service-toggle"
                   checked={settings.keepServiceRunning}
                   onChange={v => saveSetting('keepServiceRunning', v)}
-                />
-              </SettingRow>
-
-              <SettingRow
-                label={t('searchPage.autoBypassFullscreen', '全屏游戏/视频免打扰')}
-                description={t('searchPage.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰忽略快捷键，防止 3D 游戏或全屏观影时误唤出搜索框')}
-              >
-                <Toggle
-                  id="search-auto-bypass-toggle"
-                  checked={settings.autoBypassFullscreen ?? true}
-                  onChange={v => saveSetting('autoBypassFullscreen', v)}
                 />
               </SettingRow>
             </Card>

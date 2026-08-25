@@ -723,6 +723,13 @@ export const GesturePage: FC = () => {
             checked={enabled}
             onChange={handleToggleEnabled}
           />
+          <Toggle
+            id="gesture-bypass-fullscreen"
+            label={tr('gesture.autoBypassFullscreen')}
+            description={tr('gesture.autoBypassFullscreenDesc')}
+            checked={autoBypassFullscreen}
+            onChange={handleToggleAutoBypass}
+          />
           <div className="gesture-admin-hint-card">
             <ShieldAlert size={18} className="gesture-admin-hint-icon" />
             <div className="gesture-admin-hint-content">
@@ -888,13 +895,6 @@ export const GesturePage: FC = () => {
               </div>
             </div>
           )}
-          <Toggle
-            id="gesture-bypass-fullscreen"
-            label={tr('gesture.autoBypassFullscreen')}
-            description={tr('gesture.autoBypassFullscreenDesc')}
-            checked={autoBypassFullscreen}
-            onChange={handleToggleAutoBypass}
-          />
           <SettingRow label={tr('gesture.initialTimeout')} description={tr('gesture.initialTimeoutDesc')}>
             <Select
               id="gesture-initial-timeout"
