@@ -462,6 +462,8 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (finished) {
             KillTimer(hwnd, ANIMATION_TIMER_ID);
             ShowWindow(hwnd, SW_HIDE);
+            self.discardResources();
+            easy::core::WinUtils::trimWorkingSet();
         } else if (shouldRender) {
             self.render();
         }

@@ -4,6 +4,7 @@
 #include "core/hotkey/KeyboardHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
+#include "core/utils/WinUtils.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
 
@@ -99,6 +100,7 @@ public:
         
         // Cleanup Overlay UI
         KeycastOverlay::instance().cleanup();
+        easy::core::WinUtils::trimWorkingSet();
     }
 
 };
