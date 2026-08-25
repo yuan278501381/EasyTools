@@ -15,6 +15,7 @@ export type BuiltinNavId =
   | 'capture'
   | 'history'
   | 'ocr'
+  | 'spotlight'
   | 'dialog_enhancer'
   | 'stats'
   | 'about'
@@ -47,6 +48,7 @@ export const PAGE_DEFINITIONS: PageDefinition[] = [
   { id: 'capture', titleKey: 'nav.capture', subtitleKey: 'navSubtitle.capture', category: 'core_tools', requiresPlugin: 'capture' },
   { id: 'history', titleKey: 'nav.history', subtitleKey: 'navSubtitle.history', category: 'core_tools', requiresPlugin: 'capture' },
   { id: 'ocr', titleKey: 'nav.ocr', subtitleKey: 'navSubtitle.ocr', category: 'core_tools', requiresPlugin: 'capture' },
+  { id: 'spotlight', titleKey: 'nav.spotlight', subtitleKey: 'navSubtitle.spotlight', category: 'core_tools' },
   { id: 'dialog_enhancer', titleKey: 'nav.dialog_enhancer', subtitleKey: 'navSubtitle.dialog_enhancer', category: 'core_tools', requiresPlugin: 'dialogenhancer' },
 
   // ── 洞察与关于 ────────────────────────────────────────────────────────────

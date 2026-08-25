@@ -24,6 +24,7 @@ import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
 import { SearchPage } from './pages/SearchPage';
+import { SpotlightPage } from './pages/SpotlightPage';
 import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
 import { OnboardingModal } from './components/OnboardingModal';
@@ -198,6 +199,7 @@ function App() {
       case 'ocr':             return <OcrPage />;
       case 'history':         return <HistoryPage />;
       case 'search':          return <SearchPage />;
+      case 'spotlight':       return <SpotlightPage />;
       case 'dialog_enhancer': return <DialogEnhancerPage />;
       case 'plugins':         return <PluginsPage initialPlugins={plugins} />;
       case 'general':         return <GeneralPage />;

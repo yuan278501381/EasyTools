@@ -129,6 +129,13 @@ struct ThemeChangedEvent {
     std::string accentColor; // "violet" | "cyan" | "amber" | "blue" | "mint" | "coral"
 };
 
+/// 鼠标活动事件 (供鼠标聚光灯、水波纹与轨迹等演示特效使用)
+struct MouseActivityEvent {
+    int button = -1; // 0: LeftDown, 1: RightDown, 2: MiddleDown, -1: Move
+    long x = 0;
+    long y = 0;
+};
+
 // =========================================================================
 // EventBus 实现
 // ─────────────────────────────────────────────────────────────────────────────

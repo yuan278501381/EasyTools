@@ -40,6 +40,7 @@
 #include "keycast/KeycastStyle.h"
 #include "ocr/OcrResultStyle.h"
 #include "ui/ToastStyle.h"
+#include "ui/SpotlightOverlay.h"
 #include "ui/WebViewOriginPolicy.h"
 #include "ui/WebViewSuspend.h"
 #include "ui/KeyboardPipeline.h"
@@ -4277,7 +4278,141 @@ TEST(CaptureCornerRadiusTest, CornerRadiusInteractiveAdjustment) {
     EXPECT_NEAR(state.cornerDragStartRadius, 16.0f, 0.01f);
 }
 
-// 37. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
+// -----------------------------------------------------------------------------
+// 37. 鼠标聚光灯与演示特效测试套件
+// -----------------------------------------------------------------------------
+TEST(SpotlightOverlayTest, SettingsAndDefaults) {
+    using namespace easy::ui;
+    auto& spotlight = SpotlightOverlay::instance();
+    spotlight.resetDefaults();
+    auto s = spotlight.getSettings();
+    EXPECT_TRUE(s.enabled);
+    EXPECT_TRUE(s.triggerDoubleCtrl);
+    EXPECT_FALSE(s.triggerShakeMouse);
+    EXPECT_TRUE(s.autoBypassFullscreen);
+    EXPECT_EQ(s.spotlightColor, "auto");
+    EXPECT_EQ(s.spotlightSize, 200);
+    EXPECT_EQ(s.animationDurationMs, 1000);
+    EXPECT_EQ(s.holdDurationMs, 800);
+    EXPECT_EQ(s.shakeThreshold, 7);
+    EXPECT_FALSE(s.clickRippleEnabled);
+    EXPECT_FALSE(s.mouseTrailEnabled);
+    EXPECT_EQ(s.leftClickColor, "auto");
+    EXPECT_EQ(s.rightClickColor, "#fb7185");
+    EXPECT_EQ(s.middleClickColor, "#fbbf24");
+
+    s.spotlightSize = 320;
+    s.clickRippleEnabled = true;
+    s.mouseTrailEnabled = true;
+    s.spotlightColor = "#ff0088";
+    s.leftClickColor = "#00ffcc";
+    spotlight.updateSettings(s);
+
+    auto updated = spotlight.getSettings();
+    EXPECT_EQ(updated.spotlightSize, 320);
+    EXPECT_TRUE(updated.clickRippleEnabled);
+    EXPECT_TRUE(updated.mouseTrailEnabled);
+    EXPECT_EQ(updated.spotlightColor, "#ff0088");
+    EXPECT_EQ(updated.leftClickColor, "#00ffcc");
+
+    spotlight.resetDefaults();
+    EXPECT_EQ(spotlight.getSettings().spotlightSize, 200);
+    EXPECT_EQ(spotlight.getSettings().spotlightColor, "auto");
+    EXPECT_EQ(spotlight.getSettings().leftClickColor, "auto");
+}
+
+TEST(SpotlightOverlayTest, ColorParsingAndAutoAccent) {
+    using namespace easy::ui;
+    auto& spotlight = SpotlightOverlay::instance();
+
+    // 1. 标准 HEX 解析
+    auto c1 = spotlight.parseColor("#ff0000", 1.0f);
+    EXPECT_NEAR(c1.r, 1.0f, 0.01f);
+    EXPECT_NEAR(c1.g, 0.0f, 0.01f);
+    EXPECT_NEAR(c1.b, 0.0f, 0.01f);
+
+    auto c2 = spotlight.parseColor("00ff00", 0.5f);
+    EXPECT_NEAR(c2.r, 0.0f, 0.01f);
+    EXPECT_NEAR(c2.g, 1.0f, 0.01f);
+    EXPECT_NEAR(c2.a, 0.5f, 0.01f);
+
+    // 2. auto 与品牌色联动
+    auto temp = std::filesystem::temp_directory_path() /
+        (L"EasyTools_SpotlightTest_" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::create_directories(temp, ec);
+    auto& cfg = easy::core::ConfigManager::instance();
+    cfg.initialize(temp);
+
+    cfg.set("/general/accentColor", std::string("blue"));
+    auto cBlue = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cBlue.b, 246.0f / 255.0f, 0.05f);
+
+    cfg.set("/general/accentColor", std::string("cyan"));
+    auto cCyan = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cCyan.g, 182.0f / 255.0f, 0.05f);
+
+    cfg.set("/general/accentColor", std::string("amber"));
+    auto cAmber = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cAmber.r, 245.0f / 255.0f, 0.05f);
+
+    cfg.set("/general/accentColor", std::string("mint"));
+    auto cMint = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cMint.g, 185.0f / 255.0f, 0.05f);
+
+    cfg.set("/general/accentColor", std::string("coral"));
+    auto cCoral = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cCoral.r, 244.0f / 255.0f, 0.05f);
+
+    cfg.set("/general/accentColor", std::string("violet"));
+    auto cViolet = spotlight.parseColor("auto", 1.0f);
+    EXPECT_NEAR(cViolet.r, 139.0f / 255.0f, 0.05f);
+
+    // 3. 非法色值回退
+    auto cInvalid = spotlight.parseColor("invalid_color_code", 1.0f);
+    EXPECT_NEAR(cInvalid.a, 1.0f, 0.01f);
+}
+
+TEST(SpotlightOverlayTest, KeyboardAndMouseInteraction) {
+    using namespace easy::ui;
+    auto& spotlight = SpotlightOverlay::instance();
+    spotlight.resetDefaults();
+
+    // 1. 双击 Ctrl 检测
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+
+    // 2. 其它键取消
+    spotlight.onKeyboardEvent(VK_ESCAPE, WM_KEYDOWN);
+
+    // 3. 鼠标点击产生波纹
+    auto s = spotlight.getSettings();
+    s.clickRippleEnabled = true;
+    s.mouseTrailEnabled = true;
+    s.triggerShakeMouse = true;
+    spotlight.updateSettings(s);
+
+    POINT pt1{100, 100};
+    spotlight.onMouseDown(0, pt1);
+    spotlight.onMouseDown(1, pt1);
+    spotlight.onMouseDown(2, pt1);
+
+    // 4. 鼠标移动产生轨迹与摇晃
+    for (int i = 0; i < 10; ++i) {
+        POINT movePt{100 + (i % 2 == 0 ? 50 : -50), 100};
+        spotlight.onMouseMove(movePt);
+    }
+
+    // 5. 动效更新
+    spotlight.tickAnimation();
+    spotlight.dismiss();
+    spotlight.tickAnimation();
+
+    spotlight.resetDefaults();
+}
+
+// -----------------------------------------------------------------------------
+// 38. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
 // -----------------------------------------------------------------------------
 TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     std::array<wchar_t, 32768> executablePath{};

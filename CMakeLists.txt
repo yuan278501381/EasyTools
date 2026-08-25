@@ -207,18 +207,18 @@ target_link_libraries(Plugin_DialogEnhancer PRIVATE EasyCore
 set_target_properties(Plugin_DialogEnhancer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/plugins")
 
 # ── 4. EasyTools Host (可执行文件) ─────────────────────────────────────────────
-# 这里移除没有扩展名的 rc 防止出问题，rc通常会被收集进去
 add_executable(EasyTools WIN32 ${HOST_SOURCES})
 easytools_add_version_resource(EasyTools "EasyTools Desktop Productivity Toolkit" "EasyTools.exe" VFT_APP)
 target_include_directories(EasyTools PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(EasyTools PRIVATE EasyCore
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite
 )
 
 # A runnable host build must contain the same validated plugin bundle that the
 # installer ships. Depending on every plugin also prevents stale DLLs from a
 # previous build being paired with missing or outdated manifests.
 add_dependencies(EasyTools Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search Plugin_DialogEnhancer)
+
 add_custom_command(TARGET EasyTools POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:EasyTools>/plugins"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -296,11 +296,12 @@ if(BUILD_TESTING)
         src/dialog/PathMemoryManager.cpp
         src/dialog/ExplorerTracker.cpp
         src/dialog/DialogNavigator.cpp
+        src/ui/SpotlightOverlay.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
     target_include_directories(EasyToolsTests PRIVATE "${WEBVIEW2_DIR}/build/native/include")
-    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid shlwapi
+    target_link_libraries(EasyToolsTests PRIVATE EasyCore GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid shlwapi d2d1 dwrite
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME EasyTools.Unit COMMAND EasyToolsTests)

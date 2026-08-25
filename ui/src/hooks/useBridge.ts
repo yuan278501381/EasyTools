@@ -98,6 +98,7 @@ const EXPLICIT_SETTINGS_METHODS = new Set([
   'hotcorner.updateSettings',
   'ocr.updateSettings',
   'keycast.updateSettings',
+  'spotlight.updateSettings',
   'config.set',
   'plugins.setEnabled',
   'hotkey.rebind',

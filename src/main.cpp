@@ -62,6 +62,7 @@
 #include "ui/QuickLookWindow.h"
 #include "ui/TrayWindow.h"
 #include "ui/ToastOverlay.h"
+#include "ui/SpotlightOverlay.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "gesture/GestureInputPolicy.h"
 
@@ -854,7 +855,70 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
-    // 5. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
+    // 5. 鼠标聚光灯 Overlay 初始化与 IPC 注册
+    easy::ui::SpotlightOverlay::instance().initialize(GetModuleHandleW(nullptr));
+    easy::core::KeyboardHook::instance().setKeyboardActivityCallback([](DWORD vk, WPARAM wp) {
+        easy::ui::SpotlightOverlay::instance().onKeyboardEvent(vk, wp);
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.getSettings", [](const nlohmann::json&) -> nlohmann::json {
+        auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+        return {
+            {"enabled", s.enabled},
+            {"triggerDoubleCtrl", s.triggerDoubleCtrl},
+            {"triggerShakeMouse", s.triggerShakeMouse},
+            {"autoBypassFullscreen", s.autoBypassFullscreen},
+            {"spotlightColor", s.spotlightColor},
+            {"spotlightSize", s.spotlightSize},
+            {"animationDurationMs", s.animationDurationMs},
+            {"holdDurationMs", s.holdDurationMs},
+            {"shakeThreshold", s.shakeThreshold},
+            {"clickRippleEnabled", s.clickRippleEnabled},
+            {"mouseTrailEnabled", s.mouseTrailEnabled},
+            {"leftClickColor", s.leftClickColor},
+            {"rightClickColor", s.rightClickColor},
+            {"middleClickColor", s.middleClickColor}
+        };
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
+        auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+        if (params.contains("enabled") && params["enabled"].is_boolean()) s.enabled = params["enabled"].get<bool>();
+        if (params.contains("triggerDoubleCtrl") && params["triggerDoubleCtrl"].is_boolean()) s.triggerDoubleCtrl = params["triggerDoubleCtrl"].get<bool>();
+        if (params.contains("triggerShakeMouse") && params["triggerShakeMouse"].is_boolean()) s.triggerShakeMouse = params["triggerShakeMouse"].get<bool>();
+        if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) s.autoBypassFullscreen = params["autoBypassFullscreen"].get<bool>();
+        if (params.contains("spotlightColor") && params["spotlightColor"].is_string()) s.spotlightColor = params["spotlightColor"].get<std::string>();
+        if (params.contains("spotlightSize") && params["spotlightSize"].is_number()) s.spotlightSize = params["spotlightSize"].get<int>();
+        if (params.contains("animationDurationMs") && params["animationDurationMs"].is_number()) s.animationDurationMs = params["animationDurationMs"].get<int>();
+        if (params.contains("holdDurationMs") && params["holdDurationMs"].is_number()) s.holdDurationMs = params["holdDurationMs"].get<int>();
+        if (params.contains("shakeThreshold") && params["shakeThreshold"].is_number()) s.shakeThreshold = params["shakeThreshold"].get<int>();
+
+        if (params.contains("clickRippleEnabled") && params["clickRippleEnabled"].is_boolean()) s.clickRippleEnabled = params["clickRippleEnabled"].get<bool>();
+        if (params.contains("mouseTrailEnabled") && params["mouseTrailEnabled"].is_boolean()) s.mouseTrailEnabled = params["mouseTrailEnabled"].get<bool>();
+        if (params.contains("leftClickColor") && params["leftClickColor"].is_string()) s.leftClickColor = params["leftClickColor"].get<std::string>();
+        if (params.contains("rightClickColor") && params["rightClickColor"].is_string()) s.rightClickColor = params["rightClickColor"].get<std::string>();
+        if (params.contains("middleClickColor") && params["middleClickColor"].is_string()) s.middleClickColor = params["middleClickColor"].get<std::string>();
+
+        easy::ui::SpotlightOverlay::instance().updateSettings(s);
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.trigger", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().trigger();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.dismiss", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().dismiss();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.resetDefaults", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().resetDefaults();
+        return {{"success", true}};
+    });
+
+    // 6. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
     easy::core::KeyboardHook::instance().install();
     easy::core::KeyboardHook::instance().setKeyInterceptor([hwnd](DWORD vkCode, WPARAM wParam) -> bool {
         if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return false;
@@ -950,6 +1014,7 @@ void shutdownSubsystems() {
     easy::core::PluginManager::instance().shutdownPlugins();
     easy::core::ShellContextMenuService::instance().shutdown();
     easy::ui::ToastOverlay::instance().shutdown();
+    easy::ui::SpotlightOverlay::instance().shutdown();
     easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
     easy::core::StatsManager::instance().shutdown();

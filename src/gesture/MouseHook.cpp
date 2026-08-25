@@ -5,6 +5,7 @@
 #include "gesture/MouseHook.h"
 #include "core/logger/Logger.h"
 #include "core/stats/StatsManager.h"
+#include "core/events/EventBus.h"
 #include <cmath>
 
 namespace easy::gesture {
@@ -328,11 +329,21 @@ LRESULT CALLBACK MouseHook::lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM l
                     break;
             }
 
+            int btn = -1;
+            if (event.type == MouseEventType::LeftDown) btn = 0;
+            else if (event.type == MouseEventType::RightDown) btn = 1;
+            else if (event.type == MouseEventType::MiddleDown) btn = 2;
+
+            if (btn != -1 || event.type == MouseEventType::Move) {
+                easy::core::EventBus::instance().publish(easy::core::MouseActivityEvent{btn, event.position.x, event.position.y});
+            }
+
             if (shouldCapture) {
                 event.foregroundWindow = self.m_cachedForegroundWindow;
                 event.modifiers = self.m_cachedModifiers;
                 event.edgeZone = self.m_cachedEdgeZone;
                 event.isTopEdge = self.m_cachedIsTopEdge;
+
                 if (self.processEvent(event)) {
                     return 1; // 拦截事件，不传递给系统和其他应用
                 }
