@@ -58,12 +58,11 @@ export const GeneralPage: FC = () => {
   const [refreshingHotkeys, setRefreshingHotkeys] = useState(false);
   const [isRestartingElevated, setIsRestartingElevated] = useState(false);
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
-  const [keycastAutoBypass, setKeycastAutoBypass] = useState(true);
   const [accent, setAccent] = useState<string>(() => {
     try {
-      return localStorage.getItem('easytools:accent-color') || 'violet';
+      return localStorage.getItem('easytools:accent-color') || 'blue';
     } catch {
-      return 'violet';
+      return 'blue';
     }
   });
 
@@ -86,13 +85,9 @@ export const GeneralPage: FC = () => {
     Promise.all([
       bridgeRequest<GeneralSettings>('general.getSettings'),
       bridgeRequest<HotkeyEntry[]>('hotkey.getAll'),
-      bridgeRequest<{ autoBypassFullscreen?: boolean }>('keycast.getSettings').catch(() => null),
-    ]).then(([res, hotkeyData, kcData]) => {
+    ]).then(([res, hotkeyData]) => {
       if (cancelled) return;
       setSettings(prev => ({ ...prev, ...res }));
-      if (kcData && typeof kcData.autoBypassFullscreen === 'boolean') {
-        setKeycastAutoBypass(kcData.autoBypassFullscreen);
-      }
       const lang = res.language;
       if (lang && lang !== 'auto' && i18n.language !== lang) {
         void i18n.changeLanguage(lang);
@@ -474,23 +469,6 @@ export const GeneralPage: FC = () => {
               <span>{t('general.recheckShortcuts')}</span>
             </Button>
           </div>
-
-          <Toggle
-            id="keycast-auto-bypass"
-            label={t('general.keycastAutoBypassFullscreen')}
-            description={t('general.keycastAutoBypassFullscreenDesc')}
-            checked={keycastAutoBypass}
-            onChange={async (checked) => {
-              setKeycastAutoBypass(checked);
-              try {
-                const res = await bridgeRequest<OperationResult>('keycast.updateSettings', { autoBypassFullscreen: checked });
-                if (!res.success) throw new Error(res.error);
-              } catch (e) {
-                setKeycastAutoBypass(!checked);
-                toast.error(t('general.toastSaveFailed'), { description: String(e) });
-              }
-            }}
-          />
 
           {hotkeys.length === 0 ? (
             <div className="general-page__empty">{t('general.noShortcuts')}</div>

@@ -54,7 +54,18 @@ bool KeycastOverlay::init() {
         LOG_WARN("当前 Windows 版本无法从捕获中排除按键回显: error={}", GetLastError());
     }
 
-    m_autoBypassFullscreen.store(easy::core::ConfigManager::instance().get<bool>("/keycast/autoBypassFullscreen", true));
+    auto& cfg = easy::core::ConfigManager::instance();
+    {
+        std::lock_guard<std::mutex> lock(m_settingsMutex);
+        m_settings.enabled = cfg.get<bool>("/keycast/enabled", true);
+        m_settings.autoBypassFullscreen = cfg.get<bool>("/keycast/autoBypassFullscreen", true);
+        m_settings.showKeyboard = cfg.get<bool>("/keycast/showKeyboard", true);
+        m_settings.onlyShortcuts = cfg.get<bool>("/keycast/onlyShortcuts", false);
+        m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 3000);
+        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 20);
+        m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
+        m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#202020");
+    }
 
     // Graphics resources stay lazy until the first keystroke so a disabled or
     // unused plugin does not allocate a large high-DPI backing bitmap.
@@ -72,6 +83,72 @@ void KeycastOverlay::cleanup() {
     discardResources();
     m_dwriteFactory.Reset();
     m_d2dFactory.Reset();
+}
+
+KeycastSettings KeycastOverlay::getSettings() const {
+    std::lock_guard<std::mutex> lock(m_settingsMutex);
+    return m_settings;
+}
+
+void KeycastOverlay::updateSettings(const KeycastSettings& settings) {
+    {
+        std::lock_guard<std::mutex> lock(m_settingsMutex);
+        m_settings = settings;
+    }
+
+    auto& cfg = easy::core::ConfigManager::instance();
+    cfg.set("/keycast/enabled", settings.enabled);
+    cfg.set("/keycast/autoBypassFullscreen", settings.autoBypassFullscreen);
+    cfg.set("/keycast/showKeyboard", settings.showKeyboard);
+    cfg.set("/keycast/onlyShortcuts", settings.onlyShortcuts);
+    cfg.set("/general/keycastOnlyShortcuts", settings.onlyShortcuts);
+    cfg.set("/keycast/displayDurationMs", settings.displayDurationMs);
+    cfg.set("/keycast/fontSize", settings.fontSize);
+    cfg.set("/keycast/textColor", settings.textColor);
+    cfg.set("/keycast/backgroundColor", settings.backgroundColor);
+
+    discardResources();
+}
+
+void KeycastOverlay::resetDefaults() {
+    KeycastSettings def;
+    updateSettings(def);
+}
+
+void KeycastOverlay::setAutoBypassFullscreen(bool enable) {
+    std::lock_guard<std::mutex> lock(m_settingsMutex);
+    m_settings.autoBypassFullscreen = enable;
+    easy::core::ConfigManager::instance().set("/keycast/autoBypassFullscreen", enable);
+}
+
+bool KeycastOverlay::autoBypassFullscreen() const {
+    std::lock_guard<std::mutex> lock(m_settingsMutex);
+    return m_settings.autoBypassFullscreen;
+}
+
+D2D1_COLOR_F KeycastOverlay::parseColor(const std::string& hex, float alpha) const {
+    if (hex == "auto" || hex.empty()) {
+        std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
+        if (accent == "cyan") return D2D1::ColorF(6.0f / 255.0f, 182.0f / 255.0f, 212.0f / 255.0f, alpha);
+        if (accent == "amber") return D2D1::ColorF(245.0f / 255.0f, 158.0f / 255.0f, 11.0f / 255.0f, alpha);
+        if (accent == "mint") return D2D1::ColorF(16.0f / 255.0f, 185.0f / 255.0f, 129.0f / 255.0f, alpha);
+        if (accent == "coral") return D2D1::ColorF(244.0f / 255.0f, 63.0f / 255.0f, 94.0f / 255.0f, alpha);
+        if (accent == "violet") return D2D1::ColorF(139.0f / 255.0f, 92.0f / 255.0f, 246.0f / 255.0f, alpha);
+        return D2D1::ColorF(59.0f / 255.0f, 130.0f / 255.0f, 246.0f / 255.0f, alpha); // 经典蓝
+    }
+    std::string cleanHex = hex;
+    if (!cleanHex.empty() && cleanHex[0] == '#') cleanHex = cleanHex.substr(1);
+    if (cleanHex.length() == 6) {
+        unsigned int rgb = 0;
+        try {
+            rgb = std::stoul(cleanHex, nullptr, 16);
+            float r = ((rgb >> 16) & 0xFF) / 255.0f;
+            float g = ((rgb >> 8) & 0xFF) / 255.0f;
+            float b = (rgb & 0xFF) / 255.0f;
+            return D2D1::ColorF(r, g, b, alpha);
+        } catch (...) {}
+    }
+    return D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha);
 }
 
 void KeycastOverlay::discardResources() {
@@ -141,13 +218,16 @@ bool KeycastOverlay::createResources() {
         return false;
     }
 
+    KeycastSettings settings = getSettings();
+    float targetFontSize = (std::max)(12.0f, static_cast<float>(settings.fontSize) * 1.5f) * m_dpiScale;
+
     if (FAILED(m_dwriteFactory->CreateTextFormat(
         L"Segoe UI",
         nullptr,
         DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
-        KeycastStyle::BaseFontSize * m_dpiScale,
+        targetFontSize,
         L"zh-cn",
         &m_textFormat
     ))) {
@@ -158,11 +238,15 @@ bool KeycastOverlay::createResources() {
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-    // 浮动文本 Toast 提示卡片：粗圆角矩形纯白色边框 + 曜石深黑底 + 纯白高亮按键文字
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushText);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.07f, 0.08f, 0.11f, 0.94f), &m_brushBg);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushBorder);
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushBadgeBg);
+    // 动态文字与背景画刷
+    auto textColor = parseColor(settings.textColor, 1.0f);
+    auto bgColor = parseColor(settings.backgroundColor, 0.94f);
+    auto borderColor = parseColor(settings.textColor, 0.85f);
+
+    m_renderTarget->CreateSolidColorBrush(textColor, &m_brushText);
+    m_renderTarget->CreateSolidColorBrush(bgColor, &m_brushBg);
+    m_renderTarget->CreateSolidColorBrush(borderColor, &m_brushBorder);
+    m_renderTarget->CreateSolidColorBrush(textColor, &m_brushBadgeBg);
 
     if (!m_brushText || !m_brushBg || !m_brushBorder || !m_brushBadgeBg) {
         discardResources();
@@ -201,10 +285,24 @@ bool KeycastOverlay::updatePlacement() {
 void KeycastOverlay::pushKey(const std::string& keyStr) {
     if (keyStr.empty()) return;
 
+    KeycastSettings settings = getSettings();
+    if (!settings.enabled || !settings.showKeyboard) return;
+
+    if (settings.autoBypassFullscreen) {
+        HWND fg = GetForegroundWindow();
+        if (fg && easy::core::WinUtils::isWindowFullscreen(fg)) {
+            wchar_t classWide[256] = {0};
+            GetClassNameW(fg, classWide, static_cast<int>(std::size(classWide)));
+            if (easy::gesture::shouldAutoBypassFullscreenGestures(true, easy::gesture::isProductivityToolkitClassName(classWide))) {
+                return;
+            }
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         const uint64_t now = GetTickCount64();
-        if (m_rawLastKey == keyStr && (now - m_lastPushTime) < 1800) {
+        if (m_rawLastKey == keyStr && (now - m_lastPushTime) < (static_cast<uint64_t>(settings.displayDurationMs) - 200)) {
             m_repeatCount++;
             m_currentText = keyStr + "  ×" + std::to_string(m_repeatCount);
         } else {
@@ -225,7 +323,7 @@ void KeycastOverlay::render() {
     if (!m_hwnd || !m_renderTarget || !m_memoryDC) return;
 
     m_renderTarget->BeginDraw();
-    m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));  // 真正完全透明背景
+    m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));  // 完全透明背景
 
     std::string textToDraw;
     float currentOpacity = 0.0f;
@@ -249,11 +347,6 @@ void KeycastOverlay::render() {
         );
 
         if (layout) {
-            // The shared text format is centered for regular DrawText calls.
-            // A 10,000 px measurement layout would therefore place glyphs near
-            // x=5,000 and outside this window when drawn at the measured origin.
-            // Measure from a leading-aligned layout, then center that measured
-            // block explicitly below.
             layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             DWRITE_TEXT_METRICS metrics;
@@ -279,18 +372,18 @@ void KeycastOverlay::render() {
                 16.0f * m_dpiScale, 16.0f * m_dpiScale
             );
 
-            // 1. 曜石深黑微透卡片背景
+            // 1. 微透卡片背景
             m_brushBg->SetOpacity(0.94f * currentOpacity);
             m_renderTarget->FillRoundedRectangle(&rrect, m_brushBg.Get());
 
-            // 2. 粗圆角纯白色边框 (2.6px 纯白高亮粗边框)
+            // 2. 圆角边框
             if (m_brushBorder) {
-                m_brushBorder->SetOpacity(1.0f * currentOpacity);
+                m_brushBorder->SetOpacity(0.85f * currentOpacity);
                 m_renderTarget->DrawRoundedRectangle(
-                    &rrect, m_brushBorder.Get(), 2.6f * m_dpiScale);
+                    &rrect, m_brushBorder.Get(), 2.0f * m_dpiScale);
             }
 
-            // 3. 高质量纯白文字排版
+            // 3. 高质量文字排版
             m_brushText->SetOpacity(1.0f * currentOpacity);
             m_renderTarget->DrawTextLayout(
                 D2D1::Point2F(centerX - metrics.width / 2.0f, centerY - metrics.height / 2.0f),
@@ -322,7 +415,7 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             LOG_ERROR("按键回显显示失败: 无法创建高 DPI 渲染资源");
             return 0;
         }
-        self.render();  // Clear stale pixels before the layered window is shown.
+        self.render();
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetTimer(hwnd, ANIMATION_TIMER_ID, 16, nullptr);
         return 0;
@@ -339,20 +432,21 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             } else {
                 const uint64_t now = GetTickCount64();
                 const uint64_t elapsed = now - self.m_lastPushTime;
+                const uint64_t holdTime = (std::max)(500ULL, static_cast<uint64_t>(self.getSettings().displayDurationMs));
 
                 if (elapsed < 140) {
                     const float t = elapsed / 140.0f;
                     self.m_opacity = 0.2f + 0.8f * t;
                     self.m_scale = 0.92f + 0.08f * std::sin(t * 1.57079f);
                     shouldRender = true;
-                } else if (elapsed < 1400) {
+                } else if (elapsed < holdTime) {
                     if (self.m_opacity != 1.0f || self.m_scale != 1.0f) {
                         self.m_opacity = 1.0f;
                         self.m_scale = 1.0f;
                         shouldRender = true;
                     }
-                } else if (elapsed < 1750) {
-                    const float t = (elapsed - 1400) / 350.0f;
+                } else if (elapsed < holdTime + 350) {
+                    const float t = static_cast<float>(elapsed - holdTime) / 350.0f;
                     self.m_opacity = 1.0f - t;
                     self.m_scale = 1.0f + 0.04f * t;
                     shouldRender = true;

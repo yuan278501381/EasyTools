@@ -29,9 +29,16 @@ public:
 
         auto& mb = easy::core::MessageBridge::instance();
         mb.registerHandler("keycast.getSettings", [](const nlohmann::json&) -> nlohmann::json {
-            auto& overlay = KeycastOverlay::instance();
+            auto s = KeycastOverlay::instance().getSettings();
             return {
-                {"autoBypassFullscreen", overlay.autoBypassFullscreen()}
+                {"enabled", s.enabled},
+                {"autoBypassFullscreen", s.autoBypassFullscreen},
+                {"showKeyboard", s.showKeyboard},
+                {"onlyShortcuts", s.onlyShortcuts},
+                {"displayDurationMs", s.displayDurationMs},
+                {"fontSize", s.fontSize},
+                {"textColor", s.textColor},
+                {"backgroundColor", s.backgroundColor}
             };
         });
 
@@ -39,14 +46,45 @@ public:
             if (!params.is_object() || params.empty()) {
                 return {{"success", false}, {"error", "no settings supplied"}};
             }
-            if (params.contains("autoBypassFullscreen")) {
-                if (!params["autoBypassFullscreen"].is_boolean()) {
-                    return {{"success", false}, {"error", "autoBypassFullscreen must be boolean"}};
-                }
-                const bool val = params["autoBypassFullscreen"].get<bool>();
-                easy::core::ConfigManager::instance().set("/keycast/autoBypassFullscreen", val);
-                KeycastOverlay::instance().setAutoBypassFullscreen(val);
+            auto& overlay = KeycastOverlay::instance();
+            auto s = overlay.getSettings();
+
+            if (params.contains("enabled") && params["enabled"].is_boolean()) {
+                s.enabled = params["enabled"].get<bool>();
             }
+            if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
+                s.autoBypassFullscreen = params["autoBypassFullscreen"].get<bool>();
+            }
+            if (params.contains("showKeyboard") && params["showKeyboard"].is_boolean()) {
+                s.showKeyboard = params["showKeyboard"].get<bool>();
+            }
+            if (params.contains("onlyShortcuts") && params["onlyShortcuts"].is_boolean()) {
+                s.onlyShortcuts = params["onlyShortcuts"].get<bool>();
+            }
+            if (params.contains("displayDurationMs") && params["displayDurationMs"].is_number_integer()) {
+                s.displayDurationMs = params["displayDurationMs"].get<int>();
+            }
+            if (params.contains("fontSize") && params["fontSize"].is_number_integer()) {
+                s.fontSize = params["fontSize"].get<int>();
+            }
+            if (params.contains("textColor") && params["textColor"].is_string()) {
+                s.textColor = params["textColor"].get<std::string>();
+            }
+            if (params.contains("backgroundColor") && params["backgroundColor"].is_string()) {
+                s.backgroundColor = params["backgroundColor"].get<std::string>();
+            }
+
+            overlay.updateSettings(s);
+            return {{"success", true}};
+        });
+
+        mb.registerHandler("keycast.resetDefaults", [](const nlohmann::json&) -> nlohmann::json {
+            KeycastOverlay::instance().resetDefaults();
+            return {{"success", true}};
+        });
+
+        mb.registerHandler("keycast.trigger", [](const nlohmann::json&) -> nlohmann::json {
+            KeycastOverlay::instance().pushKey("Ctrl + Alt + K");
             return {{"success", true}};
         });
 

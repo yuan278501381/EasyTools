@@ -13,6 +13,17 @@
 
 namespace easy::keycast {
 
+struct KeycastSettings {
+    bool enabled = true;
+    bool autoBypassFullscreen = true;
+    bool showKeyboard = true;
+    bool onlyShortcuts = false;
+    int displayDurationMs = 3000;
+    int fontSize = 20;
+    std::string textColor = "#ffffff";
+    std::string backgroundColor = "#202020";
+};
+
 class KeycastOverlay {
 public:
     static KeycastOverlay& instance();
@@ -23,9 +34,21 @@ public:
     // push a new keystroke combination to display
     void pushKey(const std::string& keyStr);
 
+    /// 获取配置
+    KeycastSettings getSettings() const;
+
+    /// 更新配置
+    void updateSettings(const KeycastSettings& settings);
+
+    /// 恢复默认配置
+    void resetDefaults();
+
     /// 全屏免打扰
-    void setAutoBypassFullscreen(bool enable) { m_autoBypassFullscreen.store(enable); }
-    bool autoBypassFullscreen() const { return m_autoBypassFullscreen.load(); }
+    void setAutoBypassFullscreen(bool enable);
+    bool autoBypassFullscreen() const;
+
+    /// 颜色解析（支持 auto 与十六进制 HEX）
+    D2D1_COLOR_F parseColor(const std::string& hex, float alpha = 1.0f) const;
 
 private:
     KeycastOverlay() = default;
@@ -38,7 +61,9 @@ private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd = nullptr;
-    std::atomic<bool> m_autoBypassFullscreen{true};
+    KeycastSettings m_settings;
+    mutable std::mutex m_settingsMutex;
+
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;

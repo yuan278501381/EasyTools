@@ -24,6 +24,7 @@ import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
 import { SearchPage } from './pages/SearchPage';
+import { KeycastPage } from './pages/KeycastPage';
 import { SpotlightPage } from './pages/SpotlightPage';
 import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
@@ -199,6 +200,7 @@ function App() {
       case 'ocr':             return <OcrPage />;
       case 'history':         return <HistoryPage />;
       case 'search':          return <SearchPage />;
+      case 'keycast':         return <KeycastPage />;
       case 'spotlight':       return <SpotlightPage />;
       case 'dialog_enhancer': return <DialogEnhancerPage />;
       case 'plugins':         return <PluginsPage initialPlugins={plugins} />;

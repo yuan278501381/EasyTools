@@ -15,6 +15,7 @@ export type BuiltinNavId =
   | 'capture'
   | 'history'
   | 'ocr'
+  | 'keycast'
   | 'spotlight'
   | 'dialog_enhancer'
   | 'stats'
@@ -33,7 +34,7 @@ export interface PageDefinition {
   titleKey: string;
   subtitleKey: string;
   category: NavCategory;
-  requiresPlugin?: 'gesture' | 'capture' | 'search' | 'dialogenhancer' | 'dialog_enhancer';
+  requiresPlugin?: 'gesture' | 'capture' | 'search' | 'dialogenhancer' | 'dialog_enhancer' | 'keycast';
 }
 
 export const PAGE_DEFINITIONS: PageDefinition[] = [
@@ -48,6 +49,7 @@ export const PAGE_DEFINITIONS: PageDefinition[] = [
   { id: 'capture', titleKey: 'nav.capture', subtitleKey: 'navSubtitle.capture', category: 'core_tools', requiresPlugin: 'capture' },
   { id: 'history', titleKey: 'nav.history', subtitleKey: 'navSubtitle.history', category: 'core_tools', requiresPlugin: 'capture' },
   { id: 'ocr', titleKey: 'nav.ocr', subtitleKey: 'navSubtitle.ocr', category: 'core_tools', requiresPlugin: 'capture' },
+  { id: 'keycast', titleKey: 'nav.keycast', subtitleKey: 'navSubtitle.keycast', category: 'core_tools', requiresPlugin: 'keycast' },
   { id: 'spotlight', titleKey: 'nav.spotlight', subtitleKey: 'navSubtitle.spotlight', category: 'core_tools' },
   { id: 'dialog_enhancer', titleKey: 'nav.dialog_enhancer', subtitleKey: 'navSubtitle.dialog_enhancer', category: 'core_tools', requiresPlugin: 'dialogenhancer' },
 

@@ -32,6 +32,7 @@ import {
   FileCode2,
   FolderSymlink,
   SunMedium,
+  Keyboard,
 } from 'lucide-react';
 import './Sidebar.css';
 import { EasyToolsBolt } from './EasyToolsBolt';
@@ -43,7 +44,7 @@ interface NavItem {
   id: NavId;
   icon: ReactNode;
   labelKey: string;
-  requiresPlugin?: 'gesture' | 'capture' | 'search' | 'dialogenhancer' | 'dialog_enhancer';
+  requiresPlugin?: 'gesture' | 'capture' | 'search' | 'dialogenhancer' | 'dialog_enhancer' | 'keycast';
 }
 
 const SYSTEM_NAV_ITEMS: NavItem[] = [
@@ -58,6 +59,7 @@ const CORE_TOOL_NAV_ITEMS: NavItem[] = [
   { id: 'capture', icon: <Camera size={20} strokeWidth={2.2} />, labelKey: 'nav.capture', requiresPlugin: 'capture' },
   { id: 'history', icon: <History size={20} strokeWidth={2.2} />, labelKey: 'nav.history', requiresPlugin: 'capture' },
   { id: 'ocr',     icon: <FileText size={20} strokeWidth={2.2} />, labelKey: 'nav.ocr', requiresPlugin: 'capture' },
+  { id: 'keycast', icon: <Keyboard size={20} strokeWidth={2.2} />, labelKey: 'nav.keycast', requiresPlugin: 'keycast' },
   { id: 'spotlight', icon: <SunMedium size={20} strokeWidth={2.2} />, labelKey: 'nav.spotlight' },
   { id: 'dialog_enhancer', icon: <FolderSymlink size={20} strokeWidth={2.2} />, labelKey: 'nav.dialog_enhancer', requiresPlugin: 'dialogenhancer' },
 ];
