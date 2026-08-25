@@ -62,7 +62,7 @@ export const CapturePage: FC = () => {
   const { t } = useTranslation();
   const [capture, setCapture] = useState<CaptureSettings>({
     format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
-    showCrosshair: true, autoDetectWindow: true, showShortcutHints: true,
+    showCrosshair: false, autoDetectWindow: true, showShortcutHints: true,
   });
   const [recording, setRecording] = useState<RecordingSettings>({
     format: 'mp4_h264', fps: 30, bitrate: 8, includeCursor: true, showClickEffects: false,

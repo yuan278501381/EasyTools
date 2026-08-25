@@ -3,5 +3,7 @@
 
 #define IDI_APP_ICON 101
 #define IDI_TRAY_ICON 102
+#define IDI_TRAY_LIGHT_ICON 102
+#define IDI_TRAY_DARK_ICON 103
 
 #endif // RESOURCE_H

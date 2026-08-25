@@ -144,7 +144,10 @@ void SettingsWindow::hide() {
 
         // 挂起 Chromium 渲染管线以释放 GPU/DOM 显存与工作集
         if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "settings");
-        
+
+        // 冷路径退场：主动释放物理内存工作集
+        easy::core::WinUtils::trimWorkingSet();
+
         LOG_DEBUG("设置窗口已隐藏");
     }
 }

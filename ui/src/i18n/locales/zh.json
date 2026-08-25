@@ -55,7 +55,7 @@
     "color_picker": "像素级放大镜精准取色与常用调色板管理",
     "clipboard_manager": "无限历史记录、富文本检索与置顶常用语",
     "markdown_preview": "单按空格快速预览 .md 与代码文件",
-    "dialog_enhancer": "应用路径专属记忆、资源管理器极速同频与吸附式悬浮胶囊"
+    "dialog_enhancer": "打开与保存文件时一键直达常用目录，自动记住各软件历史路径"
   },
   "extension": {
     "statusRunning": "运行中",
@@ -138,6 +138,11 @@
     "openLogDir": "日志目录",
     "openLogDirDesc": "打开系统诊断日志与故障排查记录所在文件夹",
     "openLogDirBtn": "打开日志目录",
+    "exportLogs": "导出诊断日志",
+    "exportLogsDesc": "将所有运行诊断日志与系统环境报告导出为文件，便于排查反馈",
+    "exportLogsBtn": "导出日志",
+    "exportLogsSuccess": "诊断日志已成功导出并定位",
+    "exportLogsFailed": "日志导出失败",
     "toastSaveSuccess": "设置已自动保存",
     "toastSaveDesc": "已更新: {{key}}",
     "toastSaveFailed": "保存失败",
@@ -234,7 +239,7 @@
       },
       "search": {
         "name": "快速文件搜索",
-        "description": "使用后台 NTFS 索引服务进行低延迟文件查找和定位。"
+        "description": "基于底层 NTFS MFT 全盘元数据与实时 USN 日志秒级检索，支持文件名、拼音及文档内容深度搜索。"
       },
       "keycast": {
         "name": "按键回显",
@@ -242,11 +247,11 @@
       },
       "dialogenhancer": {
         "name": "文件对话框助手",
-        "description": "智能记忆各应用专属目录与母工作区，支持资源管理器同频与吸附式悬浮胶囊。"
+        "description": "在软件中打开或保存文件时，一键秒切到当前浏览文件夹与常用目录，自动记住各软件专属路径，告别层层翻找。"
       },
       "dialog_enhancer": {
         "name": "文件对话框助手",
-        "description": "智能记忆各应用专属目录与母工作区，支持资源管理器同频与吸附式悬浮胶囊。"
+        "description": "在软件中打开或保存文件时，一键秒切到当前浏览文件夹与常用目录，自动记住各软件专属路径，告别层层翻找。"
       }
     }
   },
@@ -266,8 +271,8 @@
     "imageFormatDesc": "自动保存的图片格式",
     "pressToBind": "请按下组合键...",
     "browse": "浏览",
-    "showCrosshair": "显示十字准星",
-    "showCrosshairDesc": "截图时显示十字辅助线",
+    "showCrosshair": "显示全屏十字对齐线",
+    "showCrosshairDesc": "截图选区时显示贯穿全屏的水平与垂直对齐辅助线（放大镜取色不受影响）",
     "autoDetectWindow": "自动检测窗口",
     "autoDetectWindowDesc": "悬停时自动高亮窗口边界，点击可直接截取窗口",
     "showShortcutHints": "显示操作快捷键提示",
@@ -646,6 +651,9 @@
     "noPublishedRelease": "目前还没有已发布的版本",
     "openRelease": "打开发布页面",
     "openReleaseFailed": "无法打开发布页面",
+    "exportLogs": "导出日志",
+    "exportLogsSuccess": "诊断日志已成功导出并定位",
+    "exportLogsFailed": "日志导出失败",
     "techStack": "技术栈",
     "subtitle": "现代化 · 原生可扩展桌面效率套件",
     "depPurpose": {
@@ -691,10 +699,12 @@
     "welcomeSubtitle": "高效工作，从这里开始",
     "featureSearch": "文件与内容搜索",
     "featureSearchDesc": "毫秒级全盘极速检索，支持拼音与文档代码内容穿透",
-    "featureCapture": "截图录屏",
-    "featureCaptureDesc": "强大的截图与录屏功能，支持多种格式",
     "featureGesture": "鼠标手势",
     "featureGestureDesc": "自定义手势映射，高效操控应用",
+    "featureCapture": "截图录屏",
+    "featureCaptureDesc": "强大的截图与录屏功能，支持多种格式",
+    "featureDialogEnhancer": "文件对话框记忆",
+    "featureDialogEnhancerDesc": "自动记住打开/保存路径，一键直达常用文件夹",
     "featureKeycast": "按键回显",
     "featureKeycastDesc": "实时显示按键操作，录屏教学利器",
     "shortcutsTitle": "核心快捷键",

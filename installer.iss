@@ -50,6 +50,24 @@ chinesesimplified.ShowDetails=详细信息(&D)
 english.ShowDetails=Show &Details
 chinesesimplified.HideDetails=隐藏信息(&D)
 english.HideDetails=Hide &Details
+chinesesimplified.PersonalDataTitle=个人数据与配置处理
+english.PersonalDataTitle=Personal Data & Preferences
+chinesesimplified.PersonalDataDescription=请选择卸载 EasyTools 时的个人数据处理方式：
+english.PersonalDataDescription=Choose how your personal data and configuration should be handled:
+chinesesimplified.UninstallModeStandard=保留个人配置与媒体 (推荐)
+english.UninstallModeStandard=Keep personal configuration and media (Recommended)
+chinesesimplified.UninstallModeStandardDesc=仅移除应用程序与后台服务。保留您的偏好设置、手势方案以及截图/录屏作品，便于以后重新安装。
+english.UninstallModeStandardDesc=Removes only the application and services. Retains your preferences, gestures, and screenshots/recordings for future installations.
+chinesesimplified.UninstallModeClean=清理全部配置与运行缓存
+english.UninstallModeClean=Clear all configuration and runtime caches
+chinesesimplified.UninstallModeCleanDesc=删除偏好设置、窗口记忆、运行历史、诊断日志与搜索索引缓存。
+english.UninstallModeCleanDesc=Removes user preferences, window state, run history, diagnostic logs, and search index caches.
+chinesesimplified.DeleteMediaCaptures=同时永久删除“截图和录屏”媒体文件
+english.DeleteMediaCaptures=Permanently delete screenshot and recording files as well
+chinesesimplified.DeleteMediaCapturesNote=注意：此操作将清空默认媒体保存目录，删除后无法恢复。
+english.DeleteMediaCapturesNote=Notice: This permanently removes files in the default capture folders and cannot be undone.
+chinesesimplified.ContinueUninstall=继续卸载
+english.ContinueUninstall=Continue Uninstall
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -72,6 +90,7 @@ Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Fl
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop EasyTools_SearchService"; Flags: runhidden waituntilterminated; RunOnceId: "StopEasyToolsSearch"
 Filename: "{sys}\sc.exe"; Parameters: "delete EasyTools_SearchService"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsSearch"
+Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""EasyTools_Autostart"" /f"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsAutoStart"
 
 [Code]
 var
@@ -80,6 +99,10 @@ var
   ExtractTimerId: LongWord;
   TimerCallbackAddr: LongWord;
   LastExtractedFile: String;
+  DeleteSettingsHistory: Boolean;
+  DeleteDiagnostics: Boolean;
+  DeleteCachesIndexes: Boolean;
+  DeleteCaptures: Boolean;
 
 function SetTimer(hWnd: LongWord; nIDEvent, uElapse: LongWord; lpTimerFunc: LongWord): LongWord;
   external 'SetTimer@user32.dll stdcall';
@@ -109,6 +132,12 @@ end;
 
 procedure InitializeWizard();
 begin
+  { Give native task checkboxes a full touch target. The stock minimum can clip
+    the glyph or caption after a per-monitor DPI/font change. }
+  WizardForm.TasksList.MinItemHeight := ScaleY(30);
+  WizardForm.TasksList.Offset := ScaleX(10);
+  WizardForm.TasksList.ShowLines := False;
+
   // 创建详细信息展开/收起按钮
   DetailsButton := TNewButton.Create(WizardForm);
   DetailsButton.Parent := WizardForm.InstallingPage;
@@ -166,6 +195,299 @@ begin
   Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\EasyTools_SearchService');
 end;
 
+function AutoStartTaskExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\schtasks.exe'),
+    '/query /tn "EasyTools_Autostart"', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+procedure RefreshAutoStartTask();
+var
+  ResultCode: Integer;
+  Params: String;
+begin
+  if not AutoStartTaskExists() then
+    Exit;
+
+  Params := '/create /tn "EasyTools_Autostart" /tr "\"' +
+    ExpandConstant('{app}\EasyTools.exe') + '\" --silent"' +
+    ' /sc onlogon /delay 0000:10 /rl highest /f';
+  if Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '', SW_HIDE,
+          ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    Log('Refreshed EasyTools_Autostart for the current install path')
+  else
+    Log(Format('Failed to refresh EasyTools_Autostart, exit code %d', [ResultCode]));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    RefreshAutoStartTask();
+end;
+
+var
+  StandardRadio, CleanRadio: TRadioButton;
+  DeleteCapturesCheck: TCheckBox;
+  DeleteCapturesNote: TNewStaticText;
+
+procedure OnStandardModeClick(Sender: TObject);
+begin
+  StandardRadio.Checked := True;
+  CleanRadio.Checked := False;
+  DeleteCapturesCheck.Enabled := False;
+  DeleteCapturesCheck.Checked := False;
+  DeleteCapturesNote.Enabled := False;
+end;
+
+procedure OnCleanModeClick(Sender: TObject);
+begin
+  CleanRadio.Checked := True;
+  StandardRadio.Checked := False;
+  DeleteCapturesCheck.Enabled := True;
+  DeleteCapturesNote.Enabled := True;
+end;
+
+function ShowPersonalDataOptions(): Boolean;
+var
+  Form: TSetupForm;
+  Heading, Intro: TNewStaticText;
+  StandardDesc, CleanDesc: TNewStaticText;
+  FooterLine: TBevel;
+  OKButton, CancelButton: TNewButton;
+  ButtonWidth, ContentLeft, ContentWidth, IndentLeft, SubIndentLeft, BottomContentY: Integer;
+begin
+  Result := True;
+  if UninstallSilent then
+    Exit;
+
+  // 创建现代精致紧凑对话框 (宽度 520px)
+  Form := CreateCustomForm(ScaleX(520), ScaleY(380), True, True);
+  try
+    Form.Caption := ExpandConstant('{cm:UninstallProgram,EasyTools}');
+    Form.Position := poScreenCenter;
+
+    ContentLeft := ScaleX(28);
+    ContentWidth := Form.ClientWidth - ScaleX(56);
+    IndentLeft := ContentLeft + ScaleX(22);
+    SubIndentLeft := ContentLeft + ScaleX(42);
+
+    // 1. 头部主标题 (11pt Bold 黑色)
+    Heading := TNewStaticText.Create(Form);
+    Heading.Parent := Form;
+    Heading.Left := ContentLeft;
+    Heading.Top := ScaleY(22);
+    Heading.Width := ContentWidth;
+    Heading.Height := ScaleY(24);
+    Heading.AutoSize := False;
+    Heading.Caption := CustomMessage('PersonalDataTitle');
+    Heading.Font.Style := [fsBold];
+    Heading.Font.Size := 11;
+
+    // 2. 引言说明 (次级灰色文本)
+    Intro := TNewStaticText.Create(Form);
+    Intro.Parent := Form;
+    Intro.Left := ContentLeft;
+    Intro.Top := Heading.Top + Heading.Height + ScaleY(2);
+    Intro.Width := ContentWidth;
+    Intro.Height := ScaleY(20);
+    Intro.AutoSize := False;
+    Intro.Caption := CustomMessage('PersonalDataDescription');
+    Intro.Font.Color := clGrayText;
+
+    // 3. 选项一：保留个人配置与媒体 (推荐)
+    StandardRadio := TRadioButton.Create(Form);
+    StandardRadio.Parent := Form;
+    StandardRadio.Left := ContentLeft;
+    StandardRadio.Top := Intro.Top + Intro.Height + ScaleY(16);
+    StandardRadio.Width := ContentWidth;
+    StandardRadio.Height := ScaleY(22);
+    StandardRadio.Caption := CustomMessage('UninstallModeStandard');
+    StandardRadio.Font.Style := [fsBold];
+    StandardRadio.Checked := True;
+    StandardRadio.OnClick := @OnStandardModeClick;
+
+    StandardDesc := TNewStaticText.Create(Form);
+    StandardDesc.Parent := Form;
+    StandardDesc.Left := IndentLeft;
+    StandardDesc.Top := StandardRadio.Top + StandardRadio.Height + ScaleY(3);
+    StandardDesc.Width := ContentWidth - ScaleX(22);
+    StandardDesc.Height := ScaleY(34);
+    StandardDesc.AutoSize := False;
+    StandardDesc.WordWrap := True;
+    StandardDesc.Caption := CustomMessage('UninstallModeStandardDesc');
+    StandardDesc.Font.Color := clGrayText;
+    StandardDesc.OnClick := @OnStandardModeClick;
+
+    // 4. 选项二：清理全部配置与运行缓存
+    CleanRadio := TRadioButton.Create(Form);
+    CleanRadio.Parent := Form;
+    CleanRadio.Left := ContentLeft;
+    CleanRadio.Top := StandardDesc.Top + StandardDesc.Height + ScaleY(14);
+    CleanRadio.Width := ContentWidth;
+    CleanRadio.Height := ScaleY(22);
+    CleanRadio.Caption := CustomMessage('UninstallModeClean');
+    CleanRadio.Font.Style := [fsBold];
+    CleanRadio.Checked := False;
+    CleanRadio.OnClick := @OnCleanModeClick;
+
+    CleanDesc := TNewStaticText.Create(Form);
+    CleanDesc.Parent := Form;
+    CleanDesc.Left := IndentLeft;
+    CleanDesc.Top := CleanRadio.Top + CleanRadio.Height + ScaleY(3);
+    CleanDesc.Width := ContentWidth - ScaleX(22);
+    CleanDesc.Height := ScaleY(32);
+    CleanDesc.AutoSize := False;
+    CleanDesc.WordWrap := True;
+    CleanDesc.Caption := CustomMessage('UninstallModeCleanDesc');
+    CleanDesc.Font.Color := clGrayText;
+    CleanDesc.OnClick := @OnCleanModeClick;
+
+    // 进阶复选框与警示说明
+    DeleteCapturesCheck := TCheckBox.Create(Form);
+    DeleteCapturesCheck.Parent := Form;
+    DeleteCapturesCheck.Left := IndentLeft;
+    DeleteCapturesCheck.Top := CleanDesc.Top + CleanDesc.Height + ScaleY(8);
+    DeleteCapturesCheck.Width := ContentWidth - ScaleX(22);
+    DeleteCapturesCheck.Height := ScaleY(22);
+    DeleteCapturesCheck.Caption := CustomMessage('DeleteMediaCaptures');
+    DeleteCapturesCheck.Checked := False;
+    DeleteCapturesCheck.Enabled := False;
+
+    DeleteCapturesNote := TNewStaticText.Create(Form);
+    DeleteCapturesNote.Parent := Form;
+    DeleteCapturesNote.Left := SubIndentLeft;
+    DeleteCapturesNote.Top := DeleteCapturesCheck.Top + DeleteCapturesCheck.Height + ScaleY(2);
+    DeleteCapturesNote.Width := ContentWidth - ScaleX(42);
+    DeleteCapturesNote.Height := ScaleY(24);
+    DeleteCapturesNote.AutoSize := False;
+    DeleteCapturesNote.WordWrap := True;
+    DeleteCapturesNote.Caption := CustomMessage('DeleteMediaCapturesNote');
+    DeleteCapturesNote.Font.Color := $002020B0; // 柔和深红/暗红警示
+    DeleteCapturesNote.Enabled := False;
+
+    // 5. 动态精确自适应窗口高度，杜绝多余空旷空白
+    BottomContentY := DeleteCapturesNote.Top + DeleteCapturesNote.Height;
+    Form.ClientHeight := BottomContentY + ScaleY(62);
+
+    // 6. 底部柔和分割线与操作按钮
+    FooterLine := TBevel.Create(Form);
+    FooterLine.Parent := Form;
+    FooterLine.Left := 0;
+    FooterLine.Top := Form.ClientHeight - ScaleY(50);
+    FooterLine.Width := Form.ClientWidth;
+    FooterLine.Height := ScaleY(1);
+    FooterLine.Shape := bsTopLine;
+
+    OKButton := TNewButton.Create(Form);
+    OKButton.Parent := Form;
+    OKButton.Caption := CustomMessage('ContinueUninstall');
+    OKButton.Top := Form.ClientHeight - ScaleY(38);
+    OKButton.Height := ScaleY(28);
+    OKButton.ModalResult := mrOk;
+    OKButton.Default := True;
+
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Caption := SetupMessage(msgButtonCancel);
+    CancelButton.Top := OKButton.Top;
+    CancelButton.Height := OKButton.Height;
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+
+    ButtonWidth := Form.CalculateButtonWidth([OKButton.Caption, CancelButton.Caption]);
+    OKButton.Width := ButtonWidth;
+    CancelButton.Width := ButtonWidth;
+    CancelButton.Left := Form.ClientWidth - ButtonWidth - ScaleX(20);
+    OKButton.Left := CancelButton.Left - ButtonWidth - ScaleX(10);
+
+    Result := Form.ShowModal() = mrOk;
+    if Result then
+    begin
+      if StandardRadio.Checked then
+      begin
+        DeleteSettingsHistory := False;
+        DeleteDiagnostics := True;
+        DeleteCachesIndexes := True;
+        DeleteCaptures := False;
+      end
+      else
+      begin
+        DeleteSettingsHistory := True;
+        DeleteDiagnostics := True;
+        DeleteCachesIndexes := True;
+        DeleteCaptures := DeleteCapturesCheck.Checked;
+      end;
+    end;
+  finally
+    Form.Free();
+  end;
+end;
+
+function HasCommandLineParameter(Parameter: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if Uppercase(ParamStr(I)) = Uppercase(Parameter) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure DeleteSelectedPersonalData();
+var
+  LocalRoot, RoamingRoot, CommonRoot: String;
+begin
+  LocalRoot := ExpandConstant('{localappdata}\EasyTools');
+  RoamingRoot := ExpandConstant('{userappdata}\EasyTools');
+  CommonRoot := ExpandConstant('{commonappdata}\EasyTools');
+
+  if DeleteSettingsHistory and DeleteDiagnostics and DeleteCachesIndexes and DeleteCaptures then
+  begin
+    DelTree(LocalRoot, True, True, True);
+    DelTree(RoamingRoot, True, True, True);
+    DelTree(CommonRoot, True, True, True);
+    Log('Deleted all selected EasyTools personal data');
+    Exit;
+  end;
+
+  if DeleteSettingsHistory then
+  begin
+    DelTree(LocalRoot + '\config', True, True, True);
+    DelTree(LocalRoot + '\stats', True, True, True);
+    DeleteFile(RoamingRoot + '\Run History.csv');
+    DeleteFile(RoamingRoot + '\Search History.csv');
+  end;
+  if DeleteDiagnostics then
+  begin
+    DelTree(LocalRoot + '\logs', True, True, True);
+    DelTree(LocalRoot + '\crashdumps', True, True, True);
+    DelTree(CommonRoot + '\logs', True, True, True);
+  end;
+  if DeleteCachesIndexes then
+  begin
+    DelTree(LocalRoot + '\webview2_data', True, True, True);
+    DelTree(LocalRoot + '\temp', True, True, True);
+    DeleteFile(LocalRoot + '\EasyTools.db');
+    DeleteFile(RoamingRoot + '\EasyTools.db');
+  end;
+  if DeleteCaptures then
+  begin
+    DelTree(LocalRoot + '\Screenshots', True, True, True);
+    DelTree(LocalRoot + '\Recordings', True, True, True);
+  end;
+  RemoveDir(LocalRoot);
+  RemoveDir(RoamingRoot);
+  RemoveDir(CommonRoot);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -212,6 +534,11 @@ begin
          ewWaitUntilTerminated, ResultCode);
     Sleep(300);
   end;
+  if CurUninstallStep = usPostUninstall then
+  begin
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'EasyTools');
+    DeleteSelectedPersonalData();
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
@@ -219,6 +546,23 @@ var
   ResultCode: Integer;
 begin
   Result := True;
+  DeleteSettingsHistory := True;
+  DeleteDiagnostics := True;
+  DeleteCachesIndexes := True;
+  DeleteCaptures := True;
+
+  if HasCommandLineParameter('/KEEPPERSONALDATA') then
+  begin
+    DeleteSettingsHistory := False;
+    DeleteDiagnostics := False;
+    DeleteCachesIndexes := False;
+    DeleteCaptures := False;
+  end
+  else if not ShowPersonalDataOptions() then
+  begin
+    Result := False;
+    Exit;
+  end;
   
   // 检查 EasyTools 是否在运行
   if CheckForMutexes('Global\EasyTools_SingleInstance_Mutex') then
@@ -239,4 +583,5 @@ begin
       Exit;
     end;
   end;
+
 end;

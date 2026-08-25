@@ -55,7 +55,7 @@
     "color_picker": "Pixel magnifier precision color picker & palette manager",
     "clipboard_manager": "Unlimited clipboard history, search and pinned snippets",
     "markdown_preview": "Spacebar quick look for markdown and code files",
-    "dialog_enhancer": "Smart path recall, Explorer Quick Switch, and attached floating ribbon"
+    "dialog_enhancer": "Instantly jump to active Explorer folders and auto-remember recent paths in Open/Save dialogs"
   },
   "extension": {
     "statusRunning": "Running",
@@ -138,6 +138,11 @@
     "openLogDir": "Log Directory",
     "openLogDirDesc": "Open the folder containing diagnostic and troubleshooting logs",
     "openLogDirBtn": "Open Log Directory",
+    "exportLogs": "Export Diagnostic Logs",
+    "exportLogsDesc": "Export all diagnostic logs and system environment reports as a file",
+    "exportLogsBtn": "Export Logs",
+    "exportLogsSuccess": "Diagnostic logs exported and highlighted successfully",
+    "exportLogsFailed": "Failed to export diagnostic logs",
     "toastSaveSuccess": "Settings saved automatically",
     "toastSaveDesc": "Updated: {{key}}",
     "toastSaveFailed": "Save failed",
@@ -234,7 +239,7 @@
       },
       "search": {
         "name": "Quick File Search",
-        "description": "Low-latency file lookup and reveal powered by the background NTFS index service."
+        "description": "Blazing-fast lookup powered by NTFS MFT metadata and USN journal, supporting filenames, pinyin, and in-file content search."
       },
       "keycast": {
         "name": "Keycast Overlay",
@@ -242,11 +247,11 @@
       },
       "dialogenhancer": {
         "name": "Dialog Enhancer",
-        "description": "Smart folder memory and root workspace pinning with Context Ribbon and Explorer Sync."
+        "description": "Instantly jump to active Explorer folders and favorite directories in Open/Save dialogs, with automatic per-app folder memory."
       },
       "dialog_enhancer": {
         "name": "Dialog Enhancer",
-        "description": "Smart folder memory and root workspace pinning with Context Ribbon and Explorer Sync."
+        "description": "Instantly jump to active Explorer folders and favorite directories in Open/Save dialogs, with automatic per-app folder memory."
       }
     }
   },
@@ -266,8 +271,8 @@
     "imageFormatDesc": "Select the format for saved screenshots",
     "pressToBind": "Press any key combination...",
     "browse": "Browse",
-    "showCrosshair": "Show Crosshair",
-    "showCrosshairDesc": "Display crosshair guides during capture",
+    "showCrosshair": "Show Fullscreen Crosshair Guides",
+    "showCrosshairDesc": "Display horizontal and vertical guide lines across the screen during capture (loupe unaffected)",
     "autoDetectWindow": "Auto Detect Window",
     "autoDetectWindowDesc": "Highlight window boundaries on hover, click to capture the window",
     "showShortcutHints": "Show contextual shortcut hints",
@@ -646,6 +651,9 @@
     "noPublishedRelease": "No published release is available yet",
     "openRelease": "Open release page",
     "openReleaseFailed": "Unable to open the release page",
+    "exportLogs": "Export Logs",
+    "exportLogsSuccess": "Diagnostic logs exported and highlighted successfully",
+    "exportLogsFailed": "Failed to export diagnostic logs",
     "techStack": "Tech Stack",
     "subtitle": "Modern · Extensible Desktop Productivity Suite",
     "depPurpose": {
@@ -691,10 +699,12 @@
     "welcomeSubtitle": "Boost your productivity, starting here",
     "featureSearch": "File & Content Search",
     "featureSearchDesc": "Millisecond full-disk search & deep text inspection",
-    "featureCapture": "Screen Capture",
-    "featureCaptureDesc": "Powerful capture & recording with multiple formats",
     "featureGesture": "Mouse Gestures",
     "featureGestureDesc": "Custom gesture mappings for efficient app control",
+    "featureCapture": "Screen Capture",
+    "featureCaptureDesc": "Powerful capture & recording with multiple formats",
+    "featureDialogEnhancer": "Dialog Folder Memory",
+    "featureDialogEnhancerDesc": "Auto-remember save paths and instantly jump to active folders",
     "featureKeycast": "Keycast Overlay",
     "featureKeycastDesc": "Real-time keystroke display, perfect for tutorials",
     "shortcutsTitle": "Core Shortcuts",

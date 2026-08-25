@@ -249,6 +249,7 @@ void QuickLookWindow::hide() {
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
         if (m_controller) m_controller->put_IsVisible(FALSE);
+        easy::core::WinUtils::trimWorkingSet();
     }
 }
 

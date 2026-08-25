@@ -82,7 +82,7 @@ CaptureOptions configuredCaptureOptions() {
     options.quality = std::clamp(config.get<int>("/capture/quality", 90), 1, 100);
     options.saveToFile = config.get<bool>("/capture/saveToFile", true);
     options.copyToClipboard = config.get<bool>("/capture/copyToClipboard", true);
-    options.showCrosshair = config.get<bool>("/capture/showCrosshair", true);
+    options.showCrosshair = config.get<bool>("/capture/showCrosshair", false);
     options.autoDetectWindow = config.get<bool>("/capture/autoDetectWindow", true);
     options.showShortcutHints = config.get<bool>("/capture/showShortcutHints", true);
     const auto directory = config.get<std::string>(
@@ -434,7 +434,7 @@ public:
                 {"copyToClipboard", config.get<bool>("/capture/copyToClipboard", true)},
                 {"saveDirectory", config.get<std::string>(
                     "/capture/saveDirectory", config.get<std::string>("/capture/savePath", ""))},
-                {"showCrosshair", config.get<bool>("/capture/showCrosshair", true)},
+                {"showCrosshair", config.get<bool>("/capture/showCrosshair", false)},
                 {"autoDetectWindow", config.get<bool>("/capture/autoDetectWindow", true)},
                 {"showShortcutHints", config.get<bool>("/capture/showShortcutHints", true)}
             };

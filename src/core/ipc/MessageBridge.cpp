@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "core/ipc/MessageBridge.h"
+#include "core/ipc/AutoStartPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/plugin/PluginManager.h"
 #include "core/utils/TraceId.h"
@@ -79,15 +80,33 @@ std::optional<std::filesystem::path> choosePath(bool save, bool folder = false) 
     return result;
 }
 
+bool setAutoStart(bool enabled);
+
 namespace {
 
 constexpr wchar_t AUTOSTART_TASK_NAME[] = L"EasyTools_Autostart";
 
-bool executeSilentCommand(const std::wstring& cmd) {
+bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput = nullptr) {
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
+
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (capturedOutput) {
+        SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        if (!CreatePipe(&readPipe, &writePipe, &pipeSecurity, 0) ||
+            !SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0)) {
+            if (readPipe) CloseHandle(readPipe);
+            if (writePipe) CloseHandle(writePipe);
+            return false;
+        }
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdOutput = writePipe;
+        si.hStdError = writePipe;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    }
 
     PROCESS_INFORMATION pi{};
     std::wstring cmdBuffer = cmd;
@@ -97,7 +116,7 @@ bool executeSilentCommand(const std::wstring& cmd) {
         cmdBuffer.data(),
         nullptr,
         nullptr,
-        FALSE,
+        capturedOutput != nullptr,
         CREATE_NO_WINDOW,
         nullptr,
         nullptr,
@@ -106,7 +125,49 @@ bool executeSilentCommand(const std::wstring& cmd) {
     );
 
     if (!ok) {
+        if (readPipe) CloseHandle(readPipe);
+        if (writePipe) CloseHandle(writePipe);
         return false;
+    }
+
+    if (writePipe) {
+        CloseHandle(writePipe);
+        writePipe = nullptr;
+    }
+
+    bool timedOut = false;
+    if (capturedOutput) {
+        capturedOutput->clear();
+        char buffer[4096];
+        const ULONGLONG deadline = GetTickCount64() + 3000;
+        for (;;) {
+            DWORD available = 0;
+            if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr)) break;
+            while (available > 0) {
+                DWORD bytesRead = 0;
+                const DWORD requested = std::min<DWORD>(available, sizeof(buffer));
+                if (!ReadFile(readPipe, buffer, requested, &bytesRead, nullptr) || bytesRead == 0) break;
+                capturedOutput->append(buffer, bytesRead);
+                available -= bytesRead;
+            }
+
+            DWORD currentExitCode = STILL_ACTIVE;
+            GetExitCodeProcess(pi.hProcess, &currentExitCode);
+            if (currentExitCode != STILL_ACTIVE) break;
+            if (GetTickCount64() >= deadline) {
+                timedOut = true;
+                TerminateProcess(pi.hProcess, ERROR_TIMEOUT);
+                WaitForSingleObject(pi.hProcess, 1000);
+                break;
+            }
+            Sleep(10);
+        }
+
+        DWORD bytesRead = 0;
+        while (ReadFile(readPipe, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
+            capturedOutput->append(buffer, bytesRead);
+        }
+        CloseHandle(readPipe);
     }
 
     WaitForSingleObject(pi.hProcess, 3000);
@@ -115,7 +176,23 @@ bool executeSilentCommand(const std::wstring& cmd) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
-    return exitCode == 0;
+    return !timedOut && exitCode == 0;
+}
+
+std::optional<std::filesystem::path> currentExecutablePath() {
+    wchar_t exePath[32768]{};
+    const DWORD length = GetModuleFileNameW(
+        nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+    if (length == 0 || length >= std::size(exePath)) return std::nullopt;
+    return std::filesystem::path(std::wstring(exePath, length));
+}
+
+std::optional<std::wstring> queryAutoStartTaskXml() {
+    std::string output;
+    const std::wstring queryCmd = L"schtasks.exe /query /tn \"" +
+        std::wstring(AUTOSTART_TASK_NAME) + L"\" /xml";
+    if (!executeSilentCommand(queryCmd, &output)) return std::nullopt;
+    return easy::core::WinUtils::utf8ToWstring(output);
 }
 
 bool removeRegistryAutoStart() {
@@ -157,9 +234,18 @@ bool setRegistryAutoStart(bool enabled) {
 }
 
 bool isAutoStartEnabled() {
-    std::wstring queryCmd = L"schtasks.exe /query /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\"";
-    if (executeSilentCommand(queryCmd)) {
-        return true;
+    if (const auto taskXml = queryAutoStartTaskXml()) {
+        const auto executable = currentExecutablePath();
+        if (executable && easy::core::autostart::taskTargetsExecutable(*taskXml, *executable)) {
+            return true;
+        }
+
+        LOG_WARN("AutoStart task points to a stale executable; repairing it for the current install.");
+        if (setAutoStart(true)) {
+            LOG_INFO("AutoStart task repaired successfully.");
+            return true;
+        }
+        LOG_ERROR("AutoStart task repair failed.");
     }
     constexpr wchar_t keyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     HKEY key = nullptr;
@@ -175,13 +261,12 @@ bool isAutoStartEnabled() {
 } // namespace
 
 bool setAutoStart(bool enabled) {
-    wchar_t exePath[32768]{};
-    DWORD length = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
-    if (length == 0 || length >= std::size(exePath)) {
+    const auto executable = currentExecutablePath();
+    if (!executable) {
         return setRegistryAutoStart(enabled);
     }
 
-    std::wstring exeStr(exePath, length);
+    const std::wstring exeStr = executable->wstring();
 
     if (enabled) {
         // 幂等性清理：确保旧注册表 Run 项无冗余残留
@@ -676,13 +761,20 @@ const std::vector<MarketplaceItem>& getMarketplaceCatalog() {
     return catalog;
 }
 
+bool isCoreBuiltinPlugin(const std::string& id) {
+    return id == "gesture" || id == "capture" || id == "search" ||
+           id == "keycast" || id == "dialogenhancer" || id == "dialog_enhancer";
+}
+
 bool isExtensionInstalled(const std::string& id) {
+    if (isCoreBuiltinPlugin(id)) return false;
     auto& config = ConfigManager::instance();
     auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
     return std::find(installedList.begin(), installedList.end(), id) != installedList.end();
 }
 
 void markExtensionInstalled(const std::string& id, bool installed) {
+    if (isCoreBuiltinPlugin(id)) return;
     auto& config = ConfigManager::instance();
     auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
     auto it = std::find(installedList.begin(), installedList.end(), id);
@@ -710,8 +802,7 @@ void MessageBridge::registerBuiltinHandlers() {
         std::unordered_set<std::string> existingIds;
         for (const auto& plugin : statuses) {
             existingIds.insert(plugin.id);
-            const bool isExt = isExtensionInstalled(plugin.id) ||
-                (plugin.id != "gesture" && plugin.id != "capture" && plugin.id != "search" && plugin.id != "keycast");
+            const bool isExt = !isCoreBuiltinPlugin(plugin.id);
             plugins.push_back({
                 {"id", plugin.id},
                 {"name", plugin.name},
@@ -1028,8 +1119,24 @@ void MessageBridge::registerBuiltinHandlers() {
     // ── 通用设置与系统交互 ───────────────────────────────────────────────
     registerHandler("general.getSettings", [](const json&) -> json {
         auto& config = ConfigManager::instance();
+        bool autoStart = false;
+        if (config.has("/general/autoStart")) {
+            const bool desiredAutoStart = config.get<bool>("/general/autoStart", false);
+            if (desiredAutoStart) {
+                autoStart = isAutoStartEnabled();
+                if (!autoStart) {
+                    LOG_WARN("AutoStart is enabled in settings but its OS registration is missing; recreating it.");
+                    autoStart = setAutoStart(true);
+                    if (autoStart) LOG_INFO("Missing AutoStart registration recreated successfully.");
+                    else LOG_ERROR("Failed to recreate missing AutoStart registration.");
+                }
+            }
+        } else {
+            // Migrate installations that predate the persisted /general/autoStart key.
+            autoStart = isAutoStartEnabled();
+        }
         return {
-            {"autoStart", config.get<bool>("/general/autoStart", isAutoStartEnabled())},
+            {"autoStart", autoStart},
             {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)},
             {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},

@@ -61,7 +61,8 @@ struct MarkupColor {
 enum class HitArea {
     None = -1,
     Body = 0,
-    LT = 1, T = 2, RT = 3, R = 4, RB = 5, B = 6, LB = 7, L = 8
+    LT = 1, T = 2, RT = 3, R = 4, RB = 5, B = 6, LB = 7, L = 8,
+    CornerRadius = 9
 };
 
 struct MarkupElement;

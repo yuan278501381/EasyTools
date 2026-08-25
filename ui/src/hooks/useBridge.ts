@@ -233,7 +233,7 @@ function getMockResponse(method: string, params: Record<string, unknown> = {}): 
     case 'capture.getSettings':
       return {
         format: 'png', quality: 90, saveToFile: true, copyToClipboard: true,
-        saveDirectory: '', showCrosshair: true, autoDetectWindow: true,
+        saveDirectory: '', showCrosshair: false, autoDetectWindow: true,
         showShortcutHints: true,
       };
 

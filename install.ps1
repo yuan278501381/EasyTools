@@ -10,6 +10,7 @@ EasyTools 官方 CLI 安装管理工具 (Official CLI Installer & Lifecycle Mana
 .\install.ps1 -Silent                  # 静默安装
 .\install.ps1 -Dir "D:\Apps\EasyTools" # 安装到指定目录
 .\install.ps1 -Uninstall               # 静默卸载
+.\install.ps1 -Uninstall -KeepPersonalData # 静默卸载并保留个人数据
 .\install.ps1 -Portable                # 直接以绿色便携版运行
 .\install.ps1 -Rebuild                 # 重新编译后立即静默安装并启动
 #>
@@ -21,6 +22,7 @@ param (
     [string]$Dir = "",                    # 自定义安装路径 (留空默认: C:\Program Files\EasyTools)
     [switch]$DesktopIcon = $false,        # 创建桌面图标
     [switch]$Uninstall = $false,          # 执行静默卸载流程
+    [switch]$KeepPersonalData = $false,   # 卸载时保留全部个人数据
     [switch]$Portable = $false,           # 运行绿色便携版
     [switch]$Rebuild = $false             # 先执行增量编译打包再安装
 )
@@ -92,6 +94,9 @@ if ($Uninstall) {
         Write-CliLog "发现卸载程序: $UninstallerPath" "INFO"
         Write-CliLog "正在执行静默卸载并清理后台服务..." "INFO"
         $UninstArgs = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+        if ($KeepPersonalData) {
+            $UninstArgs += " /KEEPPERSONALDATA"
+        }
         $proc = Start-Process -FilePath $UninstallerPath -ArgumentList $UninstArgs -Wait -PassThru
         if ($proc.ExitCode -eq 0) {
             Write-CliLog "EasyTools 已成功卸载并清理完毕！" "SUCCESS"
@@ -100,6 +105,18 @@ if ($Uninstall) {
         }
     } else {
         Write-CliLog "未在系统中检测到已安装的 EasyTools。" "WARN"
+    }
+    if (-not $KeepPersonalData) {
+        @(
+            (Join-Path $env:LOCALAPPDATA "EasyTools"),
+            (Join-Path $env:APPDATA "EasyTools"),
+            (Join-Path $env:ProgramData "EasyTools")
+        ) | ForEach-Object {
+            if (Test-Path -LiteralPath $_) {
+                Remove-Item -LiteralPath $_ -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Write-CliLog "EasyTools 个人数据已全部清理。" "SUCCESS"
     }
     exit 0
 }

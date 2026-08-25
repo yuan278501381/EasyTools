@@ -6,6 +6,6 @@
   "version": "@PROJECT_VERSION@",
   "minimumHostVersion": "1.0.0",
   "entryPoint": "CreatePlugin",
-  "capabilities": ["file-search"],
+  "capabilities": ["file-search", "content-search"],
   "permissions": ["file-read", "launch-process", "service-ipc"]
 }

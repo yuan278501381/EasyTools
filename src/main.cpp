@@ -37,6 +37,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -652,6 +653,95 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}, {"path", easy::core::WinUtils::wstringToUtf8(logDir.wstring())}};
     });
 
+    // 注册导出诊断日志 IPC 处理器
+    easy::core::MessageBridge::instance().registerHandler("app.exportLogs", [](const nlohmann::json& params) -> nlohmann::json {
+        std::optional<std::filesystem::path> savePath;
+        const auto supplied = params.value("path", "");
+        if (!supplied.empty()) {
+            savePath = easy::core::WinUtils::utf8ToWstring(supplied);
+        } else {
+            IFileDialog* dialog = nullptr;
+            HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+            if (SUCCEEDED(hr) && dialog) {
+                static const COMDLG_FILTERSPEC filters[] = {
+                    {L"日志文件 (*.log;*.txt)", L"*.log;*.txt"},
+                    {L"所有文件 (*.*)", L"*.*"},
+                };
+                dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+                dialog->SetDefaultExtension(L"log");
+                
+                auto now = std::chrono::system_clock::now();
+                auto in_time_t = std::chrono::system_clock::to_time_t(now);
+                std::tm tmBuffer{};
+                localtime_s(&tmBuffer, &in_time_t);
+                wchar_t defaultName[64];
+                swprintf_s(defaultName, L"EasyTools_Logs_%04d%02d%02d_%02d%02d%02d.log",
+                           tmBuffer.tm_year + 1900, tmBuffer.tm_mon + 1, tmBuffer.tm_mday,
+                           tmBuffer.tm_hour, tmBuffer.tm_min, tmBuffer.tm_sec);
+
+                dialog->SetFileName(defaultName);
+                dialog->SetTitle(L"导出 EasyTools 诊断日志");
+                
+                if (SUCCEEDED(dialog->Show(nullptr))) {
+                    IShellItem* item = nullptr;
+                    if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+                        PWSTR rawPath = nullptr;
+                        if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &rawPath)) && rawPath) {
+                            savePath = std::filesystem::path(rawPath);
+                            CoTaskMemFree(rawPath);
+                        }
+                        item->Release();
+                    }
+                }
+                dialog->Release();
+            }
+        }
+
+        if (!savePath) {
+            return {{"success", false}, {"cancelled", true}};
+        }
+
+        // 刷写日志缓存
+        if (easy::core::Logger::instance()) {
+            easy::core::Logger::instance()->flush();
+        }
+
+        std::filesystem::path target = *savePath;
+        std::ofstream out(target, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            return {{"success", false}, {"error", "无法创建目标导出文件"}};
+        }
+
+        // 写入环境诊断头
+        out << "=======================================================\n";
+        out << " EasyTools 诊断日志导出报告\n";
+        out << " 软件版本: " << easy::version::String << "\n";
+        out << " 进程 PID: " << GetCurrentProcessId() << "\n";
+        out << "=======================================================\n\n";
+
+        // 读取所有当前存在的日志文件并合并
+        std::filesystem::path logDir = easy::core::WinUtils::getLogDirectory();
+        std::error_code ec;
+        if (std::filesystem::exists(logDir, ec)) {
+            for (const auto& entry : std::filesystem::directory_iterator(logDir, ec)) {
+                if (entry.is_regular_file(ec) && entry.path().extension() == ".log") {
+                    out << ">>> File: " << entry.path().filename().string() << " <<<\n";
+                    std::ifstream in(entry.path(), std::ios::in | std::ios::binary);
+                    if (in.is_open()) {
+                        out << in.rdbuf() << "\n\n";
+                    }
+                }
+            }
+        }
+        out.close();
+
+        // 自动在资源管理器中高亮选中导出的日志
+        std::wstring targetStr = target.wstring();
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + targetStr + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+
+        return {{"success", true}, {"path", easy::core::WinUtils::wstringToUtf8(targetStr)}};
+    });
+
     // 注册应用一键热重启 IPC 处理器
     easy::core::MessageBridge::instance().registerHandler("app.restart", [hwnd](const nlohmann::json&) -> nlohmann::json {
         wchar_t exePath[MAX_PATH];
@@ -942,6 +1032,11 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     if (g_wmTaskbarCreated != 0 && msg == g_wmTaskbarCreated) {
         LOG_INFO("检测到系统任务栏重建 (TaskbarCreated)，重新注册托盘图标");
         easy::tray::TrayIcon::instance().recreate();
+        return 0;
+    }
+
+    if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED) {
+        easy::tray::TrayIcon::instance().refreshThemeIcon();
         return 0;
     }
 

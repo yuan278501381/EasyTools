@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type FC } from 'react';
 import { Button } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import {
-  Search, Camera, MousePointer2, Keyboard, Sparkles,
+  Search, Camera, MousePointer2, Keyboard, Sparkles, FolderSymlink,
   ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import './OnboardingModal.css';
@@ -115,6 +115,13 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
+                  <MousePointer2 size={22} />
+                </div>
+                <span className="onboarding__feature-name">{t('onboarding.featureGesture')}</span>
+                <span className="onboarding__feature-desc">{t('onboarding.featureGestureDesc')}</span>
+              </div>
+              <div className="onboarding__feature-card">
+                <div className="onboarding__feature-icon">
                   <Camera size={22} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureCapture')}</span>
@@ -122,10 +129,10 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <MousePointer2 size={22} />
+                  <FolderSymlink size={22} />
                 </div>
-                <span className="onboarding__feature-name">{t('onboarding.featureGesture')}</span>
-                <span className="onboarding__feature-desc">{t('onboarding.featureGestureDesc')}</span>
+                <span className="onboarding__feature-name">{t('onboarding.featureDialogEnhancer')}</span>
+                <span className="onboarding__feature-desc">{t('onboarding.featureDialogEnhancerDesc')}</span>
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">

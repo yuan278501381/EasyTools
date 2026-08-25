@@ -5,6 +5,7 @@
 #include "tray/TrayIcon.h"
 #include "core/logger/Logger.h"
 #include "core/config/ConfigManager.h"
+#include "core/utils/WinUtils.h"
 #include "ui/TrayWindow.h"
 
 namespace easy::tray {
@@ -19,9 +20,57 @@ static bool isEnglishLocale() {
     return false;
 }
 
+static HICON loadThemeAppropriateIcon() {
+    const bool isDark = easy::core::WinUtils::isSystemTaskbarDark();
+    // 102: 白色图标 (用于深色任务栏), 103: 深色图标 (用于浅色任务栏)
+    const UINT iconId = isDark ? 102 : 103;
+
+    HICON hIcon = (HICON)LoadImageW(
+        GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(iconId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR
+    );
+    if (!hIcon) {
+        hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(iconId));
+    }
+    // 回退尝试默认托盘图标 102
+    if (!hIcon) {
+        hIcon = (HICON)LoadImageW(
+            GetModuleHandleW(nullptr),
+            MAKEINTRESOURCEW(102),
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR
+        );
+    }
+    if (!hIcon) {
+        hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    }
+    if (!hIcon) {
+        hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
+    return hIcon;
+}
+
 TrayIcon& TrayIcon::instance() {
     static TrayIcon inst;
     return inst;
+}
+
+void TrayIcon::refreshThemeIcon() {
+    if (!m_created || !m_hwnd) return;
+    HICON newIcon = loadThemeAppropriateIcon();
+    if (newIcon && newIcon != m_icon) {
+        m_icon = newIcon;
+        m_nid.hIcon = m_icon;
+        m_nid.uFlags = NIF_ICON;
+        Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+        m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    }
 }
 
 bool TrayIcon::create(HWND hwnd, HICON icon) {
@@ -36,35 +85,9 @@ bool TrayIcon::create(HWND hwnd, HICON icon) {
     m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
 
-    // 优先加载专属托盘图标 (ID 102)，保持托盘区域永远极致纯净、醒目
+    // 自适应当前 Windows 系统任务栏明暗加载双态托盘图标
     if (!m_icon) {
-        m_icon = (HICON)LoadImageW(
-            GetModuleHandleW(nullptr),
-            MAKEINTRESOURCEW(102),
-            IMAGE_ICON,
-            GetSystemMetrics(SM_CXSMICON),
-            GetSystemMetrics(SM_CYSMICON),
-            LR_DEFAULTCOLOR
-        );
-        if (!m_icon) {
-            m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(102));
-        }
-        if (!m_icon) {
-            m_icon = (HICON)LoadImageW(
-                GetModuleHandleW(nullptr),
-                MAKEINTRESOURCEW(101),
-                IMAGE_ICON,
-                GetSystemMetrics(SM_CXSMICON),
-                GetSystemMetrics(SM_CYSMICON),
-                LR_DEFAULTCOLOR
-            );
-        }
-        if (!m_icon) {
-            m_icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
-        }
-        if (!m_icon) {
-            m_icon = LoadIconW(nullptr, IDI_APPLICATION);
-        }
+        m_icon = loadThemeAppropriateIcon();
     }
     m_nid.hIcon = m_icon;
 
@@ -165,12 +188,14 @@ void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
 
     switch (msg) {
         case WM_LBUTTONUP:
-            // 左键单击：切换显示/收起托盘微型操作卡片
-            showContextMenu();
+            // 左键单击：若托盘菜单已处于打开状态，则平滑收起；否则不弹出右键菜单
+            if (easy::ui::TrayWindow::instance().isVisible()) {
+                easy::ui::TrayWindow::instance().hide();
+            }
             break;
 
         case WM_LBUTTONDBLCLK:
-            // 双击：直接唤起主设置窗口
+            // 左键双击：直接唤起主设置窗口
             if (easy::ui::TrayWindow::instance().isVisible()) {
                 easy::ui::TrayWindow::instance().hide();
             }
@@ -178,7 +203,7 @@ void TrayIcon::handleMessage(WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_RBUTTONUP:
-            // 右键：弹出托盘菜单
+            // 右键单击：弹出托盘快捷菜单
             showContextMenu();
             break;
 

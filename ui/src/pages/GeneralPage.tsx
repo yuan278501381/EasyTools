@@ -405,6 +405,25 @@ export const GeneralPage: FC = () => {
               {t('general.openLogDirBtn', '打开日志目录')}
             </Button>
           </SettingRow>
+
+          <SettingRow label={t('general.exportLogs', '导出诊断日志')} description={t('general.exportLogsDesc', '将所有运行诊断日志与系统环境报告导出为文件，便于排查反馈')}>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
+                  if (res.cancelled) return;
+                  if (!res.success) throw new Error(res.error || '导出失败');
+                  toast.success(t('general.exportLogsSuccess', '诊断日志已成功导出并定位'));
+                } catch (e) {
+                  toast.error(t('general.exportLogsFailed', '日志导出失败'), { description: String(e) });
+                }
+              }}
+            >
+              <Download size={15} style={{ marginRight: 6 }} />
+              {t('general.exportLogsBtn', '导出日志')}
+            </Button>
+          </SettingRow>
         </Card>
       </SettingGroup>
 

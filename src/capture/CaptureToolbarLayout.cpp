@@ -65,6 +65,7 @@ std::vector<ButtonSpec> buttonSpecs(const CaptureState& state, bool zh) {
     specs.push_back({ToolbarCommand::Undo, MarkupTool::Rectangle, {}, L"↩"});
     specs.push_back({ToolbarCommand::Redo, MarkupTool::Rectangle, {}, L"↪"});
     specs.push_back({ToolbarCommand::Clear, MarkupTool::Rectangle, {}, L"⌫"});
+    specs.push_back({ToolbarCommand::ToggleCornerRadius, MarkupTool::Rectangle, {}, L"╭╮"});
     specs.push_back({ToolbarCommand::ExtractText, MarkupTool::Rectangle, {}, zh ? L"文" : L"T"});
     specs.push_back({ToolbarCommand::PinWindow, MarkupTool::Rectangle, {}, L"⌖"});
     specs.push_back({ToolbarCommand::ScrollCapture, MarkupTool::Rectangle, {}, zh ? L"长" : L"⇊"});

@@ -82,6 +82,14 @@
   overflow-y: auto;
 }
 
+.sidebar__divider {
+  height: 1px;
+  background: var(--card-border);
+  margin: 6px 8px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
 .sidebar__item {
   display: flex;
   align-items: center;

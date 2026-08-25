@@ -25,6 +25,171 @@
 
 namespace easy::capture {
 
+namespace {
+
+std::string formatColorText(ColorFormatType type, int r, int g, int b) {
+    float rf = r / 255.0f, gf = g / 255.0f, bf = b / 255.0f;
+    float maxVal = std::max({rf, gf, bf}), minVal = std::min({rf, gf, bf});
+    float delta = maxVal - minVal;
+
+    switch (type) {
+        case ColorFormatType::HEX:
+            return std::format("#{:02X}{:02X}{:02X}", r, g, b);
+        case ColorFormatType::RGB:
+            return std::format("rgb({}, {}, {})", r, g, b);
+        case ColorFormatType::RGBA:
+            return std::format("rgba({}, {}, {}, 1.0)", r, g, b);
+        case ColorFormatType::HEX_0x:
+            return std::format("0x{:02X}{:02X}{:02X}", r, g, b);
+        case ColorFormatType::HSL: {
+            float lf = (maxVal + minVal) * 0.5f;
+            float sf = 0.0f, hf = 0.0f;
+            if (delta > 1e-5f) {
+                sf = lf > 0.5f ? delta / (2.0f - maxVal - minVal) : delta / (maxVal + minVal);
+                if (maxVal == rf) hf = (gf - bf) / delta + (gf < bf ? 6.0f : 0.0f);
+                else if (maxVal == gf) hf = (bf - rf) / delta + 2.0f;
+                else hf = (rf - gf) / delta + 4.0f;
+                hf /= 6.0f;
+            }
+            int h = static_cast<int>(std::round(hf * 360.0f)) % 360;
+            int s = static_cast<int>(std::round(sf * 100.0f));
+            int l = static_cast<int>(std::round(lf * 100.0f));
+            return std::format("hsl({}, {}%, {}%)", h, s, l);
+        }
+        case ColorFormatType::HSV: {
+            float vf = maxVal;
+            float sf = maxVal > 1e-5f ? delta / maxVal : 0.0f;
+            float hf = 0.0f;
+            if (delta > 1e-5f) {
+                if (maxVal == rf) hf = (gf - bf) / delta + (gf < bf ? 6.0f : 0.0f);
+                else if (maxVal == gf) hf = (bf - rf) / delta + 2.0f;
+                else hf = (rf - gf) / delta + 4.0f;
+                hf /= 6.0f;
+            }
+            int h = static_cast<int>(std::round(hf * 360.0f)) % 360;
+            int s = static_cast<int>(std::round(sf * 100.0f));
+            int v = static_cast<int>(std::round(vf * 100.0f));
+            return std::format("hsv({}, {}%, {}%)", h, s, v);
+        }
+        case ColorFormatType::CMYK: {
+            float kf = 1.0f - std::max({rf, gf, bf});
+            int c = 0, m = 0, y = 0, k = static_cast<int>(std::round(kf * 100.0f));
+            if (kf < 1.0f - 1e-5f) {
+                c = static_cast<int>(std::round((1.0f - rf - kf) / (1.0f - kf) * 100.0f));
+                m = static_cast<int>(std::round((1.0f - gf - kf) / (1.0f - kf) * 100.0f));
+                y = static_cast<int>(std::round((1.0f - bf - kf) / (1.0f - kf) * 100.0f));
+            }
+            return std::format("cmyk({}%, {}%, {}%, {}%)", c, m, y, k);
+        }
+        case ColorFormatType::DEC: {
+            uint32_t decVal = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            return std::format("{}", decVal);
+        }
+        default:
+            return std::format("#{:02X}{:02X}{:02X}", r, g, b);
+    }
+}
+
+} // namespace
+
+static HCURSOR getBeautifulCrosshairCursor() {
+    static HCURSOR s_cursor = nullptr;
+    if (s_cursor) return s_cursor;
+
+    const int sz = 64;
+    const int mid = 31;
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = sz;
+    bmi.bmiHeader.biHeight = -sz; // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    uint32_t* pixels = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP hbmColor = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&pixels), nullptr, 0);
+    ReleaseDC(nullptr, hdc);
+
+    if (!hbmColor || !pixels) {
+        s_cursor = LoadCursor(nullptr, IDC_CROSS);
+        return s_cursor;
+    }
+
+    // 初始化为完全透明 (0x00000000)
+    std::fill_n(pixels, sz * sz, 0x00000000);
+
+    auto setPixelARGB = [&](int x, int y, uint32_t argb) {
+        if (x >= 0 && x < sz && y >= 0 && y < sz) {
+            pixels[y * sz + x] = argb;
+        }
+    };
+
+    const uint32_t COLOR_WHITE = 0xFFFFFFFF; // 100% 不透明纯白
+    const uint32_t COLOR_BLACK = 0xFF000000; // 100% 不透明纯黑
+
+    // 精致修长准星 (纤细美学)：
+    // 臂长 16px (从 3px 到 18px 跨越)，中心留空 2px
+    // 白心 1px 细线 (0 偏移)，两侧各 1px 细黑边 (-1 与 +1 偏移) -> 总宽 3px，极致纤细精致！
+    const int startDist = 3;
+    const int endDist = 18;
+
+    // 水平臂 (左、右)
+    for (int dist = startDist; dist <= endDist; ++dist) {
+        int xs[2] = { mid - dist, mid + dist };
+        for (int x : xs) {
+            // 1px 纯白内芯
+            setPixelARGB(x, mid, COLOR_WHITE);
+            // 上下 1px 细黑描边
+            setPixelARGB(x, mid - 1, COLOR_BLACK);
+            setPixelARGB(x, mid + 1, COLOR_BLACK);
+        }
+    }
+
+    // 垂直臂 (上、下)
+    for (int dist = startDist; dist <= endDist; ++dist) {
+        int ys[2] = { mid - dist, mid + dist };
+        for (int y : ys) {
+            // 1px 纯白内芯
+            setPixelARGB(mid, y, COLOR_WHITE);
+            // 左右 1px 细黑描边
+            setPixelARGB(mid - 1, y, COLOR_BLACK);
+            setPixelARGB(mid + 1, y, COLOR_BLACK);
+        }
+    }
+
+    // 四个端点外侧封口黑边
+    setPixelARGB(mid - (endDist + 1), mid, COLOR_BLACK);
+    setPixelARGB(mid + (endDist + 1), mid, COLOR_BLACK);
+    setPixelARGB(mid, mid - (endDist + 1), COLOR_BLACK);
+    setPixelARGB(mid, mid + (endDist + 1), COLOR_BLACK);
+
+    // 中心微孔 4 个内端封口黑边
+    setPixelARGB(mid - (startDist - 1), mid, COLOR_BLACK);
+    setPixelARGB(mid + (startDist - 1), mid, COLOR_BLACK);
+    setPixelARGB(mid, mid - (startDist - 1), COLOR_BLACK);
+    setPixelARGB(mid, mid + (startDist - 1), COLOR_BLACK);
+
+    // 针对 32-bit ARGB 光标创建 1-bit 单色掩码
+    HBITMAP hbmMask = CreateBitmap(sz, sz, 1, 1, nullptr);
+
+    ICONINFO ii = {};
+    ii.fIcon = FALSE;
+    ii.xHotspot = mid;
+    ii.yHotspot = mid;
+    ii.hbmMask = hbmMask;
+    ii.hbmColor = hbmColor;
+
+    s_cursor = CreateIconIndirect(&ii);
+
+    if (hbmMask) DeleteObject(hbmMask);
+    if (hbmColor) DeleteObject(hbmColor);
+
+    if (!s_cursor) s_cursor = LoadCursor(nullptr, IDC_CROSS);
+    return s_cursor;
+}
+
 static HCURSOR cursorForArea(HitArea area) {
     switch (area) {
         case HitArea::LT:
@@ -41,6 +206,8 @@ static HCURSOR cursorForArea(HitArea area) {
             return LoadCursor(nullptr, IDC_SIZEWE);
         case HitArea::Body:
             return LoadCursor(nullptr, IDC_SIZEALL);
+        case HitArea::CornerRadius:
+            return getBeautifulCrosshairCursor();
         default:
             return LoadCursor(nullptr, IDC_ARROW);
     }
@@ -120,9 +287,18 @@ void CaptureInput::updateHoverCursor(POINT point) {
                     cur = cursorForArea(hit.area);
                 }
             }
+
+            // 4. 处于选区内部进行标注时，按当前工具分发光标 (仅 Text 标注时为 IBEAM)
+            if (!cur && isPointInSelection(point)) {
+                if (m_state->currentTool == MarkupTool::Text) {
+                    cur = LoadCursor(nullptr, IDC_IBEAM);
+                }
+            }
         }
     }
-    if (!cur) cur = LoadCursor(nullptr, (m_state->currentTool == MarkupTool::Text) ? IDC_IBEAM : IDC_CROSS);
+
+    // 默认光标：永远使用高精度自然美感十字准星
+    if (!cur) cur = getBeautifulCrosshairCursor();
     SetCursor(cur);
 }
 
@@ -145,6 +321,24 @@ HitArea CaptureInput::hitTestSelectionBox(POINT point) const {
     };
     float px = static_cast<float>(point.x);
     float py = static_cast<float>(point.y);
+
+    // 1. 优先检测圆角手柄（Figma 风格 4 个角内侧控制点）
+    float selW = r.right - r.left;
+    float selH = r.bottom - r.top;
+    if (selW >= 36.0f * dpiScale && selH >= 36.0f * dpiScale) {
+        float offset = std::clamp(std::max(12.0f, m_state->cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f) * dpiScale;
+        const H cornerHandles[4] = {
+            {r.left + offset,  r.top + offset,    HitArea::CornerRadius},
+            {r.right - offset, r.top + offset,    HitArea::CornerRadius},
+            {r.right - offset, r.bottom - offset, HitArea::CornerRadius},
+            {r.left + offset,  r.bottom - offset, HitArea::CornerRadius}
+        };
+        for (const auto& h : cornerHandles) {
+            if (std::abs(px - h.x) <= hw && std::abs(py - h.y) <= hw) return h.area;
+        }
+    }
+
+    // 2. 检测 8 个外框拉伸调整控制点
     for (const auto& h : handles) {
         if (std::abs(px - h.x) <= hw && std::abs(py - h.y) <= hw) return h.area;
     }
@@ -313,6 +507,22 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
             m_state->markup.clearAll();
             prepareMarkupBase();
             break;
+
+        case ToolbarCommand::ToggleCornerRadius: {
+            static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+            auto it = std::find_if(radiuses.begin(), radiuses.end(), [&](float r) {
+                return std::abs(r - m_state->cornerRadius) < 1.0f;
+            });
+            if (it == radiuses.end()) {
+                m_state->cornerRadius = 8.0f;
+            } else {
+                size_t nextIdx = (std::distance(radiuses.begin(), it) + 1) % radiuses.size();
+                m_state->cornerRadius = radiuses[nextIdx];
+            }
+            prepareMarkupBase();
+            m_renderer->invalidate();
+            break;
+        }
 
         case ToolbarCommand::ExtractText:
             if (m_state->ocrCallback) {
@@ -584,20 +794,105 @@ void CaptureInput::rebuildMarkupBase() {
     m_state->markupBaseReady = true;
 }
 
-RECT CaptureInput::detectWindowUnderCursor(POINT cursorPos) {
-    HWND hwnd = WindowFromPoint(cursorPos);
-    RECT rc{};
-    if (hwnd) {
-        GetWindowRect(hwnd, &rc);
-        // 转为虚拟屏幕坐标
-        int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        rc.left -= offsetX;
-        rc.top -= offsetY;
-        rc.right -= offsetX;
-        rc.bottom -= offsetY;
+std::vector<RECT> CaptureInput::detectWindowHierarchy(POINT cursorPos) {
+    std::vector<RECT> hierarchy;
+    int offsetX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int offsetY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
+    // 1. 穿透覆盖层查找真实窗口
+    HWND hTop = nullptr;
+    struct SearchParam {
+        POINT pt;
+        HWND exclude;
+        HWND found;
+    } param{cursorPos, m_hwnd, nullptr};
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+        auto* p = reinterpret_cast<SearchParam*>(lParam);
+        if (hwnd == p->exclude || !IsWindowVisible(hwnd) || IsIconic(hwnd)) return TRUE;
+        RECT r;
+        GetWindowRect(hwnd, &r);
+        if (PtInRect(&r, p->pt)) {
+            p->found = hwnd;
+            return FALSE;
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&param));
+    hTop = param.found;
+
+    if (hTop && hTop != m_hwnd) {
+        // 2. 深入获取真实子控件
+        POINT clientPt = cursorPos;
+        ScreenToClient(hTop, &clientPt);
+        HWND hChild = RealChildWindowFromPoint(hTop, clientPt);
+        if (!hChild) hChild = hTop;
+
+        // 3. 从内到外依次收集子控件与父窗口
+        HWND curr = hChild;
+        while (curr && curr != GetDesktopWindow()) {
+            RECT rc{};
+            if (GetWindowRect(curr, &rc) && (rc.right - rc.left > 8) && (rc.bottom - rc.top > 8)) {
+                rc.left -= offsetX;
+                rc.top -= offsetY;
+                rc.right -= offsetX;
+                rc.bottom -= offsetY;
+
+                bool exists = false;
+                for (const auto& existing : hierarchy) {
+                    if (std::abs(existing.left - rc.left) <= 2 &&
+                        std::abs(existing.top - rc.top) <= 2 &&
+                        std::abs(existing.right - rc.right) <= 2 &&
+                        std::abs(existing.bottom - rc.bottom) <= 2) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    hierarchy.push_back(rc);
+                }
+            }
+            curr = GetParent(curr);
+        }
     }
-    return rc;
+
+    // 4. 追加当前光标所在的单屏全屏区域
+    HMONITOR hMon = MonitorFromPoint(cursorPos, MONITOR_DEFAULTTONEAREST);
+    if (hMon) {
+        MONITORINFO mi{sizeof(mi)};
+        if (GetMonitorInfoW(hMon, &mi)) {
+            RECT monRc = mi.rcMonitor;
+            monRc.left -= offsetX;
+            monRc.top -= offsetY;
+            monRc.right -= offsetX;
+            monRc.bottom -= offsetY;
+
+            bool exists = false;
+            for (const auto& existing : hierarchy) {
+                if (existing.left == monRc.left && existing.top == monRc.top &&
+                    existing.right == monRc.right && existing.bottom == monRc.bottom) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                hierarchy.push_back(monRc);
+            }
+        }
+    }
+
+    // 5. 兜底全屏
+    if (hierarchy.empty()) {
+        RECT fullRc{0, 0, GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN)};
+        hierarchy.push_back(fullRc);
+    }
+
+    return hierarchy;
+}
+
+RECT CaptureInput::detectWindowUnderCursor(POINT cursorPos) {
+    auto list = detectWindowHierarchy(cursorPos);
+    if (!list.empty()) return list.front();
+    return {};
 }
 
 D2D1_RECT_F CaptureInput::currentSelectionRect() const {
@@ -615,6 +910,17 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     // Win32 派发层（否则 std::terminate 崩溃）。
     try {
     switch (msg) {
+        case WM_SETCURSOR: {
+            if (!this || !m_state) break;
+            if (LOWORD(lParam) == HTCLIENT) {
+                POINT pt;
+                GetCursorPos(&pt);
+                ScreenToClient(hwnd, &pt);
+                updateHoverCursor(pt);
+                return TRUE;
+            }
+            break;
+        }
         case WM_LBUTTONDOWN: {
             if (!this) break;
             m_renderer->markMarkupDirty();
@@ -637,7 +943,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     return 0;
                 }
                 
-                // 选区控制点/边框调整
+                // 选区控制点/边框/圆角手柄调整
                 if ((selHit = hitTestSelectionBox(point)) != HitArea::None) {
                     if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
                         m_state->activeElement->isEditing = false;
@@ -645,6 +951,12 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                             m_state->markup.removeElement(m_state->activeElement->id);
                             m_state->activeElement = nullptr;
                         }
+                    }
+                    if (selHit == HitArea::CornerRadius) {
+                        m_state->isAdjustingCornerRadius = true;
+                        m_state->cornerDragStartRadius = m_state->cornerRadius;
+                        m_state->cornerDragStartPos = point;
+                        return 0;
                     }
                     m_state->isAdjustingSelection = true;
                     m_state->selAdjustHandle = selHit;
@@ -754,7 +1066,25 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 m_renderer->invalidate();
             }
 
-            if (m_state->isAdjustingSelection) {
+            if (m_state->isAdjustingCornerRadius) {
+                // 以选区中心为基准：往内拉增加圆角，往外推减小圆角
+                auto r = currentSelectionRect();
+                float cx = (r.left + r.right) * 0.5f;
+                float cy = (r.top + r.bottom) * 0.5f;
+                float selW = r.right - r.left;
+                float selH = r.bottom - r.top;
+                float maxRadius = std::min(selW, selH) * 0.5f;
+
+                float signX = (m_state->cornerDragStartPos.x < cx) ? 1.0f : -1.0f;
+                float signY = (m_state->cornerDragStartPos.y < cy) ? 1.0f : -1.0f;
+                float dx = (m_state->currentCursor.x - m_state->cornerDragStartPos.x) * signX;
+                float dy = (m_state->currentCursor.y - m_state->cornerDragStartPos.y) * signY;
+                float delta = (dx + dy) * 0.5f;
+
+                float newR = std::clamp(m_state->cornerDragStartRadius + delta, 0.0f, maxRadius);
+                m_state->cornerRadius = std::round(newR);
+                m_renderer->invalidate();
+            } else if (m_state->isAdjustingSelection) {
                 int dx = m_state->currentCursor.x - m_state->selAdjustLast.x;
                 int dy = m_state->currentCursor.y - m_state->selAdjustLast.y;
                 adjustSelection(m_state->selAdjustHandle, dx, dy);
@@ -790,17 +1120,24 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 m_state->lastMousePos = m_state->currentCursor;
                 m_renderer->invalidate();
             } else {
-                if ((int)m_state->state.load() == (int)OverlayState::Selecting && !m_state->dragging) {
+                if (((int)m_state->state.load() == (int)OverlayState::Idle ||
+                     (int)m_state->state.load() == (int)OverlayState::Selecting) && !m_state->dragging) {
                     if (m_state->options.autoDetectWindow) {
-                        // 未拖拽时检测光标下的窗口
                         POINT screenPt = m_state->currentCursor;
                         int offX = GetSystemMetrics(SM_XVIRTUALSCREEN);
                         int offY = GetSystemMetrics(SM_YVIRTUALSCREEN);
                         screenPt.x += offX;
                         screenPt.y += offY;
-                        m_state->detectedWindow = detectWindowUnderCursor(screenPt);
+                        m_state->detectedWindowHierarchy = detectWindowHierarchy(screenPt);
+                        m_state->detectedWindowHierarchyIndex = 0;
+                        if (!m_state->detectedWindowHierarchy.empty()) {
+                            m_state->detectedWindow = m_state->detectedWindowHierarchy[0];
+                        } else {
+                            m_state->detectedWindow = {};
+                        }
                     } else {
                         m_state->detectedWindow = {};
+                        m_state->detectedWindowHierarchy.clear();
                     }
                 }
                 m_renderer->invalidate();        // 十字准星/动态放大镜跟随光标
@@ -813,6 +1150,13 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         case WM_LBUTTONUP: {
             if (!this) break;
             m_renderer->markMarkupDirty();
+
+            if (m_state->isAdjustingCornerRadius) {
+                m_state->isAdjustingCornerRadius = false;
+                prepareMarkupBase();
+                m_renderer->invalidate();
+                return 0;
+            }
 
             if (m_state->isAdjustingSelection) {
                 m_state->isAdjustingSelection = false;
@@ -854,6 +1198,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                                          static_cast<LONG>(m_state->detectedWindow.top)};
                     m_state->dragEnd = {static_cast<LONG>(m_state->detectedWindow.right),
                                        static_cast<LONG>(m_state->detectedWindow.bottom)};
+                    m_state->cornerRadius = m_state->detectedWindowCornerRadius; // 自动继承现代 Win11 窗口圆角
                     m_state->state = OverlayState::Selected;
                     prepareMarkupBase();
                     if (m_state->options.showShortcutHints) {
@@ -877,6 +1222,53 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     return 0;
                 }
                 if (m_confirmCb) m_confirmCb({});
+            }
+            return 0;
+        }
+
+        case WM_RBUTTONUP: {
+            if (!this) break;
+            
+            // 1. 正在拖拽选区中：右键取消本次拖拽
+            if (m_state->dragging) {
+                m_state->dragging = false;
+                m_state->state = OverlayState::Selecting;
+                m_renderer->invalidate();
+                return 0;
+            }
+
+            // 2. 正在编辑文字：右键退出文字编辑
+            if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
+                m_state->activeElement->isEditing = false;
+                if (m_state->activeElement->text.empty()) {
+                    m_state->markup.removeElement(m_state->activeElement->id);
+                    m_state->activeElement = nullptr;
+                }
+                m_renderer->invalidate();
+                return 0;
+            }
+
+            // 3. 有激活选中的标注元素：取消选中
+            if (m_state->activeElement) {
+                m_state->activeElement->isActive = false;
+                m_state->activeElement = nullptr;
+                m_renderer->invalidate();
+                return 0;
+            }
+
+            // 4. 处于选区态（Selected/Marking）：右键重置选区回到初始未选区态
+            if ((int)m_state->state.load() == (int)OverlayState::Selected || (int)m_state->state.load() == (int)OverlayState::Marking) {
+                m_state->state = OverlayState::Selecting;
+                m_state->dragStart = {0, 0};
+                m_state->dragEnd = {0, 0};
+                m_state->markup.clearAll();
+                m_renderer->invalidate();
+                return 0;
+            }
+
+            // 5. 无选区状态下：鼠标右键直接退出截图
+            if (m_cancelCb) {
+                m_cancelCb();
             }
             return 0;
         }
@@ -959,6 +1351,23 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (!this) break;
             m_renderer->markMarkupDirty();
             short zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+
+            // 1. 选区前/未拖拽状态：滚轮切换探测窗口层级 (子控件 <-> 父容器 <-> 顶级窗口 <-> 全屏)
+            if (((int)m_state->state.load() == (int)OverlayState::Idle ||
+                 (int)m_state->state.load() == (int)OverlayState::Selecting) && !m_state->dragging) {
+                if (!m_state->detectedWindowHierarchy.empty()) {
+                    int count = static_cast<int>(m_state->detectedWindowHierarchy.size());
+                    if (zDelta > 0) {
+                        m_state->detectedWindowHierarchyIndex = std::min(m_state->detectedWindowHierarchyIndex + 1, count - 1);
+                    } else if (zDelta < 0) {
+                        m_state->detectedWindowHierarchyIndex = std::max(m_state->detectedWindowHierarchyIndex - 1, 0);
+                    }
+                    m_state->detectedWindow = m_state->detectedWindowHierarchy[m_state->detectedWindowHierarchyIndex];
+                    m_renderer->invalidate();
+                    return 0;
+                }
+            }
+
             if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Magnifier) {
                 m_state->activeElement->magnifierScale += (zDelta > 0) ? 0.2f : -0.2f;
                 m_state->activeElement->magnifierScale = std::clamp(m_state->activeElement->magnifierScale, 1.0f, 8.0f);
@@ -1055,7 +1464,32 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }
             }
 
-            // ESC 分级退出：编辑文字→退出编辑；选中元素→取消选中；否则→关闭截图
+            // Shift: 选区前/拖拽中依次循环切换 8 种常用颜色格式
+            if (wParam == VK_SHIFT && !ctrl &&
+                ((int)m_state->state.load() == (int)OverlayState::Idle ||
+                 (int)m_state->state.load() == (int)OverlayState::Selecting)) {
+                int nextIdx = (static_cast<int>(m_state->colorFormat) + 1) % static_cast<int>(ColorFormatType::COUNT);
+                m_state->colorFormat = static_cast<ColorFormatType>(nextIdx);
+                m_state->colorFormatHex = (m_state->colorFormat == ColorFormatType::HEX);
+                m_renderer->invalidate();
+                return 0;
+            }
+
+            // 取色：选区前/拖拽中按 C 复制当前格式到剪贴板
+            if (wParam == 'C' && !ctrl &&
+                ((int)m_state->state.load() == (int)OverlayState::Idle ||
+                 (int)m_state->state.load() == (int)OverlayState::Selecting)) {
+                int cr = 0, cg = 0, cb = 0;
+                if (m_renderer->sampleScreenColor(m_state->currentCursor.x, m_state->currentCursor.y, cr, cg, cb, *m_state)) {
+                    std::string colorText = formatColorText(m_state->colorFormat, cr, cg, cb);
+                    easy::core::WinUtils::copyToClipboard(colorText);
+                    m_state->loupeToastUntil = GetTickCount() + 1200;
+                    m_renderer->invalidate();
+                }
+                return 0;
+            }
+
+            // ESC 分级退出：编辑文字→退出编辑；选中元素→取消选中；有选区→取消选区；否则→关闭截图
             if (wParam == VK_ESCAPE) {
                 if (editingText) {
                     m_state->activeElement->isEditing = false;
@@ -1063,9 +1497,17 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         m_state->markup.removeElement(m_state->activeElement->id);
                         m_state->activeElement = nullptr;
                     }
+                    m_renderer->invalidate();
                 } else if (m_state->activeElement) {
                     m_state->activeElement->isActive = false;
                     m_state->activeElement = nullptr;
+                    m_renderer->invalidate();
+                } else if ((int)m_state->state.load() == (int)OverlayState::Selected || (int)m_state->state.load() == (int)OverlayState::Marking) {
+                    m_state->state = OverlayState::Selecting;
+                    m_state->dragStart = {0, 0};
+                    m_state->dragEnd = {0, 0};
+                    m_state->markup.clearAll();
+                    m_renderer->invalidate();
                 } else {
                     if (m_cancelCb) m_cancelCb();
                 }
@@ -1083,22 +1525,6 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             // 正在输入文字：其余按键交给 WM_CHAR
             if (editingText) return 0;
-
-            // 取色：选区前/拖拽中按 C 复制 HEX 格式，按 Shift+C 复制 RGB 格式
-            if (wParam == 'C' && !ctrl &&
-                ((int)m_state->state.load() == (int)OverlayState::Idle ||
-                 (int)m_state->state.load() == (int)OverlayState::Selecting)) {
-                bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                int cr, cg, cb;
-                if (m_renderer->sampleScreenColor(m_state->currentCursor.x, m_state->currentCursor.y, cr, cg, cb, *m_state)) {
-                    std::string colorText = shift ? std::format("rgb({}, {}, {})", cr, cg, cb)
-                                                  : std::format("#{:02X}{:02X}{:02X}", cr, cg, cb);
-                    easy::core::WinUtils::copyToClipboard(colorText);
-                    m_state->loupeToastUntil = GetTickCount() + 1200;
-                    m_renderer->invalidate();
-                }
-                return 0;
-            }
 
             // Ctrl+A: 一键全选当前屏幕
             if (ctrl && wParam == 'A') {
@@ -1118,6 +1544,36 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             // 全局命令
             switch (wParam) {
+                case VK_OEM_4: // '[' 键：减小选区圆角
+                    if (hasSelection) {
+                        static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+                        for (int i = (int)radiuses.size() - 1; i >= 0; --i) {
+                            if (radiuses[i] < m_state->cornerRadius - 0.5f) {
+                                m_state->cornerRadius = radiuses[i];
+                                break;
+                            }
+                            if (i == 0) m_state->cornerRadius = 0.0f;
+                        }
+                        prepareMarkupBase();
+                        m_renderer->invalidate();
+                        return 0;
+                    }
+                    break;
+                case VK_OEM_6: // ']' 键：增加选区圆角
+                    if (hasSelection) {
+                        static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+                        for (size_t i = 0; i < radiuses.size(); ++i) {
+                            if (radiuses[i] > m_state->cornerRadius + 0.5f) {
+                                m_state->cornerRadius = radiuses[i];
+                                break;
+                            }
+                            if (i == radiuses.size() - 1) m_state->cornerRadius = 24.0f;
+                        }
+                        prepareMarkupBase();
+                        m_renderer->invalidate();
+                        return 0;
+                    }
+                    break;
                 case VK_RETURN:
                     if (hasSelection) if (m_confirmCb) m_confirmCb({});
                     return 0;
@@ -1200,6 +1656,31 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 case 'G': if (!ctrl) { setCurrentTool(MarkupTool::Magnifier); return 0; } break;
                 case 'W': if (!ctrl) { setCurrentTool(MarkupTool::Watermark); return 0; } break;
                 case 'I': if (!ctrl) { setCurrentTool(MarkupTool::Inpaint);   return 0; } break;
+                case VK_UP:
+                case VK_DOWN:
+                case VK_LEFT:
+                case VK_RIGHT: {
+                    const bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                    const int step = isShift ? 10 : 1;
+                    int dx = 0, dy = 0;
+                    if (wParam == VK_LEFT)  dx = -step;
+                    if (wParam == VK_RIGHT) dx = step;
+                    if (wParam == VK_UP)    dy = -step;
+                    if (wParam == VK_DOWN)  dy = step;
+
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    pt.x += dx;
+                    pt.y += dy;
+                    SetCursorPos(pt.x, pt.y);
+
+                    m_state->currentCursor = {pt.x, pt.y};
+                    if (m_state->dragging) {
+                        m_state->dragEnd = m_state->currentCursor;
+                    }
+                    m_renderer->invalidate();
+                    return 0;
+                }
                 default: break;
             }
             return 0;

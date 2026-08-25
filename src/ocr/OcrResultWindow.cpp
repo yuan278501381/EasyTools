@@ -329,6 +329,7 @@ void OcrResultWindow::hide() {
     m_textLayout.Reset();
     m_text.clear();
     m_wideText.clear();
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 void OcrResultWindow::updateHover(POINT point) {

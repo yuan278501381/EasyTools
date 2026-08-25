@@ -90,9 +90,27 @@ def build_world_class_icons():
     offset = ((full_size - cropped.width) // 2, (full_size - cropped.height) // 2)
     white_logo.paste(cropped, offset, cropped)
     
-    # 1. GENERATE TRAY ICON
-    # The tray icon can use the white logo directly.
+    # 1. GENERATE TRAY ICONS (Dual-theme)
+    # White logo for Dark Taskbars
     save_ico(white_logo, os.path.join(resources_dir, "tray.ico"))
+    
+    # Scheme A: Mocha Brown Border (#3A2312) + Pure White Core for Light Taskbars
+    tray_light_canvas = Image.new("RGBA", (full_size, full_size), (0, 0, 0, 0))
+    logo_alpha = cropped.split()[3]
+    thick_alpha = logo_alpha.copy()
+    filter_iters = max(3, int(full_size * 0.022))
+    for _ in range(filter_iters):
+        thick_alpha = thick_alpha.filter(ImageFilter.MaxFilter(5))
+        
+    brown_border = Image.new("RGBA", (cropped.width, cropped.height), (58, 35, 18, 255))
+    brown_border.putalpha(thick_alpha)
+    tray_light_canvas.paste(brown_border, offset, brown_border)
+    
+    white_core = Image.new("RGBA", (cropped.width, cropped.height), (255, 255, 255, 255))
+    white_core.putalpha(logo_alpha)
+    tray_light_canvas.paste(white_core, offset, white_core)
+    
+    save_ico(tray_light_canvas, os.path.join(resources_dir, "tray_dark.ico"))
     
     # 2. GENERATE APP ICON (World-Class Squircle)
     canvas_size = 1024

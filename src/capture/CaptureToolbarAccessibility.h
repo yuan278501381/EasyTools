@@ -29,6 +29,7 @@ inline std::wstring toolbarButtonAccessibleName(const ToolbarButton& button) {
         case ToolbarCommand::Undo: return L"撤销";
         case ToolbarCommand::Redo: return L"重做";
         case ToolbarCommand::Clear: return L"清空标注";
+        case ToolbarCommand::ToggleCornerRadius: return L"调节选区圆角";
         case ToolbarCommand::ExtractText: return L"提取文本";
         case ToolbarCommand::PinWindow: return L"置顶到屏幕";
         case ToolbarCommand::ScrollCapture: return L"开始长截图";
@@ -40,6 +41,7 @@ inline std::wstring toolbarButtonAccessibleName(const ToolbarButton& button) {
 
 inline std::wstring toolbarButtonKeyboardShortcut(const ToolbarButton& button) {
     switch (button.command) {
+        case ToolbarCommand::ToggleCornerRadius: return L"[ / ]";
         case ToolbarCommand::Undo: return L"Ctrl+Z";
         case ToolbarCommand::Redo: return L"Ctrl+Y";
         case ToolbarCommand::Confirm: return L"Enter";

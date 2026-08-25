@@ -663,6 +663,42 @@ public:
         if (SUCCEEDED(hrCo)) CoUninitialize();
         return ok;
     }
+
+    /// 判断 Windows 系统任务栏是否为深色模式 (用于自适应托盘图标与浮层明暗)
+    static bool isSystemTaskbarDark() {
+        DWORD data = 0;
+        DWORD dataSize = sizeof(data);
+        // 读取 Windows 10 (1903+) / Windows 11 系统任务栏主题设置 (0: Dark, 1: Light)
+        LONG res = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"SystemUsesLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &data,
+            &dataSize
+        );
+        if (res == ERROR_SUCCESS) {
+            return (data == 0); // 0 为深色任务栏，1 为浅色任务栏
+        }
+
+        // 若不存在，尝试读取应用级主题 AppsUseLightTheme 回退
+        res = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &data,
+            &dataSize
+        );
+        if (res == ERROR_SUCCESS) {
+            return (data == 0);
+        }
+
+        // 默认回退深色
+        return true;
+    }
 };
 
 }  // namespace easy::core
