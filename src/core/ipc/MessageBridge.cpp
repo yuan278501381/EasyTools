@@ -15,6 +15,7 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/events/EventBus.h"
+#include "EasyToolsVersion.h"
 #include <algorithm>
 #include <cstddef>
 #include <condition_variable>
@@ -865,7 +866,7 @@ void MessageBridge::registerBuiltinHandlers() {
         plugins.push_back({
             {"id", "spotlight"},
             {"name", "鼠标演示与特效"},
-            {"version", "1.0.1"},
+            {"version", easy::version::String},
             {"fileName", "EasyTools.exe"},
             {"abiVersion", 1},
             {"capabilities", {"spotlight", "click-ripple", "mouse-trail"}},
