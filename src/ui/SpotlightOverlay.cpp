@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mmsystem.h>
 
 #pragma comment(lib, "d2d1.lib")
+#pragma comment(lib, "winmm.lib")
 
 namespace easy::ui {
 
@@ -73,10 +75,11 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
     m_settings.triggerShakeMouse = cfg.get<bool>("/spotlight/triggerShakeMouse", false);
     m_settings.autoBypassFullscreen = cfg.get<bool>("/spotlight/autoBypassFullscreen", true);
     m_settings.spotlightColor = cfg.get<std::string>("/spotlight/spotlightColor", "auto");
-    m_settings.spotlightSize = cfg.get<int>("/spotlight/spotlightSize", 200);
+    m_settings.spotlightSize = cfg.get<int>("/spotlight/spotlightSize", 300);
     m_settings.animationDurationMs = cfg.get<int>("/spotlight/animationDurationMs", 1000);
     m_settings.holdDurationMs = cfg.get<int>("/spotlight/holdDurationMs", 800);
-    m_settings.shakeThreshold = cfg.get<int>("/spotlight/shakeThreshold", 7);
+    m_settings.shakeThreshold = cfg.get<int>("/spotlight/shakeThreshold", 4);
+    m_settings.spotlightAnimStyle = cfg.get<std::string>("/spotlight/spotlightAnimStyle", "inward_gravity");
 
     m_settings.clickRippleEnabled = cfg.get<bool>("/spotlight/clickRippleEnabled", false);
     m_settings.clickRippleStyle = cfg.get<std::string>("/spotlight/clickRippleStyle", "sparkle_burst");
@@ -144,6 +147,10 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
 
 void SpotlightOverlay::shutdown() {
     discardResources();
+    if (m_mmTimerId) {
+        timeKillEvent(m_mmTimerId);
+        m_mmTimerId = 0;
+    }
     if (m_hwnd) {
         KillTimer(m_hwnd, TIMER_ANIM_ID);
         DestroyWindow(m_hwnd);
@@ -187,6 +194,7 @@ void SpotlightOverlay::updateSettings(const SpotlightSettings& settings) {
     cfg.set("/spotlight/animationDurationMs", m_settings.animationDurationMs);
     cfg.set("/spotlight/holdDurationMs", m_settings.holdDurationMs);
     cfg.set("/spotlight/shakeThreshold", m_settings.shakeThreshold);
+    cfg.set("/spotlight/spotlightAnimStyle", m_settings.spotlightAnimStyle);
 
     cfg.set("/spotlight/clickRippleEnabled", m_settings.clickRippleEnabled);
     cfg.set("/spotlight/clickRippleStyle", m_settings.clickRippleStyle);
@@ -294,9 +302,12 @@ void SpotlightOverlay::trigger(POINT pt, bool autoFetch) {
     m_animState = AnimState::FadeIn;
     m_animStartTime = std::chrono::steady_clock::now();
     m_currentAlpha = 0.05f;
+    m_focusProgress = 0.0f;
+    m_scalePulse = 1.0f;
+    m_reticleAngle = 0.0f;
 
     if (!m_timerRunning) {
-        SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
+        m_mmTimerId = timeSetEvent(ANIM_INTERVAL_MS, 1, onTimerTick, reinterpret_cast<DWORD_PTR>(this), TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
         m_timerRunning = true;
     }
     render();
@@ -342,10 +353,17 @@ void SpotlightOverlay::onKeyboardEvent(DWORD vkCode, WPARAM wParam) {
 void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     std::lock_guard lock(m_mutex);
 
-    // 聚光灯显示期间点击鼠标，提前平滑淡出
-    if (m_animState != AnimState::Idle) {
+    // 演示者模式：聚光灯活跃期间点击鼠标，在当前位置激发全屏水波涟漪并优雅退出
+    if (m_animState == AnimState::FadeIn || m_animState == AnimState::Holding) {
         m_animState = AnimState::FadeOut;
         m_animStartTime = std::chrono::steady_clock::now();
+        m_targetPos = pt;
+        if (!m_timerRunning) {
+            m_mmTimerId = timeSetEvent(ANIM_INTERVAL_MS, 1, onTimerTick, reinterpret_cast<DWORD_PTR>(this), TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
+            m_timerRunning = true;
+        }
+        render();
+        return;
     }
 
     if (!m_settings.enabled || !m_settings.clickRippleEnabled) return;
@@ -448,7 +466,7 @@ void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     m_ripples.push_back(rip);
 
     if (!m_timerRunning) {
-        SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
+        m_mmTimerId = timeSetEvent(ANIM_INTERVAL_MS, 1, onTimerTick, reinterpret_cast<DWORD_PTR>(this), TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
         m_timerRunning = true;
     }
     render();
@@ -459,6 +477,15 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
     if (!m_settings.enabled) return;
 
     auto now = std::chrono::steady_clock::now();
+
+    // 0. 演示者模式：聚光灯活跃期间仅记录鼠标坐标，由高精度时钟节流渲染，彻底消除 1000Hz 钩子卡顿！
+    if (m_animState == AnimState::FadeIn || m_animState == AnimState::Holding) {
+        m_targetPos = pt;
+        if (!m_timerRunning) {
+            m_mmTimerId = timeSetEvent(ANIM_INTERVAL_MS, 1, onTimerTick, reinterpret_cast<DWORD_PTR>(this), TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
+            m_timerRunning = true;
+        }
+    }
 
     // 1. 鼠标轨迹特效记录
     if (m_settings.mouseTrailEnabled) {
@@ -636,10 +663,9 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
                 }
 
                 if (!m_timerRunning) {
-                    SetTimer(m_hwnd, TIMER_ANIM_ID, ANIM_INTERVAL_MS, nullptr);
+                    m_mmTimerId = timeSetEvent(ANIM_INTERVAL_MS, 1, onTimerTick, reinterpret_cast<DWORD_PTR>(this), TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
                     m_timerRunning = true;
                 }
-                render();
             }
         }
     }
@@ -658,17 +684,17 @@ void SpotlightOverlay::onMouseMove(POINT pt) {
 
         // 计算主要位移轴向
         int delta = (std::abs(dx) >= std::abs(dy)) ? dx : dy;
-        if (std::abs(delta) >= 8) {
+        if (std::abs(delta) >= 6) {
             int dir = (delta > 0) ? 1 : -1;
             auto windowElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_shakeWindowStart).count();
-            if (windowElapsed > 850) {
+            if (windowElapsed > 1000) {
                 m_shakeReversals = 0;
                 m_shakeWindowStart = now;
                 m_lastMoveDir = dir;
             } else if (m_lastMoveDir != 0 && dir != m_lastMoveDir) {
                 m_shakeReversals++;
                 m_lastMoveDir = dir;
-                int threshold = (std::max)(3, m_settings.shakeThreshold);
+                int threshold = (std::max)(3, (std::min)(10, m_settings.shakeThreshold));
                 if (m_shakeReversals >= threshold) {
                     m_shakeReversals = 0;
                     m_shakeWindowStart = {};
@@ -689,28 +715,55 @@ void SpotlightOverlay::tickAnimation() {
     // 1. 聚光灯动效更新
     if (m_animState != AnimState::Idle) {
         auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_animStartTime).count();
-        const float fadeInDuration = 200.0f;
-        const float fadeOutDuration = std::max(200.0f, static_cast<float>(m_settings.animationDurationMs) * 0.5f);
+        const float fadeInDuration = 420.0f;  // 420ms 极度丝滑温润聚拢
+        const float fadeOutDuration = 380.0f; // 380ms 全屏水波涟漪漫溢散开
 
         if (m_animState == AnimState::FadeIn) {
-            m_currentAlpha = std::clamp(static_cast<float>(elapsedMs) / fadeInDuration, 0.0f, 1.0f);
+            float progress = (std::clamp)(static_cast<float>(elapsedMs) / fadeInDuration, 0.0f, 1.0f);
+            m_focusProgress = progress;
+
+            // 超丝滑高阶贝塞尔减速收敛进入 (Quintic Ease Out · 顶级电影感)
+            float easeOut = 1.0f - std::pow(1.0f - progress, 4.0f);
+            m_currentAlpha = easeOut;
+
+            // 全屏向心凝结微物理弹性回弹
+            if (progress > 0.72f) {
+                float pulseT = (progress - 0.72f) / 0.28f; // 0.0 -> 1.0
+                m_scalePulse = 1.0f + 0.08f * std::sin(pulseT * 3.14159265f);
+            } else {
+                m_scalePulse = 1.0f + (1.0f - easeOut) * 2.2f;
+            }
+
+            // 战术准星旋转
+            m_reticleAngle = easeOut * 45.0f;
+
             if (elapsedMs >= fadeInDuration) {
                 m_currentAlpha = 1.0f;
+                m_focusProgress = 1.0f;
+                m_scalePulse = 1.0f;
+                m_reticleAngle = 45.0f;
                 m_animState = AnimState::Holding;
                 m_holdStartTime = now;
             }
         } else if (m_animState == AnimState::Holding) {
             m_currentAlpha = 1.0f;
-            auto holdElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_holdStartTime).count();
-            if (holdElapsed >= m_settings.holdDurationMs) {
-                m_animState = AnimState::FadeOut;
-                m_animStartTime = now;
-            }
+            m_focusProgress = 1.0f;
+            m_scalePulse = 1.0f;
+            // 演示者模式：持续跟随鼠标光标移动，不自动超时退出，直到用户点击鼠标或按下快捷键/Esc 退出
         } else if (m_animState == AnimState::FadeOut) {
-            m_currentAlpha = std::clamp(1.0f - (static_cast<float>(elapsedMs) / fadeOutDuration), 0.0f, 1.0f);
+            // 全屏水波巨浪漫溢散开：如海浪向全屏四角极速推进并平滑消散
+            float progress = (std::clamp)(static_cast<float>(elapsedMs) / fadeOutDuration, 0.0f, 1.0f);
+            m_focusProgress = progress;
+
+            float waveEase = 1.0f - std::pow(1.0f - progress, 2.5f);
+            m_scalePulse = 1.0f + waveEase * 5.5f;
+            m_currentAlpha = (std::clamp)(std::pow(1.0f - progress, 1.4f), 0.0f, 1.0f);
+
             if (elapsedMs >= fadeOutDuration || m_currentAlpha <= 0.01f) {
                 m_animState = AnimState::Idle;
                 m_currentAlpha = 0.0f;
+                m_focusProgress = 0.0f;
+                m_scalePulse = 1.0f;
             }
         }
     }
@@ -739,6 +792,7 @@ void SpotlightOverlay::tickAnimation() {
         return;
     }
 
+    m_lastRenderedPos = m_targetPos;
     render();
 }
 
@@ -747,6 +801,10 @@ void SpotlightOverlay::hideNow() {
     m_currentAlpha = 0.0f;
     m_ripples.clear();
     m_trail.clear();
+    if (m_mmTimerId) {
+        timeKillEvent(m_mmTimerId);
+        m_mmTimerId = 0;
+    }
     if (m_timerRunning) {
         KillTimer(m_hwnd, TIMER_ANIM_ID);
         m_timerRunning = false;
@@ -849,63 +907,332 @@ void SpotlightOverlay::render() {
     auto now = std::chrono::steady_clock::now();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. 绘制聚光灯 (GPU 径向渐变刷：全屏电影级微晕暗角 + 鼠标镂空 + 呼吸发光光环)
+    // 1. 绘制聚光灯 (极致通透纯净全屏暗角 + 激光微晶细环 + 优雅向心视线导引)
     // ─────────────────────────────────────────────────────────────────────────
     if (m_animState != AnimState::Idle && m_currentAlpha > 0.01f) {
         float localCenterX = static_cast<float>(m_targetPos.x - bounds.x);
         float localCenterY = static_cast<float>(m_targetPos.y - bounds.y);
-        float radius = static_cast<float>((std::max)(40, m_settings.spotlightSize)) / 2.0f;
+        float baseRadius = static_cast<float>((std::max)(40, m_settings.spotlightSize)) / 2.0f;
+        float radius = baseRadius * m_scalePulse;
         float alpha = m_currentAlpha;
 
         D2D1_COLOR_F baseColor = parseColor(m_settings.spotlightColor, 1.0f);
-        float outerRadius = radius + 90.0f;
-        if (outerRadius < 100.0f) outerRadius = 100.0f;
 
-        float stopTransparentInner = (std::clamp)((radius - 4.0f) / outerRadius, 0.0f, 0.90f);
-        float stopRingInner = (std::clamp)(radius / outerRadius, 0.01f, 0.92f);
-        float stopRingCore = (std::clamp)((radius + 3.0f) / outerRadius, 0.02f, 0.94f);
-        float stopGlowOuter = (std::clamp)((radius + 18.0f) / outerRadius, 0.03f, 0.96f);
-        float stopDarkFade = (std::clamp)((radius + 55.0f) / outerRadius, 0.04f, 0.98f);
+        // 纯净全屏暗角：精准几何对齐，在 radius 边缘 1 像素内平滑过渡到深灰暗幕，彻底消除任何内外白边缝隙
+        float outerRadius = (std::max)(radius + 60.0f, radius * 1.35f);
+        float stopTransparent = (std::clamp)((radius - 0.5f) / outerRadius, 0.0f, 0.98f);
+        float stopDark = (std::clamp)((radius + 1.2f) / outerRadius, stopTransparent + 0.002f, 0.999f);
 
-        D2D1_GRADIENT_STOP stops[7] = {
-            { 0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
-            { stopTransparentInner, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
-            { stopRingInner, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.90f * alpha) },
-            { stopRingCore, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.85f * alpha) },
-            { stopGlowOuter, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.28f * alpha) },
-            { stopDarkFade, D2D1::ColorF(0.02f, 0.03f, 0.06f, 0.62f * alpha) },
-            { 1.0f, D2D1::ColorF(0.02f, 0.03f, 0.06f, 0.62f * alpha) }
+        // 1. 全球电影级深邃纯净暗角 (58% 深度，纯净背景压暗)
+        D2D1_COLOR_F dimColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.58f * alpha);
+
+        D2D1_GRADIENT_STOP maskStops[3] = {
+            { stopTransparent, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) },
+            { stopDark, dimColor },
+            { 1.0f, dimColor }
         };
 
-        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> stopCollection;
+        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> maskStopColl;
         if (SUCCEEDED(m_dcRenderTarget->CreateGradientStopCollection(
-                stops, 7, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, stopCollection.GetAddressOf()))) {
+                maskStops, 3, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, maskStopColl.GetAddressOf()))) {
             D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES radialProps = D2D1::RadialGradientBrushProperties(
                 D2D1::Point2F(localCenterX, localCenterY),
                 D2D1::Point2F(0, 0),
                 outerRadius, outerRadius
             );
-            Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> radialBrush;
+            Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> maskBrush;
             if (SUCCEEDED(m_dcRenderTarget->CreateRadialGradientBrush(
-                    radialProps, stopCollection.Get(), radialBrush.GetAddressOf()))) {
+                    radialProps, maskStopColl.Get(), maskBrush.GetAddressOf()))) {
                 D2D1_RECT_F fullRect = D2D1::RectF(0.0f, 0.0f, static_cast<float>(m_surfaceW), static_cast<float>(m_surfaceH));
-                m_dcRenderTarget->FillRectangle(fullRect, radialBrush.Get());
+                m_dcRenderTarget->FillRectangle(fullRect, maskBrush.Get());
             }
         }
 
-        // 次像素高亮微光细环 (科技感光泽)
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ringBrush;
-        m_dcRenderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.95f * alpha),
-            ringBrush.GetAddressOf()
-        );
-        if (ringBrush) {
-            m_dcRenderTarget->DrawEllipse(
-                D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), radius, radius),
-                ringBrush.Get(),
-                2.0f
+        // 2. 绘制 3D 晶莹珍珠水晶球体 (3D Luminous Sphere Orb · 纯净同色系透光，0 白边溢出)
+        if (radius > 4.0f) {
+            float innerDiscRadius = radius;
+
+            // 2.1 底层：3D 球体体积漫反射与偏心高光 (同色系高亮，绝无生硬白光)
+            D2D1_POINT_2F highlightOffset = D2D1::Point2F(-innerDiscRadius * 0.32f, -innerDiscRadius * 0.32f);
+
+            D2D1_COLOR_F highlightColor = D2D1::ColorF(
+                (std::min)(1.0f, baseColor.r * 1.35f + 0.15f),
+                (std::min)(1.0f, baseColor.g * 1.35f + 0.15f),
+                (std::min)(1.0f, baseColor.b * 1.35f + 0.15f),
+                0.28f * alpha
             );
+
+            D2D1_GRADIENT_STOP sphereStops[5] = {
+                { 0.00f, highlightColor },                                                                                                                         // 偏心高光核心 (晶莹通透同色系高亮)
+                { 0.28f, D2D1::ColorF((std::min)(1.0f, baseColor.r * 1.15f), (std::min)(1.0f, baseColor.g * 1.15f), (std::min)(1.0f, baseColor.b * 1.15f), 0.20f * alpha) }, // 高光柔和过渡
+                { 0.68f, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.14f * alpha) },                                                                   // 球体主体色彩 (极度通透清晰)
+                { 0.92f, D2D1::ColorF(baseColor.r * 0.65f, baseColor.g * 0.65f, baseColor.b * 0.65f, 0.16f * alpha) },                                         // 球面法线阴影暗化 (Limb Darkening)
+                { 1.00f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) }                                                                                                 // 外轮廓消散
+            };
+
+            Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> sphereStopColl;
+            if (SUCCEEDED(m_dcRenderTarget->CreateGradientStopCollection(
+                    sphereStops, 5, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, sphereStopColl.GetAddressOf()))) {
+                D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES sphereProps = D2D1::RadialGradientBrushProperties(
+                    D2D1::Point2F(localCenterX, localCenterY),
+                    highlightOffset,
+                    innerDiscRadius, innerDiscRadius
+                );
+                Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> sphereBrush;
+                if (SUCCEEDED(m_dcRenderTarget->CreateRadialGradientBrush(
+                        sphereProps, sphereStopColl.Get(), sphereBrush.GetAddressOf()))) {
+                    m_dcRenderTarget->FillEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), innerDiscRadius, innerDiscRadius),
+                        sphereBrush.Get()
+                    );
+                }
+            }
+
+            // 2.2 底部：3D 次级环境反射弧光 (Bottom-Up Secondary Bounce Light)
+            D2D1_POINT_2F bounceOffset = D2D1::Point2F(innerDiscRadius * 0.20f, innerDiscRadius * 0.28f);
+            D2D1_GRADIENT_STOP bounceStops[3] = {
+                { 0.00f, D2D1::ColorF((std::min)(1.0f, baseColor.r * 1.15f), (std::min)(1.0f, baseColor.g * 1.15f), (std::min)(1.0f, baseColor.b * 1.15f), 0.12f * alpha) },
+                { 0.60f, D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.06f * alpha) },
+                { 1.00f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f) }
+            };
+            Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> bounceStopColl;
+            if (SUCCEEDED(m_dcRenderTarget->CreateGradientStopCollection(
+                    bounceStops, 3, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, bounceStopColl.GetAddressOf()))) {
+                D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES bounceProps = D2D1::RadialGradientBrushProperties(
+                    D2D1::Point2F(localCenterX + bounceOffset.x, localCenterY + bounceOffset.y),
+                    D2D1::Point2F(0, 0),
+                    innerDiscRadius * 0.65f, innerDiscRadius * 0.65f
+                );
+                Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> bounceBrush;
+                if (SUCCEEDED(m_dcRenderTarget->CreateRadialGradientBrush(
+                        bounceProps, bounceStopColl.Get(), bounceBrush.GetAddressOf()))) {
+                    m_dcRenderTarget->FillEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), innerDiscRadius, innerDiscRadius),
+                        bounceBrush.Get()
+                    );
+                }
+            }
         }
+
+        // 3. 退出散开阶段：全屏水波巨浪漫溢散开 (Full-Screen Tidal Ripple Wavefronts on Dismiss)
+        if (m_animState == AnimState::FadeOut) {
+            float maxSpan = std::sqrt(static_cast<float>(m_surfaceW * m_surfaceW + m_surfaceH * m_surfaceH));
+            if (maxSpan < 800.0f) maxSpan = 1600.0f;
+
+            // 第 1 道前锋巨浪波 (覆盖到屏幕外围)
+            float rip1Radius = radius + m_focusProgress * maxSpan * 0.90f;
+            float rip1Alpha = (1.0f - m_focusProgress) * 0.55f * alpha;
+            if (rip1Alpha > 0.01f) {
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ripBrush1;
+                m_dcRenderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, rip1Alpha),
+                    ripBrush1.GetAddressOf()
+                );
+                if (ripBrush1) {
+                    m_dcRenderTarget->DrawEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), rip1Radius, rip1Radius),
+                        ripBrush1.Get(), 2.5f
+                    );
+                }
+            }
+
+            // 第 2 道中程温润波
+            float rip2Radius = radius + std::pow(m_focusProgress, 1.2f) * maxSpan * 0.55f;
+            float rip2Alpha = (1.0f - m_focusProgress) * 0.40f * alpha;
+            if (rip2Alpha > 0.01f) {
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ripBrush2;
+                m_dcRenderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF((std::min)(1.0f, baseColor.r * 1.15f), (std::min)(1.0f, baseColor.g * 1.15f), (std::min)(1.0f, baseColor.b * 1.15f), rip2Alpha),
+                    ripBrush2.GetAddressOf()
+                );
+                if (ripBrush2) {
+                    m_dcRenderTarget->DrawEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), rip2Radius, rip2Radius),
+                        ripBrush2.Get(), 1.8f
+                    );
+                }
+            }
+
+            // 第 3 道内层柔和回声波
+            float rip3Radius = radius + std::pow(m_focusProgress, 1.4f) * maxSpan * 0.28f;
+            float rip3Alpha = (1.0f - m_focusProgress) * 0.28f * alpha;
+            if (rip3Alpha > 0.01f) {
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ripBrush3;
+                m_dcRenderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, rip3Alpha),
+                    ripBrush3.GetAddressOf()
+                );
+                if (ripBrush3) {
+                    m_dcRenderTarget->DrawEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), rip3Radius, rip3Radius),
+                        ripBrush3.Get(), 1.2f
+                    );
+                }
+            }
+        }
+
+        const std::string& animStyle = m_settings.spotlightAnimStyle;
+
+        if (animStyle == "tactical_sonar") {
+            // ─────────────────────────────────────────────────────────────────
+            // 方案 B：科技声纳雷达 + 战术 HUD 准星锁定模式 (极客硬核)
+            // ─────────────────────────────────────────────────────────────────
+            if (m_animState == AnimState::FadeIn) {
+                for (int i = 1; i <= 3; ++i) {
+                    float ringProgress = std::fmod(m_focusProgress * 1.6f + static_cast<float>(i) * 0.28f, 1.0f);
+                    float ringRadius = radius + ringProgress * 85.0f;
+                    float ringAlpha = (1.0f - ringProgress) * 0.65f * alpha;
+                    if (ringAlpha > 0.02f) {
+                        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sonarBrush;
+                        m_dcRenderTarget->CreateSolidColorBrush(
+                            D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, ringAlpha),
+                            sonarBrush.GetAddressOf()
+                        );
+                        if (sonarBrush) {
+                            m_dcRenderTarget->DrawEllipse(
+                                D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), ringRadius, ringRadius),
+                                sonarBrush.Get(), 1.5f
+                            );
+                        }
+                    }
+                }
+            } else if (m_animState == AnimState::Holding) {
+                auto holdEl = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_holdStartTime).count();
+                float waveCycle = std::fmod(static_cast<float>(holdEl) / 700.0f, 1.0f);
+                float waveR = radius + waveCycle * 50.0f;
+                float waveA = (1.0f - waveCycle) * 0.35f * alpha;
+                if (waveA > 0.02f) {
+                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> waveBrush;
+                    m_dcRenderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, waveA),
+                        waveBrush.GetAddressOf()
+                    );
+                    if (waveBrush) {
+                        m_dcRenderTarget->DrawEllipse(
+                            D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), waveR, waveR),
+                            waveBrush.Get(), 1.2f
+                        );
+                    }
+                }
+            }
+
+            // 绘制 4 组 CAD 战术 L 型瞄准框
+            float reticleOffset = radius + 8.0f;
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> reticleBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.95f * alpha),
+                reticleBrush.GetAddressOf()
+            );
+            if (reticleBrush) {
+                float angles[4] = { 45.0f, 135.0f, 225.0f, 315.0f };
+                float armLen = 10.0f;
+                for (float ang : angles) {
+                    float rad = (ang + m_reticleAngle) * (3.14159265f / 180.0f);
+                    float cx = localCenterX + std::cos(rad) * reticleOffset;
+                    float cy = localCenterY + std::sin(rad) * reticleOffset;
+
+                    float tanRad = rad + (3.14159265f / 2.0f);
+                    float tx = std::cos(tanRad) * armLen * 0.5f;
+                    float ty = std::sin(tanRad) * armLen * 0.5f;
+                    float rx = std::cos(rad) * armLen * 0.5f;
+                    float ry = std::sin(rad) * armLen * 0.5f;
+
+                    m_dcRenderTarget->DrawLine(
+                        D2D1::Point2F(cx - tx, cy - ty),
+                        D2D1::Point2F(cx + tx, cy + ty),
+                        reticleBrush.Get(), 2.0f
+                    );
+                    m_dcRenderTarget->DrawLine(
+                        D2D1::Point2F(cx, cy),
+                        D2D1::Point2F(cx + rx, cy + ry),
+                        reticleBrush.Get(), 2.0f
+                    );
+                }
+            }
+        } else if (animStyle == "aurora_ripple") {
+            // ─────────────────────────────────────────────────────────────────
+            // 方案 C：极简极光涟漪 · 柔和呼吸氛围模式
+            // ─────────────────────────────────────────────────────────────────
+            if (m_animState == AnimState::FadeIn) {
+                for (int i = 1; i <= 2; ++i) {
+                    float ripProg = (std::clamp)(m_focusProgress * 1.4f - static_cast<float>(i - 1) * 0.28f, 0.0f, 1.0f);
+                    if (ripProg > 0.0f) {
+                        float rippleRadius = radius + ripProg * 45.0f;
+                        float rippleAlpha = (1.0f - ripProg) * 0.55f * alpha;
+                        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ripBrush;
+                        m_dcRenderTarget->CreateSolidColorBrush(
+                            D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, rippleAlpha),
+                            ripBrush.GetAddressOf()
+                        );
+                        if (ripBrush) {
+                            m_dcRenderTarget->DrawEllipse(
+                                D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), rippleRadius, rippleRadius),
+                                ripBrush.Get(), 2.0f
+                            );
+                        }
+                    }
+                }
+            }
+
+            float breathe = 1.0f;
+            if (m_animState == AnimState::Holding) {
+                auto holdEl = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_holdStartTime).count();
+                breathe = 0.85f + 0.15f * std::sin(static_cast<float>(holdEl) * 0.006f);
+            }
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> auroraGlowBrush;
+            m_dcRenderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, 0.32f * breathe * alpha),
+                auroraGlowBrush.GetAddressOf()
+            );
+            if (auroraGlowBrush) {
+                m_dcRenderTarget->DrawEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), radius + 3.0f, radius + 3.0f),
+                    auroraGlowBrush.Get(), 6.0f
+                );
+            }
+        } else {
+            // ─────────────────────────────────────────────────────────────────
+            // 方案 A（默认 · 推荐）：向心引力折叠超聚焦 (极简高雅双激光微环)
+            // ─────────────────────────────────────────────────────────────────
+            if (m_animState == AnimState::FadeIn) {
+                float inward1 = (1.0f - m_focusProgress); // 1.0 -> 0.0
+                float ring1Radius = radius + std::pow(inward1, 1.4f) * 140.0f;
+                float ring1Alpha = (0.35f + 0.65f * m_focusProgress) * alpha;
+
+                if (ring1Alpha > 0.02f) {
+                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ring1Brush;
+                    m_dcRenderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, ring1Alpha * 0.95f),
+                        ring1Brush.GetAddressOf()
+                    );
+                    if (ring1Brush) {
+                        m_dcRenderTarget->DrawEllipse(
+                            D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), ring1Radius, ring1Radius),
+                            ring1Brush.Get(), 2.0f
+                        );
+                    }
+                }
+
+                float inward2 = (std::clamp)(1.0f - m_focusProgress * 1.2f, 0.0f, 1.0f);
+                float ring2Radius = radius + std::pow(inward2, 1.1f) * 220.0f;
+                float ring2Alpha = (0.20f + 0.50f * m_focusProgress) * alpha;
+
+                if (ring2Alpha > 0.02f) {
+                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ring2Brush;
+                    m_dcRenderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, ring2Alpha * 0.60f),
+                        ring2Brush.GetAddressOf()
+                    );
+                    if (ring2Brush) {
+                        m_dcRenderTarget->DrawEllipse(
+                            D2D1::Ellipse(D2D1::Point2F(localCenterX, localCenterY), ring2Radius, ring2Radius),
+                            ring2Brush.Get(), 1.2f
+                        );
+                    }
+                }
+            }
+        }
+
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1375,6 +1702,13 @@ LRESULT CALLBACK SpotlightOverlay::windowProc(HWND hwnd, UINT msg, WPARAM wParam
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void CALLBACK SpotlightOverlay::onTimerTick(UINT /*uTimerID*/, UINT /*uMsg*/, DWORD_PTR dwUser, DWORD_PTR /*dw1*/, DWORD_PTR /*dw2*/) {
+    auto* self = reinterpret_cast<SpotlightOverlay*>(dwUser);
+    if (self && self->m_hwnd) {
+        PostMessageW(self->m_hwnd, WM_TIMER, TIMER_ANIM_ID, 0);
+    }
 }
 
 } // namespace easy::ui

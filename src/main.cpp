@@ -46,6 +46,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/hotkey/KeyboardHook.h"
+#include "core/hotkey/MouseHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/stats/StatsManager.h"
 #include "core/crash/CrashHandler.h"
@@ -56,6 +57,7 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/utils/ShellContextMenuService.h"
+#include "core/ipc/AutoStartPolicy.h"
 #include "EasyToolsVersion.h"
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
@@ -187,6 +189,24 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
 // ─────────────────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     LPWSTR /*lpCmdLine*/, int /*nCmdShow*/) {
+    // 快捷自启动注册/注销独立命令处理（专供安装包或运维脚本原子调用）
+    if (hasCommandLineFlag(L"--register-autostart")) {
+        wchar_t exePath[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        easy::core::ConfigManager::instance().initialize(easy::core::WinUtils::getConfigDirectory());
+        bool ok = easy::core::autostart::registerTaskCOM(exePath);
+        easy::core::ConfigManager::instance().set("/general/autoStart", ok);
+        easy::core::ConfigManager::instance().shutdown();
+        return ok ? 0 : 1;
+    }
+    if (hasCommandLineFlag(L"--unregister-autostart")) {
+        easy::core::ConfigManager::instance().initialize(easy::core::WinUtils::getConfigDirectory());
+        bool ok = easy::core::autostart::unregisterTaskCOM();
+        easy::core::ConfigManager::instance().set("/general/autoStart", false);
+        easy::core::ConfigManager::instance().shutdown();
+        return ok ? 0 : 1;
+    }
+
     g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
     // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
@@ -925,6 +945,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             {"animationDurationMs", s.animationDurationMs},
             {"holdDurationMs", s.holdDurationMs},
             {"shakeThreshold", s.shakeThreshold},
+            {"spotlightAnimStyle", s.spotlightAnimStyle},
             {"clickRippleEnabled", s.clickRippleEnabled},
             {"clickRippleStyle", s.clickRippleStyle},
             {"mouseTrailEnabled", s.mouseTrailEnabled},
@@ -947,6 +968,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         if (params.contains("animationDurationMs") && params["animationDurationMs"].is_number()) s.animationDurationMs = params["animationDurationMs"].get<int>();
         if (params.contains("holdDurationMs") && params["holdDurationMs"].is_number()) s.holdDurationMs = params["holdDurationMs"].get<int>();
         if (params.contains("shakeThreshold") && params["shakeThreshold"].is_number()) s.shakeThreshold = params["shakeThreshold"].get<int>();
+        if (params.contains("spotlightAnimStyle") && params["spotlightAnimStyle"].is_string()) s.spotlightAnimStyle = params["spotlightAnimStyle"].get<std::string>();
 
         if (params.contains("clickRippleEnabled") && params["clickRippleEnabled"].is_boolean()) s.clickRippleEnabled = params["clickRippleEnabled"].get<bool>();
         if (params.contains("clickRippleStyle") && params["clickRippleStyle"].is_string()) s.clickRippleStyle = params["clickRippleStyle"].get<std::string>();
@@ -976,8 +998,9 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
-    // 6. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
+    // 6. 键盘与鼠标核心输入总线
     easy::core::KeyboardHook::instance().install();
+    easy::core::MouseHook::instance().install();
     easy::core::KeyboardHook::instance().setKeyInterceptor([hwnd](DWORD vkCode, WPARAM wParam) -> bool {
         if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return false;
 
@@ -1075,6 +1098,7 @@ void shutdownSubsystems() {
     easy::ui::SpotlightOverlay::instance().shutdown();
     easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
+    easy::core::MouseHook::instance().uninstall();
     easy::core::StatsManager::instance().shutdown();
     easy::core::PerformanceMonitor::instance().stop();
     easy::tray::TrayIcon::instance().destroy();

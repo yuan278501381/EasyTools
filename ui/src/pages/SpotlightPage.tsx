@@ -39,6 +39,7 @@ interface SpotlightSettings {
   animationDurationMs: number;
   holdDurationMs: number;
   shakeThreshold: number;
+  spotlightAnimStyle: string;
 
   clickRippleEnabled: boolean;
   clickRippleStyle: string;
@@ -56,10 +57,11 @@ const DEFAULT_SETTINGS: SpotlightSettings = {
   triggerShakeMouse: false,
   autoBypassFullscreen: true,
   spotlightColor: 'auto',
-  spotlightSize: 200,
+  spotlightSize: 300,
   animationDurationMs: 1000,
   holdDurationMs: 800,
   shakeThreshold: 7,
+  spotlightAnimStyle: 'inward_gravity',
 
   clickRippleEnabled: false,
   clickRippleStyle: 'sparkle_burst',
@@ -298,6 +300,63 @@ export const SpotlightPage: FC = () => {
 
       {/* ── 3. 外观样式 ────────────────────────────────────────────── */}
       <SettingGroup title={t('spotlight.appearanceSection', '外观样式')} icon={<Sparkles size={18} />}>
+        {/* 聚光灯全屏聚焦动效选择器 */}
+        <Card>
+          <div className="spotlight-page__section-label" style={{ marginBottom: '12px' }}>
+            <span className="spotlight-page__section-title">
+              <Sparkles size={15} />
+              <span>{t('spotlight.animStyle', '全屏聚焦动效')}</span>
+            </span>
+            <span className="spotlight-page__section-desc">{t('spotlight.animStyleDesc', '聚光灯触发时的全屏视觉过渡与向心视线导引微动画')}</span>
+          </div>
+          <div className="spotlight-page__style-grid">
+            {/* 1. 向心引力折叠 (默认推荐) */}
+            <div
+              className={`spotlight-page__style-card ${settings.spotlightAnimStyle === 'inward_gravity' ? 'spotlight-page__style-card--active' : ''}`}
+              onClick={async () => {
+                await saveSetting('spotlightAnimStyle', 'inward_gravity');
+                void bridgeRequest('spotlight.trigger').catch(() => {});
+              }}
+            >
+              <div className="spotlight-page__style-card-header">
+                <Sparkles size={16} />
+                <span>{t('spotlight.styleInwardGravity', '向心引力折叠 (推荐)')}</span>
+              </div>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleInwardGravityDesc', '全屏双环高速向心收拢至鼠标圆心，伴随物理弹性回弹与电影级深邃暗角，抓眼力满分')}</span>
+            </div>
+
+            {/* 2. 科技声纳雷达 */}
+            <div
+              className={`spotlight-page__style-card ${settings.spotlightAnimStyle === 'tactical_sonar' ? 'spotlight-page__style-card--active' : ''}`}
+              onClick={async () => {
+                await saveSetting('spotlightAnimStyle', 'tactical_sonar');
+                void bridgeRequest('spotlight.trigger').catch(() => {});
+              }}
+            >
+              <div className="spotlight-page__style-card-header">
+                <Crosshair size={16} />
+                <span>{t('spotlight.styleTacticalSonar', '科技声纳雷达')}</span>
+              </div>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleTacticalSonarDesc', '鼠标原点向外激荡 3 道声纳脉冲波，4 段战术 HUD 弧线刻度微旋磁吸锁定，极客硬核')}</span>
+            </div>
+
+            {/* 3. 极简极光涟漪 */}
+            <div
+              className={`spotlight-page__style-card ${settings.spotlightAnimStyle === 'aurora_ripple' ? 'spotlight-page__style-card--active' : ''}`}
+              onClick={async () => {
+                await saveSetting('spotlightAnimStyle', 'aurora_ripple');
+                void bridgeRequest('spotlight.trigger').catch(() => {});
+              }}
+            >
+              <div className="spotlight-page__style-card-header">
+                <Waves size={16} />
+                <span>{t('spotlight.styleAuroraRipple', '极简极光涟漪')}</span>
+              </div>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRippleDesc', '高阶贝塞尔柔化暗角平滑浸润，光圈外缘溢出单道温和极光涟漪，舒适不刺眼')}</span>
+            </div>
+          </div>
+        </Card>
+
         <div className="spotlight-page__grid">
           {/* 聚光灯发光颜色 (双态胶囊) */}
           <ColorSegmentControl

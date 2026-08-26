@@ -68,9 +68,12 @@ chinesesimplified.DeleteMediaCapturesNote=注意：此操作将清空默认媒�
 english.DeleteMediaCapturesNote=Notice: This permanently removes files in the default capture folders and cannot be undone.
 chinesesimplified.ContinueUninstall=继续卸载
 english.ContinueUninstall=Continue Uninstall
+chinesesimplified.AutoStartProgram=开机自动启动 EasyTools
+english.AutoStartProgram=Start EasyTools automatically on Windows startup
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "autostart"; Description: "{cm:AutoStartProgram}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 Source: "deploy_dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -90,6 +93,7 @@ Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Fl
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop EasyTools_SearchService"; Flags: runhidden waituntilterminated; RunOnceId: "StopEasyToolsSearch"
 Filename: "{sys}\sc.exe"; Parameters: "delete EasyTools_SearchService"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsSearch"
+Filename: "{app}\EasyTools.exe"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsAutoStartUser"
 Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""EasyTools_Autostart"" /f"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteEasyToolsAutoStart"
 
 [Code]
@@ -199,33 +203,46 @@ function AutoStartTaskExists(): Boolean;
 var
   ResultCode: Integer;
 begin
+  // 先检测当前用户专属隔离任务 (EasyTools\Autorun for <User>)
+  Result := Exec(ExpandConstant('{sys}\schtasks.exe'),
+    '/query /tn "EasyTools\Autorun for ' + GetUserNameString() + '"', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if Result then Exit;
+
+  // 兼容检测旧版全局任务
   Result := Exec(ExpandConstant('{sys}\schtasks.exe'),
     '/query /tn "EasyTools_Autostart"', '', SW_HIDE,
     ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
-procedure RefreshAutoStartTask();
+procedure CreateAutoStartTask();
 var
   ResultCode: Integer;
-  Params: String;
 begin
-  if not AutoStartTaskExists() then
-    Exit;
-
-  Params := '/create /tn "EasyTools_Autostart" /tr "\"' +
-    ExpandConstant('{app}\EasyTools.exe') + '\" --silent"' +
-    ' /sc onlogon /delay 0000:10 /rl highest /f';
-  if Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '', SW_HIDE,
-          ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
-    Log('Refreshed EasyTools_Autostart for the current install path')
+  // 直接委托 EasyTools 原生注册，100% 保证安装包与软件设置页同源、同逻辑、同配置
+  if Exec(ExpandConstant('{app}\EasyTools.exe'), '--register-autostart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    Log('Registered AutoStart task via EasyTools native COM API')
   else
-    Log(Format('Failed to refresh EasyTools_Autostart, exit code %d', [ResultCode]));
+    Log(Format('Failed to register AutoStart task, exit code %d', [ResultCode]));
+end;
+
+procedure RemoveAutoStartTask();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{app}\EasyTools.exe'), '--unregister-autostart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "EasyTools_Autostart" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
-    RefreshAutoStartTask();
+  begin
+    if WizardIsTaskSelected('autostart') then
+      CreateAutoStartTask()
+    else
+      RemoveAutoStartTask();
+  end;
 end;
 
 var

@@ -551,8 +551,17 @@ if ($ISCC) {
     
     if (Test-Path $InstallerScript) {
         Write-Log "正在编译安装包 (EasyTools-Setup.exe)..."
+        $TargetSetupFile = Join-Path $OutputInstallerDir "EasyTools-Setup.exe"
+        if (Test-Path $TargetSetupFile) {
+            Remove-Item -Force $TargetSetupFile -ErrorAction SilentlyContinue
+        }
         & $ISCC "/DEasyToolsVersion=$ProjectVersion" $InstallerScript
         if ($LASTEXITCODE -eq 0) {
+            if (Test-Path $TargetSetupFile) {
+                $now = Get-Date
+                (Get-Item $TargetSetupFile).CreationTime = $now
+                (Get-Item $TargetSetupFile).LastWriteTime = $now
+            }
             Write-Log "安装包已成功生成到: $OutputInstallerDir" "SUCCESS"
         } else {
             throw "安装包编译失败！退出码: $LASTEXITCODE"

@@ -19,10 +19,11 @@ struct SpotlightSettings {
     bool triggerShakeMouse = false;
     bool autoBypassFullscreen = true;
     std::string spotlightColor = "auto";
-    int spotlightSize = 200;           // 直径 (像素)
+    int spotlightSize = 300;           // 直径 (像素，默认 300)
     int animationDurationMs = 1000;    // 渐变动画速度 (ms)
     int holdDurationMs = 800;          // 停留保持时间 (ms)
-    int shakeThreshold = 7;            // 摇晃检测灵敏度 (默认 7)
+    int shakeThreshold = 4;            // 摇晃检测灵敏度 (默认 4，极速响应)
+    std::string spotlightAnimStyle = "inward_gravity"; // inward_gravity (默认向心引力超聚焦), tactical_sonar (科技声纳), aurora_ripple (极简涟漪)
 
     // 鼠标点击与轨迹特效 (演示辅助)
     bool clickRippleEnabled = false;
@@ -112,7 +113,7 @@ private:
     HWND m_hwnd = nullptr;
     HWND m_helperOwnerHwnd = nullptr;
     SpotlightSettings m_settings;
-    mutable std::mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
 
     // 聚光灯动效状态机
     enum class AnimState {
@@ -126,6 +127,9 @@ private:
     std::chrono::steady_clock::time_point m_holdStartTime;
     POINT m_targetPos{0, 0};
     float m_currentAlpha = 0.0f;
+    float m_focusProgress = 0.0f;       // 0.0 ~ 1.0 向心聚焦/扩散进程
+    float m_scalePulse = 1.0f;          // 物理弹性回弹缩放因子
+    float m_reticleAngle = 0.0f;        // 战术准星旋转角度
     UINT_PTR m_animTimerId = 0;
     bool m_timerRunning = false;
 
@@ -135,6 +139,7 @@ private:
 
     // 摇晃鼠标检测状态
     POINT m_lastMousePos{0, 0};
+    POINT m_lastRenderedPos{-9999, -9999};
     int m_lastMoveDir = 0;
     int m_shakeReversals = 0;
     std::chrono::steady_clock::time_point m_shakeWindowStart{};
@@ -178,6 +183,10 @@ private:
     // Direct2D 资源
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_dcRenderTarget;
+
+    // 高精度多媒体时钟 (消除 WM_TIMER 抖动与掉帧，带来丝滑 60/120fps 动画)
+    UINT m_mmTimerId = 0;
+    static void CALLBACK onTimerTick(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2);
 };
 
 } // namespace easy::ui

@@ -55,6 +55,7 @@
 #include "core/hotkey/HotkeyManager.h"
 #include "core/hotkey/HotkeyPolicy.h"
 #include "core/hotkey/KeyboardHook.h"
+#include "core/hotkey/MouseHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/ipc/AutoStartPolicy.h"
 #include "core/plugin/PluginManifest.h"
@@ -4301,10 +4302,10 @@ TEST(SpotlightOverlayTest, SettingsAndDefaults) {
     EXPECT_FALSE(s.triggerShakeMouse);
     EXPECT_TRUE(s.autoBypassFullscreen);
     EXPECT_EQ(s.spotlightColor, "auto");
-    EXPECT_EQ(s.spotlightSize, 200);
+    EXPECT_EQ(s.spotlightSize, 300);
     EXPECT_EQ(s.animationDurationMs, 1000);
     EXPECT_EQ(s.holdDurationMs, 800);
-    EXPECT_EQ(s.shakeThreshold, 7);
+    EXPECT_EQ(s.shakeThreshold, 4);
     EXPECT_FALSE(s.clickRippleEnabled);
     EXPECT_EQ(s.clickRippleStyle, "sparkle_burst");
     EXPECT_FALSE(s.mouseTrailEnabled);
@@ -4319,6 +4320,7 @@ TEST(SpotlightOverlayTest, SettingsAndDefaults) {
     s.mouseTrailEnabled = true;
     s.spotlightColor = "#ff0088";
     s.leftClickColor = "#00ffcc";
+    s.spotlightAnimStyle = "tactical_sonar";
     spotlight.updateSettings(s);
 
     auto updated = spotlight.getSettings();
@@ -4327,11 +4329,21 @@ TEST(SpotlightOverlayTest, SettingsAndDefaults) {
     EXPECT_TRUE(updated.mouseTrailEnabled);
     EXPECT_EQ(updated.spotlightColor, "#ff0088");
     EXPECT_EQ(updated.leftClickColor, "#00ffcc");
+    EXPECT_EQ(updated.spotlightAnimStyle, "tactical_sonar");
+
+    s.spotlightAnimStyle = "aurora_ripple";
+    spotlight.updateSettings(s);
+    EXPECT_EQ(spotlight.getSettings().spotlightAnimStyle, "aurora_ripple");
+
+    s.spotlightAnimStyle = "inward_gravity";
+    spotlight.updateSettings(s);
+    EXPECT_EQ(spotlight.getSettings().spotlightAnimStyle, "inward_gravity");
 
     spotlight.resetDefaults();
-    EXPECT_EQ(spotlight.getSettings().spotlightSize, 200);
+    EXPECT_EQ(spotlight.getSettings().spotlightSize, 300);
     EXPECT_EQ(spotlight.getSettings().spotlightColor, "auto");
     EXPECT_EQ(spotlight.getSettings().leftClickColor, "auto");
+    EXPECT_EQ(spotlight.getSettings().spotlightAnimStyle, "inward_gravity");
 }
 
 TEST(SpotlightOverlayTest, ColorParsingAndAutoAccent) {
@@ -4416,8 +4428,22 @@ TEST(SpotlightOverlayTest, KeyboardAndMouseInteraction) {
         spotlight.onMouseMove(movePt);
     }
 
-    // 5. 动效更新
+    // 5. 动效更新与不同聚焦风格触发
+    s.spotlightAnimStyle = "inward_gravity";
+    spotlight.updateSettings(s);
+    spotlight.trigger(POINT{200, 200}, false);
     spotlight.tickAnimation();
+
+    s.spotlightAnimStyle = "tactical_sonar";
+    spotlight.updateSettings(s);
+    spotlight.trigger(POINT{300, 300}, false);
+    spotlight.tickAnimation();
+
+    s.spotlightAnimStyle = "aurora_ripple";
+    spotlight.updateSettings(s);
+    spotlight.trigger(POINT{400, 400}, false);
+    spotlight.tickAnimation();
+
     spotlight.dismiss();
     spotlight.resetDefaults();
 }
@@ -4775,6 +4801,27 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     overlay.onThemeChanged();
 
     overlay.resetDefaults();
+}
+
+// -----------------------------------------------------------------------------
+// 39. 全局核心鼠标钩子测试套件
+// -----------------------------------------------------------------------------
+TEST(CoreMouseHookTest, InstallAndCallbacks) {
+    auto& mouseHook = easy::core::MouseHook::instance();
+    EXPECT_FALSE(mouseHook.isPaused());
+
+    mouseHook.setPaused(true);
+    EXPECT_TRUE(mouseHook.isPaused());
+    mouseHook.setPaused(false);
+    EXPECT_FALSE(mouseHook.isPaused());
+
+    bool callbackInvoked = false;
+    mouseHook.setMouseActivityCallback([&](int btn, long x, long y) {
+        callbackInvoked = true;
+    });
+
+    mouseHook.install();
+    mouseHook.uninstall();
 }
 
 // -----------------------------------------------------------------------------

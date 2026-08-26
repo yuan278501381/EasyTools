@@ -172,9 +172,6 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
     WaitForSingleObject(pi.hProcess, 3000);
     DWORD exitCode = 1;
     GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
     return !timedOut && exitCode == 0;
 }
 
@@ -188,10 +185,21 @@ std::optional<std::filesystem::path> currentExecutablePath() {
 
 std::optional<std::wstring> queryAutoStartTaskXml() {
     std::string output;
-    const std::wstring queryCmd = L"schtasks.exe /query /tn \"" +
-        std::wstring(AUTOSTART_TASK_NAME) + L"\" /xml";
-    if (!executeSilentCommand(queryCmd, &output)) return std::nullopt;
-    return easy::core::WinUtils::utf8ToWstring(output);
+    // 优先查询当前用户隔离的任务计划 (EasyTools\Autorun for <User>)
+    std::wstring taskName = easy::core::autostart::getAutoStartTaskName();
+    std::wstring queryCmd = L"schtasks.exe /query /tn \"" + taskName + L"\" /xml";
+    if (executeSilentCommand(queryCmd, &output) && !output.empty()) {
+        return easy::core::WinUtils::utf8ToWstring(output);
+    }
+
+    // 兼容历史全局任务计划 (EasyTools_Autostart)
+    output.clear();
+    queryCmd = L"schtasks.exe /query /tn \"" + std::wstring(easy::core::autostart::LEGACY_AUTOSTART_TASK_NAME) + L"\" /xml";
+    if (executeSilentCommand(queryCmd, &output) && !output.empty()) {
+        return easy::core::WinUtils::utf8ToWstring(output);
+    }
+
+    return std::nullopt;
 }
 
 bool removeRegistryAutoStart() {
@@ -233,8 +241,11 @@ bool setRegistryAutoStart(bool enabled) {
 }
 
 bool isAutoStartEnabled() {
+    const auto executable = currentExecutablePath();
+    if (executable && easy::core::autostart::isTaskRegisteredCOM(executable->wstring())) {
+        return true;
+    }
     if (const auto taskXml = queryAutoStartTaskXml()) {
-        const auto executable = currentExecutablePath();
         if (executable && easy::core::autostart::taskTargetsExecutable(*taskXml, *executable)) {
             return true;
         }
@@ -266,32 +277,61 @@ bool setAutoStart(bool enabled) {
     }
 
     const std::wstring exeStr = executable->wstring();
+    const std::wstring userTaskName = easy::core::autostart::getFullTaskPath();
 
     if (enabled) {
-        // 幂等性清理：确保旧注册表 Run 项无冗余残留
         removeRegistryAutoStart();
 
-        // 注册 Windows 任务计划（Task Scheduler）：
-        // /sc onlogon: 用户登录时触发
-        // /delay 0000:10: 延时 10 秒（排在系统与常规自启软件最后，零抢占 I/O）
-        // /rl highest: 以最高特权（管理员身份）免 UAC 弹窗静默运行
-        // /f: 强制原子化覆盖更新（保证多次安装/覆盖安装/路径变更时严格幂等）
-        std::wstring schCmd = L"schtasks.exe /create /tn \"" + std::wstring(AUTOSTART_TASK_NAME) +
-                              L"\" /tr \"\\\"" + exeStr + L"\\\" --silent\" /sc onlogon /delay 0000:10 /rl highest /f";
-
-        bool taskOk = executeSilentCommand(schCmd);
-        if (taskOk) {
-            LOG_INFO("AutoStart Task Scheduler task '{}' created/updated idempotently with 10s delay & highest privileges.",
-                     "EasyTools_Autostart");
-            return true;
+        // 1. 如果已是管理员，直接原生 COM API 注册
+        if (easy::core::WinUtils::isCurrentProcessElevated()) {
+            if (easy::core::autostart::registerTaskCOM(exeStr)) {
+                LOG_INFO("AutoStart Task Scheduler task '{}' created via native TaskScheduler COM API.",
+                         easy::core::WinUtils::wstringToUtf8(userTaskName));
+                return true;
+            }
+        } else {
+            // 2. 如果是普通权限，通过 ShellExecuteEx 请求提权执行 --register-autostart
+            SHELLEXECUTEINFOW sei = {sizeof(sei)};
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb = L"runas";
+            sei.lpFile = exeStr.c_str();
+            sei.lpParameters = L"--register-autostart";
+            sei.nShow = SW_HIDE;
+            if (ShellExecuteExW(&sei)) {
+                if (sei.hProcess) {
+                    WaitForSingleObject(sei.hProcess, 5000);
+                    DWORD exitCode = 1;
+                    GetExitCodeProcess(sei.hProcess, &exitCode);
+                    CloseHandle(sei.hProcess);
+                    if (exitCode == 0) {
+                        LOG_INFO("AutoStart Task Scheduler task '{}' registered via elevated helper.",
+                                 easy::core::WinUtils::wstringToUtf8(userTaskName));
+                        return true;
+                    }
+                }
+            }
         }
 
-        LOG_WARN("Task Scheduler autostart failed, falling back to Registry Run key.");
+        // 3. 兜底方案：注册表 HKCU Run 键
+        LOG_WARN("Task Scheduler autostart failed/denied, falling back to Registry Run key.");
         return setRegistryAutoStart(true);
     } else {
-        // 幂等性删除任务计划（/f 强制删除，静默忽略不存在错误）
-        std::wstring delCmd = L"schtasks.exe /delete /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\" /f";
-        executeSilentCommand(delCmd);
+        if (easy::core::WinUtils::isCurrentProcessElevated()) {
+            easy::core::autostart::unregisterTaskCOM();
+        } else {
+            SHELLEXECUTEINFOW sei = {sizeof(sei)};
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb = L"runas";
+            sei.lpFile = exeStr.c_str();
+            sei.lpParameters = L"--unregister-autostart";
+            sei.nShow = SW_HIDE;
+            if (ShellExecuteExW(&sei)) {
+                if (sei.hProcess) {
+                    WaitForSingleObject(sei.hProcess, 5000);
+                    CloseHandle(sei.hProcess);
+                }
+            }
+        }
         removeRegistryAutoStart();
         LOG_INFO("AutoStart disabled idempotently (Task Scheduler and Registry entries cleared).");
         return true;
