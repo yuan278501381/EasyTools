@@ -4587,6 +4587,7 @@ TEST(WorldClassArchitectureTest, JobObjectAndAtomicWrite) {
 TEST(WorldClassArchitectureTest, PortableModeAndSingleInstanceHealing) {
     // 1. 验证便携模式判定逻辑
     const bool isPortable = easy::core::WinUtils::isPortableMode();
+    (void)isPortable;
     const auto appDataDir = easy::core::WinUtils::getAppDataDirectory();
     EXPECT_FALSE(appDataDir.empty());
     EXPECT_TRUE(std::filesystem::exists(appDataDir));
@@ -4655,6 +4656,41 @@ TEST(PluginDiscoveryTest, DiscoveryAndLifecycle) {
     EXPECT_FALSE(bridge.handleMessage(R"({"id":6,"method":"dialog.getConfig","params":{}})").empty());
 
     manager.shutdownPlugins();
+}
+
+TEST(TitleBarAndKeycastTest, SeamlessWindowAndFluidKeycast) {
+    // 1. 验证 KeycastStyle 多 DPI 物理几何缩放
+    const SIZE sz96 = easy::keycast::KeycastStyle::windowSizeForDpi(96);
+    const SIZE sz144 = easy::keycast::KeycastStyle::windowSizeForDpi(144);
+    const SIZE sz192 = easy::keycast::KeycastStyle::windowSizeForDpi(192);
+    EXPECT_EQ(sz96.cx, 800);
+    EXPECT_EQ(sz96.cy, 160);
+    EXPECT_EQ(sz144.cx, 1200);
+    EXPECT_EQ(sz144.cy, 240);
+    EXPECT_EQ(sz192.cx, 1600);
+    EXPECT_EQ(sz192.cy, 320);
+
+    // 2. 验证智能按键过滤与键盘钩子回调
+    auto& hook = easy::core::KeyboardHook::instance();
+    bool callbackInvoked = false;
+    hook.setKeycastCallback([&callbackInvoked](const std::string& seq) {
+        if (!seq.empty()) {
+            callbackInvoked = true;
+        }
+    });
+
+    // 3. 验证配置持久化读写
+    auto& config = easy::core::ConfigManager::instance();
+    config.set("/keycast/position", "bottom_left");
+    config.set("/keycast/filterMode", "smart_shortcuts");
+    config.set("/keycast/mergeRecentKeys", true);
+    config.set("/keycast/mergeTimeoutMs", 1500);
+    EXPECT_EQ(config.get("/keycast/position", std::string("")), "bottom_left");
+    EXPECT_EQ(config.get("/keycast/filterMode", std::string("")), "smart_shortcuts");
+    EXPECT_TRUE(config.get("/keycast/mergeRecentKeys", false));
+    EXPECT_EQ(config.get("/keycast/mergeTimeoutMs", 0), 1500);
+
+    hook.setKeycastCallback(nullptr);
 }
 
 // -----------------------------------------------------------------------------

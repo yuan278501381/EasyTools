@@ -104,7 +104,8 @@ void RadialMenuOverlay::show(POINT centerPt) {
             m_helperOwnerHwnd, nullptr, hInst, this
         );
         if (m_hwnd) {
-            easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd);
+            easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd, false);
+            SetWindowDisplayAffinity(m_hwnd, WDA_NONE);
         }
     }
 

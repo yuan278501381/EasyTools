@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * KeycastPage.tsx — 按键回显与屏幕演示配置中心 (世界级 UX 双态色彩体系)
+ * KeycastPage.tsx — 按键回显与屏幕演示配置中心 (世界级 UX & 2D 时序流)
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
@@ -8,11 +8,19 @@ import { Card, Toggle, SettingGroup, Button } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import {
-  Keyboard,
   RotateCcw,
   Play,
   Sparkles,
   Palette,
+  LayoutGrid,
+  Filter,
+  Layers,
+  ArrowDownLeft,
+  ArrowDown,
+  ArrowDownRight,
+  ArrowUpLeft,
+  ArrowUpRight,
+  Check,
 } from 'lucide-react';
 import './KeycastPage.css';
 
@@ -20,7 +28,10 @@ interface KeycastSettings {
   enabled: boolean;
   autoBypassFullscreen: boolean;
   showKeyboard: boolean;
-  onlyShortcuts: boolean;
+  filterMode: 'smart_shortcuts' | 'with_single_modifiers' | 'all_keys';
+  position: 'bottom_left' | 'bottom_center' | 'bottom_right' | 'top_left' | 'top_right';
+  mergeRecentKeys: boolean;
+  mergeTimeoutMs: number;
   displayDurationMs: number;
   fontSize: number;
   textColor: string;
@@ -31,11 +42,14 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   enabled: true,
   autoBypassFullscreen: true,
   showKeyboard: true,
-  onlyShortcuts: false,
-  displayDurationMs: 3000,
-  fontSize: 20,
+  filterMode: 'smart_shortcuts',
+  position: 'bottom_left',
+  mergeRecentKeys: true,
+  mergeTimeoutMs: 1200,
+  displayDurationMs: 2500,
+  fontSize: 18,
   textColor: '#ffffff',
-  backgroundColor: '#202020',
+  backgroundColor: '#1c1c22',
 };
 
 const ACCENT_COLOR_MAP: Record<string, string> = {
@@ -211,6 +225,32 @@ export const KeycastPage: FC = () => {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', '加载中...')}</div>;
   }
 
+  const POSITIONS: Array<{ id: KeycastSettings['position']; labelKey: string; icon: typeof ArrowDownLeft }> = [
+    { id: 'top_left',      labelKey: 'keycast.posTopLeft',      icon: ArrowUpLeft },
+    { id: 'top_right',     labelKey: 'keycast.posTopRight',     icon: ArrowUpRight },
+    { id: 'bottom_left',   labelKey: 'keycast.posBottomLeft',   icon: ArrowDownLeft },
+    { id: 'bottom_center', labelKey: 'keycast.posBottomCenter', icon: ArrowDown },
+    { id: 'bottom_right',  labelKey: 'keycast.posBottomRight',  icon: ArrowDownRight },
+  ];
+
+  const FILTER_MODES: Array<{ id: KeycastSettings['filterMode']; titleKey: string; descKey: string }> = [
+    {
+      id: 'smart_shortcuts',
+      titleKey: 'keycast.filterSmartShortcuts',
+      descKey: 'keycast.filterSmartShortcutsDesc',
+    },
+    {
+      id: 'with_single_modifiers',
+      titleKey: 'keycast.filterWithModifiers',
+      descKey: 'keycast.filterWithModifiersDesc',
+    },
+    {
+      id: 'all_keys',
+      titleKey: 'keycast.filterAllKeys',
+      descKey: 'keycast.filterAllKeysDesc',
+    },
+  ];
+
   return (
     <div className="keycast-page">
       {/* ── 顶部操作栏 ──────────────────────────────────────────────── */}
@@ -229,7 +269,7 @@ export const KeycastPage: FC = () => {
         <Toggle
           id="keycast-main-enabled"
           label={t('keycast.mainToggle', '按键回显')}
-          description={t('keycast.mainToggleDesc', '在屏幕上回显按键。')}
+          description={t('keycast.mainToggleDesc', '在屏幕上呈现高质感晶体按键胶囊回显。')}
           checked={settings.enabled}
           onChange={(v) => saveSetting('enabled', v)}
         />
@@ -242,32 +282,97 @@ export const KeycastPage: FC = () => {
         />
       </Card>
 
-      {/* ── 2. 键盘设置 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('keycast.keyboardSection', '键盘')} icon={<Keyboard size={18} />}>
+      {/* ── 2. 屏幕显示位置 ─────────────────────────────────────────── */}
+      <SettingGroup title={t('keycast.positionSection', '屏幕出现位置')} icon={<LayoutGrid size={18} />}>
+        <div className="keycast-page__position-grid">
+          {POSITIONS.map((pos) => {
+            const isSelected = settings.position === pos.id;
+            const Icon = pos.icon;
+            return (
+              <button
+                key={pos.id}
+                type="button"
+                className={`keycast-page__pos-card ${isSelected ? 'active' : ''}`}
+                onClick={() => saveSetting('position', pos.id)}
+              >
+                <div className="keycast-page__pos-icon-wrap">
+                  <Icon size={18} />
+                </div>
+                <span className="keycast-page__pos-label">{t(pos.labelKey as unknown as TemplateStringsArray)}</span>
+                {isSelected && <span className="keycast-page__pos-check"><Check size={12} strokeWidth={3} /></span>}
+              </button>
+            );
+          })}
+        </div>
+      </SettingGroup>
+
+      {/* ── 3. 按键过滤与回显策略 ────────────────────────────────────── */}
+      <SettingGroup title={t('keycast.filterSection', '按键过滤与回显策略')} icon={<Filter size={18} />}>
+        <div className="keycast-page__filter-grid">
+          {FILTER_MODES.map((mode) => {
+            const isSelected = settings.filterMode === mode.id;
+            return (
+              <div
+                key={mode.id}
+                className={`keycast-page__filter-card ${isSelected ? 'active' : ''}`}
+                onClick={() => saveSetting('filterMode', mode.id)}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="keycast-page__filter-header">
+                  <span className="keycast-page__filter-title">{t(mode.titleKey as unknown as TemplateStringsArray)}</span>
+                  <div className={`keycast-page__filter-radio ${isSelected ? 'active' : ''}`}>
+                    {isSelected && <div className="keycast-page__filter-radio-inner" />}
+                  </div>
+                </div>
+                <p className="keycast-page__filter-desc">{t(mode.descKey as unknown as TemplateStringsArray)}</p>
+              </div>
+            );
+          })}
+        </div>
+      </SettingGroup>
+
+      {/* ── 4. 时序流与物理动效 ─────────────────────────────────────── */}
+      <SettingGroup title={t('keycast.motionSection', '时序流与物理动效')} icon={<Layers size={18} />}>
         <Card>
           <Toggle
-            id="keycast-show-keyboard"
-            label={t('keycast.showKeyboard', '显示键盘输入')}
-            description={t('keycast.showKeyboardDesc', '显示按下的键盘按键和快捷键组合。')}
-            checked={settings.showKeyboard}
-            onChange={(v) => saveSetting('showKeyboard', v)}
-          />
-          <Toggle
-            id="keycast-only-shortcuts"
-            label={t('keycast.onlyShortcuts', '仅显示快捷键')}
-            description={t('keycast.onlyShortcutsDesc', '开启后，只回显包含 Ctrl/Alt/Shift/Win 的组合键。')}
-            checked={settings.onlyShortcuts}
-            onChange={(v) => saveSetting('onlyShortcuts', v)}
+            id="keycast-merge-recent"
+            label={t('keycast.mergeRecentKeys', '连续按键同排横向推入')}
+            description={t('keycast.mergeRecentKeysDesc', '短时间内连续按键在同一排向左阻尼推入；停顿后向下换行并将上一排向上推移消融。')}
+            checked={settings.mergeRecentKeys}
+            onChange={(v) => saveSetting('mergeRecentKeys', v)}
           />
         </Card>
 
-        {/* 属性网格：显示时长、文字大小、文字颜色、背景颜色 */}
+        {/* 属性网格：显示时长、合并间隔、文字大小、文字颜色、背景颜色 */}
         <div className="keycast-page__grid" style={{ marginTop: '16px' }}>
+          {/* 同排连击合并间隔 */}
+          {settings.mergeRecentKeys && (
+            <div className="keycast-page__prop-card">
+              <div className="keycast-page__prop-header">
+                <span className="keycast-page__prop-title">{t('keycast.mergeTimeout', '同排合并间隔')}</span>
+                <span className="keycast-page__prop-desc">{t('keycast.mergeTimeoutDesc', '判定连续击键在同一排推入的时间窗口 (ms)。')}</span>
+              </div>
+              <div className="keycast-page__prop-body">
+                <input
+                  type="number"
+                  className="keycast-page__number-input"
+                  min={300}
+                  max={5000}
+                  step={100}
+                  value={settings.mergeTimeoutMs || 1200}
+                  onChange={(e) => saveSetting('mergeTimeoutMs', Number(e.target.value) || 1200)}
+                  aria-label={t('keycast.mergeTimeout', '同排合并间隔')}
+                />
+              </div>
+            </div>
+          )}
+
           {/* 显示时长 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.displayDuration', '显示时长')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.displayDurationDesc', '每个按键在屏幕上的停留时间 (ms)。')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.displayDuration', '停留时长')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.displayDurationDesc', '按键胶囊在屏幕上的停留时间 (ms)。')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <input
@@ -277,8 +382,8 @@ export const KeycastPage: FC = () => {
                 max={10000}
                 step={500}
                 value={settings.displayDurationMs}
-                onChange={(e) => saveSetting('displayDurationMs', Number(e.target.value) || 3000)}
-                aria-label={t('keycast.displayDuration', '显示时长')}
+                onChange={(e) => saveSetting('displayDurationMs', Number(e.target.value) || 2500)}
+                aria-label={t('keycast.displayDuration', '停留时长')}
               />
             </div>
           </div>
@@ -286,7 +391,7 @@ export const KeycastPage: FC = () => {
           {/* 文字大小 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.fontSize', '文字大小')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.fontSize', '键帽字号')}</span>
               <span className="keycast-page__prop-desc">{t('keycast.fontSizeDesc', '回显按键的字体大小 (px)。')}</span>
             </div>
             <div className="keycast-page__prop-body">
@@ -294,11 +399,11 @@ export const KeycastPage: FC = () => {
                 type="number"
                 className="keycast-page__number-input"
                 min={12}
-                max={48}
+                max={36}
                 step={2}
                 value={settings.fontSize}
-                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 20)}
-                aria-label={t('keycast.fontSize', '文字大小')}
+                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 18)}
+                aria-label={t('keycast.fontSize', '键帽字号')}
               />
             </div>
           </div>
@@ -315,10 +420,10 @@ export const KeycastPage: FC = () => {
 
           {/* 背景颜色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('keycast.backgroundColor', '背景颜色')}
-            desc={t('keycast.backgroundColorDesc', '按键背景方块的颜色。')}
+            label={t('keycast.backgroundColor', '胶囊背景色')}
+            desc={t('keycast.backgroundColorDesc', '按键胶囊底座的颜色。')}
             value={settings.backgroundColor}
-            defaultCustomFallback="#202020"
+            defaultCustomFallback="#1c1c22"
             brandAccentHex={currentBrandAccentHex}
             onChange={(val) => saveSetting('backgroundColor', val)}
           />

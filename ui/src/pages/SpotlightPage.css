@@ -257,8 +257,9 @@
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .spotlight-page__style-card--active .spotlight-page__style-card-header {
@@ -266,9 +267,9 @@
 }
 
 .spotlight-page__style-card-desc {
-  font-size: 0.83rem;
-  color: var(--text-secondary);
-  line-height: 1.4;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

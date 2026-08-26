@@ -13,6 +13,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { TitleBar } from './components/TitleBar';
 import { Sidebar, type NavId } from './components/Sidebar';
 import { GesturePage } from './pages/GesturePage';
 import { CapturePage } from './pages/CapturePage';
@@ -30,6 +31,7 @@ import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { SavedToast } from './components/SavedToast';
+import { WindowResizeHandles } from './components/WindowResizeHandles';
 import { getPageMetadata } from './pages/registry';
 import { bridgeRequest } from './hooks/useBridge';
 import { Toaster } from 'sonner';
@@ -228,52 +230,55 @@ function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        activeNav={activeNav}
-        onNavigate={handleNavSelect}
-        theme={theme}
-        themePreference={themePreference}
-        onSelectThemePreference={(pref) => {
-          setThemePreference(pref);
-          bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
-          window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
-        }}
-        accent={accent}
-        onSelectAccent={(newAccent) => {
-          setAccent(newAccent);
-          try {
-            localStorage.setItem('easytools:accent-color', newAccent);
-          } catch (e) {
-            void e;
-          }
-          bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
-          window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
-        }}
-        activePlugins={plugins.length > 0 ? activePlugins : undefined}
-        installedExtensionIds={installedExtensionIds}
-        isElevated={isElevated}
-      />
-      <main className="app__main" aria-labelledby="app-page-title">
-        <Toaster position="bottom-right" theme={theme} richColors expand={true} />
-        {/* ── 页面头部 ────────────────────────────────────── */}
-        <header className="app__header">
-          <div className="app__header-text">
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(getPageMetadata(activeNav).titleKey as any)}</h1>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <p className="app__header-subtitle">{t(getPageMetadata(activeNav).subtitleKey as any)}</p>
+      <TitleBar isElevated={isElevated} />
+      <div className="app__body">
+        <Sidebar
+          activeNav={activeNav}
+          onNavigate={handleNavSelect}
+          theme={theme}
+          themePreference={themePreference}
+          onSelectThemePreference={(pref) => {
+            setThemePreference(pref);
+            bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
+            window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
+          }}
+          accent={accent}
+          onSelectAccent={(newAccent) => {
+            setAccent(newAccent);
+            try {
+              localStorage.setItem('easytools:accent-color', newAccent);
+            } catch (e) {
+              void e;
+            }
+            bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
+            window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
+          }}
+          activePlugins={plugins.length > 0 ? activePlugins : undefined}
+          installedExtensionIds={installedExtensionIds}
+        />
+        <main className="app__main" aria-labelledby="app-page-title">
+          <Toaster position="bottom-right" theme={theme} richColors expand={true} />
+          {/* ── 页面头部 ────────────────────────────────────── */}
+          <header className="app__header">
+            <div className="app__header-text">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(getPageMetadata(activeNav).titleKey as any)}</h1>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <p className="app__header-subtitle">{t(getPageMetadata(activeNav).subtitleKey as any)}</p>
+            </div>
+          </header>
+
+          {/* ── 页面内容 ────────────────────────────────────── */}
+          <div className="app__content" key={activeNav}>
+            {renderPage()}
           </div>
-        </header>
 
-        {/* ── 页面内容 ────────────────────────────────────── */}
-        <div className="app__content" key={activeNav}>
-          {renderPage()}
-        </div>
-
-        {/* ── 世界级浮动胶囊已保存 Toast ─────────────────── */}
-        <SavedToast />
-      </main>
+          {/* ── 世界级浮动胶囊已保存 Toast ─────────────────── */}
+          <SavedToast />
+        </main>
+      </div>
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
+      <WindowResizeHandles />
     </div>
   );
 }

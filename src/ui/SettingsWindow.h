@@ -77,6 +77,14 @@ public:
     /// 向前端推送事件
     void pushEventToFrontend(const std::string& eventName, const std::string& dataJson);
 
+    /// 一体化沉浸式标题栏与边缘窗口控制
+    void minimize();
+    void toggleMaximize();
+    void close();
+    void dragMove();
+    void startResize(const std::string& edge);
+    bool isMaximized() const;
+
 private:
     SettingsWindow() = default;
     SettingsWindow(const SettingsWindow&) = delete;

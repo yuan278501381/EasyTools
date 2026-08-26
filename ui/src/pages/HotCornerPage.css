@@ -131,19 +131,18 @@
 
 /* 角落标签 */
 .hotcorner-page__corner-label {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   margin-bottom: 4px;
 }
 
 /* 角落动作名 */
 .hotcorner-page__corner-action {
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -152,8 +151,7 @@
 /* 角落未设置 */
 .hotcorner-page__corner-action--empty {
   color: var(--text-muted);
-  font-style: italic;
-  font-weight: 400;
+  font-weight: 500;
 }
 
 /* 角落图标指示 */

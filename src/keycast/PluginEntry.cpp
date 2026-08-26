@@ -35,7 +35,11 @@ public:
                 {"enabled", s.enabled},
                 {"autoBypassFullscreen", s.autoBypassFullscreen},
                 {"showKeyboard", s.showKeyboard},
-                {"onlyShortcuts", s.onlyShortcuts},
+                {"filterMode", s.filterMode},
+                {"position", s.position},
+                {"mergeRecentKeys", s.mergeRecentKeys},
+                {"mergeTimeoutMs", s.mergeTimeoutMs},
+                {"onlyShortcuts", s.filterMode == "smart_shortcuts"},
                 {"displayDurationMs", s.displayDurationMs},
                 {"fontSize", s.fontSize},
                 {"textColor", s.textColor},
@@ -59,8 +63,21 @@ public:
             if (params.contains("showKeyboard") && params["showKeyboard"].is_boolean()) {
                 s.showKeyboard = params["showKeyboard"].get<bool>();
             }
+            if (params.contains("filterMode") && params["filterMode"].is_string()) {
+                s.filterMode = params["filterMode"].get<std::string>();
+            }
+            if (params.contains("position") && params["position"].is_string()) {
+                s.position = params["position"].get<std::string>();
+            }
+            if (params.contains("mergeRecentKeys") && params["mergeRecentKeys"].is_boolean()) {
+                s.mergeRecentKeys = params["mergeRecentKeys"].get<bool>();
+            }
+            if (params.contains("mergeTimeoutMs") && params["mergeTimeoutMs"].is_number_integer()) {
+                s.mergeTimeoutMs = params["mergeTimeoutMs"].get<int>();
+            }
             if (params.contains("onlyShortcuts") && params["onlyShortcuts"].is_boolean()) {
-                s.onlyShortcuts = params["onlyShortcuts"].get<bool>();
+                bool only = params["onlyShortcuts"].get<bool>();
+                s.filterMode = only ? "smart_shortcuts" : "all_keys";
             }
             if (params.contains("displayDurationMs") && params["displayDurationMs"].is_number_integer()) {
                 s.displayDurationMs = params["displayDurationMs"].get<int>();

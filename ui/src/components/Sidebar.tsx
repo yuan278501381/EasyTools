@@ -35,7 +35,6 @@ import {
   Keyboard,
 } from 'lucide-react';
 import './Sidebar.css';
-import { EasyToolsBolt } from './EasyToolsBolt';
 import { type NavId } from '../pages/registry';
 
 export type { NavId };
@@ -95,7 +94,6 @@ export interface SidebarProps {
   onSelectAccent?: (accent: string) => void;
   activePlugins?: ReadonlySet<string>;
   installedExtensionIds?: string[];
-  isElevated?: boolean;
 }
 
 export const Sidebar: FC<SidebarProps> = ({
@@ -108,7 +106,6 @@ export const Sidebar: FC<SidebarProps> = ({
   onSelectAccent,
   activePlugins,
   installedExtensionIds = [],
-  isElevated = false,
 }) => {
   const { t } = useTranslation();
   const [flyoutOpen, setFlyoutOpen] = useState(false);
@@ -161,20 +158,6 @@ export const Sidebar: FC<SidebarProps> = ({
 
   return (
     <aside className="sidebar" role="navigation" aria-label={t('sidebar.mainNav')}>
-      {/* ── Logo ──────────────────────────────────────────────────── */}
-      <div className="sidebar__logo">
-        <span className="sidebar__logo-icon">
-          <EasyToolsBolt size={32} fill="var(--primary)" />
-        </span>
-        <span className="sidebar__logo-text">EasyTools</span>
-        <span
-          className={`sidebar__admin-badge ${isElevated ? 'sidebar__admin-badge--elevated' : 'sidebar__admin-badge--normal'}`}
-          title={isElevated ? t('sidebar.adminTitle') : t('sidebar.normalTitle')}
-        >
-          {isElevated ? t('sidebar.adminBadge') : t('sidebar.normalBadge')}
-        </span>
-      </div>
-
       {/* ── 导航列表 ──────────────────────────────────────────────── */}
       <nav className="sidebar__nav">
         {/* 1. 系统总控组 */}

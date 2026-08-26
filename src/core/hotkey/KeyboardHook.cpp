@@ -100,9 +100,17 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                     }
 
                     if (keycastCallback) {
-                        // 检查是否开启“仅显示快捷键/特殊键”过滤 (默认开启，录屏/演示推荐)
-                        bool onlyShortcuts = easy::core::ConfigManager::instance().get<bool>(
-                            "/general/keycastOnlyShortcuts", true);
+                        // 检查按键过滤模式 (Filter Mode)
+                        // 1. "smart_shortcuts": 智能过滤（仅显示真正组合键与特殊功能键，严格抑制单点 Shift/Ctrl/Alt，杜绝打字打扰）
+                        // 2. "with_single_modifiers": 显示单按修饰键与 Alt 菜单激活序列
+                        // 3. "all_keys": 全量按键回显
+                        std::string filterMode = easy::core::ConfigManager::instance().get<std::string>(
+                            "/keycast/filterMode", "");
+                        if (filterMode.empty()) {
+                            bool onlyShortcuts = easy::core::ConfigManager::instance().get<bool>(
+                                "/general/keycastOnlyShortcuts", true);
+                            filterMode = onlyShortcuts ? "smart_shortcuts" : "all_keys";
+                        }
 
                         DWORD vk = data->vkCode;
                         bool isMod = (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL ||
@@ -110,21 +118,33 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                                       vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
                                       vk == VK_LWIN || vk == VK_RWIN);
 
-                        bool isSpecial = isMod || (vk >= VK_F1 && vk <= VK_F24) ||
-                                         (vk == VK_ESCAPE || vk == VK_TAB || vk == VK_RETURN || vk == VK_BACK ||
-                                          vk == VK_DELETE || vk == VK_INSERT || vk == VK_HOME || vk == VK_END ||
-                                          vk == VK_PRIOR || vk == VK_NEXT || vk == VK_CAPITAL || vk == VK_SNAPSHOT ||
-                                          vk == VK_PAUSE || vk == VK_SCROLL || vk == VK_LEFT || vk == VK_UP ||
-                                          vk == VK_RIGHT || vk == VK_DOWN || vk == VK_SPACE);
+                        bool isFunctionalKey = (vk >= VK_F1 && vk <= VK_F24) ||
+                                               (vk == VK_ESCAPE || vk == VK_TAB || vk == VK_RETURN || vk == VK_BACK ||
+                                                vk == VK_DELETE || vk == VK_INSERT || vk == VK_HOME || vk == VK_END ||
+                                                vk == VK_PRIOR || vk == VK_NEXT || vk == VK_CAPITAL || vk == VK_SNAPSHOT ||
+                                                vk == VK_PAUSE || vk == VK_SCROLL || vk == VK_LEFT || vk == VK_UP ||
+                                                vk == VK_RIGHT || vk == VK_DOWN || vk == VK_SPACE);
 
                         bool hasCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
                         bool hasAlt  = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
                         bool hasShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                         bool hasWin  = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
-                        bool hasModifier = hasCtrl || hasAlt || hasWin || (hasShift && !isSpecial);
+                        
+                        // 是否存在修饰键伴随实际非修饰主键（如 Ctrl+C, Win+D, Alt+Tab）
+                        bool isComboWithModifier = (hasCtrl || hasAlt || hasWin || hasShift) && !isMod;
 
-                        // 过滤模式：仅在有修饰键组合或特殊功能键时回显
-                        if (!onlyShortcuts || hasModifier || isSpecial) {
+                        bool shouldDisplay = false;
+                        if (filterMode == "all_keys") {
+                            shouldDisplay = true;
+                        } else if (filterMode == "with_single_modifiers") {
+                            // 包含单按修饰键、组合键、功能键
+                            shouldDisplay = isMod || isComboWithModifier || isFunctionalKey;
+                        } else {
+                            // "smart_shortcuts" 智能模式：严格抑制孤立修饰键单点，仅当组合键或功能键时显示
+                            shouldDisplay = isComboWithModifier || isFunctionalKey;
+                        }
+
+                        if (shouldDisplay) {
                             // 转换当前键为主按键名
                             char keyName[64] = {0};
                             UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);

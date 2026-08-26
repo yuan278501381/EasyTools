@@ -26,10 +26,13 @@
 #include "ui/KeyboardPipeline.h"
 
 // WebView2 SDK 头文件
+#include <windowsx.h>
+#include <dwmapi.h>
 #include <WebView2.h>
 #include <wrl/event.h>
 
 #include <filesystem>
+#include <commctrl.h>
 #include <fstream>
 #include <dwmapi.h>
 #include <algorithm>
@@ -37,6 +40,7 @@
 #include <utility>
 
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "comctl32.lib")
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -50,6 +54,38 @@
 using namespace Microsoft::WRL;
 
 namespace easy::ui {
+
+namespace {
+
+LRESULT CALLBACK WebViewResizeSubclassProc(
+    HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    if (uMsg == WM_NCHITTEST) {
+        HWND parentHwnd = reinterpret_cast<HWND>(dwRefData);
+        if (parentHwnd && IsWindow(parentHwnd) && !IsZoomed(parentHwnd)) {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            RECT rc;
+            GetWindowRect(parentHwnd, &rc);
+            const int border = 8;
+            // 当鼠标位于父窗口 8px 边缘范围内时，子窗口声明透明，让宿主窗口响应拉伸
+            if (pt.x < rc.left + border || pt.x >= rc.right - border ||
+                pt.y < rc.top + border || pt.y >= rc.bottom - border) {
+                return HTTRANSPARENT;
+            }
+        }
+    }
+    return DefSubclassProc(hwnd, uMsg, wParam, lParam);
+}
+
+void hookWebViewChildWindows(HWND parentHwnd) {
+    if (!parentHwnd || !IsWindow(parentHwnd)) return;
+    EnumChildWindows(parentHwnd, [](HWND child, LPARAM lParam) -> BOOL {
+        SetWindowSubclass(child, WebViewResizeSubclassProc, 1001, static_cast<DWORD_PTR>(lParam));
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(parentHwnd));
+}
+
+} // namespace
 
 static constexpr const wchar_t* SETTINGS_WINDOW_CLASS = L"EasyTools_SettingsWindow";
 
@@ -251,7 +287,7 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         WS_EX_APPWINDOW,
         SETTINGS_WINDOW_CLASS,
         windowTitle.c_str(),
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         x, y, targetSize.cx, targetSize.cy,
         nullptr, nullptr, hInstance, this  // 传递 this 指针
     );
@@ -261,11 +297,17 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         return false;
     }
 
-    // 启用 Windows 11 Fluent Mica 材质 & 沉浸式暗黑模式
-    BOOL useDarkMode = TRUE;
-    DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
-    DWORD backdropType = DWMSBT_MAINWINDOW; // Mica 材质
-    DwmSetWindowAttribute(m_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropType, sizeof(backdropType));
+    // 启用 DWM 边框扩展，消除原生黑色顶栏并保留 Windows 11 原生圆角与微阴影
+    MARGINS margins = {1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
+
+    // 强制通知系统 Frame 已变更，立即移除系统黑色标题栏
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    // 设置 Windows 11 原生圆角偏好
+    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
@@ -475,6 +517,7 @@ void SettingsWindow::onWebView2Ready() {
         ).Get(), &token);
 
     m_webView->Navigate(wUrl.c_str());
+    hookWebViewChildWindows(m_hwnd);
 
     LOG_INFO("WebView2 正在加载前端 UI: {}", entryUrl);
 }
@@ -610,6 +653,53 @@ void SettingsWindow::pushEventToFrontend(const std::string& eventName, const std
     m_webView->PostWebMessageAsString(wMsg.c_str());
 }
 
+void SettingsWindow::minimize() {
+    if (m_hwnd) ShowWindow(m_hwnd, SW_MINIMIZE);
+}
+
+void SettingsWindow::toggleMaximize() {
+    if (!m_hwnd) return;
+    if (IsZoomed(m_hwnd)) {
+        ShowWindow(m_hwnd, SW_RESTORE);
+    } else {
+        ShowWindow(m_hwnd, SW_MAXIMIZE);
+    }
+}
+
+void SettingsWindow::close() {
+    if (m_hwnd) SendMessageW(m_hwnd, WM_CLOSE, 0, 0);
+}
+
+void SettingsWindow::dragMove() {
+    if (!m_hwnd || !IsWindow(m_hwnd)) return;
+    if (IsZoomed(m_hwnd)) {
+        ShowWindow(m_hwnd, SW_RESTORE);
+    }
+    ReleaseCapture();
+    SendMessageW(m_hwnd, WM_SYSCOMMAND, 0xF012, 0);
+}
+
+void SettingsWindow::startResize(const std::string& edge) {
+    if (!m_hwnd || !IsWindow(m_hwnd) || IsZoomed(m_hwnd)) return;
+    ReleaseCapture();
+    WPARAM scSizeParam = 0;
+    if (edge == "left") scSizeParam = 0xF001;          // SC_SIZE + WMSZ_LEFT
+    else if (edge == "right") scSizeParam = 0xF002;    // SC_SIZE + WMSZ_RIGHT
+    else if (edge == "top") scSizeParam = 0xF003;      // SC_SIZE + WMSZ_TOP
+    else if (edge == "top_left") scSizeParam = 0xF004; // SC_SIZE + WMSZ_TOPLEFT
+    else if (edge == "top_right") scSizeParam = 0xF005;// SC_SIZE + WMSZ_TOPRIGHT
+    else if (edge == "bottom") scSizeParam = 0xF006;   // SC_SIZE + WMSZ_BOTTOM
+    else if (edge == "bottom_left") scSizeParam = 0xF007;// SC_SIZE + WMSZ_BOTTOMLEFT
+    else if (edge == "bottom_right") scSizeParam = 0xF008;// SC_SIZE + WMSZ_BOTTOMRIGHT
+    else return;
+
+    SendMessageW(m_hwnd, WM_SYSCOMMAND, scSizeParam, 0);
+}
+
+bool SettingsWindow::isMaximized() const {
+    return m_hwnd && (IsZoomed(m_hwnd) != FALSE);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 窗口过程
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,9 +708,44 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
     auto* self = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (msg) {
+        case WM_NCCALCSIZE: {
+            if (wParam) {
+                if (IsZoomed(hwnd)) {
+                    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+                    HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    MONITORINFO mi = { sizeof(mi) };
+                    if (GetMonitorInfoW(hMon, &mi)) {
+                        params->rgrc[0] = mi.rcWork;
+                    }
+                }
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
+        case WM_NCHITTEST: {
+            if (!IsZoomed(hwnd)) {
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                RECT rc;
+                GetWindowRect(hwnd, &rc);
+                const int border = 8;
+
+                if (pt.y < rc.top + border && pt.x < rc.left + border) return HTTOPLEFT;
+                if (pt.y < rc.top + border && pt.x >= rc.right - border) return HTTOPRIGHT;
+                if (pt.y >= rc.bottom - border && pt.x < rc.left + border) return HTBOTTOMLEFT;
+                if (pt.y >= rc.bottom - border && pt.x >= rc.right - border) return HTBOTTOMRIGHT;
+                if (pt.y < rc.top + border) return HTTOP;
+                if (pt.y >= rc.bottom - border) return HTBOTTOM;
+                if (pt.x < rc.left + border) return HTLEFT;
+                if (pt.x >= rc.right - border) return HTRIGHT;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
         case WM_SIZE: {
             if (self && self->m_controller) {
                 syncWebViewDpi(self->m_controller.Get(), hwnd);
+                hookWebViewChildWindows(hwnd);
                 if (IsWindowVisible(hwnd)) {
                     self->m_controller->put_IsVisible(TRUE);
                 }

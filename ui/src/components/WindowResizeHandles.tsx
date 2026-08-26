@@ -1,0 +1,55 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * WindowResizeHandles.tsx — 沉浸式无边框窗口 8 方向边缘拖拽拉伸控制器
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+import { type FC, type MouseEvent, useCallback, useEffect, useState } from 'react';
+import { bridgeRequest } from '../hooks/useBridge';
+import './WindowResizeHandles.css';
+
+export const WindowResizeHandles: FC = () => {
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const checkMaximized = () => {
+      bridgeRequest<{ isMaximized: boolean }>('window.isMaximized')
+        .then((res) => {
+          if (res && typeof res.isMaximized === 'boolean') {
+            setIsMaximized(res.isMaximized);
+          }
+        })
+        .catch(() => {});
+    };
+
+    checkMaximized();
+    window.addEventListener('resize', checkMaximized);
+    return () => window.removeEventListener('resize', checkMaximized);
+  }, []);
+
+  const handleMouseDown = useCallback(
+    (edge: string) => (e: MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0 || isMaximized) return;
+      e.preventDefault();
+      e.stopPropagation();
+      bridgeRequest('window.startResize', { edge }).catch(console.error);
+    },
+    [isMaximized]
+  );
+
+  if (isMaximized) return null;
+
+  return (
+    <div className="window-resize-handles" aria-hidden="true">
+      {/* 4 条直线边框 */}
+      <div className="resize-handle resize-handle--top" onMouseDown={handleMouseDown('top')} />
+      <div className="resize-handle resize-handle--bottom" onMouseDown={handleMouseDown('bottom')} />
+      <div className="resize-handle resize-handle--left" onMouseDown={handleMouseDown('left')} />
+      <div className="resize-handle resize-handle--right" onMouseDown={handleMouseDown('right')} />
+
+      {/* 4 个对角拐角 */}
+      <div className="resize-handle resize-handle--top-left" onMouseDown={handleMouseDown('top_left')} />
+      <div className="resize-handle resize-handle--top-right" onMouseDown={handleMouseDown('top_right')} />
+      <div className="resize-handle resize-handle--bottom-left" onMouseDown={handleMouseDown('bottom_left')} />
+      <div className="resize-handle resize-handle--bottom-right" onMouseDown={handleMouseDown('bottom_right')} />
+    </div>
+  );
+};

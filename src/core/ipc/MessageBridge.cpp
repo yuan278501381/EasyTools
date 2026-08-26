@@ -1166,7 +1166,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
-            {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},
+            {"keycastEnabled", config.get<bool>("/general/keycastEnabled", true)},
             {"showOnboarding", config.get<bool>("/general/showOnboarding", !config.get<bool>("/app/onboardingCompleted", false))},
             {"isPortableMode", WinUtils::isPortableMode()},
             {"dataDirectory", WinUtils::wstringToUtf8(WinUtils::getAppDataDirectory().wstring())},

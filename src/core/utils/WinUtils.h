@@ -813,8 +813,8 @@ public:
     }
 
     /// 将窗口样式标准化为绝对不污染任务栏与 Alt+Tab 的零泄漏 Overlay 窗口
-    static void applyTaskbarSafeOverlayStyle(HWND hwnd) {
-        if (!hwnd) return;
+    static void applyTaskbarSafeOverlayStyle(HWND hwnd, bool excludeFromCapture = true) {
+        if (!hwnd || !IsWindow(hwnd)) return;
         LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         constexpr LONG_PTR required = WS_EX_LAYERED | WS_EX_TRANSPARENT |
                                       WS_EX_TOPMOST | WS_EX_NOACTIVATE |
@@ -828,7 +828,11 @@ public:
         const BOOL disableTransitions = TRUE;
         DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
                               &disableTransitions, sizeof(disableTransitions));
-        excludeWindowFromCapture(hwnd);
+        if (excludeFromCapture) {
+            excludeWindowFromCapture(hwnd);
+        } else {
+            SetWindowDisplayAffinity(hwnd, WDA_NONE);
+        }
     }
 };
 

@@ -818,6 +818,37 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    // ── 沉浸式标题栏窗口控制 (Seamless Titlebar Window Controls) ────────
+    easy::core::MessageBridge::instance().registerHandler("window.minimize", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().minimize();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.toggleMaximize", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().toggleMaximize();
+        return {{"success", true}, {"isMaximized", easy::ui::SettingsWindow::instance().isMaximized()}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.close", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().close();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.isMaximized", [](const nlohmann::json&) -> nlohmann::json {
+        return {{"isMaximized", easy::ui::SettingsWindow::instance().isMaximized()}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.dragMove", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().dragMove();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.startResize", [](const nlohmann::json& params) -> nlohmann::json {
+        std::string edge = params.value("edge", "");
+        easy::ui::SettingsWindow::instance().startResize(edge);
+        return {{"success", true}};
+    });
+
     // 注册托盘菜单 IPC 处理函数
     easy::core::MessageBridge::instance().registerHandler("tray.action", [hwnd](const nlohmann::json& params) -> nlohmann::json {
         std::string action = params.value("action", "");

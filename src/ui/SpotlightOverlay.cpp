@@ -114,7 +114,8 @@ bool SpotlightOverlay::initialize(HINSTANCE hInstance) {
     }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd);
+    easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd, false);
+    SetWindowDisplayAffinity(m_hwnd, WDA_NONE);
 
     if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf()))) {
         DestroyWindow(m_hwnd);
