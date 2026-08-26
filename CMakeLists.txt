@@ -269,6 +269,7 @@ if(BUILD_TESTING)
         src/capture/AudioCapture.cpp
         src/capture/CaptureBackend.cpp
         src/capture/CaptureToolbarLayout.cpp
+        src/capture/CaptureVectorIcons.cpp
         src/capture/MarkupEngine.cpp
         src/capture/CursorOverlay.cpp
         src/capture/ScreenRecorder.cpp

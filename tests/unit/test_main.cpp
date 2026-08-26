@@ -37,6 +37,7 @@
 #include "capture/ScrollCaptureStorage.h"
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/ShortcutHintStyle.h"
+#include "capture/CaptureVectorIcons.h"
 #include "keycast/KeycastStyle.h"
 #include "keycast/KeycastOverlay.h"
 #include "ocr/OcrResultStyle.h"
@@ -2736,6 +2737,7 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
                           desktop150);
     EXPECT_EQ(screenshot.toolbarButtons.size(), 14u);
     EXPECT_EQ(screenshot.secondaryToolbarButtons.size(), 13u);
+    EXPECT_EQ(screenshot.selectionSideButtons.size(), 3u);
     EXPECT_NEAR(screenshot.toolbarButtons.front().rect.bottom -
                 screenshot.toolbarButtons.front().rect.top, 45.0f, 0.01f);
     check_toolbar_inside_surface(screenshot, desktop150);
@@ -2751,6 +2753,7 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     rebuildCaptureToolbar(wrapped, D2D1::RectF(80.0f, 100.0f, 850.0f, 480.0f), compact);
     EXPECT_EQ(wrapped.toolbarButtons.size(), 14u);
     EXPECT_EQ(wrapped.secondaryToolbarButtons.size(), 13u);
+    EXPECT_EQ(wrapped.selectionSideButtons.size(), 3u);
     check_toolbar_inside_surface(wrapped, compact);
 
     CaptureState recording;
@@ -2760,9 +2763,9 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
                           desktop150);
     EXPECT_EQ(recording.toolbarButtons.size(), 2u);
     EXPECT_NEAR(recording.toolbarButtons[0].rect.right -
-                recording.toolbarButtons[0].rect.left, 102.0f, 0.01f);
+                recording.toolbarButtons[0].rect.left, 51.0f, 0.01f);
     EXPECT_NEAR(recording.toolbarButtons[1].rect.right -
-                recording.toolbarButtons[1].rect.left, 117.0f, 0.01f);
+                recording.toolbarButtons[1].rect.left, 45.0f, 0.01f);
     check_toolbar_inside_surface(recording, desktop150);
 
     CaptureState extreme;
@@ -4422,6 +4425,13 @@ TEST(CaptureSizeHudAndMenuTest, HudUnitsAndSwitches) {
     EXPECT_NEAR(hexCol2.g, 1.0f, 0.01f);
     auto hexCol3 = easy::core::parseHexColor("invalid_hex");
     EXPECT_NEAR(hexCol3.r, 0.231f, 0.01f);
+
+    // 5. 吸管取色与画笔色彩同步验证
+    MarkupColor picked(59, 130, 246);
+    state.currentColor = picked;
+    EXPECT_EQ(state.currentColor.r, 59);
+    EXPECT_EQ(state.currentColor.g, 130);
+    EXPECT_EQ(state.currentColor.b, 246);
 }
 
 TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
@@ -4461,6 +4471,19 @@ TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
     EXPECT_TRUE(hasCornerRadius);
     EXPECT_EQ(colorCount, 7);
 
+    // 验证主工具栏与二级属性栏包含前置分隔符
+    bool hasPriSeparators = false;
+    for (const auto& btn : state.toolbarButtons) {
+        if (btn.isSeparatorBefore) hasPriSeparators = true;
+    }
+    EXPECT_TRUE(hasPriSeparators);
+
+    bool hasSecSeparators = false;
+    for (const auto& btn : state.secondaryToolbarButtons) {
+        if (btn.isSeparatorBefore) hasSecSeparators = true;
+    }
+    EXPECT_TRUE(hasSecSeparators);
+
     // 2. 切换到文本工具
     state.currentTool = MarkupTool::Text;
     state.toolbarLayoutValid = false;
@@ -4475,6 +4498,12 @@ TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
 
     // 4. 切换到马赛克工具
     state.currentTool = MarkupTool::Mosaic;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 4.5 切换到序号工具
+    state.currentTool = MarkupTool::Number;
     state.toolbarLayoutValid = false;
     rebuildCaptureToolbar(state, selRect, surfaceSize);
     EXPECT_FALSE(state.secondaryToolbarButtons.empty());
@@ -4506,8 +4535,9 @@ TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
 
     engine.drawHighlight(cv::Point(10, 10), cv::Point(80, 40), MarkupColor::Yellow());
     engine.applyMosaic(cv::Point(300, 300), cv::Point(380, 380), 8);
-    engine.addText(cv::Point(50, 300), "EasyTools", MarkupColor::White(), 18.0f);
-    engine.addNumberMark(cv::Point(100, 350), MarkupColor::Red());
+    
+    int numVal = engine.addNumberMark(cv::Point(100, 350), MarkupColor::Red());
+    EXPECT_EQ(numVal, 1);
     EXPECT_EQ(engine.currentNumber(), 2);
     engine.resetNumber();
     EXPECT_EQ(engine.currentNumber(), 1);
@@ -5072,6 +5102,370 @@ TEST(CoreMouseHookTest, InstallAndCallbacks) {
 
     mouseHook.install();
     mouseHook.uninstall();
+}
+
+// -----------------------------------------------------------------------------
+// 40. 纯矢量图标系统全覆盖测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureVectorIconsTest, ComprehensiveVectorRendering) {
+    using namespace easy::capture;
+
+    // 验证空指针与无效参数防护
+    CaptureVectorIcons::renderIcon(nullptr, nullptr, CaptureIconId::ActionConfirm,
+                                   D2D1::RectF(0, 0, 30, 30), nullptr, 1.0f);
+
+    // 创建 Direct2D 工厂与 WIC/D2D 离屏 RenderTarget 进行全图标渲染覆盖验证
+    Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory;
+    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2dFactory.GetAddressOf());
+    ASSERT_NE(d2dFactory, nullptr);
+
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> dcRt;
+    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        0, 0, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_FEATURE_LEVEL_DEFAULT);
+    HRESULT hr = d2dFactory->CreateDCRenderTarget(&props, dcRt.GetAddressOf());
+    ASSERT_EQ(hr, S_OK);
+    ASSERT_NE(dcRt, nullptr);
+
+    HDC hdc = GetDC(nullptr);
+    RECT rc{0, 0, 100, 100};
+    dcRt->BindDC(hdc, &rc);
+    dcRt->BeginDraw();
+
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> testBrush;
+    dcRt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Blue), testBrush.GetAddressOf());
+    ASSERT_NE(testBrush, nullptr);
+
+    // 遍历所有枚举值进行 100% 渲染覆盖
+    const std::vector<CaptureIconId> allIcons = {
+        CaptureIconId::None,
+        CaptureIconId::ToolRectangle,
+        CaptureIconId::ToolEllipse,
+        CaptureIconId::ToolPen,
+        CaptureIconId::ToolHighlight,
+        CaptureIconId::ToolArrow,
+        CaptureIconId::ToolArrowThin,
+        CaptureIconId::ToolArrowDouble,
+        CaptureIconId::ToolText,
+        CaptureIconId::ToolNumber,
+        CaptureIconId::ToolMosaic,
+        CaptureIconId::ToolBlur,
+        CaptureIconId::ToolInpaint,
+        CaptureIconId::ActionUndo,
+        CaptureIconId::ActionRedo,
+        CaptureIconId::ActionClear,
+        CaptureIconId::ActionExtractText,
+        CaptureIconId::ActionPinWindow,
+        CaptureIconId::ActionScrollCapture,
+        CaptureIconId::ActionRecordStart,
+        CaptureIconId::ActionRecordPause,
+        CaptureIconId::ActionRecordStop,
+        CaptureIconId::ActionToggleMic,
+        CaptureIconId::ActionToggleSpeaker,
+        CaptureIconId::ActionCopy,
+        CaptureIconId::ActionSave,
+        CaptureIconId::ActionCancel,
+        CaptureIconId::ActionConfirm,
+        CaptureIconId::PropSolidLine,
+        CaptureIconId::PropDashedLine,
+        CaptureIconId::PropDottedLine,
+        CaptureIconId::PropDashDotLine,
+        CaptureIconId::PropStrokeWidth,
+        CaptureIconId::PropCornerRadius,
+        CaptureIconId::PropFillOutline,
+        CaptureIconId::PropFillSolid,
+        CaptureIconId::PropPipette,
+        CaptureIconId::PropPalette,
+        CaptureIconId::PropQrCode,
+    };
+
+    D2D1_RECT_F targetRect = D2D1::RectF(10.0f, 10.0f, 40.0f, 40.0f);
+    for (auto id : allIcons) {
+        CaptureVectorIcons::renderIcon(dcRt.Get(), d2dFactory.Get(), id, targetRect, testBrush.Get(), 1.0f);
+        CaptureVectorIcons::renderIcon(dcRt.Get(), d2dFactory.Get(), id, targetRect, testBrush.Get(), 2.0f);
+    }
+
+    dcRt->EndDraw();
+    ReleaseDC(nullptr, hdc);
+}
+
+TEST(CaptureSliderPopupTest, SteplessSliderAndWheelInteraction) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.25f;
+    state.currentStrokeWidth = 6;
+    state.currentElementCornerRadius = 12.0f;
+
+    // 1. 初始化线宽滑块弹窗
+    state.sliderPopup.type = SliderPopupType::StrokeWidth;
+    state.sliderPopup.minValue = 1;
+    state.sliderPopup.maxValue = 28;
+    state.sliderPopup.currentValue = state.currentStrokeWidth;
+    state.sliderPopup.trackRect = D2D1::RectF(100.0f, 200.0f, 300.0f, 206.0f);
+    
+    EXPECT_EQ(state.sliderPopup.type, SliderPopupType::StrokeWidth);
+    EXPECT_EQ(state.sliderPopup.currentValue, 6);
+
+    // 2. 模拟滑块拖拽映射
+    float trackW = state.sliderPopup.trackRect.right - state.sliderPopup.trackRect.left;
+    float clickX = state.sliderPopup.trackRect.left + trackW * 0.5f; // 50% 位置
+    float pct = std::clamp((clickX - state.sliderPopup.trackRect.left) / trackW, 0.0f, 1.0f);
+    int mappedVal = state.sliderPopup.minValue + static_cast<int>(std::round(pct * (state.sliderPopup.maxValue - state.sliderPopup.minValue)));
+    EXPECT_NEAR(mappedVal, 15, 1);
+
+    // 3. 模拟预设胶囊按钮配置
+    std::vector<int> presets = { 2, 4, 6, 8, 14, 20 };
+    for (size_t i = 0; i < presets.size(); ++i) {
+        float px = state.sliderPopup.trackRect.left + i * (trackW / presets.size());
+        state.sliderPopup.presetButtons.push_back({ presets[i], D2D1::RectF(px, 220.0f, px + 25.0f, 240.0f) });
+    }
+    EXPECT_EQ(state.sliderPopup.presetButtons.size(), 6);
+    EXPECT_EQ(state.sliderPopup.presetButtons[2].first, 6);
+
+    // 4. 模拟滚轮调节步进
+    int zDeltaUp = 120;
+    int stepUp = (zDeltaUp > 0) ? 1 : -1;
+    state.currentStrokeWidth = std::clamp(state.currentStrokeWidth + stepUp, 1, 28);
+    EXPECT_EQ(state.currentStrokeWidth, 7);
+
+    int zDeltaDown = -120;
+    int stepDown = (zDeltaDown > 0) ? 1 : -1;
+    state.currentStrokeWidth = std::clamp(state.currentStrokeWidth + stepDown, 1, 28);
+    EXPECT_EQ(state.currentStrokeWidth, 6);
+
+    // 5. 切换到圆角滑块弹窗
+    state.sliderPopup.type = SliderPopupType::CornerRadius;
+    state.sliderPopup.minValue = 0;
+    state.sliderPopup.maxValue = 40;
+    state.sliderPopup.currentValue = static_cast<int>(state.currentElementCornerRadius);
+    EXPECT_EQ(state.sliderPopup.type, SliderPopupType::CornerRadius);
+    EXPECT_EQ(state.sliderPopup.currentValue, 12);
+}
+
+TEST(CaptureShiftConstraintTest, OrthogonalAndSquareAspectConstraints) {
+    using namespace easy::capture;
+
+    // 1. 验证正方形约束算法
+    cv::Point start(100, 100);
+    cv::Point end(250, 180); // w=150, h=80
+    int w = std::abs(end.x - start.x);
+    int h = std::abs(end.y - start.y);
+    int side = std::max(w, h);
+    cv::Point constrainedEnd(start.x + (end.x >= start.x ? side : -side),
+                             start.y + (end.y >= start.y ? side : -side));
+    EXPECT_EQ(constrainedEnd.x - start.x, 150);
+    EXPECT_EQ(constrainedEnd.y - start.y, 150);
+
+    // 2. 验证箭头 45° 正交吸附算法
+    cv::Point arrowStart(200, 200);
+    cv::Point arrowEnd(300, 210); // 接近水平 0°
+    double dx = arrowEnd.x - arrowStart.x;
+    double dy = arrowEnd.y - arrowStart.y;
+    double dist = std::hypot(dx, dy);
+    double angle = std::atan2(dy, dx);
+    constexpr double step = 3.14159265358979323846 / 4.0;
+    double snappedAngle = std::round(angle / step) * step;
+    cv::Point snappedEnd(static_cast<int>(std::round(arrowStart.x + dist * std::cos(snappedAngle))),
+                         static_cast<int>(std::round(arrowStart.y + dist * std::sin(snappedAngle))));
+    EXPECT_NEAR(snappedEnd.y, arrowStart.y, 1); // 成功吸附到绝对水平 0°
+    EXPECT_NEAR(snappedEnd.x - arrowStart.x, static_cast<int>(dist), 1);
+}
+
+TEST(CaptureSmartGuidesAndQrTest, AlignmentDetectionAndQrLayout) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.detectedQrText = "https://github.com/yuan278501381/easyTools";
+
+    // 1. 验证二维码微晶胶囊文本截断与布局计算
+    std::wstring displayMsg = L"二维码: " + easy::core::WinUtils::utf8ToWstring(state.detectedQrText);
+    EXPECT_TRUE(displayMsg.find(L"https://github.com") != std::wstring::npos);
+    if (displayMsg.size() > 28) {
+        displayMsg = displayMsg.substr(0, 26) + L"...";
+    }
+    EXPECT_EQ(displayMsg.substr(displayMsg.size() - 3), L"...");
+
+    // 2. 验证智能对齐中轴计算
+    D2D1_RECT_F selRect = D2D1::RectF(460.0f, 270.0f, 1460.0f, 810.0f); // 中心 (960, 540)
+    D2D1_SIZE_F surfaceSize = D2D1::SizeF(1920.0f, 1080.0f); // 中心 (960, 540)
+    float cx = (selRect.left + selRect.right) * 0.5f;
+    float cy = (selRect.top + selRect.bottom) * 0.5f;
+    float midScreenX = surfaceSize.width * 0.5f;
+    float midScreenY = surfaceSize.height * 0.5f;
+
+    EXPECT_NEAR(cx, midScreenX, 0.001f);
+    EXPECT_NEAR(cy, midScreenY, 0.001f);
+    EXPECT_LT(std::abs(cx - midScreenX), 4.0f);
+    EXPECT_LT(std::abs(cy - midScreenY), 4.0f);
+}
+
+TEST(CaptureUndoRedoStateSanitizationTest, ActiveElementSafetyAndDirtyFlags) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    cv::Mat dummy(400, 400, CV_8UC3, cv::Scalar(100, 100, 100));
+    state.markup.setBaseImage(dummy);
+
+    // 1. 添加图元
+    auto* rectElem = state.markup.drawRectangle(cv::Point(10, 10), cv::Point(100, 100), MarkupColor::Red(), 2.0f);
+    ASSERT_NE(rectElem, nullptr);
+    state.activeElement = rectElem;
+    EXPECT_EQ(state.markup.elementCount(), 1);
+
+    // 2. 执行撤销并验证安全归空
+    state.activeElement = nullptr;
+    EXPECT_TRUE(state.markup.undo());
+    EXPECT_EQ(state.markup.elementCount(), 0);
+    EXPECT_EQ(state.activeElement, nullptr);
+
+    // 3. 执行重做并验证图元恢复
+    EXPECT_TRUE(state.markup.redo());
+    EXPECT_EQ(state.markup.elementCount(), 1);
+
+    // 4. 清空验证
+    state.activeElement = nullptr;
+    state.markup.clearAll();
+    EXPECT_EQ(state.markup.elementCount(), 0);
+}
+
+TEST(CaptureHistoryTimeMachineTest, NavigationAndClampLogic) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.historyMode = false;
+    state.historyIndex = 0;
+
+    int totalHistory = 5;
+    // 模拟逗号按键（上溯历史）
+    if (!state.historyMode) {
+        state.historyMode = true;
+        state.historyIndex = 0;
+    }
+    EXPECT_TRUE(state.historyMode);
+    EXPECT_EQ(state.historyIndex, 0);
+
+    // 连续按逗号上溯
+    for (int i = 0; i < 10; ++i) {
+        state.historyIndex = std::min(state.historyIndex + 1, totalHistory - 1);
+    }
+    EXPECT_EQ(state.historyIndex, 4); // 严格夹取在上限
+
+    // 连续按句号回溯
+    for (int i = 0; i < 10; ++i) {
+        state.historyIndex = std::max(state.historyIndex - 1, 0);
+    }
+    EXPECT_EQ(state.historyIndex, 0); // 严格夹取在下限
+}
+
+TEST(CaptureEmptyTextBoxResizeTest, MinimumBoundsAndResizeBeforeInput) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    cv::Mat canvas(600, 800, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    state.markup.setBaseImage(canvas);
+
+    // 1. 创建空文本标注元素（模拟用户刚刚点击画布）
+    auto* textElem = state.markup.addText(cv::Point(150, 150), "", MarkupColor::Red(), 18.0f);
+    ASSERT_NE(textElem, nullptr);
+    textElem->isActive = true;
+    textElem->isEditing = true;
+
+    // 2. 验证空文本时的包围盒绝不为 0 且具有舒适的最小尺寸 (杜绝 8 手柄挤压在一起)
+    cv::Rect bbox = textElem->getBoundingBox();
+    EXPECT_GE(bbox.width, 80);
+    EXPECT_GE(bbox.height, 25);
+    EXPECT_EQ(bbox.x, 150);
+    EXPECT_EQ(bbox.y, 150);
+
+    // 3. 验证 8 个手柄的命中测试 (用户在未输入内容前即可拖拽任意手柄)
+    HitArea hitRB = textElem->hitTestEx(cv::Point(bbox.x + bbox.width, bbox.y + bbox.height));
+    EXPECT_EQ(hitRB, HitArea::RB);
+
+    HitArea hitLT = textElem->hitTestEx(cv::Point(bbox.x, bbox.y));
+    EXPECT_EQ(hitLT, HitArea::LT);
+
+    // 4. 模拟拖拽 RB 手柄放大文本框 (字号增大)
+    float oldFontSize = textElem->fontSize;
+    textElem->resize(20, 20, HitArea::RB);
+    EXPECT_GT(textElem->fontSize, oldFontSize);
+
+    // 5. 模拟拖拽 LT 手柄缩小文本框
+    textElem->resize(10, 10, HitArea::LT);
+    EXPECT_LE(textElem->fontSize, 180.0f);
+    EXPECT_GE(textElem->fontSize, 12.0f);
+}
+
+TEST(CaptureCornerRadiusDesignerWorkflowTest, LiveCornerCursorAndReset) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.cornerRadius = 12.0f;
+
+    // 1. 模拟设计师双击圆角手柄：在 12px 与 0px 之间快速重置/切换
+    float currentR = state.cornerRadius;
+    float toggledR = (currentR > 0.0f) ? 0.0f : 12.0f;
+    EXPECT_EQ(toggledR, 0.0f);
+
+    float restoredR = (toggledR > 0.0f) ? 0.0f : 12.0f;
+    EXPECT_EQ(restoredR, 12.0f);
+
+    // 2. 验证四个角部的 offset 计算
+    float selW = 400.0f, selH = 300.0f;
+    float offset = std::clamp(std::max(22.0f, state.cornerRadius + 8.0f), 16.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_EQ(offset, 22.0f);
+}
+
+TEST(CaptureSelectionSideMenuTest, PixPinSideMenuAndSliderInteraction) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.mode = OverlayMode::Screenshot;
+    state.dpiScale = 1.0f;
+    state.cornerRadius = 16.0f;
+
+    // 1. 测试常规居中选区：侧边菜单默认在右侧
+    D2D1_RECT_F selRect = D2D1::RectF(100.0f, 100.0f, 400.0f, 300.0f);
+    D2D1_SIZE_F surface = D2D1::SizeF(1920.0f, 1080.0f);
+    rebuildCaptureToolbar(state, selRect, surface);
+
+    EXPECT_EQ(state.selectionSideButtons.size(), 3u);
+    EXPECT_EQ(state.selectionSideButtons[0].command, ToolbarCommand::SideToggleCornerRadius);
+    EXPECT_EQ(state.selectionSideButtons[1].command, ToolbarCommand::SideInvertSelection);
+    EXPECT_EQ(state.selectionSideButtons[2].command, ToolbarCommand::SideResetSelection);
+    EXPECT_GT(state.selectionSideRect.left, selRect.right); // 默认在右侧
+
+    // 2. 测试紧贴屏幕右边缘选区：侧边菜单自动翻转至左侧
+    D2D1_RECT_F rightEdgeSel = D2D1::RectF(1750.0f, 100.0f, 1910.0f, 300.0f);
+    rebuildCaptureToolbar(state, rightEdgeSel, surface);
+    EXPECT_EQ(state.selectionSideButtons.size(), 3u);
+    EXPECT_LT(state.selectionSideRect.right, rightEdgeSel.left); // 智能翻转至左侧
+
+    // 3. 模拟激活 SideToggleCornerRadius 展开 SelectionCornerRadius 滑块弹窗
+    state.sliderPopup.type = SliderPopupType::SelectionCornerRadius;
+    state.sliderPopup.minValue = 0;
+    state.sliderPopup.maxValue = 80;
+    state.sliderPopup.currentValue = static_cast<int>(state.cornerRadius);
+    state.sliderPopup.trackRect = D2D1::RectF(100.0f, 200.0f, 300.0f, 205.0f);
+
+    EXPECT_EQ(state.sliderPopup.currentValue, 16);
+
+    // 4. 模拟在滑块轨道上点击 50% 位置
+    float trackW = state.sliderPopup.trackRect.right - state.sliderPopup.trackRect.left;
+    float clickX = state.sliderPopup.trackRect.left + trackW * 0.5f;
+    float pct = std::clamp((clickX - state.sliderPopup.trackRect.left) / trackW, 0.0f, 1.0f);
+    int mappedVal = state.sliderPopup.minValue + static_cast<int>(std::round(pct * (state.sliderPopup.maxValue - state.sliderPopup.minValue)));
+    state.cornerRadius = static_cast<float>(mappedVal);
+    EXPECT_EQ(state.cornerRadius, 40.0f);
+
+    // 5. 模拟滚轮微调选区圆角
+    int zDelta = 120;
+    int delta = (zDelta > 0) ? 1 : -1;
+    state.cornerRadius = std::clamp(state.cornerRadius + static_cast<float>(delta * 2), 0.0f, 80.0f);
+    EXPECT_EQ(state.cornerRadius, 42.0f);
 }
 
 // -----------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // RecordingIndicator.cpp — 录制状态指示器实现
 //
 // 外观:
@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "capture/RecordingIndicator.h"
+#include "capture/CaptureVectorIcons.h"
 #include "capture/ScreenRecorder.h"
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
@@ -278,31 +279,34 @@ void RecordingIndicator::render() {
                              m_textBrush.Get());
 
     // 系统声/麦克风双通道实时电平。静音时保留暗色轨道，让用户仍能确认音轨已启用。
-    const auto drawMeter = [&](const RECT& rect, const wchar_t* label,
+    const auto drawMeter = [&](const RECT& rect, CaptureIconId iconId,
                                float peak, bool active, bool muted) {
         if (!active) return;
         const auto bounds = D2D1::RoundedRect(
             D2D1::RectF(static_cast<float>(rect.left), static_cast<float>(rect.top),
-                         static_cast<float>(rect.right), static_cast<float>(rect.bottom)), 4, 4);
+                         static_cast<float>(rect.right), static_cast<float>(rect.bottom)), 4.0f, 4.0f);
         m_renderTarget->FillRoundedRectangle(bounds, muted ? m_redDotBrush.Get() : m_btnBrush.Get());
-        m_renderTarget->DrawText(label, 1, m_btnTextFormat.Get(),
-            D2D1::RectF(static_cast<float>(rect.left), static_cast<float>(rect.top),
-                         static_cast<float>(rect.right - 6), static_cast<float>(rect.bottom)),
-            m_textBrush.Get());
+        
+        // 纯矢量麦克风/扬声器图标
+        D2D1_RECT_F iconRect = D2D1::RectF(
+            static_cast<float>(rect.left + 2), static_cast<float>(rect.top + 2),
+            static_cast<float>(rect.right - 8), static_cast<float>(rect.bottom - 2));
+        CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), iconId, iconRect, m_textBrush.Get(), 1.0f);
+
         const float normalized = std::clamp(peak, 0.0f, 1.0f);
         if (!muted && normalized > 0.005f) {
             const auto fill = D2D1::RoundedRect(
                 D2D1::RectF(static_cast<float>(rect.right - 5),
                              static_cast<float>(rect.bottom - 3) - normalized * 22,
                              static_cast<float>(rect.right - 2),
-                             static_cast<float>(rect.bottom - 3)), 2, 2);
+                             static_cast<float>(rect.bottom - 3)), 2.0f, 2.0f);
             m_renderTarget->FillRoundedRectangle(fill, m_audioBrush.Get());
         }
     };
     if (!m_countingDown) {
-        drawMeter(m_systemAudioBtn, L"S", m_systemAudioPeak,
+        drawMeter(m_systemAudioBtn, CaptureIconId::ActionToggleSpeaker, m_systemAudioPeak,
                   m_systemAudioActive, m_systemAudioMuted);
-        drawMeter(m_microphoneBtn, L"M", m_microphonePeak,
+        drawMeter(m_microphoneBtn, CaptureIconId::ActionToggleMic, m_microphonePeak,
                   m_microphoneActive, m_microphoneMuted);
     }
 
@@ -314,25 +318,26 @@ void RecordingIndicator::render() {
             4.0f, 4.0f
         );
         m_renderTarget->FillRoundedRectangle(pauseRect, m_btnBrush.Get());
-        std::wstring pauseIcon = m_paused ? L"▶" : L"⏸";
-        m_renderTarget->DrawText(pauseIcon.c_str(), static_cast<UINT32>(pauseIcon.size()),
-                                 m_btnTextFormat.Get(),
-                                 D2D1::RectF(static_cast<float>(m_pauseBtn.left), static_cast<float>(m_pauseBtn.top),
-                                             static_cast<float>(m_pauseBtn.right), static_cast<float>(m_pauseBtn.bottom)),
-                                 m_textBrush.Get());
+        D2D1_RECT_F pIconRect = D2D1::RectF(
+            static_cast<float>(m_pauseBtn.left + 2), static_cast<float>(m_pauseBtn.top + 2),
+            static_cast<float>(m_pauseBtn.right - 2), static_cast<float>(m_pauseBtn.bottom - 2));
+        CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+            m_paused ? CaptureIconId::ActionRecordStart : CaptureIconId::ActionRecordPause,
+            pIconRect, m_textBrush.Get(), 1.0f);
     }
 
-    // 停止按钮
+    // 停止按钮 (高亮正红底 + 实心纯白方块)
     D2D1_ROUNDED_RECT stopRect = D2D1::RoundedRect(
         D2D1::RectF(static_cast<float>(m_stopBtn.left), static_cast<float>(m_stopBtn.top),
                      static_cast<float>(m_stopBtn.right), static_cast<float>(m_stopBtn.bottom)),
         4.0f, 4.0f
     );
     m_renderTarget->FillRoundedRectangle(stopRect, m_redDotBrush.Get());
-    m_renderTarget->DrawText(L"⏹", 1, m_btnTextFormat.Get(),
-                             D2D1::RectF(static_cast<float>(m_stopBtn.left), static_cast<float>(m_stopBtn.top),
-                                         static_cast<float>(m_stopBtn.right), static_cast<float>(m_stopBtn.bottom)),
-                             m_textBrush.Get());
+    D2D1_RECT_F sIconRect = D2D1::RectF(
+        static_cast<float>(m_stopBtn.left + 2), static_cast<float>(m_stopBtn.top + 2),
+        static_cast<float>(m_stopBtn.right - 2), static_cast<float>(m_stopBtn.bottom - 2));
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+        CaptureIconId::ActionRecordStop, sIconRect, m_textBrush.Get(), 1.0f);
 
     m_renderTarget->EndDraw();
 }

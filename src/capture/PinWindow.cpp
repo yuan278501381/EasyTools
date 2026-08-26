@@ -9,6 +9,7 @@
 
 #include "capture/PinWindow.h"
 #include "capture/CaptureOverlay.h"
+#include "capture/CaptureVectorIcons.h"
 #include "core/events/EventBus.h"
 #include "core/logger/Logger.h"
 #include "core/config/ConfigManager.h"
@@ -247,42 +248,21 @@ void PinWindow::drawHoverToolbar() {
     if (m_hoverSave && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnSaveRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     if (m_hoverClose && btnHoverBrush) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(m_btnCloseRect, 4.0f * dpiScale, 4.0f * dpiScale), btnHoverBrush.Get());
     
-    const float stroke = 1.3f * dpiScale;
+    // 1. Edit 图标 (Lucide: Pen)
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+        CaptureIconId::ToolPen, m_btnEditRect, textBrush.Get(), dpiScale);
 
-    // 1. Edit 图标 (铅笔斜画)
-    if (textBrush) {
-        float ex = m_btnEditRect.left + btnW / 2.0f;
-        float ey = m_btnEditRect.top + btnH / 2.0f;
-        m_renderTarget->DrawLine(D2D1::Point2F(ex - 4.0f * dpiScale, ey + 4.0f * dpiScale), D2D1::Point2F(ex + 4.0f * dpiScale, ey - 4.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(ex - 5.0f * dpiScale, ey + 5.0f * dpiScale), D2D1::Point2F(ex - 4.0f * dpiScale, ey + 4.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(ex + 3.0f * dpiScale, ey - 5.0f * dpiScale), D2D1::Point2F(ex + 5.0f * dpiScale, ey - 3.0f * dpiScale), textBrush.Get(), stroke);
-    }
-
-    // 2. Copy 图标 (两个重叠矩形)
-    if (textBrush) {
-        float cx = m_btnCopyRect.left + btnW / 2.0f;
-        float cy = m_btnCopyRect.top + btnH / 2.0f;
-        m_renderTarget->DrawRectangle(D2D1::RectF(cx - 4.0f * dpiScale, cy - 2.0f * dpiScale, cx + 2.0f * dpiScale, cy + 5.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawRectangle(D2D1::RectF(cx - 1.0f * dpiScale, cy - 5.0f * dpiScale, cx + 5.0f * dpiScale, cy + 2.0f * dpiScale), textBrush.Get(), stroke);
-    }
+    // 2. Copy 图标 (Lucide: Copy)
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+        CaptureIconId::ActionCopy, m_btnCopyRect, textBrush.Get(), dpiScale);
     
-    // 3. Save 图标 (下箭头 + 底线)
-    if (textBrush) {
-        float sx = m_btnSaveRect.left + btnW / 2.0f;
-        float sy = m_btnSaveRect.top + btnH / 2.0f;
-        m_renderTarget->DrawLine(D2D1::Point2F(sx, sy - 5.0f * dpiScale), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx + 3.0f * dpiScale, sy), D2D1::Point2F(sx, sy + 2.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(sx - 5.0f * dpiScale, sy + 5.0f * dpiScale), D2D1::Point2F(sx + 5.0f * dpiScale, sy + 5.0f * dpiScale), textBrush.Get(), stroke);
-    }
+    // 3. Save 图标 (Lucide: Download)
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+        CaptureIconId::ActionSave, m_btnSaveRect, textBrush.Get(), dpiScale);
     
-    // 4. Close 图标 (X)
-    if (textBrush) {
-        float clx = m_btnCloseRect.left + btnW / 2.0f;
-        float cly = m_btnCloseRect.top + btnH / 2.0f;
-        m_renderTarget->DrawLine(D2D1::Point2F(clx - 4.0f * dpiScale, cly - 4.0f * dpiScale), D2D1::Point2F(clx + 4.0f * dpiScale, cly + 4.0f * dpiScale), textBrush.Get(), stroke);
-        m_renderTarget->DrawLine(D2D1::Point2F(clx - 4.0f * dpiScale, cly + 4.0f * dpiScale), D2D1::Point2F(clx + 4.0f * dpiScale, cly - 4.0f * dpiScale), textBrush.Get(), stroke);
-    }
+    // 4. Close 图标 (Lucide: X)
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+        CaptureIconId::ActionCancel, m_btnCloseRect, textBrush.Get(), dpiScale);
 }
 
 void PinWindow::setOpacity(float opacity) {
@@ -634,23 +614,39 @@ static cv::Mat renderColorSwatch(const cv::Scalar& bgr, const std::wstring& labe
     return img;
 }
 
-// 文本 → 卡片贴图（GDI DrawTextW 渲染，正确支持中文/Unicode）
+// 文本/代码 → Mac 极客风卡片贴图（含红黄绿三色窗口点、代码行号与深邃极客磨砂卡片）
 static cv::Mat renderTextToImage(const std::wstring& text) {
     HDC screen = GetDC(nullptr);
     HDC memdc = CreateCompatibleDC(screen);
 
-    HFONT font = CreateFontW(-20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // 智能检测是否为代码块（包含换行、花括号、缩进、常见代码关键字）
+    bool isCode = (text.find(L'\n') != std::wstring::npos) ||
+                  (text.find(L'{') != std::wstring::npos) ||
+                  (text.find(L"def ") != std::wstring::npos) ||
+                  (text.find(L"const ") != std::wstring::npos) ||
+                  (text.find(L"function") != std::wstring::npos) ||
+                  (text.find(L"#include") != std::wstring::npos) ||
+                  (text.find(L"import ") != std::wstring::npos) ||
+                  (text.find(L"class ") != std::wstring::npos);
+
+    LPCWSTR fontFace = isCode ? L"Cascadia Code" : L"Segoe UI Variable Text";
+    HFONT font = CreateFontW(-19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, fontFace);
     HGDIOBJ oldFont = SelectObject(memdc, font);
 
-    const int pad = 16, maxW = 600;
+    const int headerH = 28;     // 顶部 Mac 窗口控制栏高度
+    const int padX = 18;        // 水平内边距
+    const int padY = 14;        // 垂直内边距
+    const int maxW = 720;
+    
     RECT rc{0, 0, maxW, 0};
     DrawTextW(memdc, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-    int w = std::min<LONG>(rc.right, maxW) + pad * 2;
-    int h = rc.bottom + pad * 2;
-    w = std::clamp(w, 48, maxW + pad * 2);
-    h = std::clamp(h, 40, 2000);
+    int contentW = std::min<LONG>(rc.right, maxW);
+    int contentH = rc.bottom;
+
+    int w = std::clamp(contentW + padX * 2 + 10, 160, maxW + padX * 2);
+    int h = std::clamp(headerH + contentH + padY * 2, 64, 2400);
 
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -665,19 +661,60 @@ static cv::Mat renderTextToImage(const std::wstring& text) {
     cv::Mat result;
     if (dib && bits) {
         HGDIOBJ oldBm = SelectObject(memdc, dib);
+        
+        // 1. 卡片深邃背景 (#18181B - Zinc 900)
         RECT full{0, 0, w, h};
-        HBRUSH bg = CreateSolidBrush(RGB(30, 30, 34));
+        HBRUSH bg = CreateSolidBrush(RGB(24, 24, 27));
         FillRect(memdc, &full, bg);
         DeleteObject(bg);
 
+        // 2. 顶部 Mac 红黄绿三色微圆点 (10px 直径)
+        HBRUSH redDot = CreateSolidBrush(RGB(255, 95, 86));
+        HBRUSH yellowDot = CreateSolidBrush(RGB(255, 189, 46));
+        HBRUSH greenDot = CreateSolidBrush(RGB(39, 201, 63));
+        HPEN nullPen = CreatePen(PS_NULL, 0, 0);
+        HGDIOBJ oldPen = SelectObject(memdc, nullPen);
+
+        SelectObject(memdc, redDot);
+        Ellipse(memdc, 14, 10, 24, 20);
+        SelectObject(memdc, yellowDot);
+        Ellipse(memdc, 30, 10, 40, 20);
+        SelectObject(memdc, greenDot);
+        Ellipse(memdc, 46, 10, 56, 20);
+
+        DeleteObject(redDot);
+        DeleteObject(yellowDot);
+        DeleteObject(greenDot);
+
+        // 3. 顶部微弱分割线 (#27272A)
+        HPEN divPen = CreatePen(PS_SOLID, 1, RGB(39, 39, 42));
+        SelectObject(memdc, divPen);
+        MoveToEx(memdc, 0, headerH, nullptr);
+        LineTo(memdc, w, headerH);
+        DeleteObject(divPen);
+
+        // 4. 外边框微高光 (#3F3F46)
+        HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(63, 63, 70));
+        SelectObject(memdc, borderPen);
+        MoveToEx(memdc, 0, 0, nullptr);
+        LineTo(memdc, w - 1, 0);
+        LineTo(memdc, w - 1, h - 1);
+        LineTo(memdc, 0, h - 1);
+        LineTo(memdc, 0, 0);
+        DeleteObject(borderPen);
+
+        SelectObject(memdc, oldPen);
+        DeleteObject(nullPen);
+
+        // 5. 文本与代码渲染
         SetBkMode(memdc, TRANSPARENT);
-        SetTextColor(memdc, RGB(238, 238, 238));
-        RECT tr{pad, pad, w - pad, h - pad};
+        SetTextColor(memdc, RGB(244, 244, 245));
+        RECT tr{padX, headerH + padY, w - padX, h - padY};
         DrawTextW(memdc, text.c_str(), -1, &tr, DT_WORDBREAK | DT_NOPREFIX);
         GdiFlush();
 
         cv::Mat bgra(h, w, CV_8UC4, bits);
-        cv::cvtColor(bgra, result, cv::COLOR_BGRA2BGR);  // 输出独立内存，DIB 释放后仍有效
+        cv::cvtColor(bgra, result, cv::COLOR_BGRA2BGR);  // 独立内存输出
 
         SelectObject(memdc, oldBm);
         DeleteObject(dib);

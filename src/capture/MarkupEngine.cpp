@@ -131,6 +131,14 @@ namespace {
         if (!fontFamily.IsAvailable()) {
             activeFamily = &fallbackFamily;
         }
+
+        if (wtext.empty()) {
+            // 空文本预留舒适编辑框尺寸 (支持用户在输入内容前拖拽 8 手柄调节大小)
+            int minW = static_cast<int>(std::max(90.0f, fontSize * 4.2f));
+            int minH = static_cast<int>(std::max(26.0f, fontSize * 1.4f));
+            return cv::Size(minW, minH);
+        }
+
         Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
         HDC hdc = GetDC(nullptr);
         Gdiplus::Graphics graphics(hdc);
@@ -143,7 +151,7 @@ namespace {
         return cv::Size(std::max(w, 24), std::max(h, fontSize + 8));
     }
 
-    void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, cv::Size& outSize) {
+    void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, bool withBackdrop, cv::Size& outSize) {
         std::wstring wtext = utf8ToWide(text);
         if (wtext.empty() && !isEditing) {
             outSize = cv::Size(0, 0);
@@ -182,6 +190,20 @@ namespace {
             float textX = 4.0f;
             float textY = 3.0f;
 
+            if (withBackdrop) {
+                Gdiplus::SolidBrush bgBrush(luminance > 0.45f ? Gdiplus::Color(210, 15, 23, 42) : Gdiplus::Color(210, 255, 255, 255));
+                Gdiplus::GraphicsPath bgPath;
+                float padX = 2.0f, padY = 1.0f;
+                float r = 4.0f;
+                float bx = textX - padX, by = textY - padY, bw = sz.width - 4.0f, bh = sz.height - 2.0f;
+                bgPath.AddArc(bx, by, r * 2, r * 2, 180, 90);
+                bgPath.AddArc(bx + bw - r * 2, by, r * 2, r * 2, 270, 90);
+                bgPath.AddArc(bx + bw - r * 2, by + bh - r * 2, r * 2, r * 2, 0, 90);
+                bgPath.AddArc(bx, by + bh - r * 2, r * 2, r * 2, 90, 90);
+                bgPath.CloseFigure();
+                g.FillPath(&bgBrush, &bgPath);
+            }
+
             if (!wtext.empty()) {
                 Gdiplus::GraphicsPath textPath;
                 textPath.AddString(wtext.c_str(), -1, activeFamily, Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::PointF(textX, textY), &format);
@@ -195,13 +217,18 @@ namespace {
                 // 正文矢量文字填充
                 Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
                 g.FillPath(&textBrush, &textPath);
+            } else if (isEditing) {
+                // 空文本编辑态：绘制柔和的极细占位微虚线边框
+                Gdiplus::Pen dashPen(Gdiplus::Color(120, 59, 130, 246), 1.0f);
+                dashPen.SetDashStyle(Gdiplus::DashStyleDash);
+                g.DrawRectangle(&dashPen, textX, textY, static_cast<float>(sz.width - 8), static_cast<float>(sz.height - 6));
             }
 
             // 2. 编辑态光标绘制
             if (isEditing) {
                 bool showCursor = ((GetTickCount() / 450) % 2 == 0) || wtext.empty();
                 if (showCursor) {
-                    float cursorX = textX + 1.0f;
+                    float cursorX = textX + 2.0f;
                     if (!wtext.empty()) {
                         Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
                         Gdiplus::RectF measured;
@@ -209,7 +236,7 @@ namespace {
                         cursorX = textX + measured.Width + 2.0f;
                     }
                     Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
-                    g.DrawLine(&cursorPen, cursorX, textY + 1.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
+                    g.DrawLine(&cursorPen, cursorX, textY + 2.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
                 }
             }
         }
@@ -218,7 +245,7 @@ namespace {
         blendOverlay(canvas, textMat, pt.x, pt.y);
     }
 
-    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, float dpiScale = 1.0f) {
+    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, bool fill = true, float dpiScale = 1.0f) {
         float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
         int radius = static_cast<int>(std::round(15.0f * scale));
         int sz = radius * 2 + static_cast<int>(std::round(10.0f * scale));
@@ -232,20 +259,28 @@ namespace {
             float cx = sz / 2.0f;
             float cy = sz / 2.0f;
 
-            // 1. 柔和外层投影
-            Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
-            g.FillEllipse(&shadowBrush, cx - radius + 1.5f * scale, cy - radius + 2.5f * scale, radius * 2.0f, radius * 2.0f);
-
-            // 2. 主题色彩圆盘
             BYTE rVal = static_cast<BYTE>(color[2]);
             BYTE gVal = static_cast<BYTE>(color[1]);
             BYTE bVal = static_cast<BYTE>(color[0]);
-            Gdiplus::SolidBrush circleBrush(Gdiplus::Color(255, rVal, gVal, bVal));
-            g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
 
-            // 3. 1.5px 白色高光内圈
-            Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f * scale);
-            g.DrawEllipse(&ringPen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            if (fill) {
+                // 1. 实心模式：柔和外层投影 + 主题色彩圆盘 + 1.5px 白色高光内圈
+                Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
+                g.FillEllipse(&shadowBrush, cx - radius + 1.5f * scale, cy - radius + 2.5f * scale, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::SolidBrush circleBrush(Gdiplus::Color(255, rVal, gVal, bVal));
+                g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f * scale);
+                g.DrawEllipse(&ringPen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            } else {
+                // 2. 空心模式：半透明纯白底 + 主题色彩外环
+                Gdiplus::SolidBrush bgBrush(Gdiplus::Color(230, 255, 255, 255));
+                g.FillEllipse(&bgBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::Pen outlinePen(Gdiplus::Color(255, rVal, gVal, bVal), 2.2f * scale);
+                g.DrawEllipse(&outlinePen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            }
 
             // 4. 数字矢量排版
             std::wstring numWStr = std::to_wstring(number);
@@ -257,7 +292,7 @@ namespace {
             format.SetAlignment(Gdiplus::StringAlignmentCenter);
             format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
-            Gdiplus::SolidBrush numBrush(Gdiplus::Color(255, 255, 255, 255));
+            Gdiplus::SolidBrush numBrush(fill ? Gdiplus::Color(255, 255, 255, 255) : Gdiplus::Color(255, rVal, gVal, bVal));
             Gdiplus::RectF layoutRect(cx - radius, cy - radius - 0.5f * scale, radius * 2.0f, radius * 2.0f);
             g.DrawString(numWStr.c_str(), -1, &font, layoutRect, &format, &numBrush);
         }
@@ -341,11 +376,15 @@ cv::Rect MarkupElement::getBoundingBox() const {
             return cv::Rect(cx - rx, cy - ry, rx * 2, ry * 2);
         }
         case MarkupTool::Text: {
-            if (textRenderSize.width == 0) {
+            if (textRenderSize.width <= 0 || textRenderSize.height <= 0) {
                 std::wstring wtext = utf8ToWide(text);
                 const_cast<MarkupElement*>(this)->textRenderSize = measureSnipasteText(wtext, static_cast<int>(fontSize));
             }
-            return cv::Rect(startPt.x, startPt.y, textRenderSize.width, textRenderSize.height);
+            int bw = textRenderSize.width;
+            int bh = textRenderSize.height;
+            if (bw < 80) bw = static_cast<int>(std::max(80.0f, fontSize * 4.0f));
+            if (bh < static_cast<int>(fontSize * 1.3f)) bh = static_cast<int>(std::max(26.0f, fontSize * 1.3f));
+            return cv::Rect(startPt.x, startPt.y, bw, bh);
         }
         case MarkupTool::Magnifier: {
             return cv::Rect(startPt.x - magnifierRadius, startPt.y - magnifierRadius, magnifierRadius * 2, magnifierRadius * 2);
@@ -855,13 +894,13 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
 
         case MarkupTool::Text: {
             cv::Size renderedSize(0, 0);
-            renderSnipasteStyleText(canvas, element.text, element.startPt, color, static_cast<int>(element.fontSize), element.isEditing, renderedSize);
+            renderSnipasteStyleText(canvas, element.text, element.startPt, color, static_cast<int>(element.fontSize), element.isEditing, element.fill, renderedSize);
             const_cast<MarkupElement*>(&element)->textRenderSize = renderedSize;
             break;
         }
 
         case MarkupTool::Number: {
-            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color, element.dpiScale);
+            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color, element.fill, element.dpiScale);
             break;
         }
 

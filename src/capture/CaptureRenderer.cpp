@@ -1,4 +1,5 @@
 #include "capture/CaptureRenderer.h"
+#include "capture/CaptureVectorIcons.h"
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
@@ -52,6 +53,9 @@ static std::wstring tooltipForButton(const ToolbarButton& button, bool chinese) 
         case ToolbarCommand::Redo: return chinese ? L"重做 (Ctrl+Y)" : L"Redo (Ctrl+Y)";
         case ToolbarCommand::Clear: return chinese ? L"清空所有标注" : L"Clear all annotations";
         case ToolbarCommand::ToggleCornerRadius: return chinese ? L"调节选区圆角 ([ / ])" : L"Corner radius ([ / ])";
+        case ToolbarCommand::SideToggleCornerRadius: return chinese ? L"调节选区圆角半径" : L"Selection Corner Radius";
+        case ToolbarCommand::SideInvertSelection: return chinese ? L"反向选择 / 选区扩展" : L"Invert Selection";
+        case ToolbarCommand::SideResetSelection: return chinese ? L"重置选区直角 (0px)" : L"Reset Corner Radius";
         case ToolbarCommand::ExtractText: return chinese ? L"提取文字 (OCR)" : L"Extract text (OCR)";
         case ToolbarCommand::PinWindow: return chinese ? L"贴图置顶 (Ctrl+T)" : L"Pin to screen (Ctrl+T)";
         case ToolbarCommand::ScrollCapture: return chinese ? L"长截图" : L"Scrolling capture";
@@ -431,11 +435,11 @@ void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state
         m_renderTarget->DrawEllipse(ellipse, m_borderBrush.Get(), 1.5f * scale);
     }
 
-    // 3. Figma / PixPin 级内侧圆角调节手柄（默认隐藏，鼠标靠近拐角或拖拽时仅显示靠近的那 1 个）
+    // 3. Figma / PixPin 级内侧圆角调节手柄（小选区内部彻底隐藏手柄，避免遮挡微型内容，改由外部工具栏调节）
     float selW = rect.right - rect.left;
     float selH = rect.bottom - rect.top;
-    if (selW >= 40.0f * scale && selH >= 40.0f * scale) {
-        float offset = std::clamp(std::max(14.0f, state.cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f) * scale;
+    if (selW >= 110.0f * scale && selH >= 110.0f * scale) {
+        float offset = std::clamp(std::max(22.0f, state.cornerRadius + 8.0f), 16.0f, std::min(selW, selH) * 0.40f) * scale;
         D2D1_POINT_2F cornerPts[4] = {
             {rect.left + offset,  rect.top + offset},
             {rect.right - offset, rect.top + offset},
@@ -443,24 +447,27 @@ void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state
             {rect.left + offset,  rect.bottom - offset}
         };
 
-        // 判定鼠标是否靠近 4 个角部的某一个（检测阈值 36px）
+        // 判定鼠标是否靠近角部（小选区自适应收敛为单一左上角主手柄，彻底杜绝临界跳动）
         const float triggerDist = 36.0f * scale;
         bool shouldShowCornerHandle = state.isAdjustingCornerRadius;
         int activeCornerIdx = -1;
+        bool isSmallBox = (selW < 130.0f * scale || selH < 130.0f * scale);
+        int checkCount = isSmallBox ? 1 : 4;
 
         if (state.isAdjustingCornerRadius) {
             float minD = 999999.0f;
-            for (int i = 0; i < 4; ++i) {
+            for (int i = 0; i < checkCount; ++i) {
                 float d = std::hypot(state.cornerDragStartPos.x - cornerPts[i].x, state.cornerDragStartPos.y - cornerPts[i].y);
                 if (d < minD) { minD = d; activeCornerIdx = i; }
             }
         } else {
-            for (int i = 0; i < 4; ++i) {
+            float minD = 999999.0f;
+            for (int i = 0; i < checkCount; ++i) {
                 float d = std::hypot(state.currentCursor.x - cornerPts[i].x, state.currentCursor.y - cornerPts[i].y);
-                if (d <= triggerDist) {
+                if (d <= triggerDist && d < minD) {
+                    minD = d;
                     shouldShowCornerHandle = true;
                     activeCornerIdx = i;
-                    break;
                 }
             }
         }
@@ -470,33 +477,88 @@ void CaptureRenderer::drawSelection(const D2D1_RECT_F& rect, CaptureState& state
             ComPtr<ID2D1SolidColorBrush> cornerRingBrush;
             m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.90f), cornerRingBrush.GetAddressOf());
 
-            float outerRingRadius = (state.isAdjustingCornerRadius ? 5.2f : 4.2f) * scale;
-            float innerDotRadius = (state.isAdjustingCornerRadius ? 1.8f : 1.4f) * scale;
+            float outerRingRadius = (state.isAdjustingCornerRadius ? 5.0f : 4.0f) * scale;
+            float innerDotRadius = (state.isAdjustingCornerRadius ? 1.7f : 1.3f) * scale;
 
             const auto& cpt = cornerPts[activeCornerIdx];
-            // 外圈细光环
+
+            // 绘制手柄对角双向推拉微导引轨与双向指示箭头 (↖ 减小直角 / ↘ 增大圆角)
+            // 根据所在角计算内向对角单位向量 (inDirX, inDirY)
+            float inDirX = (activeCornerIdx == 0 || activeCornerIdx == 3) ? 0.7071f : -0.7071f;
+            float inDirY = (activeCornerIdx == 0 || activeCornerIdx == 1) ? 0.7071f : -0.7071f;
+
+            ComPtr<ID2D1SolidColorBrush> guideLineBrush, guideArrowBrush;
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.74f, 0.97f, 0.75f), guideLineBrush.GetAddressOf()); // #38BDF8 发光青天蓝
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.01f, 0.52f, 0.78f, 0.95f), guideArrowBrush.GetAddressOf()); // #0284C7 科技蓝
+
+            float armDist = (state.isAdjustingCornerRadius ? 14.0f : 12.0f) * scale;
+
+            if (guideLineBrush && guideArrowBrush) {
+                // A. 严格物理对称的对角发光微导轨 (两端到中心黑点等长 armDist)
+                D2D1_POINT_2F pOut = { cpt.x - inDirX * armDist, cpt.y - inDirY * armDist };
+                D2D1_POINT_2F pIn  = { cpt.x + inDirX * armDist, cpt.y + inDirY * armDist };
+
+                // 导轨细线 (纯白半透明底衬 + 亮青色)
+                if (handleWhiteBrush) {
+                    m_renderTarget->DrawLine(pOut, pIn, handleWhiteBrush.Get(), 2.0f * scale);
+                }
+                m_renderTarget->DrawLine(pOut, pIn, guideLineBrush.Get(), 1.2f * scale);
+
+                // B. 外向指示箭头 (指向直角方向)
+                float arrLen = 4.0f * scale;
+                float perpX = -inDirY * arrLen * 0.7f;
+                float perpY =  inDirX * arrLen * 0.7f;
+                D2D1_POINT_2F aOut1 = { pOut.x + inDirX * arrLen + perpX, pOut.y + inDirY * arrLen + perpY };
+                D2D1_POINT_2F aOut2 = { pOut.x + inDirX * arrLen - perpX, pOut.y + inDirY * arrLen - perpY };
+                m_renderTarget->DrawLine(pOut, aOut1, guideArrowBrush.Get(), 1.4f * scale);
+                m_renderTarget->DrawLine(pOut, aOut2, guideArrowBrush.Get(), 1.4f * scale);
+
+                // C. 内向指示箭头 (指向圆角方向，与外向严格对称)
+                D2D1_POINT_2F aIn1 = { pIn.x - inDirX * arrLen + perpX, pIn.y - inDirY * arrLen + perpY };
+                D2D1_POINT_2F aIn2 = { pIn.x - inDirX * arrLen - perpX, pIn.y - inDirY * arrLen - perpY };
+                m_renderTarget->DrawLine(pIn, aIn1, guideArrowBrush.Get(), 1.4f * scale);
+                m_renderTarget->DrawLine(pIn, aIn2, guideArrowBrush.Get(), 1.4f * scale);
+            }
+
+            // 外圈细光环 (白底 + 蓝描边)
             auto outerEllipse = D2D1::Ellipse(cpt, outerRingRadius, outerRingRadius);
+            if (handleWhiteBrush) {
+                m_renderTarget->FillEllipse(outerEllipse, handleWhiteBrush.Get());
+            }
             if (cornerRingBrush) {
                 m_renderTarget->DrawEllipse(outerEllipse, cornerRingBrush.Get(), 1.0f * scale);
             }
-            m_renderTarget->DrawEllipse(outerEllipse, m_borderBrush.Get(), 0.8f * scale);
+            m_renderTarget->DrawEllipse(outerEllipse, m_borderBrush.Get(), 1.0f * scale);
 
-            // 中心纯白实心极细微圆点（小巧精致，不打扰心流）
+            // 中心极客黑曜石实心微圆点（精密高反差深黑点 #0F172A，小巧精致且与纯白外环形成强烈对比）
             auto innerEllipse = D2D1::Ellipse(cpt, innerDotRadius, innerDotRadius);
-            if (handleWhiteBrush) {
-                m_renderTarget->FillEllipse(innerEllipse, handleWhiteBrush.Get());
+            ComPtr<ID2D1SolidColorBrush> handleDarkDotBrush;
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.06f, 0.09f, 0.16f, 0.95f), handleDarkDotBrush.GetAddressOf());
+            if (handleDarkDotBrush) {
+                m_renderTarget->FillEllipse(innerEllipse, handleDarkDotBrush.Get());
             }
 
-            // 4. PixPin 同款实时圆角半径微胶囊 [ ╭ 42 ]
-            auto activePt = cornerPts[activeCornerIdx];
+            // 4. PixPin 同款实时圆角半径微胶囊 [ ╭ 42 ]（适度紧凑：留白减少一半，紧凑而绝不压叠）
             int radVal = static_cast<int>(std::round(state.cornerRadius));
             std::wstring rText = std::format(L"{}", radVal);
             float badgeW = (28.0f + rText.size() * 8.0f) * scale;
             float badgeH = 20.0f * scale;
             
-            // 胶囊位置根据所在角落智能避让
-            float bx = (activeCornerIdx == 0 || activeCornerIdx == 3) ? (activePt.x + 10.0f * scale) : (activePt.x - badgeW - 10.0f * scale);
-            float by = (activeCornerIdx == 0 || activeCornerIdx == 1) ? (activePt.y + 10.0f * scale) : (activePt.y - badgeH - 10.0f * scale);
+            // 严密计算几何距离：胶囊中心 = 手柄点 + inDir * (箭头臂长 + 胶囊自身半对角线 + 8px 紧凑留白)
+            float badgeHalfDiag = std::hypot(badgeW * 0.5f, badgeH * 0.5f);
+            float badgeDist = armDist + badgeHalfDiag + 8.0f * scale;
+            float bcX = cpt.x + inDirX * badgeDist;
+            float bcY = cpt.y + inDirY * badgeDist;
+            float bx = bcX - badgeW * 0.5f;
+            float by = bcY - badgeH * 0.5f;
+
+            // 智能选区边界保护：小选区下严防胶囊溢出或被裁切
+            float minBx = rect.left + 4.0f * scale;
+            float maxBx = rect.right - badgeW - 4.0f * scale;
+            float minBy = rect.top + 4.0f * scale;
+            float maxBy = rect.bottom - badgeH - 4.0f * scale;
+            if (minBx <= maxBx) bx = std::clamp(bx, minBx, maxBx);
+            if (minBy <= maxBy) by = std::clamp(by, minBy, maxBy);
 
             auto badgeRect = D2D1::RectF(bx, by, bx + badgeW, by + badgeH);
             auto badgeRounded = D2D1::RoundedRect(badgeRect, 4.0f * scale, 4.0f * scale);
@@ -771,6 +833,7 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
     ComPtr<ID2D1SolidColorBrush> activeBrush;
     ComPtr<ID2D1SolidColorBrush> activeBorderBrush;
     ComPtr<ID2D1SolidColorBrush> dangerHoverBrush;
+    ComPtr<ID2D1SolidColorBrush> confirmBrush;
     ComPtr<ID2D1SolidColorBrush> confirmHoverBrush;
     ComPtr<ID2D1SolidColorBrush> hoverBrush;
     ComPtr<ID2D1SolidColorBrush> iconBrush;
@@ -779,24 +842,37 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
     ComPtr<ID2D1SolidColorBrush> dangerIconBrush;
     ComPtr<ID2D1SolidColorBrush> tipTextBrush;
     ComPtr<ID2D1SolidColorBrush> secondaryActiveBrush;
+    ComPtr<ID2D1SolidColorBrush> separatorBrush;
 
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f), buttonBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f), hoverBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f), hoverBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.12f), activeBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.22f), secondaryActiveBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.20f), secondaryActiveBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 0.85f), activeBorderBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(themeRgb.r, themeRgb.g, themeRgb.b, 1.0f), activeIconBrush.GetAddressOf());
     
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.70f, 0.38f, 0.16f), confirmHoverBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.10f, 0.65f, 0.32f, 1.0f), confirmIconBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.22f, 0.22f, 0.12f), dangerHoverBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.88f, 0.20f, 0.20f, 1.0f), dangerIconBrush.GetAddressOf());
+    // 完成按钮：高亮品牌/翡翠绿实心药丸
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.06f, 0.72f, 0.44f, 0.95f), confirmBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.05f, 0.62f, 0.38f, 1.0f), confirmHoverBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), confirmIconBrush.GetAddressOf());
 
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.16f, 0.17f, 0.22f, 0.92f), iconBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.94f, 0.26f, 0.26f, 0.12f), dangerHoverBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.22f, 0.22f, 1.0f), dangerIconBrush.GetAddressOf());
+
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.22f, 0.27f, 0.95f), iconBrush.GetAddressOf());
     m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.15f, 0.95f), tipTextBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f), separatorBrush.GetAddressOf());
 
     auto drawButtonGroup = [&](const std::vector<ToolbarButton>& btnList) {
         for (const auto& button : btnList) {
+            // 绘制前置细腻分隔线
+            if (button.isSeparatorBefore && separatorBrush) {
+                float sepX = button.rect.left - 4.5f * scale;
+                float sepTop = button.rect.top + 5.0f * scale;
+                float sepBottom = button.rect.bottom - 5.0f * scale;
+                m_renderTarget->DrawLine(D2D1::Point2F(sepX, sepTop), D2D1::Point2F(sepX, sepBottom), separatorBrush.Get(), 1.0f);
+            }
+
             bool isTool = button.command == ToolbarCommand::SelectTool;
             bool isActiveTool = false;
             if (isTool) {
@@ -814,20 +890,26 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
             if (button.command == ToolbarCommand::ToggleFill) {
                 isActiveTool = state.currentFillMode;
             }
+            if (button.command == ToolbarCommand::SelectMosaicType) {
+                isActiveTool = (button.intParam == 0); // 默认像素马赛克激活
+            }
 
             bool isColor = button.command == ToolbarCommand::SelectColor;
-            bool isDanger = button.command == ToolbarCommand::Cancel || button.command == ToolbarCommand::Clear;
+            bool isDanger = button.command == ToolbarCommand::Cancel;
             bool isConfirm = button.command == ToolbarCommand::Confirm;
+            bool isStepper = (button.command == ToolbarCommand::CycleStrokeWidth ||
+                              button.command == ToolbarCommand::CycleElementCornerRadius ||
+                              button.command == ToolbarCommand::ToggleCornerRadius);
             bool isHovered = state.currentCursor.x >= button.rect.left && state.currentCursor.x <= button.rect.right &&
                              state.currentCursor.y >= button.rect.top  && state.currentCursor.y <= button.rect.bottom;
 
             auto rounded = D2D1::RoundedRect(button.rect, 6.0f * scale, 6.0f * scale);
 
             if (isColor) {
-                // 颜色色板: 圆形胶囊 + 双层高亮光环
+                // 颜色色板: 圆形色球 + 双层高亮光环
                 float cx = (button.rect.left + button.rect.right) * 0.5f;
                 float cy = (button.rect.top + button.rect.bottom) * 0.5f;
-                float r = std::min(button.rect.right - button.rect.left, button.rect.bottom - button.rect.top) * 0.40f;
+                float r = std::min(button.rect.right - button.rect.left, button.rect.bottom - button.rect.top) * 0.38f;
                 auto colorCircle = D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r);
 
                 ComPtr<ID2D1SolidColorBrush> swatch;
@@ -837,56 +919,82 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
                     swatch.GetAddressOf());
                 if (swatch) m_renderTarget->FillEllipse(colorCircle, swatch.Get());
 
+                // 白色色球增加 1px 浅灰色外边缘
+                if (button.color.r > 240 && button.color.g > 240 && button.color.b > 240) {
+                    m_renderTarget->DrawEllipse(colorCircle, separatorBrush.Get(), 1.0f);
+                }
+
                 bool isActiveColor = (button.color.r == state.currentColor.r &&
                                      button.color.g == state.currentColor.g &&
                                      button.color.b == state.currentColor.b);
                 if (isActiveColor) {
-                    auto outerRing = D2D1::Ellipse(D2D1::Point2F(cx, cy), r + 2.5f * scale, r + 2.5f * scale);
-                    m_renderTarget->DrawEllipse(outerRing, activeBorderBrush.Get(), 2.0f * scale);
+                    // 内部白色间隙隔离环 + 外部同色扩散光晕
+                    auto innerRing = D2D1::Ellipse(D2D1::Point2F(cx, cy), r + 1.2f * scale, r + 1.2f * scale);
+                    ComPtr<ID2D1SolidColorBrush> whiteRing;
+                    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), whiteRing.GetAddressOf());
+                    if (whiteRing) m_renderTarget->DrawEllipse(innerRing, whiteRing.Get(), 1.2f * scale);
+
+                    auto outerRing = D2D1::Ellipse(D2D1::Point2F(cx, cy), r + 2.8f * scale, r + 2.8f * scale);
+                    if (swatch) m_renderTarget->DrawEllipse(outerRing, swatch.Get(), 1.8f * scale);
                 } else if (isHovered && hoverBrush) {
-                    auto outerRing = D2D1::Ellipse(D2D1::Point2F(cx, cy), r + 2.0f * scale, r + 2.0f * scale);
+                    auto outerRing = D2D1::Ellipse(D2D1::Point2F(cx, cy), r + 2.2f * scale, r + 2.2f * scale);
                     m_renderTarget->DrawEllipse(outerRing, hoverBrush.Get(), 1.5f * scale);
                 }
-                continue;
+            } else {
+                ComPtr<ID2D1SolidColorBrush> stepperBg;
+                if (isStepper) {
+                    m_renderTarget->CreateSolidColorBrush(
+                        D2D1::ColorF(0.0f, 0.0f, 0.0f, isHovered ? 0.065f : 0.035f), stepperBg.GetAddressOf());
+                }
+
+                auto* fillBrush = isConfirm ? (isHovered ? confirmHoverBrush.Get() : confirmBrush.Get())
+                                : isStepper ? stepperBg.Get()
+                                : isActiveTool ? (button.isSecondary ? secondaryActiveBrush.Get() : activeBrush.Get())
+                                : (isDanger && isHovered) ? dangerHoverBrush.Get()
+                                : isHovered ? hoverBrush.Get()
+                                : buttonBrush.Get();
+                if (fillBrush) m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
+
+                if (isActiveTool && activeBorderBrush && !isConfirm && !isStepper) {
+                    m_renderTarget->DrawRoundedRectangle(rounded, activeBorderBrush.Get(), 1.2f * scale);
+                }
+
+                auto* currentIconBrush = isConfirm ? confirmIconBrush.Get()
+                                       : isActiveTool ? activeIconBrush.Get()
+                                       : (isDanger && isHovered) ? dangerIconBrush.Get()
+                                       : iconBrush.Get();
+                drawVectorButtonIcon(button, button.rect, currentIconBrush, scale);
             }
 
-            auto* fillBrush = isActiveTool ? (button.isSecondary ? secondaryActiveBrush.Get() : activeBrush.Get())
-                            : (isConfirm && isHovered) ? confirmHoverBrush.Get()
-                            : (isDanger && isHovered) ? dangerHoverBrush.Get()
-                            : isHovered ? hoverBrush.Get()
-                            : buttonBrush.Get();
-            m_renderTarget->FillRoundedRectangle(rounded, fillBrush);
-
-            if (isActiveTool && activeBorderBrush) {
-                m_renderTarget->DrawRoundedRectangle(rounded, activeBorderBrush.Get(), 1.2f * scale);
-            }
-
-            auto* currentIconBrush = isActiveTool ? activeIconBrush.Get()
-                                   : isConfirm ? confirmIconBrush.Get()
-                                   : (isDanger && isHovered) ? dangerIconBrush.Get()
-                                   : iconBrush.Get();
-            drawVectorButtonIcon(button, button.rect, currentIconBrush, scale);
-
-            // 如果带有下拉三角指示器，绘制小三角 v
+            // 如果带有下拉三角指示器，绘制极精致微型实心倒三角 (3.0x2.0px)
             if (button.hasDropdown) {
-                float tx = button.rect.right - 6.0f * scale;
-                float ty = button.rect.bottom - 6.0f * scale;
-                m_renderTarget->DrawLine(D2D1::Point2F(tx - 2.5f * scale, ty - 1.5f * scale),
-                                         D2D1::Point2F(tx, ty + 1.5f * scale), currentIconBrush, 1.2f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(tx, ty + 1.5f * scale),
-                                         D2D1::Point2F(tx + 2.5f * scale, ty - 1.5f * scale), currentIconBrush, 1.2f * scale);
+                float tx = button.rect.right - 5.0f * scale;
+                float ty = (button.rect.top + button.rect.bottom) * 0.5f;
+                m_renderTarget->DrawLine(D2D1::Point2F(tx - 1.5f * scale, ty - 1.0f * scale),
+                                         D2D1::Point2F(tx + 1.5f * scale, ty - 1.0f * scale), iconBrush.Get(), 1.0f * scale);
+                m_renderTarget->DrawLine(D2D1::Point2F(tx - 1.5f * scale, ty - 1.0f * scale),
+                                         D2D1::Point2F(tx, ty + 1.2f * scale), iconBrush.Get(), 1.0f * scale);
+                m_renderTarget->DrawLine(D2D1::Point2F(tx + 1.5f * scale, ty - 1.0f * scale),
+                                         D2D1::Point2F(tx, ty + 1.2f * scale), iconBrush.Get(), 1.0f * scale);
             }
         }
     };
 
-    // 绘制主工具栏与二级属性栏
+    // 绘制主工具栏、二级属性栏与选区侧边浮动菜单
     drawButtonGroup(state.toolbarButtons);
     if (!state.secondaryToolbarButtons.empty()) {
         drawButtonGroup(state.secondaryToolbarButtons);
     }
+    if (!state.selectionSideButtons.empty()) {
+        drawGlassPanel(state.selectionSideRect, 8.0f * scale, false);
+        drawButtonGroup(state.selectionSideButtons);
+    }
 
     // 绘制展开的二级下拉悬浮菜单
     drawSubmenu(state);
+
+    // 绘制无级滑块与预设悬浮弹窗
+    drawSliderPopup(state);
 
     // 悬停浮层提示：把生僻字形翻译成「名称 + 快捷键」
     auto showTooltip = [&](const std::vector<ToolbarButton>& btnList) -> bool {
@@ -896,21 +1004,59 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
                 continue;
             }
             std::wstring tip = tooltipForButton(button, state.toolbarLayoutChinese);
-            if (tip.empty()) return false;
+            std::wstring labelPart = tip;
+            std::wstring kbdPart = L"";
+            auto openPos = tip.find(L'(');
+            auto closePos = tip.find(L')', openPos);
+            if (openPos != std::wstring::npos && closePos != std::wstring::npos && closePos > openPos) {
+                labelPart = tip.substr(0, openPos);
+                while (!labelPart.empty() && labelPart.back() == L' ') labelPart.pop_back();
+                kbdPart = tip.substr(openPos + 1, closePos - openPos - 1);
+            }
 
-            float tw = (20.0f + static_cast<float>(tip.size()) * 11.5f) * scale;
-            float th = 22.0f * scale;
+            float labelW = static_cast<float>(labelPart.size()) * 11.5f * scale;
+            float kbdW = kbdPart.empty() ? 0.0f : (static_cast<float>(kbdPart.size()) * 7.5f + 10.0f) * scale;
+            float tw = (16.0f * scale) + labelW + (kbdPart.empty() ? 0.0f : (kbdW + 6.0f * scale));
+            float th = 24.0f * scale;
+
             auto sz = m_renderTarget->GetSize();
             float bcx = (button.rect.left + button.rect.right) * 0.5f;
-            float tx = std::clamp(bcx - tw * 0.5f, 4.0f * scale,
-                                  std::max(4.0f * scale, sz.width - tw - 4.0f * scale));
+            float tx = std::clamp(bcx - tw * 0.5f, 8.0f * scale, sz.width - tw - 8.0f * scale);
             float ty = button.rect.top - th - 6.0f * scale;
-            if (ty < 4.0f * scale) ty = button.rect.bottom + 6.0f * scale;
+            if (ty < 4.0f * scale) {
+                ty = button.rect.bottom + 6.0f * scale;
+            }
 
-            auto tr = D2D1::RectF(tx, ty, tx + tw, ty + th);
-            drawGlassPanel(tr, 4.0f * scale, false);
-            m_renderTarget->DrawText(tip.c_str(), static_cast<UINT32>(tip.size()),
-                                     m_infoTextFormat.Get(), tr, tipTextBrush.Get());
+            auto tipRect = D2D1::RectF(tx, ty, tx + tw, ty + th);
+            drawGlassPanel(tipRect, 6.0f * scale, false);
+
+            ComPtr<ID2D1SolidColorBrush> textBrush, kbdBgBrush, kbdBorderBrush, kbdTextBrush;
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.95f), textBrush.GetAddressOf());
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f), kbdBgBrush.GetAddressOf());
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f), kbdBorderBrush.GetAddressOf());
+            m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.40f, 0.48f, 0.95f), kbdTextBrush.GetAddressOf());
+
+            float curLeft = tipRect.left + 8.0f * scale;
+            if (m_infoTextFormat && textBrush) {
+                m_renderTarget->DrawText(labelPart.c_str(), static_cast<UINT32>(labelPart.size()),
+                    m_infoTextFormat.Get(),
+                    D2D1::RectF(curLeft, tipRect.top + 4.0f * scale, curLeft + labelW, tipRect.bottom),
+                    textBrush.Get());
+            }
+
+            if (!kbdPart.empty() && kbdBgBrush && kbdBorderBrush && kbdTextBrush && m_infoTextFormat) {
+                float kx = curLeft + labelW + 6.0f * scale;
+                float ky = tipRect.top + 4.0f * scale;
+                float kh = 16.0f * scale;
+                auto kbdRect = D2D1::RectF(kx, ky, kx + kbdW, ky + kh);
+                auto kbdRound = D2D1::RoundedRect(kbdRect, 3.5f * scale, 3.5f * scale);
+                m_renderTarget->FillRoundedRectangle(kbdRound, kbdBgBrush.Get());
+                m_renderTarget->DrawRoundedRectangle(kbdRound, kbdBorderBrush.Get(), 1.0f * scale);
+                m_renderTarget->DrawText(kbdPart.c_str(), static_cast<UINT32>(kbdPart.size()),
+                    m_infoTextFormat.Get(),
+                    D2D1::RectF(kx + 4.0f * scale, ky + 1.0f * scale, kx + kbdW - 4.0f * scale, ky + kh),
+                    kbdTextBrush.Get());
+            }
             return true;
         }
         return false;
@@ -918,7 +1064,9 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
 
     if (state.openSubmenu == SubmenuType::None) {
         if (!showTooltip(state.toolbarButtons)) {
-            showTooltip(state.secondaryToolbarButtons);
+            if (!showTooltip(state.secondaryToolbarButtons)) {
+                showTooltip(state.selectionSideButtons);
+            }
         }
     }
 }
@@ -926,11 +1074,11 @@ void CaptureRenderer::drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState
 void CaptureRenderer::drawSubmenu(CaptureState& state) {
     if (state.openSubmenu == SubmenuType::None || !m_renderTarget) return;
 
-    const float scale = std::clamp(state.dpiScale > 0.0f ? state.dpiScale : 1.0f, 1.0f, 5.0f);
+    float scale = (state.dpiScale > 0.1f) ? state.dpiScale : 1.0f;
     
     // 线条样式下拉菜单 (实线、长虚线、点虚线、点划线)
     if (state.openSubmenu == SubmenuType::LineStyle) {
-        float menuW = 120.0f * scale;
+        float menuW = 126.0f * scale;
         float itemH = 26.0f * scale;
         float menuH = 4 * itemH + 12.0f * scale;
 
@@ -945,11 +1093,11 @@ void CaptureRenderer::drawSubmenu(CaptureState& state) {
         state.openSubmenuRect = menuRect;
         state.submenuButtons.clear();
 
-        drawGlassPanel(menuRect, 8.0f * scale, false);
+        drawGlassPanel(menuRect, 9.0f * scale, false);
 
         ComPtr<ID2D1SolidColorBrush> itemHoverBg, itemActiveBg, textBrush, lineBrush, activeLineBrush;
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f), itemHoverBg.GetAddressOf());
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.15f), itemActiveBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.045f), itemHoverBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.12f), itemActiveBg.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.95f), textBrush.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.22f, 0.26f, 0.95f), lineBrush.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 1.0f), activeLineBrush.GetAddressOf());
@@ -977,53 +1125,43 @@ void CaptureRenderer::drawSubmenu(CaptureState& state) {
                               state.currentCursor.y >= itemRect.top  && state.currentCursor.y <= itemRect.bottom);
 
             if (isSelected) {
-                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.0f * scale, 4.0f * scale), itemActiveBg.Get());
+                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.5f * scale, 4.5f * scale), itemActiveBg.Get());
             } else if (isHovered) {
-                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.0f * scale, 4.0f * scale), itemHoverBg.Get());
+                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.5f * scale, 4.5f * scale), itemHoverBg.Get());
             }
 
-            // 绘制线条样式线段
-            float lx1 = itemRect.left + 8.0f * scale;
-            float lx2 = itemRect.left + 50.0f * scale;
-            float ly = iy + itemH * 0.5f;
-            auto* curLineBrush = isSelected ? activeLineBrush.Get() : lineBrush.Get();
-
-            if (items[i].style == LineStyle::Solid) {
-                m_renderTarget->DrawLine(D2D1::Point2F(lx1, ly), D2D1::Point2F(lx2, ly), curLineBrush, 2.0f * scale);
-            } else if (items[i].style == LineStyle::Dashed) {
-                float seg = 6.0f * scale, sp = 4.0f * scale;
-                for (float cx = lx1; cx < lx2; cx += seg + sp) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, ly), D2D1::Point2F(std::min(lx2, cx + seg), ly), curLineBrush, 2.0f * scale);
-                }
-            } else if (items[i].style == LineStyle::Dotted) {
-                float seg = 2.0f * scale, sp = 3.0f * scale;
-                for (float cx = lx1; cx < lx2; cx += seg + sp) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, ly), D2D1::Point2F(std::min(lx2, cx + seg), ly), curLineBrush, 2.0f * scale);
-                }
-            } else if (items[i].style == LineStyle::DashDot) {
-                float cx = lx1;
-                while (cx < lx2) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, ly), D2D1::Point2F(std::min(lx2, cx + 6.0f * scale), ly), curLineBrush, 2.0f * scale);
-                    cx += 9.0f * scale;
-                    if (cx < lx2) {
-                        m_renderTarget->DrawLine(D2D1::Point2F(cx, ly), D2D1::Point2F(std::min(lx2, cx + 2.0f * scale), ly), curLineBrush, 2.0f * scale);
-                        cx += 5.0f * scale;
-                    }
-                }
-            }
+            // 绘制线条样式矢量线段
+            auto iconId = (items[i].style == LineStyle::Dashed) ? CaptureIconId::PropDashedLine
+                        : (items[i].style == LineStyle::Dotted) ? CaptureIconId::PropDottedLine
+                        : (items[i].style == LineStyle::DashDot) ? CaptureIconId::PropDashDotLine
+                        : CaptureIconId::PropSolidLine;
+            auto lineRect = D2D1::RectF(itemRect.left + 4.0f * scale, itemRect.top, itemRect.left + 46.0f * scale, itemRect.bottom);
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), iconId, lineRect,
+                                           isSelected ? activeLineBrush.Get() : lineBrush.Get(), scale);
 
             // 绘制文字说明
             if (m_infoTextFormat && textBrush) {
                 m_renderTarget->DrawText(items[i].label.c_str(), static_cast<UINT32>(items[i].label.size()),
                     m_infoTextFormat.Get(),
-                    D2D1::RectF(lx2 + 8.0f * scale, iy + 4.0f * scale, itemRect.right, itemRect.bottom),
-                    textBrush.Get());
+                    D2D1::RectF(itemRect.left + 52.0f * scale, iy + 4.0f * scale, itemRect.right - 18.0f * scale, itemRect.bottom),
+                    isSelected ? activeLineBrush.Get() : textBrush.Get());
+            }
+
+            // 选中项右侧微对勾 ✓
+            if (isSelected) {
+                float rcx = itemRect.right - 10.0f * scale;
+                float rcy = iy + itemH * 0.5f;
+                D2D1_POINT_2F p1{rcx - 3.5f * scale, rcy};
+                D2D1_POINT_2F p2{rcx - 1.0f * scale, rcy + 2.8f * scale};
+                D2D1_POINT_2F p3{rcx + 3.8f * scale, rcy - 3.2f * scale};
+                m_renderTarget->DrawLine(p1, p2, activeLineBrush.Get(), 1.5f * scale);
+                m_renderTarget->DrawLine(p2, p3, activeLineBrush.Get(), 1.5f * scale);
             }
         }
     }
     // 箭头样式下拉菜单 (标准单向、细线折角、双向箭头)
     else if (state.openSubmenu == SubmenuType::ArrowStyle) {
-        float menuW = 120.0f * scale;
+        float menuW = 126.0f * scale;
         float itemH = 26.0f * scale;
         float menuH = 3 * itemH + 12.0f * scale;
 
@@ -1038,11 +1176,11 @@ void CaptureRenderer::drawSubmenu(CaptureState& state) {
         state.openSubmenuRect = menuRect;
         state.submenuButtons.clear();
 
-        drawGlassPanel(menuRect, 8.0f * scale, false);
+        drawGlassPanel(menuRect, 9.0f * scale, false);
 
         ComPtr<ID2D1SolidColorBrush> itemHoverBg, itemActiveBg, textBrush, lineBrush, activeLineBrush;
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f), itemHoverBg.GetAddressOf());
-        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.15f), itemActiveBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.045f), itemHoverBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.12f), itemActiveBg.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.95f), textBrush.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.22f, 0.26f, 0.95f), lineBrush.GetAddressOf());
         m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 1.0f), activeLineBrush.GetAddressOf());
@@ -1069,17 +1207,192 @@ void CaptureRenderer::drawSubmenu(CaptureState& state) {
                               state.currentCursor.y >= itemRect.top  && state.currentCursor.y <= itemRect.bottom);
 
             if (isSelected) {
-                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.0f * scale, 4.0f * scale), itemActiveBg.Get());
+                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.5f * scale, 4.5f * scale), itemActiveBg.Get());
             } else if (isHovered) {
-                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.0f * scale, 4.0f * scale), itemHoverBg.Get());
+                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(itemRect, 4.5f * scale, 4.5f * scale), itemHoverBg.Get());
             }
+
+            auto arrowIconId = (items[i].style == ArrowStyle::DoubleEnded) ? CaptureIconId::ToolArrowDouble
+                             : (items[i].style == ArrowStyle::Thin) ? CaptureIconId::ToolArrowThin
+                             : CaptureIconId::ToolArrow;
+            auto arrowRect = D2D1::RectF(itemRect.left + 4.0f * scale, itemRect.top, itemRect.left + 36.0f * scale, itemRect.bottom);
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), arrowIconId, arrowRect,
+                                           isSelected ? activeLineBrush.Get() : lineBrush.Get(), scale);
 
             if (m_infoTextFormat && textBrush) {
                 m_renderTarget->DrawText(items[i].label.c_str(), static_cast<UINT32>(items[i].label.size()),
                     m_infoTextFormat.Get(),
-                    D2D1::RectF(itemRect.left + 8.0f * scale, iy + 4.0f * scale, itemRect.right, itemRect.bottom),
+                    D2D1::RectF(itemRect.left + 42.0f * scale, iy + 4.0f * scale, itemRect.right - 18.0f * scale, itemRect.bottom),
                     isSelected ? activeLineBrush.Get() : textBrush.Get());
             }
+
+            // 选中项右侧微对勾 ✓
+            if (isSelected) {
+                float rcx = itemRect.right - 10.0f * scale;
+                float rcy = iy + itemH * 0.5f;
+                D2D1_POINT_2F p1{rcx - 3.5f * scale, rcy};
+                D2D1_POINT_2F p2{rcx - 1.0f * scale, rcy + 2.8f * scale};
+                D2D1_POINT_2F p3{rcx + 3.8f * scale, rcy - 3.2f * scale};
+                m_renderTarget->DrawLine(p1, p2, activeLineBrush.Get(), 1.5f * scale);
+                m_renderTarget->DrawLine(p2, p3, activeLineBrush.Get(), 1.5f * scale);
+            }
+        }
+    }
+}
+
+void CaptureRenderer::drawSliderPopup(CaptureState& state) {
+    if (state.sliderPopup.type == SliderPopupType::None || !m_renderTarget) return;
+
+    const float scale = std::clamp(state.dpiScale > 0.0f ? state.dpiScale : 1.0f, 1.0f, 5.0f);
+    float popW = 200.0f * scale;
+    float popH = 88.0f * scale;
+
+    // 默认定位在二级属性栏的左侧或居中；若为选区侧边圆角则紧贴侧边栏
+    float popX = state.secondaryToolbarRect.left + 12.0f * scale;
+    float popY = state.secondaryToolbarRect.bottom + 8.0f * scale;
+
+    if (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius) {
+        if (state.selectionSideRect.left >= state.toolbarLayoutSelection.right) {
+            popX = state.selectionSideRect.right + 8.0f * scale;
+        } else {
+            popX = state.selectionSideRect.left - popW - 8.0f * scale;
+        }
+        popY = state.selectionSideRect.top - 10.0f * scale;
+    }
+
+    auto sz = m_renderTarget->GetSize();
+    if (popY + popH > sz.height - 8.0f * scale) {
+        popY = sz.height - popH - 8.0f * scale;
+    }
+    if (popY < 8.0f * scale) {
+        popY = 8.0f * scale;
+    }
+    if (popX + popW > sz.width - 8.0f * scale) {
+        popX = sz.width - popW - 8.0f * scale;
+    }
+    if (popX < 8.0f * scale) {
+        popX = 8.0f * scale;
+    }
+
+    auto popRect = D2D1::RectF(popX, popY, popX + popW, popY + popH);
+    state.sliderPopup.popupRect = popRect;
+
+    // 1. 磨砂亚克力微浮岛
+    drawGlassPanel(popRect, 10.0f * scale, false);
+
+    ComPtr<ID2D1SolidColorBrush> titleBrush, badgeBg, badgeText, trackBg, trackFill, thumbBg, thumbBorder, thumbGlow, presetBg, presetActiveBg, presetText, presetActiveText;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.22f, 0.26f, 0.95f), titleBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f), badgeBg.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 1.0f), badgeText.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f), trackBg.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.95f), trackFill.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), thumbBg.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 1.0f), thumbBorder.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.25f), thumbGlow.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.04f), presetBg.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 0.14f), presetActiveBg.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.25f, 0.28f, 0.35f, 0.95f), presetText.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.48f, 1.0f, 1.0f), presetActiveText.GetAddressOf());
+
+    std::wstring title = (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius)
+        ? (state.toolbarLayoutChinese ? L"选区圆角半径" : L"Selection Radius")
+        : (state.sliderPopup.type == SliderPopupType::CornerRadius)
+        ? (state.toolbarLayoutChinese ? L"标注圆角" : L"Corner Radius")
+        : (state.sliderPopup.type == SliderPopupType::MosaicBlockSize)
+        ? (state.toolbarLayoutChinese ? L"马赛克粗细" : L"Mosaic Size")
+        : (state.toolbarLayoutChinese ? L"标注线宽" : L"Stroke Width");
+
+    int curVal = (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius)
+        ? static_cast<int>(std::round(state.cornerRadius))
+        : (state.sliderPopup.type == SliderPopupType::CornerRadius)
+        ? static_cast<int>(std::round(state.currentElementCornerRadius))
+        : state.currentStrokeWidth;
+
+    state.sliderPopup.currentValue = curVal;
+    int minV = (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius || state.sliderPopup.type == SliderPopupType::CornerRadius) ? 0 : 1;
+    int maxV = (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius) ? 80 : (state.sliderPopup.type == SliderPopupType::CornerRadius) ? 40 : 28;
+    state.sliderPopup.minValue = minV;
+    state.sliderPopup.maxValue = maxV;
+
+    // 1. 顶部标题与数值徽章
+    float topY = popY + 8.0f * scale;
+    if (m_infoTextFormat && titleBrush) {
+        m_renderTarget->DrawText(title.c_str(), static_cast<UINT32>(title.size()), m_infoTextFormat.Get(),
+            D2D1::RectF(popX + 12.0f * scale, topY, popX + 110.0f * scale, topY + 16.0f * scale),
+            titleBrush.Get());
+    }
+
+    std::wstring valStr = std::format(L"{} px", curVal);
+    float badgeW = (16.0f + valStr.size() * 7.5f) * scale;
+    float badgeH = 18.0f * scale;
+    auto valBadgeRect = D2D1::RectF(popX + popW - badgeW - 12.0f * scale, topY - 1.0f * scale, popX + popW - 12.0f * scale, topY + badgeH - 1.0f * scale);
+    if (badgeBg) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(valBadgeRect, 4.0f * scale, 4.0f * scale), badgeBg.Get());
+    if (m_infoTextFormat && badgeText) {
+        m_renderTarget->DrawText(valStr.c_str(), static_cast<UINT32>(valStr.size()), m_infoTextFormat.Get(),
+            D2D1::RectF(valBadgeRect.left + 5.0f * scale, valBadgeRect.top + 1.0f * scale, valBadgeRect.right, valBadgeRect.bottom),
+            badgeText.Get());
+    }
+
+    // 2. 中部无级滑动轨道与发光游标
+    float trackX = popX + 12.0f * scale;
+    float trackY = topY + 24.0f * scale;
+    float trackW = popW - 24.0f * scale;
+    float trackH = 5.0f * scale;
+    auto trackRect = D2D1::RectF(trackX, trackY, trackX + trackW, trackY + trackH);
+    state.sliderPopup.trackRect = trackRect;
+
+    if (trackBg) m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(trackRect, 2.5f * scale, 2.5f * scale), trackBg.Get());
+
+    float pct = (maxV > minV) ? std::clamp(static_cast<float>(curVal - minV) / static_cast<float>(maxV - minV), 0.0f, 1.0f) : 0.0f;
+    float thumbX = trackX + pct * trackW;
+    float thumbY = trackY + trackH * 0.5f;
+
+    auto fillRect = D2D1::RectF(trackX, trackY, thumbX, trackY + trackH);
+    if (trackFill && thumbX > trackX) {
+        m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(fillRect, 2.5f * scale, 2.5f * scale), trackFill.Get());
+    }
+
+    // 发光游标 Handle
+    float thumbR = (state.sliderPopup.isDragging ? 7.5f : 6.0f) * scale;
+    auto thumbEllipse = D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), thumbR, thumbR);
+    state.sliderPopup.thumbRect = D2D1::RectF(thumbX - thumbR - 2.0f * scale, thumbY - thumbR - 2.0f * scale, thumbX + thumbR + 2.0f * scale, thumbY + thumbR + 2.0f * scale);
+
+    if (thumbGlow) m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), thumbR + 3.0f * scale, thumbR + 3.0f * scale), thumbGlow.Get());
+    if (thumbBg) m_renderTarget->FillEllipse(thumbEllipse, thumbBg.Get());
+    if (thumbBorder) m_renderTarget->DrawEllipse(thumbEllipse, thumbBorder.Get(), 1.5f * scale);
+
+    // 3. 底部快捷预设胶囊
+    std::vector<int> presets = (state.sliderPopup.type == SliderPopupType::SelectionCornerRadius)
+        ? std::vector<int>{ 0, 8, 14, 24, 40, 60 }
+        : (state.sliderPopup.type == SliderPopupType::CornerRadius)
+        ? std::vector<int>{ 0, 6, 12, 18, 24 }
+        : (state.sliderPopup.type == SliderPopupType::MosaicBlockSize)
+        ? std::vector<int>{ 4, 8, 12, 16, 24, 32 }
+        : std::vector<int>{ 2, 4, 6, 8, 14, 20 };
+
+    state.sliderPopup.presetButtons.clear();
+    float presetY = trackY + 16.0f * scale;
+    float presetH = 20.0f * scale;
+    float slotW = trackW / static_cast<float>(presets.size());
+
+    for (size_t i = 0; i < presets.size(); ++i) {
+        int val = presets[i];
+        float px = trackX + i * slotW;
+        auto pRect = D2D1::RectF(px + 2.0f * scale, presetY, px + slotW - 2.0f * scale, presetY + presetH);
+        state.sliderPopup.presetButtons.push_back({ val, pRect });
+
+        bool isActivePreset = (val == curVal);
+        auto pRound = D2D1::RoundedRect(pRect, 4.0f * scale, 4.0f * scale);
+        auto* pBgBrush = isActivePreset ? presetActiveBg.Get() : presetBg.Get();
+        auto* pTxBrush = isActivePreset ? presetActiveText.Get() : presetText.Get();
+
+        if (pBgBrush) m_renderTarget->FillRoundedRectangle(pRound, pBgBrush);
+
+        std::wstring pText = std::format(L"{}", val);
+        if (m_infoTextFormat && pTxBrush) {
+            m_renderTarget->DrawText(pText.c_str(), static_cast<UINT32>(pText.size()), m_infoTextFormat.Get(),
+                D2D1::RectF(pRect.left, pRect.top + 2.0f * scale, pRect.right, pRect.bottom),
+                pTxBrush);
         }
     }
 }
@@ -1087,330 +1400,130 @@ void CaptureRenderer::drawSubmenu(CaptureState& state) {
 void CaptureRenderer::drawVectorButtonIcon(const ToolbarButton& button, const D2D1_RECT_F& rect, ID2D1Brush* brush, float scale) {
     if (!m_renderTarget || !brush) return;
 
-    float cx = (rect.left + rect.right) * 0.5f;
     float cy = (rect.top + rect.bottom) * 0.5f;
 
     switch (button.command) {
-        case ToolbarCommand::Confirm: {
-            // 黄金比例平滑对勾 ✓（放大饱满）
-            D2D1_POINT_2F p1{cx - 5.5f * scale, cy + 0.2f * scale};
-            D2D1_POINT_2F p2{cx - 1.5f * scale, cy + 4.8f * scale};
-            D2D1_POINT_2F p3{cx + 6.2f * scale, cy - 4.8f * scale};
-            m_renderTarget->DrawLine(p1, p2, brush, 2.0f * scale);
-            m_renderTarget->DrawLine(p2, p3, brush, 2.0f * scale);
+        case ToolbarCommand::Confirm:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionConfirm, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::Cancel: {
-            // 精致对称叉号 ✕
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.8f * scale, cy - 4.8f * scale),
-                                     D2D1::Point2F(cx + 4.8f * scale, cy + 4.8f * scale), brush, 2.0f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.8f * scale, cy - 4.8f * scale),
-                                     D2D1::Point2F(cx - 4.8f * scale, cy + 4.8f * scale), brush, 2.0f * scale);
+        case ToolbarCommand::Cancel:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionCancel, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::Undo: {
-            // 撤销平滑回折圆弧 ↩
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.8f * scale, cy + 4.8f * scale),
-                                     D2D1::Point2F(cx + 4.8f * scale, cy - 1.2f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.8f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx - 4.2f * scale, cy - 1.2f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.2f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx - 0.8f * scale, cy - 5.0f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.2f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx - 0.8f * scale, cy + 2.6f * scale), brush, 1.8f * scale);
+        case ToolbarCommand::Undo:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionUndo, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::Redo: {
-            // 重做平滑回折圆弧 ↪
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.8f * scale, cy + 4.8f * scale),
-                                     D2D1::Point2F(cx - 4.8f * scale, cy - 1.2f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 4.8f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx + 4.2f * scale, cy - 1.2f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.2f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx + 0.8f * scale, cy - 5.0f * scale), brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 4.2f * scale, cy - 1.2f * scale),
-                                     D2D1::Point2F(cx + 0.8f * scale, cy + 2.6f * scale), brush, 1.8f * scale);
+        case ToolbarCommand::Redo:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionRedo, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::Clear: {
-            // 精致垃圾桶 🗑️
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 6.0f * scale, cy - 4.2f * scale),
-                                     D2D1::Point2F(cx + 6.0f * scale, cy - 4.2f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.0f * scale, cy - 6.0f * scale),
-                                     D2D1::Point2F(cx + 2.0f * scale, cy - 6.0f * scale), brush, 1.5f * scale);
-            auto bin = D2D1::RectF(cx - 4.8f * scale, cy - 2.8f * scale, cx + 4.8f * scale, cy + 6.2f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(bin, 1.6f * scale, 1.6f * scale), brush, 1.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.8f * scale, cy - 0.5f * scale),
-                                     D2D1::Point2F(cx - 1.8f * scale, cy + 4.2f * scale), brush, 1.3f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.8f * scale, cy - 0.5f * scale),
-                                     D2D1::Point2F(cx + 1.8f * scale, cy + 4.2f * scale), brush, 1.3f * scale);
+        case ToolbarCommand::Clear:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionClear, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::ToggleCornerRadius: {
-            // 选区圆角调节图标 ╭╮
-            auto box = D2D1::RectF(cx - 6.5f * scale, cy - 5.2f * scale, cx + 6.5f * scale, cy + 5.2f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 4.0f * scale, 4.0f * scale), brush, 1.8f * scale);
-            m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 1.6f * scale, 1.6f * scale), brush);
+        case ToolbarCommand::SideToggleCornerRadius:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::PropCornerRadius, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::ExtractText: {
-            // 现代 OCR 扫描框 [ A ]
-            float r = 6.4f * scale;
-            float arm = 2.6f * scale;
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy - r + arm), D2D1::Point2F(cx - r, cy - r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy - r), D2D1::Point2F(cx - r + arm, cy - r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + r - arm, cy - r), D2D1::Point2F(cx + r, cy - r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + r, cy - r), D2D1::Point2F(cx + r, cy - r + arm), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy + r - arm), D2D1::Point2F(cx - r, cy + r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - r, cy + r), D2D1::Point2F(cx - r + arm, cy + r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + r - arm, cy + r), D2D1::Point2F(cx + r, cy + r), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + r, cy + r), D2D1::Point2F(cx + r, cy + r - arm), brush, 1.6f * scale);
-
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.8f * scale, cy + 3.4f * scale), D2D1::Point2F(cx, cy - 3.4f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 3.4f * scale), D2D1::Point2F(cx + 2.8f * scale, cy + 3.4f * scale), brush, 1.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.5f * scale, cy + 0.8f * scale), D2D1::Point2F(cx + 1.5f * scale, cy + 0.8f * scale), brush, 1.4f * scale);
+        case ToolbarCommand::SideInvertSelection:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolArrowDouble, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::PinWindow: {
-            // 现代 45° 办公金属图钉 📌
-            D2D1_POINT_2F pTip{cx - 5.8f * scale, cy + 5.8f * scale};
-            D2D1_POINT_2F pBase{cx - 1.6f * scale, cy + 1.6f * scale};
-            m_renderTarget->DrawLine(pTip, pBase, brush, 1.8f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(pBase.x - 3.4f * scale, pBase.y - 1.0f * scale),
-                                     D2D1::Point2F(pBase.x + 1.0f * scale, pBase.y + 3.4f * scale), brush, 2.2f * scale);
-            m_renderTarget->DrawLine(pBase, D2D1::Point2F(cx + 4.0f * scale, cy - 4.0f * scale), brush, 2.6f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.6f * scale, cy - 6.4f * scale),
-                                     D2D1::Point2F(cx + 6.4f * scale, cy - 1.6f * scale), brush, 2.2f * scale);
+        case ToolbarCommand::SideResetSelection:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionUndo, rect, brush, scale);
             return;
-        }
-        case ToolbarCommand::ScrollCapture: {
-            // 长截图 ⇊ (展开双层页面 + 向下贯穿箭头)
-            auto page = D2D1::RectF(cx - 5.5f * scale, cy - 6.5f * scale, cx + 5.5f * scale, cy + 1.5f * scale);
-            m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(page, 1.6f * scale, 1.6f * scale), brush, 1.5f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 2.0f * scale),
-                                     D2D1::Point2F(cx, cy + 6.2f * scale), brush, 2.0f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 6.2f * scale),
-                                     D2D1::Point2F(cx - 3.2f * scale, cy + 3.0f * scale), brush, 2.0f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(cx, cy + 6.2f * scale),
-                                     D2D1::Point2F(cx + 3.2f * scale, cy + 3.0f * scale), brush, 2.0f * scale);
+        case ToolbarCommand::ExtractText:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionExtractText, rect, brush, scale);
             return;
-        }
+        case ToolbarCommand::PinWindow:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionPinWindow, rect, brush, scale);
+            return;
+        case ToolbarCommand::ScrollCapture:
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ActionScrollCapture, rect, brush, scale);
+            return;
         case ToolbarCommand::SelectTool: {
             switch (button.tool) {
-                case MarkupTool::Rectangle: {
-                    auto box = D2D1::RectF(cx - 6.8f * scale, cy - 5.2f * scale, cx + 6.8f * scale, cy + 5.2f * scale);
-                    m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush, 1.8f * scale);
+                case MarkupTool::Rectangle:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolRectangle, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Ellipse: {
-                    auto ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), 7.0f * scale, 5.5f * scale);
-                    m_renderTarget->DrawEllipse(ellipse, brush, 1.8f * scale);
+                case MarkupTool::Ellipse:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolEllipse, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Arrow: {
-                    D2D1_POINT_2F pStart{cx - 5.8f * scale, cy + 5.8f * scale};
-                    D2D1_POINT_2F pEnd{cx + 5.5f * scale, cy - 5.5f * scale};
-                    m_renderTarget->DrawLine(pStart, pEnd, brush, 2.0f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 1.2f * scale, cy - 5.5f * scale), pEnd, brush, 2.0f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 5.5f * scale, cy - 1.2f * scale), pEnd, brush, 2.0f * scale);
+                case MarkupTool::Arrow:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolArrow, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Pen: {
-                    D2D1_POINT_2F tip{cx - 6.2f * scale, cy + 6.2f * scale};
-                    D2D1_POINT_2F b1{cx - 3.8f * scale, cy + 6.2f * scale};
-                    D2D1_POINT_2F b2{cx - 6.2f * scale, cy + 3.8f * scale};
-                    m_renderTarget->DrawLine(tip, b1, brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(tip, b2, brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(b1, D2D1::Point2F(cx + 5.5f * scale, cy - 3.0f * scale), brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(b2, D2D1::Point2F(cx + 3.0f * scale, cy - 5.5f * scale), brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx + 5.5f * scale, cy - 3.0f * scale),
-                                             D2D1::Point2F(cx + 3.0f * scale, cy - 5.5f * scale), brush, 1.6f * scale);
+                case MarkupTool::Pen:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolPen, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Highlight: {
-                    auto tipBox = D2D1::RectF(cx - 6.5f * scale, cy - 1.5f * scale, cx + 6.5f * scale, cy + 4.2f * scale);
-                    m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(tipBox, 1.2f * scale, 1.2f * scale), brush);
-                    D2D1_POINT_2F p1{cx - 3.5f * scale, cy - 5.8f * scale};
-                    D2D1_POINT_2F p2{cx + 5.5f * scale, cy - 2.2f * scale};
-                    m_renderTarget->DrawLine(p1, p2, brush, 2.4f * scale);
+                case MarkupTool::Highlight:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolHighlight, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Mosaic: {
-                    float s = 3.2f * scale;
-                    float g = 0.8f * scale;
-                    for (int row = -1; row <= 1; ++row) {
-                        for (int col = -1; col <= 1; ++col) {
-                            float x = cx + col * (s + g) - s * 0.5f;
-                            float y = cy + row * (s + g) - s * 0.5f;
-                            auto cell = D2D1::RectF(x, y, x + s, y + s);
-                            if ((row + col) % 2 == 0) {
-                                m_renderTarget->FillRectangle(cell, brush);
-                            } else {
-                                m_renderTarget->DrawRectangle(cell, brush, 1.0f * scale);
-                            }
-                        }
-                    }
+                case MarkupTool::Mosaic:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolMosaic, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Text: {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 6.0f * scale, cy - 5.8f * scale),
-                                             D2D1::Point2F(cx + 6.0f * scale, cy - 5.8f * scale), brush, 2.0f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 5.8f * scale),
-                                             D2D1::Point2F(cx, cy + 6.0f * scale), brush, 2.0f * scale);
+                case MarkupTool::Text:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolText, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Number: {
-                    m_renderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 6.8f * scale, 6.8f * scale), brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 1.8f * scale, cy - 1.8f * scale),
-                                             D2D1::Point2F(cx, cy - 3.6f * scale), brush, 1.8f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx, cy - 3.6f * scale),
-                                             D2D1::Point2F(cx, cy + 3.6f * scale), brush, 2.0f * scale);
+                case MarkupTool::Number:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolNumber, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Magnifier: {
-                    D2D1_POINT_2F mCenter{cx - 1.8f * scale, cy - 1.8f * scale};
-                    m_renderTarget->DrawEllipse(D2D1::Ellipse(mCenter, 5.0f * scale, 5.0f * scale), brush, 1.8f * scale);
-                    D2D1_POINT_2F hStart{cx + 2.0f * scale, cy + 2.0f * scale};
-                    D2D1_POINT_2F hEnd{cx + 6.6f * scale, cy + 6.6f * scale};
-                    m_renderTarget->DrawLine(hStart, hEnd, brush, 2.5f * scale);
+                case MarkupTool::Inpaint:
+                    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::ToolInpaint, rect, brush, scale);
                     return;
-                }
-                case MarkupTool::Spotlight: {
-                    m_renderTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 3.2f * scale, 3.2f * scale), brush, 1.6f * scale);
-                    for (int a = 0; a < 8; ++a) {
-                        float rad = a * 3.14159265f / 4.0f;
-                        float x1 = cx + std::cos(rad) * 4.8f * scale;
-                        float y1 = cy + std::sin(rad) * 4.8f * scale;
-                        float x2 = cx + std::cos(rad) * 7.0f * scale;
-                        float y2 = cy + std::sin(rad) * 7.0f * scale;
-                        m_renderTarget->DrawLine(D2D1::Point2F(x1, y1), D2D1::Point2F(x2, y2), brush, 1.4f * scale);
-                    }
-                    return;
-                }
-                case MarkupTool::Watermark: {
-                    auto box = D2D1::RectF(cx - 6.5f * scale, cy - 5.2f * scale, cx + 6.5f * scale, cy + 5.2f * scale);
-                    m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 3.8f * scale, cy - 1.2f * scale),
-                                             D2D1::Point2F(cx + 3.8f * scale, cy - 1.2f * scale), brush, 1.3f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 2.5f * scale, cy + 2.0f * scale),
-                                             D2D1::Point2F(cx + 2.5f * scale, cy + 2.0f * scale), brush, 1.3f * scale);
-                    return;
-                }
-                case MarkupTool::Inpaint: {
-                    m_renderTarget->DrawLine(D2D1::Point2F(cx - 5.5f * scale, cy + 6.0f * scale),
-                                             D2D1::Point2F(cx + 1.5f * scale, cy - 1.0f * scale), brush, 2.2f * scale);
-                    D2D1_POINT_2F sCenter{cx + 4.2f * scale, cy - 4.2f * scale};
-                    m_renderTarget->DrawLine(D2D1::Point2F(sCenter.x, sCenter.y - 3.6f * scale),
-                                             D2D1::Point2F(sCenter.x, sCenter.y + 3.6f * scale), brush, 1.6f * scale);
-                    m_renderTarget->DrawLine(D2D1::Point2F(sCenter.x - 3.6f * scale, sCenter.y),
-                                             D2D1::Point2F(sCenter.x + 3.6f * scale, sCenter.y), brush, 1.6f * scale);
-                    return;
-                }
                 default: break;
             }
             break;
         }
         case ToolbarCommand::ToggleFill: {
-            // 填充 Toggle 图标与文字
-            float bW = 12.0f * scale;
-            float bH = 10.0f * scale;
-            float bx = cx - (button.label.empty() ? 0.0f : 12.0f * scale);
-            auto box = D2D1::RectF(bx - bW * 0.5f, cy - bH * 0.5f, bx + bW * 0.5f, cy + bH * 0.5f);
-            if (button.boolParam) {
-                m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush);
-            } else {
-                m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(box, 2.0f * scale, 2.0f * scale), brush, 1.5f * scale);
-            }
-            if (!button.label.empty() && m_infoTextFormat) {
-                m_renderTarget->DrawText(button.label.c_str(), static_cast<UINT32>(button.label.size()),
-                    m_infoTextFormat.Get(),
-                    D2D1::RectF(bx + bW * 0.5f + 3.0f * scale, cy - 8.0f * scale, rect.right, cy + 8.0f * scale),
-                    brush);
-            }
+            // 纯矢量填充/描边切换图标（居中方块）
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+                button.boolParam ? CaptureIconId::PropFillSolid : CaptureIconId::PropFillOutline,
+                rect, brush, scale);
             return;
         }
         case ToolbarCommand::ToggleLineStyleDropdown: {
-            // 线条样式小样
-            float lx1 = rect.left + 5.0f * scale;
-            float lx2 = rect.right - 12.0f * scale;
-            float ly = cy;
-            if (button.lineStyleParam == LineStyle::Solid) {
-                m_renderTarget->DrawLine(D2D1::Point2F(lx1, ly), D2D1::Point2F(lx2, ly), brush, 2.0f * scale);
-            } else if (button.lineStyleParam == LineStyle::Dashed) {
-                float seg = 5.0f * scale, sp = 3.0f * scale;
-                for (float sx = lx1; sx < lx2; sx += seg + sp) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(sx, ly), D2D1::Point2F(std::min(lx2, sx + seg), ly), brush, 2.0f * scale);
-                }
-            } else if (button.lineStyleParam == LineStyle::Dotted) {
-                float seg = 2.0f * scale, sp = 3.0f * scale;
-                for (float sx = lx1; sx < lx2; sx += seg + sp) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(sx, ly), D2D1::Point2F(std::min(lx2, sx + seg), ly), brush, 2.0f * scale);
-                }
-            } else if (button.lineStyleParam == LineStyle::DashDot) {
-                float sx = lx1;
-                while (sx < lx2) {
-                    m_renderTarget->DrawLine(D2D1::Point2F(sx, ly), D2D1::Point2F(std::min(lx2, sx + 5.0f * scale), ly), brush, 2.0f * scale);
-                    sx += 7.0f * scale;
-                    if (sx < lx2) {
-                        m_renderTarget->DrawLine(D2D1::Point2F(sx, ly), D2D1::Point2F(std::min(lx2, sx + 2.0f * scale), ly), brush, 2.0f * scale);
-                        sx += 4.0f * scale;
-                    }
-                }
-            }
+            auto iconId = (button.lineStyleParam == LineStyle::Dashed) ? CaptureIconId::PropDashedLine
+                        : (button.lineStyleParam == LineStyle::Dotted) ? CaptureIconId::PropDottedLine
+                        : (button.lineStyleParam == LineStyle::DashDot) ? CaptureIconId::PropDashDotLine
+                        : CaptureIconId::PropSolidLine;
+            auto lineRect = D2D1::RectF(rect.left + 3.0f * scale, rect.top, rect.right - 9.0f * scale, rect.bottom);
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), iconId, lineRect, brush, scale);
             return;
         }
         case ToolbarCommand::ToggleArrowStyleDropdown: {
-            // 箭头样式小样
-            if (button.arrowStyleParam == ArrowStyle::DoubleEnded) {
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 8.0f * scale, cy), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 11.0f * scale, cy - 2.5f * scale), D2D1::Point2F(rect.left + 8.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 11.0f * scale, cy + 2.5f * scale), D2D1::Point2F(rect.left + 8.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.right - 17.0f * scale, cy - 2.5f * scale), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.right - 17.0f * scale, cy + 2.5f * scale), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-            } else {
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 6.0f * scale, cy), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.right - 17.0f * scale, cy - 3.0f * scale), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-                m_renderTarget->DrawLine(D2D1::Point2F(rect.right - 17.0f * scale, cy + 3.0f * scale), D2D1::Point2F(rect.right - 14.0f * scale, cy), brush, 1.8f * scale);
-            }
+            auto iconId = (button.arrowStyleParam == ArrowStyle::DoubleEnded) ? CaptureIconId::ToolArrowDouble
+                        : (button.arrowStyleParam == ArrowStyle::Thin) ? CaptureIconId::ToolArrowThin
+                        : CaptureIconId::ToolArrow;
+            auto arrowRect = D2D1::RectF(rect.left + 3.0f * scale, rect.top, rect.right - 9.0f * scale, rect.bottom);
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), iconId, arrowRect, brush, scale);
             return;
         }
         case ToolbarCommand::CycleStrokeWidth: {
-            // 线宽图标 ☰ 与数值
-            m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 6.0f * scale, cy - 3.5f * scale),
-                                     D2D1::Point2F(rect.left + 13.0f * scale, cy - 3.5f * scale), brush, 1.2f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 6.0f * scale, cy),
-                                     D2D1::Point2F(rect.left + 13.0f * scale, cy), brush, 2.0f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(rect.left + 6.0f * scale, cy + 3.8f * scale),
-                                     D2D1::Point2F(rect.left + 13.0f * scale, cy + 3.8f * scale), brush, 3.0f * scale);
+            auto iconRect = D2D1::RectF(rect.left + 3.0f * scale, rect.top, rect.left + 15.0f * scale, rect.bottom);
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::PropStrokeWidth, iconRect, brush, scale);
             if (!button.label.empty() && m_infoTextFormat) {
                 m_renderTarget->DrawText(button.label.c_str(), static_cast<UINT32>(button.label.size()),
                     m_infoTextFormat.Get(),
-                    D2D1::RectF(rect.left + 16.0f * scale, cy - 8.0f * scale, rect.right - 2.0f * scale, cy + 8.0f * scale),
+                    D2D1::RectF(rect.left + 17.0f * scale, cy - 8.0f * scale, rect.right - 2.0f * scale, cy + 8.0f * scale),
                     brush);
             }
             return;
         }
+        case ToolbarCommand::ToggleCornerRadius:
         case ToolbarCommand::CycleElementCornerRadius: {
-            // 标注圆角矢量图标 ╭ 与数值
-            float ax = rect.left + 9.0f * scale;
-            float ay = cy;
-            m_renderTarget->DrawLine(D2D1::Point2F(ax, ay + 4.0f * scale), D2D1::Point2F(ax, ay), brush, 1.4f * scale);
-            m_renderTarget->DrawLine(D2D1::Point2F(ax, ay), D2D1::Point2F(ax + 4.0f * scale, ay), brush, 1.4f * scale);
-            if (!button.label.empty() && m_infoTextFormat) {
-                m_renderTarget->DrawText(button.label.c_str(), static_cast<UINT32>(button.label.size()),
-                    m_infoTextFormat.Get(),
-                    D2D1::RectF(rect.left + 16.0f * scale, cy - 8.0f * scale, rect.right - 2.0f * scale, cy + 8.0f * scale),
-                    brush);
+            if (button.label.empty()) {
+                CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::PropCornerRadius, rect, brush, scale);
+            } else {
+                auto iconRect = D2D1::RectF(rect.left + 3.0f * scale, rect.top, rect.left + 15.0f * scale, rect.bottom);
+                CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::PropCornerRadius, iconRect, brush, scale);
+                if (m_infoTextFormat) {
+                    m_renderTarget->DrawText(button.label.c_str(), static_cast<UINT32>(button.label.size()),
+                        m_infoTextFormat.Get(),
+                        D2D1::RectF(rect.left + 17.0f * scale, cy - 8.0f * scale, rect.right - 2.0f * scale, cy + 8.0f * scale),
+                        brush);
+                }
             }
             return;
         }
         case ToolbarCommand::SelectMosaicType: {
-            if (!button.label.empty() && m_infoTextFormat) {
-                m_renderTarget->DrawText(button.label.c_str(), static_cast<UINT32>(button.label.size()),
-                    m_infoTextFormat.Get(),
-                    D2D1::RectF(rect.left, cy - 8.0f * scale, rect.right, cy + 8.0f * scale),
-                    brush);
-            }
+            CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
+                button.intParam == 0 ? CaptureIconId::ToolMosaic : CaptureIconId::ToolBlur,
+                rect, brush, scale);
             return;
         }
         default: break;
@@ -1516,6 +1629,29 @@ void CaptureRenderer::drawActiveMarkupPreview(const D2D1_RECT_F& selectionRect, 
     float y1 = static_cast<float>(state.markupStart.y);
     float x2 = static_cast<float>(state.markupEnd.x);
     float y2 = static_cast<float>(state.markupEnd.y);
+
+    if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+        if (state.currentTool == MarkupTool::Rectangle || state.currentTool == MarkupTool::Ellipse ||
+            state.currentTool == MarkupTool::Mosaic || state.currentTool == MarkupTool::Highlight) {
+            float w = std::abs(x2 - x1);
+            float h = std::abs(y2 - y1);
+            float side = std::max(w, h);
+            x2 = x1 + (x2 >= x1 ? side : -side);
+            y2 = y1 + (y2 >= y1 ? side : -side);
+        } else if (state.currentTool == MarkupTool::Arrow) {
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            double dist = std::hypot(dx, dy);
+            if (dist >= 1.0) {
+                double angle = std::atan2(dy, dx);
+                constexpr double step = 3.14159265358979323846 / 4.0;
+                double snappedAngle = std::round(angle / step) * step;
+                x2 = static_cast<float>(x1 + dist * std::cos(snappedAngle));
+                y2 = static_cast<float>(y1 + dist * std::sin(snappedAngle));
+            }
+        }
+    }
+
     auto rect = D2D1::RectF(std::min(x1, x2), std::min(y1, y2), std::max(x1, x2), std::max(y1, y2));
 
     switch (state.currentTool) {
@@ -1794,6 +1930,104 @@ void CaptureRenderer::drawSelectionLoupe(float cx, float cy, CaptureState& state
     }
 }
 
+void CaptureRenderer::drawSmartAlignmentGuides(const D2D1_RECT_F& selRect, CaptureState& state) {
+    if (!m_renderTarget) return;
+    auto size = m_renderTarget->GetSize();
+    float scale = (state.dpiScale > 0) ? state.dpiScale : 1.0f;
+
+    ComPtr<ID2D1SolidColorBrush> guideBrush;
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.94f, 1.0f, 0.75f), guideBrush.GetAddressOf());
+    if (!guideBrush) return;
+
+    float cx = (selRect.left + selRect.right) * 0.5f;
+    float cy = (selRect.top + selRect.bottom) * 0.5f;
+    float midScreenX = size.width * 0.5f;
+    float midScreenY = size.height * 0.5f;
+
+    // 1. 水平中线对齐 (50% Screen Y)
+    if (std::abs(cy - midScreenY) < 4.0f * scale) {
+        float seg = 6.0f * scale, sp = 4.0f * scale;
+        for (float x = 0; x < size.width; x += seg + sp) {
+            m_renderTarget->DrawLine(D2D1::Point2F(x, midScreenY), D2D1::Point2F(std::min(size.width, x + seg), midScreenY), guideBrush.Get(), 1.0f * scale);
+        }
+    }
+
+    // 2. 垂直中线对齐 (50% Screen X)
+    if (std::abs(cx - midScreenX) < 4.0f * scale) {
+        float seg = 6.0f * scale, sp = 4.0f * scale;
+        for (float y = 0; y < size.height; y += seg + sp) {
+            m_renderTarget->DrawLine(D2D1::Point2F(midScreenX, y), D2D1::Point2F(midScreenX, std::min(size.height, y + seg)), guideBrush.Get(), 1.0f * scale);
+        }
+    }
+}
+
+void CaptureRenderer::drawQrChip(const D2D1_RECT_F& selRect, CaptureState& state) {
+    if (state.detectedQrText.empty() || !m_renderTarget || !m_dwriteFactory) {
+        state.qrChipRect = D2D1::RectF(0, 0, 0, 0);
+        return;
+    }
+
+    float scale = (state.dpiScale > 0.0f) ? state.dpiScale : 1.0f;
+    float chipH = 26.0f * scale;
+    float pad = 8.0f * scale;
+
+    std::wstring displayMsg = L"二维码: " + easy::core::WinUtils::utf8ToWstring(state.detectedQrText);
+    if (displayMsg.size() > 28) {
+        displayMsg = displayMsg.substr(0, 26) + L"...";
+    }
+
+    // 测量文字宽度
+    ComPtr<IDWriteTextLayout> layout;
+    m_dwriteFactory->CreateTextLayout(displayMsg.c_str(), static_cast<UINT32>(displayMsg.size()),
+                                      m_infoTextFormat.Get(), 600.0f, chipH, layout.GetAddressOf());
+    float textW = 120.0f * scale;
+    if (layout) {
+        DWRITE_TEXT_METRICS metrics{};
+        layout->GetMetrics(&metrics);
+        textW = metrics.width;
+    }
+
+    float chipW = 24.0f * scale + textW + pad * 2;
+    float cx2 = selRect.right;
+    float cy1 = selRect.top - chipH - 6.0f * scale;
+    if (cy1 < 10.0f * scale) {
+        cy1 = selRect.top + 6.0f * scale; // 选区靠近屏幕顶端时移至内部
+    }
+    float cx1 = std::max(selRect.left, cx2 - chipW);
+    state.qrChipRect = D2D1::RectF(cx1, cy1, cx1 + chipW, cy1 + chipH);
+
+    // 绘制毛玻璃微胶囊底框与悬停高亮
+    ComPtr<ID2D1SolidColorBrush> chipBg, chipBorder, iconBrush, textBrush;
+    if (state.isQrChipHovered) {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.53f, 0.90f, 0.92f), chipBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), chipBorder.GetAddressOf());
+    } else {
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.10f, 0.10f, 0.14f, 0.88f), chipBg.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.35f, 0.42f, 0.80f), chipBorder.GetAddressOf());
+    }
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), iconBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.96f, 0.98f, 1.0f), textBrush.GetAddressOf());
+
+    if (chipBg && chipBorder) {
+        m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(state.qrChipRect, 6.0f * scale, 6.0f * scale), chipBg.Get());
+        m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(state.qrChipRect, 6.0f * scale, 6.0f * scale), chipBorder.Get(), 1.0f * scale);
+    }
+
+    // 绘制二维码纯矢量图标
+    auto iconRect = D2D1::RectF(state.qrChipRect.left + 6.0f * scale, state.qrChipRect.top + 3.0f * scale,
+                                state.qrChipRect.left + 22.0f * scale, state.qrChipRect.bottom - 3.0f * scale);
+    CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(), CaptureIconId::PropQrCode, iconRect, iconBrush.Get(), scale);
+
+    // 绘制文字
+    if (m_infoTextFormat && textBrush) {
+        m_infoTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        auto textRect = D2D1::RectF(state.qrChipRect.left + 25.0f * scale, state.qrChipRect.top + 4.0f * scale,
+                                    state.qrChipRect.right - 6.0f * scale, state.qrChipRect.bottom);
+        m_renderTarget->DrawTextW(displayMsg.c_str(), static_cast<UINT32>(displayMsg.size()),
+                                  m_infoTextFormat.Get(), textRect, textBrush.Get());
+    }
+}
+
 void CaptureRenderer::drawCrosshair(float x, float y) {
     auto size = m_renderTarget->GetSize();
     m_renderTarget->DrawLine(D2D1::Point2F(x, 0), D2D1::Point2F(x, size.height), m_crosshairBrush.Get(), 1.0f);
@@ -1889,6 +2123,7 @@ void CaptureRenderer::render(CaptureState& state) {
 
         D2D1_RECT_F selRect = D2D1::RectF(x1, y1, x2, y2);
         drawDimOverlay(selRect, state);
+        drawSmartAlignmentGuides(selRect, state);
         drawSelection(selRect, state);
         drawSizeInfo(selRect, state);
         // 拖拽中也显示取色放大镜，便于像素级对齐选区边缘
@@ -1909,6 +2144,7 @@ void CaptureRenderer::render(CaptureState& state) {
             drawDynamicMagnifier(state);
         }
 
+        drawSmartAlignmentGuides(selRect, state);
         drawSelection(selRect, state);
         drawSizeInfo(selRect, state);
         drawToolbar(selRect, state);

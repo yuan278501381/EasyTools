@@ -43,6 +43,10 @@ enum class ToolbarCommand {
     ToggleArrowDropdown,     // 展开/收起箭头主下拉菜单
     ToggleMosaicDropdown,    // 展开/收起马赛克下拉菜单
     SelectMosaicType,        // 选择马赛克类型 (像素/高斯模糊)
+    // 选区侧边浮动菜单专属命令 (PixPin 标杆交互)
+    SideToggleCornerRadius,  // 侧边展开/收起选区圆角滑块面板
+    SideInvertSelection,     // 侧边反选/选区翻转
+    SideResetSelection,      // 侧边重置选区直角
 };
 
 enum class SubmenuType {
@@ -53,6 +57,28 @@ enum class SubmenuType {
     PenType,
     ArrowType,
     MosaicType,
+};
+
+enum class SliderPopupType {
+    None = 0,
+    StrokeWidth,            // 线宽无级滑块 (1~30px)
+    CornerRadius,           // 标注圆角无级滑块 (0~60px)
+    SelectionCornerRadius,  // 选区圆角无级滑块 (0~120px) (PixPin 标杆)
+    TextFontSize,           // 字号无级滑块 (12~72px)
+    MosaicBlockSize,        // 马赛克颗粒度无级滑块 (2~40px)
+};
+
+struct SliderPopupState {
+    SliderPopupType type = SliderPopupType::None;
+    D2D1_RECT_F popupRect{};
+    D2D1_RECT_F trackRect{};
+    D2D1_RECT_F thumbRect{};
+    std::vector<std::pair<int, D2D1_RECT_F>> presetButtons;
+    int minValue = 1;
+    int maxValue = 30;
+    int currentValue = 4;
+    bool isDragging = false;
+    float dragAnchorX = 0.0f;
 };
 
 enum class ColorFormatType {
@@ -85,6 +111,7 @@ struct ToolbarButton {
     bool boolParam = false;
     bool hasDropdown = false;
     bool isSecondary = false;
+    bool isSeparatorBefore = false;
 };
 
 using SelectionCallback = std::function<void(
@@ -124,11 +151,14 @@ public:
     std::vector<cv::Point> penPoints;
     std::vector<ToolbarButton> toolbarButtons;
     std::vector<ToolbarButton> secondaryToolbarButtons;
+    std::vector<ToolbarButton> selectionSideButtons;
     SubmenuType openSubmenu = SubmenuType::None;
     D2D1_RECT_F openSubmenuRect{};
     std::vector<ToolbarButton> submenuButtons;
+    SliderPopupState sliderPopup{};
     D2D1_RECT_F primaryToolbarRect{};
     D2D1_RECT_F secondaryToolbarRect{};
+    D2D1_RECT_F selectionSideRect{};
     D2D1_RECT_F toolbarLayoutSelection{};
     D2D1_SIZE_F toolbarLayoutSurface{};
     float toolbarLayoutScale = 0.0f;
@@ -168,6 +198,11 @@ public:
     bool isSizeMenuOpen = false;
     D2D1_RECT_F sizeHudRect{};
     D2D1_RECT_F sizeMenuRect{};
+
+    // 智能二维码探测与快速动作胶囊
+    std::string detectedQrText;
+    D2D1_RECT_F qrChipRect{};
+    bool isQrChipHovered = false;
 
     SelectionCallback callback;
     RecordSelectionCallback recordCallback;
