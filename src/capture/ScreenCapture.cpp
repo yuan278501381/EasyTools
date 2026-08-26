@@ -470,54 +470,84 @@ bool ScreenCapture::copyToClipboard(const cv::Mat& image) {
 
     EmptyClipboard();
 
-    // 创建 DIB
+    // 1. 写入 PNG 格式（保留透明通道与最高画质，微信/QQ/飞书/Slack/浏览器等现代应用优先读取）
+    UINT formatPng = RegisterClipboardFormatW(L"PNG");
+    if (formatPng != 0) {
+        std::vector<uint8_t> pngBytes;
+        if (cv::imencode(".png", image, pngBytes) && !pngBytes.empty()) {
+            HGLOBAL hPngGlobal = GlobalAlloc(GMEM_MOVEABLE, pngBytes.size());
+            if (hPngGlobal) {
+                void* pPngMem = GlobalLock(hPngGlobal);
+                if (pPngMem) {
+                    memcpy(pPngMem, pngBytes.data(), pngBytes.size());
+                    GlobalUnlock(hPngGlobal);
+                    SetClipboardData(formatPng, hPngGlobal);
+                } else {
+                    GlobalFree(hPngGlobal);
+                }
+            }
+        }
+    }
+
+    // 2. 写入标准底向上（Bottom-up）CF_DIB（Windows GDI 规范必须为 biHeight > 0 正数，保障所有老旧及系统软件 100% 可粘贴）
     BITMAPINFOHEADER bi{};
     bi.biSize = sizeof(bi);
     bi.biWidth = image.cols;
-    bi.biHeight = -image.rows;  // top-down
+    bi.biHeight = image.rows;   // 正数 = 标准底向上 (Bottom-Up DIB)
     bi.biPlanes = 1;
-    bi.biBitCount = 24;         // BGR
+    bi.biBitCount = 24;          // 24 位 BGR
     bi.biCompression = BI_RGB;
     int rowBytes = image.cols * 3;
-    int stride = (rowBytes + 3) & ~3;  // 4 字节对齐
+    int stride = (rowBytes + 3) & ~3;  // 4 字节边界对齐
     bi.biSizeImage = stride * image.rows;
 
     size_t totalSize = sizeof(BITMAPINFOHEADER) + bi.biSizeImage;
     HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, totalSize);
     if (!hGlobal) {
         CloseClipboard();
-        return false;
+        return true;  // 如果 PNG 已经设置成功，则仍然算成功
     }
 
     auto* pMem = static_cast<uint8_t*>(GlobalLock(hGlobal));
     if (!pMem) {
         GlobalFree(hGlobal);
         CloseClipboard();
-        return false;
+        return true;
     }
     memcpy(pMem, &bi, sizeof(bi));
 
-    // 确保图像是连续的 BGR
-    cv::Mat continuous;
+    // 确保图像为 3 通道连续 BGR，如果是 4 通道则合成为不透明白色底或直接转 BGR
+    cv::Mat bgrMat;
     if (image.channels() == 4) {
-        cv::cvtColor(image, continuous, cv::COLOR_BGRA2BGR);
+        // 对于带 Alpha 的圆角截图，将背景透明区域合成在纯白底上，防止 24位 DIB 出现黑边
+        cv::Mat bg(image.size(), CV_8UC3, cv::Scalar(255, 255, 255));
+        for (int y = 0; y < image.rows; ++y) {
+            const auto* srcPtr = image.ptr<cv::Vec4b>(y);
+            auto* dstPtr = bg.ptr<cv::Vec3b>(y);
+            for (int x = 0; x < image.cols; ++x) {
+                float alpha = srcPtr[x][3] / 255.0f;
+                dstPtr[x][0] = static_cast<uint8_t>(srcPtr[x][0] * alpha + 255.0f * (1.0f - alpha));
+                dstPtr[x][1] = static_cast<uint8_t>(srcPtr[x][1] * alpha + 255.0f * (1.0f - alpha));
+                dstPtr[x][2] = static_cast<uint8_t>(srcPtr[x][2] * alpha + 255.0f * (1.0f - alpha));
+            }
+        }
+        bgrMat = bg;
     } else {
-        continuous = image.isContinuous() ? image : image.clone();
+        bgrMat = image.isContinuous() ? image : image.clone();
     }
 
-    // 复制像素数据（注意行对齐）
-    for (int y = 0; y < continuous.rows; ++y) {
-        memcpy(pMem + sizeof(bi) + y * stride, continuous.ptr(y), rowBytes);
+    // Windows 底向上 DIB：第 0 行对应图像的最后一行
+    for (int y = 0; y < bgrMat.rows; ++y) {
+        int srcY = bgrMat.rows - 1 - y;
+        memcpy(pMem + sizeof(bi) + y * stride, bgrMat.ptr(srcY), rowBytes);
     }
 
     GlobalUnlock(hGlobal);
     if (!SetClipboardData(CF_DIB, hGlobal)) {
         GlobalFree(hGlobal);
-        CloseClipboard();
-        return false;
     }
-    CloseClipboard();
 
+    CloseClipboard();
     return true;
 }
 

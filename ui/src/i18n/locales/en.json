@@ -1035,7 +1035,7 @@
     "displayDuration": "Hold Duration",
     "displayDurationDesc": "Duration each keystroke capsule stays on screen (ms).",
     "fontSize": "Keycap Font Size",
-    "fontSizeDesc": "Font size of the keycast text (px).",
+    "fontSizeDesc": "Base font size for keycast (px). Capsule trays, modifier keycaps, Windows logo and paddings scale dynamically in golden ratio.",
     "textColor": "Text Color",
     "textColorDesc": "Color of the key text.",
     "backgroundColor": "Capsule Background",

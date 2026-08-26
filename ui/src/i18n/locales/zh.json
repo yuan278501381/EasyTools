@@ -1035,7 +1035,7 @@
     "displayDuration": "停留时长",
     "displayDurationDesc": "按键胶囊在屏幕上的停留时间 (ms)。",
     "fontSize": "键帽字号",
-    "fontSizeDesc": "回显按键的字体大小 (px)。",
+    "fontSizeDesc": "回显按键的基准字号 (px)。胶囊外壳、修饰键底座、Windows 徽标及间距将随字号等比动态自适应缩放。",
     "textColor": "文字颜色",
     "textColorDesc": "按键文字的颜色。",
     "backgroundColor": "胶囊背景色",

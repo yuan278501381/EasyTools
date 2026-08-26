@@ -41,7 +41,9 @@ private:
     void drawDimOverlay(const D2D1_RECT_F& selectionRect, CaptureState& state);
     void drawSelection(const D2D1_RECT_F& rect, CaptureState& state);
     void drawSizeInfo(const D2D1_RECT_F& rect, CaptureState& state);
+    void drawSizeMenu(const D2D1_RECT_F& hudRect, CaptureState& state);
     void drawToolbar(const D2D1_RECT_F& selectionRect, CaptureState& state);
+    void drawSubmenu(CaptureState& state);
     void drawGlassPanel(const D2D1_RECT_F& rect, float radius, bool seeThrough);
     void drawMarkupPreview(const D2D1_RECT_F& selectionRect, CaptureState& state);
     void drawActiveMarkupPreview(const D2D1_RECT_F& selectionRect, CaptureState& state);

@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   mergeRecentKeys: true,
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
-  fontSize: 18,
+  fontSize: 20,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
@@ -480,7 +480,7 @@ export const KeycastPage: FC = () => {
                 max={36}
                 step={2}
                 value={settings.fontSize}
-                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 18)}
+                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 20)}
                 aria-label={t('keycast.fontSize', '键帽字号')}
               />
             </div>

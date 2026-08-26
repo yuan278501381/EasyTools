@@ -36,6 +36,36 @@ std::vector<std::string> splitTokens(const std::string& str) {
 inline bool isModifierKey(const std::string& token) {
     return token == "Ctrl" || token == "Alt" || token == "Shift" || token == "Win";
 }
+
+struct KeycastDynamicMetrics {
+    float fontSize;       // 实际生效的字体尺寸 (DPI 缩放后)
+    float charWidth;      // 单字符估算宽度
+    float capHeight;      // 键帽高度 = fontSize * 1.75f
+    float capRadius;      // 键帽圆角 = capHeight * 0.22f
+    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.65f
+    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.22f
+    float paddingX;       // 胶囊左右内边距 = fontSize * 0.55f
+    float winWidth;       // Windows 键宽度 = fontSize * 1.85f
+    float logoSize;       // Windows 徽标尺寸 = fontSize * 0.88f
+    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.35f
+    float borderWidth;    // 动态微边框 = max(1.0f * dpiScale, fontSize * 0.055f)
+};
+
+inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
+    KeycastDynamicMetrics m;
+    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 1.08f) * dpiScale;
+    m.charWidth = m.fontSize * 0.62f;
+    m.capHeight = m.fontSize * 1.75f;
+    m.capRadius = m.capHeight * 0.22f;
+    m.capsuleHeight = m.capHeight + m.fontSize * 0.65f;
+    m.capsuleRadius = m.capsuleHeight * 0.22f;
+    m.paddingX = m.fontSize * 0.55f;
+    m.winWidth = m.fontSize * 1.85f;
+    m.logoSize = m.fontSize * 0.88f;
+    m.rowStep = m.capsuleHeight + m.fontSize * 0.35f;
+    m.borderWidth = (std::max)(1.0f * dpiScale, m.fontSize * 0.055f);
+    return m;
+}
 }
 
 KeycastOverlay& KeycastOverlay::instance() {
@@ -87,7 +117,7 @@ bool KeycastOverlay::init() {
         m_settings.mergeRecentKeys = cfg.get<bool>("/keycast/mergeRecentKeys", true);
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);
         m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 2500);
-        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 18);
+        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 20);
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
@@ -152,6 +182,7 @@ void KeycastOverlay::updateSettings(const KeycastSettings& settings) {
     cfg.set("/keycast/exitDriftAnim", settings.exitDriftAnim);
 
     discardResources();
+    updatePlacement();
 }
 
 void KeycastOverlay::resetDefaults() {
@@ -448,40 +479,45 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
                (tok.size() >= 2 && tok[0] == 'F' && isdigit(static_cast<unsigned char>(tok[1])));
     };
 
-    float totalW = 10.0f * dpiScale; // 左内边距 10px
+    const KeycastSettings settings = getSettings();
+    const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, dpiScale);
+
+    float totalW = dyn.paddingX; // 左内边距
     for (size_t i = 0; i < item.tokens.size(); ++i) {
         const std::string& token = item.tokens[i];
         if (token == "Win") {
-            totalW += 34.0f * dpiScale;
+            totalW += dyn.winWidth;
         } else if (isModifier(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
-            float charW = static_cast<float>(wtoken.length()) * 11.5f * dpiScale;
-            float minCapW = 34.0f * dpiScale;
-            totalW += (std::max)(minCapW, charW + 18.0f * dpiScale);
+            float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
+            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.95f);
+            totalW += btnW;
         } else if (isSpecialKey(token)) {
             // Space / Tab / Enter / Esc 等特殊实体功能键
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
-            float charW = static_cast<float>(wtoken.length()) * 11.5f * dpiScale;
-            float minCapW = (token == "Space") ? 46.0f * dpiScale : 34.0f * dpiScale;
-            totalW += (std::max)(minCapW, charW + 16.0f * dpiScale);
+            float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
+            float minCapW = (token == "Space") ? (dyn.fontSize * 2.6f) : dyn.winWidth;
+            float btnW = (std::max)(minCapW, textW + dyn.fontSize * 0.85f);
+            totalW += btnW;
         } else {
             // 普通单字符键（如 C, V, E 等，无底座，纯白悬浮）
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
-            float charW = static_cast<float>(wtoken.length()) * 11.5f * dpiScale;
-            totalW += (std::max)(18.0f * dpiScale, charW + 10.0f * dpiScale);
+            float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
+            float btnW = (std::max)(dyn.fontSize * 0.95f, textW + dyn.fontSize * 0.55f);
+            totalW += btnW;
         }
         if (i + 1 < item.tokens.size()) {
-            totalW += 18.0f * dpiScale; // '+' 宽度与两侧间距
+            totalW += dyn.fontSize * 0.95f; // '+' 宽度与两侧间距
         }
     }
     if (item.repeatCount > 1) {
         std::wstring repStr = L"×" + std::to_wstring(item.repeatCount);
-        float charW = static_cast<float>(repStr.length()) * 8.5f * dpiScale;
-        float fullBadgeW = 4.0f * dpiScale + charW;
+        float charW = static_cast<float>(repStr.length()) * (dyn.fontSize * 0.78f * 0.60f);
+        float fullBadgeW = dyn.fontSize * 0.25f + charW;
         float progress = (item.badgeWidthProgress > 0.0f) ? item.badgeWidthProgress : 1.0f;
         totalW += fullBadgeW * (std::max)(0.0f, (std::min)(1.0f, progress));
     }
-    totalW += 10.0f * dpiScale; // 右内边距 10px
+    totalW += dyn.paddingX; // 右内边距
     return totalW + 2.0f * dpiScale; // 极度安全的物理呼吸裕量
 }
 
@@ -494,9 +530,12 @@ bool KeycastOverlay::updatePlacement() {
     const RECT work = easy::core::dpi::workArea(monitor);
     const float screenW = static_cast<float>(work.right - work.left);
 
-    // 宽度以屏幕中线为基准自适应 (单行最大 46% 屏幕宽度)，高度容纳 3 排完整呼吸感
-    const int newWidth = static_cast<int>((std::min)(screenW * 0.50f, (std::max)(960.0f * newScale, screenW * 0.46f + 48.0f * newScale)));
-    const int newHeight = easy::core::dpi::scaleMetric(240, newScale);
+    KeycastSettings settings = getSettings();
+    const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, newScale);
+
+    // 宽度以屏幕中线为基准自适应，高度根据动态行距自适应容纳 3 排完整呼吸感
+    const int newWidth = static_cast<int>((std::min)(screenW * 0.70f, (std::max)(1200.0f * newScale, screenW * 0.50f + 64.0f * newScale)));
+    const int newHeight = static_cast<int>(dyn.rowStep * 3.6f + 32.0f * newScale);
 
     if (std::abs(newScale - m_dpiScale) >= 0.01f ||
         newWidth != m_width || newHeight != m_height) {
@@ -509,7 +548,6 @@ bool KeycastOverlay::updatePlacement() {
     const int marginX = easy::core::dpi::scaleMetric(32, m_dpiScale);
     const int marginY = easy::core::dpi::scaleMetric(42, m_dpiScale);
 
-    KeycastSettings settings = getSettings();
     int x = work.left + marginX;
     int y = work.bottom - m_height - marginY;
 
@@ -774,10 +812,12 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
                (tok.size() >= 2 && tok[0] == 'F' && isdigit(static_cast<unsigned char>(tok[1])));
     };
 
-    float curX = startX + 10.0f * dpiScale;
-    float capHeight = 32.0f * dpiScale;
-    float capCenterY = startY + 22.0f * dpiScale;
     KeycastSettings settings = getSettings();
+    const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, dpiScale);
+
+    float curX = startX + dyn.paddingX;
+    float capHeight = dyn.capHeight;
+    float capCenterY = startY + dyn.capsuleHeight / 2.0f;
     float keycapAlpha = (std::max)(0.0f, (std::min)(1.0f, static_cast<float>(settings.modifierKeycapOpacity) / 100.0f));
 
     for (size_t i = 0; i < item.tokens.size(); ++i) {
@@ -785,22 +825,22 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
 
         if (token == "Win") {
             // Windows 键: 专属品牌色底座 (透明度独立受控) + 纯白高亮 Windows 11 官方透视四窗格矢量徽标
-            float winW = 34.0f * dpiScale;
+            float winW = dyn.winWidth;
             float winH = capHeight;
             float topY = capCenterY - winH / 2.0f;
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(curX, topY, curX + winW, topY + winH),
-                7.0f * dpiScale, 7.0f * dpiScale
+                dyn.capRadius, dyn.capRadius
             );
             if (keycapAlpha > 0.01f) {
                 m_brushKeycapBg->SetOpacity(keycapAlpha * alpha);
                 m_renderTarget->FillRoundedRectangle(&rrect, m_brushKeycapBg.Get());
                 m_brushKeycapBorder->SetOpacity((std::min)(1.0f, keycapAlpha * 1.5f + 0.08f) * alpha);
-                m_renderTarget->DrawRoundedRectangle(&rrect, m_brushKeycapBorder.Get(), 1.0f * dpiScale);
+                m_renderTarget->DrawRoundedRectangle(&rrect, m_brushKeycapBorder.Get(), dyn.borderWidth);
             }
 
-            float logoSize = 16.0f * dpiScale; 
+            float logoSize = dyn.logoSize; 
             D2D1_RECT_F logoRect = D2D1::RectF(
                 curX + (winW - logoSize) / 2.0f,
                 capCenterY - logoSize / 2.0f,
@@ -820,21 +860,21 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float minCapW = 34.0f * dpiScale;
-            float btnW = (std::max)(minCapW, m.width + 18.0f * dpiScale);
+            float minCapW = dyn.winWidth;
+            float btnW = (std::max)(minCapW, m.width + dyn.fontSize * 0.95f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(curX, topY, curX + btnW, topY + btnH),
-                7.0f * dpiScale, 7.0f * dpiScale
+                dyn.capRadius, dyn.capRadius
             );
 
             if (keycapAlpha > 0.01f) {
                 m_brushKeycapBg->SetOpacity(keycapAlpha * alpha);
                 m_renderTarget->FillRoundedRectangle(&rrect, m_brushKeycapBg.Get());
                 m_brushKeycapBorder->SetOpacity((std::min)(1.0f, keycapAlpha * 1.5f + 0.08f) * alpha);
-                m_renderTarget->DrawRoundedRectangle(&rrect, m_brushKeycapBorder.Get(), 1.0f * dpiScale);
+                m_renderTarget->DrawRoundedRectangle(&rrect, m_brushKeycapBorder.Get(), dyn.borderWidth);
             }
 
             // 修饰键内部文字始终保持 100% 极纯白高亮，字字清晰锐利，绝不受底色透明度影响！
@@ -858,20 +898,20 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float minCapW = (token == "Space") ? 46.0f * dpiScale : 34.0f * dpiScale;
-            float btnW = (std::max)(minCapW, m.width + 16.0f * dpiScale);
+            float minCapW = (token == "Space") ? (dyn.fontSize * 2.6f) : dyn.winWidth;
+            float btnW = (std::max)(minCapW, m.width + dyn.fontSize * 0.85f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 
             D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(
                 D2D1::RectF(curX, topY, curX + btnW, topY + btnH),
-                7.0f * dpiScale, 7.0f * dpiScale
+                dyn.capRadius, dyn.capRadius
             );
 
             m_brushFuncKeyBg->SetOpacity(alpha);
             m_renderTarget->FillRoundedRectangle(&rrect, m_brushFuncKeyBg.Get());
             m_brushFuncKeyBorder->SetOpacity(alpha);
-            m_renderTarget->DrawRoundedRectangle(&rrect, m_brushFuncKeyBorder.Get(), 1.0f * dpiScale);
+            m_renderTarget->DrawRoundedRectangle(&rrect, m_brushFuncKeyBorder.Get(), dyn.borderWidth);
 
             m_brushText->SetOpacity(alpha);
             if (layout) {
@@ -893,7 +933,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float btnW = (std::max)(18.0f * dpiScale, m.width + 10.0f * dpiScale);
+            float btnW = (std::max)(dyn.fontSize * 0.95f, m.width + dyn.fontSize * 0.55f);
 
             m_brushText->SetOpacity(alpha);
             if (layout) {
@@ -908,7 +948,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
 
         // 绘制键间连接符号 '+'
         if (i + 1 < item.tokens.size()) {
-            curX += 4.0f * dpiScale;
+            curX += dyn.fontSize * 0.20f;
             std::wstring plusStr = L"+";
             Microsoft::WRL::ComPtr<IDWriteTextLayout> plusLayout;
             m_dwriteFactory->CreateTextLayout(
@@ -924,13 +964,13 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
                     D2D1::Point2F(plusX, plusY),
                     plusLayout.Get(), m_brushPlusText.Get());
             }
-            curX += pm.width + 4.0f * dpiScale;
+            curX += pm.width + dyn.fontSize * 0.20f;
         }
     }
 
     // 重复按键指示器 ×2 / ×4 (纯净悬浮微晶字，彻底去掉背景底座以防误认作实体键帽)
     if (item.repeatCount > 1 && item.badgeWidthProgress > 0.05f) {
-        curX += 4.0f * dpiScale * item.badgeWidthProgress;
+        curX += dyn.fontSize * 0.20f * item.badgeWidthProgress;
         std::wstring repStr = L"×" + std::to_wstring(item.repeatCount);
         Microsoft::WRL::ComPtr<IDWriteTextLayout> repLayout;
         m_dwriteFactory->CreateTextLayout(
@@ -987,6 +1027,7 @@ void KeycastOverlay::render() {
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0)); // 透明背景
 
     KeycastSettings settings = getSettings();
+    const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, m_dpiScale);
 
     std::vector<KeycastRow> localRows;
     {
@@ -994,14 +1035,47 @@ void KeycastOverlay::render() {
         localRows = m_rows;
     }
 
+    const bool isBottom = (settings.position == "bottom_left" ||
+                           settings.position == "bottom_center" ||
+                           settings.position == "bottom_right");
+
     float currentY = 10.0f * m_dpiScale;
     for (size_t r = 0; r < localRows.size(); ++r) {
         const auto& row = localRows[r];
         if (row.opacity < 0.02f) continue;
 
-        float currentX = 12.0f * m_dpiScale;
-        float actualY = currentY + row.offsetY * m_dpiScale;
+        // 1. 精确测量当前行所有胶囊并排的总宽度
+        float rowWidth = 0.0f;
+        for (size_t c = 0; c < row.items.size(); ++c) {
+            rowWidth += calculateItemWidth(row.items[c], m_dpiScale);
+            if (c + 1 < row.items.size()) {
+                rowWidth += dyn.fontSize * 0.45f; // 胶囊水平间距
+            }
+        }
 
+        // 2. 根据用户配置对齐模式（左对齐 / 居中对齐 / 右对齐）精确计算起始 X 坐标
+        float startX = 12.0f * m_dpiScale;
+        if (settings.position == "top_right" || settings.position == "bottom_right") {
+            // 右对齐：紧贴右侧边缘
+            startX = m_width - 12.0f * m_dpiScale - rowWidth;
+        } else if (settings.position == "bottom_center") {
+            // 居中对齐：在窗口水平中轴线上精准居中
+            startX = (m_width - rowWidth) / 2.0f;
+        } else {
+            // 左对齐（top_left, bottom_left）
+            startX = 12.0f * m_dpiScale;
+        }
+
+        // 3. 垂直排版计算：底部位置时最新行位于最底行，历史行向上级联浮动
+        float actualY = 0.0f;
+        if (isBottom) {
+            float baseY = m_height - dyn.capsuleHeight - dyn.fontSize * 0.35f;
+            actualY = baseY - static_cast<float>(localRows.size() - 1 - r) * dyn.rowStep + row.offsetY * m_dpiScale;
+        } else {
+            actualY = currentY + row.offsetY * m_dpiScale;
+        }
+
+        float currentX = startX;
         for (size_t c = 0; c < row.items.size(); ++c) {
             const auto& item = row.items[c];
             float itemAlpha = row.opacity * item.opacity;
@@ -1010,7 +1084,7 @@ void KeycastOverlay::render() {
             float drawX = currentX + item.offsetX * m_dpiScale;
             float drawY = actualY + item.offsetY * m_dpiScale;
 
-            // 预先精确测量该组合键的总宽度（左右内边距各 10px + 2px 呼吸裕量）
+            // 预先精确测量该组合键的总宽度（左右内边距各自适应 + 2px 呼吸裕量）
             float totalCapsuleW = calculateItemWidth(item, m_dpiScale);
 
             // 整个胶囊原子化同心同轴矩阵变换 (Scale Pop Matrix)
@@ -1020,7 +1094,7 @@ void KeycastOverlay::render() {
 
             if (hasScaleTransform) {
                 float centerX = drawX + totalCapsuleW / 2.0f;
-                float centerY = drawY + 22.0f * m_dpiScale;
+                float centerY = drawY + dyn.capsuleHeight / 2.0f;
                 D2D1_MATRIX_3X2_F scaleMatrix = D2D1::Matrix3x2F::Scale(
                     item.scale, item.scale, D2D1::Point2F(centerX, centerY));
                 m_renderTarget->SetTransform(scaleMatrix * oldTransform);
@@ -1028,15 +1102,15 @@ void KeycastOverlay::render() {
 
             // 1. 绘制深色不透明胶囊托盘背景 (0.97f 彻底阻隔背景文字透视穿帮)
             D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(
-                D2D1::RectF(drawX, drawY, drawX + totalCapsuleW, drawY + 44.0f * m_dpiScale),
-                9.0f * m_dpiScale, 9.0f * m_dpiScale
+                D2D1::RectF(drawX, drawY, drawX + totalCapsuleW, drawY + dyn.capsuleHeight),
+                dyn.capsuleRadius, dyn.capsuleRadius
             );
 
             m_brushBg->SetOpacity(0.97f * itemAlpha);
             m_renderTarget->FillRoundedRectangle(&capsuleRect, m_brushBg.Get());
 
             m_brushBorder->SetOpacity(0.20f * itemAlpha);
-            m_renderTarget->DrawRoundedRectangle(&capsuleRect, m_brushBorder.Get(), 1.0f * m_dpiScale);
+            m_renderTarget->DrawRoundedRectangle(&capsuleRect, m_brushBorder.Get(), dyn.borderWidth);
 
             // 2. 绘制键帽微凸槽与内容
             drawKeycapCapsule(item, drawX, drawY, itemAlpha, m_dpiScale);
@@ -1045,11 +1119,12 @@ void KeycastOverlay::render() {
                 m_renderTarget->SetTransform(oldTransform);
             }
 
-            currentX += totalCapsuleW + 8.0f * m_dpiScale;
+            currentX += totalCapsuleW + dyn.fontSize * 0.45f;
         }
 
-        // 紧凑排版：每一排 44px 胶囊 + 6px 间距 = 50px 步进
-        currentY += 50.0f * m_dpiScale;
+        if (!isBottom) {
+            currentY += dyn.rowStep;
+        }
     }
 
     if (FAILED(m_renderTarget->EndDraw())) {

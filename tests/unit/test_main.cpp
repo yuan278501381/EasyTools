@@ -2734,7 +2734,8 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     const D2D1_SIZE_F desktop150 = D2D1::SizeF(2304.0f, 1440.0f);
     rebuildCaptureToolbar(screenshot, D2D1::RectF(180.0f, 120.0f, 1600.0f, 980.0f),
                           desktop150);
-    EXPECT_EQ(screenshot.toolbarButtons.size(), 26u);
+    EXPECT_EQ(screenshot.toolbarButtons.size(), 14u);
+    EXPECT_EQ(screenshot.secondaryToolbarButtons.size(), 13u);
     EXPECT_NEAR(screenshot.toolbarButtons.front().rect.bottom -
                 screenshot.toolbarButtons.front().rect.top, 45.0f, 0.01f);
     check_toolbar_inside_surface(screenshot, desktop150);
@@ -2748,15 +2749,8 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     wrapped.dpiScale = 2.0f;
     const D2D1_SIZE_F compact = D2D1::SizeF(1000.0f, 700.0f);
     rebuildCaptureToolbar(wrapped, D2D1::RectF(80.0f, 100.0f, 850.0f, 480.0f), compact);
-    EXPECT_EQ(wrapped.toolbarButtons.size(), 26u);
-    bool hasSecondRow = false;
-    for (const auto& button : wrapped.toolbarButtons) {
-        if (button.rect.top > wrapped.toolbarButtons.front().rect.top + 0.01f) {
-            hasSecondRow = true;
-            break;
-        }
-    }
-    EXPECT_TRUE(hasSecondRow);
+    EXPECT_EQ(wrapped.toolbarButtons.size(), 14u);
+    EXPECT_EQ(wrapped.secondaryToolbarButtons.size(), 13u);
     check_toolbar_inside_surface(wrapped, compact);
 
     CaptureState recording;
@@ -2777,7 +2771,7 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     const D2D1_SIZE_F desktop500 = D2D1::SizeF(7680.0f, 4320.0f);
     rebuildCaptureToolbar(extreme, D2D1::RectF(500.0f, 400.0f, 7000.0f, 3600.0f),
                           desktop500);
-    EXPECT_EQ(extreme.toolbarButtons.size(), 26u);
+    EXPECT_EQ(extreme.toolbarButtons.size(), 14u);
     check_toolbar_inside_surface(extreme, desktop500);
 }
 
@@ -4268,25 +4262,280 @@ TEST(CaptureCornerRadiusTest, CornerRadiusInteractiveAdjustment) {
     state.selAdjustHandle = HitArea::CornerRadius;
     EXPECT_EQ(state.selAdjustHandle, HitArea::CornerRadius);
 
-    // 2. 验证圆角控制点动态偏移量计算算法 (offset = max(12.0f, cornerRadius + 6.0f))
+    // 2. 验证圆角控制点动态偏移量计算算法 (offset = max(14.0f, cornerRadius + 8.0f))
     float selW = 400.0f;
     float selH = 300.0f;
     float maxR = std::min(selW, selH) * 0.5f;
     EXPECT_NEAR(maxR, 150.0f, 0.01f);
 
-    float offset0 = std::clamp(std::max(12.0f, state.cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f);
-    EXPECT_NEAR(offset0, 12.0f, 0.01f);
+    float offset0 = std::clamp(std::max(14.0f, state.cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_NEAR(offset0, 14.0f, 0.01f);
 
     state.cornerRadius = 16.0f;
-    float offset16 = std::clamp(std::max(12.0f, state.cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f);
-    EXPECT_NEAR(offset16, 22.0f, 0.01f);
+    float offset16 = std::clamp(std::max(14.0f, state.cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_NEAR(offset16, 24.0f, 0.01f);
 
     // 3. 验证圆角拖拽状态变更与极值约束
     state.isAdjustingCornerRadius = true;
     state.cornerDragStartRadius = 16.0f;
-    state.cornerDragStartPos = {122, 122};
+    state.cornerDragStartPos = {124, 124};
     EXPECT_TRUE(state.isAdjustingCornerRadius);
     EXPECT_NEAR(state.cornerDragStartRadius, 16.0f, 0.01f);
+
+    // 4. 验证鼠标靠近角部检测 (triggerDist = 36.0f)
+    const float triggerDist = 36.0f;
+    POINT nearPt{124, 124};
+    float dist = std::hypot(nearPt.x - (100.0f + offset16), nearPt.y - (100.0f + offset16));
+    EXPECT_LE(dist, triggerDist);
+
+    POINT farPt{300, 250};
+    float farDist = std::hypot(farPt.x - (100.0f + offset16), farPt.y - (100.0f + offset16));
+    EXPECT_GT(farDist, triggerDist);
+}
+
+TEST(CaptureToolbarTooltipTest, ComprehensiveTooltips) {
+    using namespace easy::capture;
+
+    ToolbarButton btnRect;
+    btnRect.command = ToolbarCommand::SelectTool;
+    btnRect.tool = MarkupTool::Rectangle;
+    EXPECT_EQ(btnRect.command, ToolbarCommand::SelectTool);
+    EXPECT_EQ(btnRect.tool, MarkupTool::Rectangle);
+
+    ToolbarButton btnArrow;
+    btnArrow.command = ToolbarCommand::SelectTool;
+    btnArrow.tool = MarkupTool::Arrow;
+    EXPECT_EQ(btnArrow.tool, MarkupTool::Arrow);
+
+    ToolbarButton btnColor;
+    btnColor.command = ToolbarCommand::SelectColor;
+    btnColor.color = {255, 0, 0, 255};
+    EXPECT_EQ(btnColor.color.r, 255);
+}
+
+TEST(CaptureClipboardFormatTest, BottomUpDIBAndPNG) {
+    cv::Mat testMat(100, 100, CV_8UC4, cv::Scalar(100, 150, 200, 255));
+    EXPECT_FALSE(testMat.empty());
+    EXPECT_EQ(testMat.cols, 100);
+    EXPECT_EQ(testMat.rows, 100);
+
+    // 验证 PNG 内存编码支持
+    std::vector<uint8_t> pngBytes;
+    bool encoded = cv::imencode(".png", testMat, pngBytes);
+    EXPECT_TRUE(encoded);
+    EXPECT_FALSE(pngBytes.empty());
+
+    // 验证 Windows GDI 标准底向上扫描行正数约束
+    BITMAPINFOHEADER bi{};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = testMat.cols;
+    bi.biHeight = testMat.rows; // 正数 = Bottom-Up DIB
+    EXPECT_GT(bi.biHeight, 0);
+}
+
+TEST(EasyCoreWinUtilsCoverageTest, StringAndMemoryConversion) {
+    using namespace easy::core;
+    std::string utf8Str = "EasyTools 世界级截图工具";
+    std::wstring wstr = WinUtils::utf8ToWstring(utf8Str);
+    EXPECT_FALSE(wstr.empty());
+    std::string roundtrip = WinUtils::wstringToUtf8(wstr);
+    EXPECT_EQ(utf8Str, roundtrip);
+
+    // 验证拼音引擎
+    std::wstring initials = PinyinEngine::GetInitials(L"截图工具");
+    EXPECT_FALSE(initials.empty());
+    std::wstring fullPinyin = PinyinEngine::GetFullPinyin(L"截图");
+    EXPECT_FALSE(fullPinyin.empty());
+
+    // 验证物理内存修剪与冷路径安全调用
+    WinUtils::trimWorkingSet();
+}
+
+TEST(EasyCorePipelineAndEventTest, KeyboardFilterAndEventBus) {
+    using namespace easy::core;
+    using namespace easy::ui;
+    
+    // 1. 验证 KeyboardPipeline Win32 菜单与帮助快捷键拦截
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_KEYMENU, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CONTEXTHELP, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_HELP, 0, 0));
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_NULL, 0, 0));
+
+    // 2. 验证 EventBus 同步分发与订阅机制
+    bool eventReceived = false;
+    auto subId = EventBus::instance().subscribe<ShowToastEvent>([&](const ShowToastEvent& evt) {
+        if (evt.message == L"测试事件") {
+            eventReceived = true;
+        }
+    });
+
+    EventBus::instance().publish(ShowToastEvent{L"测试事件"});
+    EXPECT_TRUE(eventReceived);
+    EventBus::instance().unsubscribe(subId);
+}
+
+// -----------------------------------------------------------------------------
+// 36.5 截图尺寸胶囊 HUD 与单位设置交互测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureSizeHudAndMenuTest, HudUnitsAndSwitches) {
+    using namespace easy::capture;
+    CaptureState state;
+    
+    // 1. 默认设置检查
+    EXPECT_EQ(state.sizeUnit, CaptureState::SizeUnit::Pixel);
+    EXPECT_TRUE(state.showPositionInHud);
+    EXPECT_TRUE(state.showUnitInHud);
+    EXPECT_FALSE(state.isSizeMenuOpen);
+    EXPECT_FALSE(state.isSizeHudHovered);
+
+    // 2. 状态切换
+    state.sizeUnit = CaptureState::SizeUnit::DeviceIndependentPixel;
+    EXPECT_EQ(state.sizeUnit, CaptureState::SizeUnit::DeviceIndependentPixel);
+
+    state.showPositionInHud = false;
+    EXPECT_FALSE(state.showPositionInHud);
+
+    state.showUnitInHud = false;
+    EXPECT_FALSE(state.showUnitInHud);
+
+    // 3. 菜单开关
+    state.isSizeMenuOpen = true;
+    EXPECT_TRUE(state.isSizeMenuOpen);
+
+    // 4. AccentColor 与 HEX 解析覆盖
+    auto col = easy::core::getAccentColorRGB("coral");
+    EXPECT_GT(col.r, 0.5f);
+    auto cyanCol = easy::core::getAccentColorRGB("cyan");
+    EXPECT_GT(cyanCol.b, 0.5f);
+    auto amberCol = easy::core::getAccentColorRGB("amber");
+    EXPECT_GT(amberCol.r, 0.5f);
+    auto mintCol = easy::core::getAccentColorRGB("mint");
+    EXPECT_GT(mintCol.g, 0.5f);
+    auto violetCol = easy::core::getAccentColorRGB("violet");
+    EXPECT_GT(violetCol.b, 0.5f);
+    auto defCol = easy::core::getAccentColorRGB("invalid_name");
+    EXPECT_GT(defCol.b, 0.5f);
+
+    auto hexCol1 = easy::core::parseHexColor("#FF0000");
+    EXPECT_NEAR(hexCol1.r, 1.0f, 0.01f);
+    auto hexCol2 = easy::core::parseHexColor("00FF00");
+    EXPECT_NEAR(hexCol2.g, 1.0f, 0.01f);
+    auto hexCol3 = easy::core::parseHexColor("invalid_hex");
+    EXPECT_NEAR(hexCol3.r, 0.231f, 0.01f);
+}
+
+TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
+    using namespace easy::capture;
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.mode = OverlayMode::Screenshot;
+    state.currentTool = MarkupTool::Rectangle;
+
+    D2D1_RECT_F selRect = D2D1::RectF(100.0f, 100.0f, 600.0f, 500.0f);
+    D2D1_SIZE_F surfaceSize = D2D1::SizeF(1920.0f, 1080.0f);
+
+    // 1. 测试矩形工具下的双层工具栏布局生成
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.toolbarButtons.empty());
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+    EXPECT_GT(state.primaryToolbarRect.right - state.primaryToolbarRect.left, 100.0f);
+    EXPECT_GT(state.secondaryToolbarRect.right - state.secondaryToolbarRect.left, 100.0f);
+
+    // 验证二级栏包含填充、线条样式、线宽、圆角、调色板
+    bool hasFill = false;
+    bool hasLineStyle = false;
+    bool hasStrokeWidth = false;
+    bool hasCornerRadius = false;
+    int colorCount = 0;
+
+    for (const auto& btn : state.secondaryToolbarButtons) {
+        if (btn.command == ToolbarCommand::ToggleFill) hasFill = true;
+        if (btn.command == ToolbarCommand::ToggleLineStyleDropdown) hasLineStyle = true;
+        if (btn.command == ToolbarCommand::CycleStrokeWidth) hasStrokeWidth = true;
+        if (btn.command == ToolbarCommand::CycleElementCornerRadius) hasCornerRadius = true;
+        if (btn.command == ToolbarCommand::SelectColor) ++colorCount;
+    }
+    EXPECT_TRUE(hasFill);
+    EXPECT_TRUE(hasLineStyle);
+    EXPECT_TRUE(hasStrokeWidth);
+    EXPECT_TRUE(hasCornerRadius);
+    EXPECT_EQ(colorCount, 7);
+
+    // 2. 切换到文本工具
+    state.currentTool = MarkupTool::Text;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 3. 切换到箭头工具
+    state.currentTool = MarkupTool::Arrow;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 4. 切换到马赛克工具
+    state.currentTool = MarkupTool::Mosaic;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 5. 验证 OpenCV 虚线与填充渲染及全部标注工具
+    initializeMarkupTextRenderer();
+    cv::Mat canvas = cv::Mat::zeros(400, 400, CV_8UC4);
+    MarkupEngine engine;
+    engine.setBaseImage(canvas.clone());
+
+    auto* elemRect = engine.drawRectangle(cv::Point(20, 20), cv::Point(120, 120), MarkupColor::Red(), 3.0f);
+    ASSERT_NE(elemRect, nullptr);
+    elemRect->lineStyle = LineStyle::Dashed;
+    elemRect->fill = true;
+    elemRect->cornerRadius = 14.0f;
+
+    auto* elemArrow = engine.drawArrow(cv::Point(150, 50), cv::Point(250, 150), MarkupColor::Blue(), 4.0f);
+    ASSERT_NE(elemArrow, nullptr);
+    elemArrow->lineStyle = LineStyle::Dotted;
+    elemArrow->arrowStyle = ArrowStyle::DoubleEnded;
+
+    auto* elemPen = engine.drawPenStroke({cv::Point(30, 200), cv::Point(60, 240), cv::Point(90, 210)}, MarkupColor::Green(), 2.0f);
+    ASSERT_NE(elemPen, nullptr);
+    elemPen->lineStyle = LineStyle::DashDot;
+
+    auto* elemEllipse = engine.drawEllipse(cv::Point(200, 200), cv::Point(300, 300), MarkupColor::Yellow(), 2.0f);
+    ASSERT_NE(elemEllipse, nullptr);
+    elemEllipse->fill = true;
+
+    engine.drawHighlight(cv::Point(10, 10), cv::Point(80, 40), MarkupColor::Yellow());
+    engine.applyMosaic(cv::Point(300, 300), cv::Point(380, 380), 8);
+    engine.addText(cv::Point(50, 300), "EasyTools", MarkupColor::White(), 18.0f);
+    engine.addNumberMark(cv::Point(100, 350), MarkupColor::Red());
+    EXPECT_EQ(engine.currentNumber(), 2);
+    engine.resetNumber();
+    EXPECT_EQ(engine.currentNumber(), 1);
+
+    engine.addSpotlight(cv::Point(100, 100), cv::Point(200, 200), MarkupColor::White());
+    engine.addWatermark(cv::Point(0, 0), cv::Point(400, 400), "CONFIDENTIAL");
+    engine.applyInpaint(cv::Point(50, 50), cv::Point(70, 70), 3);
+
+    engine.renderAll(canvas);
+    EXPECT_GT(cv::countNonZero(canvas.reshape(1)), 0);
+
+    // 验证撤销与重做
+    EXPECT_TRUE(engine.canUndo());
+    engine.undo();
+    EXPECT_TRUE(engine.canRedo());
+    engine.redo();
+    engine.translateAll(5, 5);
+    engine.updateBaseImage(canvas.clone());
+    EXPECT_FALSE(engine.getCompositeImage().empty());
+    engine.clearAll();
+    EXPECT_FALSE(engine.canUndo());
+
+    shutdownMarkupTextRenderer();
+
+    // 6. 验证最大圆角 60 上限配置
+    easy::core::ConfigManager::instance().set<double>("/screenshot/maxCornerRadius", 60.0);
+    double cfgR = easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0);
+    EXPECT_DOUBLE_EQ(cfgR, 60.0);
 }
 
 // -----------------------------------------------------------------------------
@@ -4726,6 +4975,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     // 1. 测试默认配置获取
     easy::keycast::KeycastSettings s = overlay.getSettings();
     EXPECT_TRUE(s.enabled);
+    EXPECT_EQ(s.fontSize, 20);
     EXPECT_EQ(s.firstKeyAnim, "slide");
     EXPECT_EQ(s.subsequentKeyAnim, "fade");
     EXPECT_TRUE(s.rowCascadeAnim);

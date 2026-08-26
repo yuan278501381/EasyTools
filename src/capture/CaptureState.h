@@ -18,7 +18,42 @@ namespace easy::capture {
 enum class OverlayMode { Screenshot, RecordRegion };
 enum class OverlayState { Idle, Selecting, Selected, Marking };
 enum class CaptureCompletionAction { Default, Copy, SaveAs };
-enum class ToolbarCommand { SelectTool, SelectColor, ToggleCornerRadius, Undo, Redo, Clear, ExtractText, PinWindow, ScrollCapture, Confirm, Cancel };
+enum class ToolbarCommand {
+    SelectTool,
+    SelectColor,
+    ToggleCornerRadius,
+    Undo,
+    Redo,
+    Clear,
+    ExtractText,
+    PinWindow,
+    ScrollCapture,
+    Confirm,
+    Cancel,
+    // 二级属性栏专属命令
+    ToggleFill,              // 切换填充模式
+    CycleStrokeWidth,        // 循环切换线宽 (2, 4, 6, 8, 12, 16)
+    CycleElementCornerRadius,// 循环切换标注圆角 (0, 8, 14, 20)
+    ToggleLineStyleDropdown,  // 展开/收起线条样式下拉菜单
+    SelectLineStyle,         // 选择线条样式 (实线/虚线/点线/点划线)
+    ToggleArrowStyleDropdown,// 展开/收起箭头样式下拉菜单
+    SelectArrowStyle,        // 选择箭头样式 (标准/细线/双向)
+    ToggleShapeDropdown,     // 展开/收起形状下拉菜单
+    TogglePenDropdown,       // 展开/收起画笔下拉菜单
+    ToggleArrowDropdown,     // 展开/收起箭头主下拉菜单
+    ToggleMosaicDropdown,    // 展开/收起马赛克下拉菜单
+    SelectMosaicType,        // 选择马赛克类型 (像素/高斯模糊)
+};
+
+enum class SubmenuType {
+    None = 0,
+    LineStyle,
+    ArrowStyle,
+    ShapeType,
+    PenType,
+    ArrowType,
+    MosaicType,
+};
 
 enum class ColorFormatType {
     HEX = 0,     // #3A86FF
@@ -44,6 +79,12 @@ struct ToolbarButton {
     MarkupTool tool = MarkupTool::Rectangle;
     MarkupColor color = MarkupColor::Red();
     std::wstring label;
+    int intParam = 0;
+    LineStyle lineStyleParam = LineStyle::Solid;
+    ArrowStyle arrowStyleParam = ArrowStyle::Standard;
+    bool boolParam = false;
+    bool hasDropdown = false;
+    bool isSecondary = false;
 };
 
 using SelectionCallback = std::function<void(
@@ -70,12 +111,24 @@ public:
     MarkupEngine markup;
     MarkupTool currentTool = MarkupTool::Rectangle;
     MarkupColor currentColor = MarkupColor::Red();
+    LineStyle currentLineStyle = LineStyle::Solid;
+    int currentStrokeWidth = 4;
+    bool currentFillMode = false;
+    float currentElementCornerRadius = 0.0f;
+    ArrowStyle currentArrowStyle = ArrowStyle::Standard;
+
     bool markupBaseReady = false;
     bool isMarking = false;
     POINT markupStart{};
     POINT markupEnd{};
     std::vector<cv::Point> penPoints;
     std::vector<ToolbarButton> toolbarButtons;
+    std::vector<ToolbarButton> secondaryToolbarButtons;
+    SubmenuType openSubmenu = SubmenuType::None;
+    D2D1_RECT_F openSubmenuRect{};
+    std::vector<ToolbarButton> submenuButtons;
+    D2D1_RECT_F primaryToolbarRect{};
+    D2D1_RECT_F secondaryToolbarRect{};
     D2D1_RECT_F toolbarLayoutSelection{};
     D2D1_SIZE_F toolbarLayoutSurface{};
     float toolbarLayoutScale = 0.0f;
@@ -106,6 +159,15 @@ public:
     float cornerRadius = 0.0f; // 选区圆角半径 (0, 8, 12, 16, 24)
     float detectedWindowCornerRadius = 10.0f; // 现代 Windows 11 窗口圆角高亮半径
     DWORD fadeOutStart = 0;
+
+    enum class SizeUnit { Pixel = 0, DeviceIndependentPixel = 1 };
+    SizeUnit sizeUnit = SizeUnit::Pixel;
+    bool showPositionInHud = true;
+    bool showUnitInHud = true;
+    bool isSizeHudHovered = false;
+    bool isSizeMenuOpen = false;
+    D2D1_RECT_F sizeHudRect{};
+    D2D1_RECT_F sizeMenuRect{};
 
     SelectionCallback callback;
     RecordSelectionCallback recordCallback;

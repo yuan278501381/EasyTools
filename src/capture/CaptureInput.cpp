@@ -9,6 +9,7 @@
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/CaptureToolbarLayout.h"
 #include "capture/CaptureToolbarAccessibility.h"
+#include "core/config/ConfigManager.h"
 #include "core/accessibility/OverlayAnnouncement.h"
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
@@ -325,8 +326,9 @@ HitArea CaptureInput::hitTestSelectionBox(POINT point) const {
     // 1. 优先检测圆角手柄（Figma 风格 4 个角内侧控制点）
     float selW = r.right - r.left;
     float selH = r.bottom - r.top;
-    if (selW >= 36.0f * dpiScale && selH >= 36.0f * dpiScale) {
-        float offset = std::clamp(std::max(12.0f, m_state->cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f) * dpiScale;
+    if (selW >= 40.0f * dpiScale && selH >= 40.0f * dpiScale) {
+        float offset = std::clamp(std::max(14.0f, m_state->cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f) * dpiScale;
+        const float chw = 11.0f * dpiScale;
         const H cornerHandles[4] = {
             {r.left + offset,  r.top + offset,    HitArea::CornerRadius},
             {r.right - offset, r.top + offset,    HitArea::CornerRadius},
@@ -334,7 +336,7 @@ HitArea CaptureInput::hitTestSelectionBox(POINT point) const {
             {r.left + offset,  r.bottom - offset, HitArea::CornerRadius}
         };
         for (const auto& h : cornerHandles) {
-            if (std::abs(px - h.x) <= hw && std::abs(py - h.y) <= hw) return h.area;
+            if (std::abs(px - h.x) <= chw && std::abs(py - h.y) <= chw) return h.area;
         }
     }
 
@@ -429,6 +431,23 @@ void CaptureInput::adjustSelection(HitArea handle, int dx, int dy) {
 
 ToolbarButton* CaptureInput::hitTestToolbar(POINT point) {
     rebuildToolbarButtons(currentSelectionRect());
+    // 1. 如果下拉菜单已打开，优先命中下拉菜单项
+    if (m_state->openSubmenu != SubmenuType::None) {
+        for (auto& button : m_state->submenuButtons) {
+            if (point.x >= button.rect.left && point.x <= button.rect.right &&
+                point.y >= button.rect.top && point.y <= button.rect.bottom) {
+                return &button;
+            }
+        }
+    }
+    // 2. 命中二级属性栏按钮
+    for (auto& button : m_state->secondaryToolbarButtons) {
+        if (point.x >= button.rect.left && point.x <= button.rect.right &&
+            point.y >= button.rect.top && point.y <= button.rect.bottom) {
+            return &button;
+        }
+    }
+    // 3. 命中主工具栏按钮
     for (auto& button : m_state->toolbarButtons) {
         if (point.x >= button.rect.left && point.x <= button.rect.right &&
             point.y >= button.rect.top && point.y <= button.rect.bottom) {
@@ -468,7 +487,14 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
         m_hwnd, toolbarButtonAccessibleName(button));
 
     // 仅在切换其他工具或执行重置/确认时退出选中态；改颜色时保留当前激活元素并实时更新颜色
-    if (button.command != ToolbarCommand::SelectColor) {
+    if (button.command != ToolbarCommand::SelectColor &&
+        button.command != ToolbarCommand::ToggleFill &&
+        button.command != ToolbarCommand::CycleStrokeWidth &&
+        button.command != ToolbarCommand::CycleElementCornerRadius &&
+        button.command != ToolbarCommand::ToggleLineStyleDropdown &&
+        button.command != ToolbarCommand::SelectLineStyle &&
+        button.command != ToolbarCommand::ToggleArrowStyleDropdown &&
+        button.command != ToolbarCommand::SelectArrowStyle) {
         if (m_state->activeElement) {
             m_state->activeElement->isActive = false;
             m_state->activeElement->isEditing = false;
@@ -484,6 +510,8 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
             m_state->currentTool = button.tool;
             m_state->state = OverlayState::Selected;
             m_state->isMarking = false;
+            m_state->openSubmenu = SubmenuType::None;
+            m_state->toolbarLayoutValid = false;
             break;
 
         case ToolbarCommand::SelectColor:
@@ -493,6 +521,90 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
                 m_renderer->markMarkupDirty();
                 m_renderer->invalidate();
             }
+            m_state->toolbarLayoutValid = false;
+            break;
+
+        case ToolbarCommand::ToggleFill:
+            m_state->currentFillMode = !m_state->currentFillMode;
+            if (m_state->activeElement) {
+                m_state->activeElement->fill = m_state->currentFillMode;
+                m_renderer->markMarkupDirty();
+            }
+            m_state->toolbarLayoutValid = false;
+            break;
+
+        case ToolbarCommand::CycleStrokeWidth: {
+            if (m_state->currentTool == MarkupTool::Text) {
+                static const std::array<int, 5> fontSizes = {14, 18, 24, 32, 48};
+                auto it = std::find(fontSizes.begin(), fontSizes.end(), m_state->currentStrokeWidth);
+                if (it == fontSizes.end()) m_state->currentStrokeWidth = 18;
+                else m_state->currentStrokeWidth = fontSizes[(std::distance(fontSizes.begin(), it) + 1) % fontSizes.size()];
+            } else if (m_state->currentTool == MarkupTool::Mosaic) {
+                static const std::array<int, 5> mosaicSizes = {2, 4, 6, 8, 12};
+                auto it = std::find(mosaicSizes.begin(), mosaicSizes.end(), m_state->currentStrokeWidth);
+                if (it == mosaicSizes.end()) m_state->currentStrokeWidth = 4;
+                else m_state->currentStrokeWidth = mosaicSizes[(std::distance(mosaicSizes.begin(), it) + 1) % mosaicSizes.size()];
+            } else {
+                static const std::array<int, 6> widths = {2, 4, 6, 8, 12, 16};
+                auto it = std::find(widths.begin(), widths.end(), m_state->currentStrokeWidth);
+                if (it == widths.end()) m_state->currentStrokeWidth = 4;
+                else m_state->currentStrokeWidth = widths[(std::distance(widths.begin(), it) + 1) % widths.size()];
+            }
+            if (m_state->activeElement) {
+                m_state->activeElement->thickness = static_cast<float>(m_state->currentStrokeWidth);
+                m_renderer->markMarkupDirty();
+            }
+            m_state->toolbarLayoutValid = false;
+            break;
+        }
+
+        case ToolbarCommand::CycleElementCornerRadius: {
+            static const std::array<float, 4> radiuses = {0.0f, 8.0f, 14.0f, 20.0f};
+            auto it = std::find_if(radiuses.begin(), radiuses.end(), [&](float r) {
+                return std::abs(r - m_state->currentElementCornerRadius) < 1.0f;
+            });
+            if (it == radiuses.end()) m_state->currentElementCornerRadius = 8.0f;
+            else m_state->currentElementCornerRadius = radiuses[(std::distance(radiuses.begin(), it) + 1) % radiuses.size()];
+
+            if (m_state->activeElement) {
+                m_state->activeElement->cornerRadius = m_state->currentElementCornerRadius;
+                m_renderer->markMarkupDirty();
+            }
+            m_state->toolbarLayoutValid = false;
+            break;
+        }
+
+        case ToolbarCommand::ToggleLineStyleDropdown:
+            m_state->openSubmenu = (m_state->openSubmenu == SubmenuType::LineStyle) ? SubmenuType::None : SubmenuType::LineStyle;
+            break;
+
+        case ToolbarCommand::SelectLineStyle:
+            m_state->currentLineStyle = button.lineStyleParam;
+            m_state->openSubmenu = SubmenuType::None;
+            if (m_state->activeElement) {
+                m_state->activeElement->lineStyle = m_state->currentLineStyle;
+                m_renderer->markMarkupDirty();
+            }
+            m_state->toolbarLayoutValid = false;
+            break;
+
+        case ToolbarCommand::ToggleArrowStyleDropdown:
+            m_state->openSubmenu = (m_state->openSubmenu == SubmenuType::ArrowStyle) ? SubmenuType::None : SubmenuType::ArrowStyle;
+            break;
+
+        case ToolbarCommand::SelectArrowStyle:
+            m_state->currentArrowStyle = button.arrowStyleParam;
+            m_state->openSubmenu = SubmenuType::None;
+            if (m_state->activeElement) {
+                m_state->activeElement->arrowStyle = m_state->currentArrowStyle;
+                m_renderer->markMarkupDirty();
+            }
+            m_state->toolbarLayoutValid = false;
+            break;
+
+        case ToolbarCommand::SelectMosaicType:
+            m_state->openSubmenu = SubmenuType::None;
+            m_state->toolbarLayoutValid = false;
             break;
 
         case ToolbarCommand::Undo:
@@ -509,7 +621,8 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
             break;
 
         case ToolbarCommand::ToggleCornerRadius: {
-            static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+            float cfgMaxRadius = static_cast<float>(easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0));
+            static const std::array<float, 6> radiuses = {0.0f, 8.0f, 14.0f, 24.0f, 40.0f, 60.0f};
             auto it = std::find_if(radiuses.begin(), radiuses.end(), [&](float r) {
                 return std::abs(r - m_state->cornerRadius) < 1.0f;
             });
@@ -517,7 +630,7 @@ void CaptureInput::executeToolbarCommand(const ToolbarButton& button) {
                 m_state->cornerRadius = 8.0f;
             } else {
                 size_t nextIdx = (std::distance(radiuses.begin(), it) + 1) % radiuses.size();
-                m_state->cornerRadius = radiuses[nextIdx];
+                m_state->cornerRadius = std::min(radiuses[nextIdx], cfgMaxRadius);
             }
             prepareMarkupBase();
             m_renderer->invalidate();
@@ -716,21 +829,40 @@ void CaptureInput::finishMarkup(POINT point) {
     }
 
     switch (m_state->currentTool) {
-        case MarkupTool::Rectangle:
-            m_state->markup.drawRectangle(start, end, m_state->currentColor);
+        case MarkupTool::Rectangle: {
+            auto* elem = m_state->markup.drawRectangle(start, end, m_state->currentColor, static_cast<float>(m_state->currentStrokeWidth));
+            if (elem) {
+                elem->lineStyle = m_state->currentLineStyle;
+                elem->fill = m_state->currentFillMode;
+                elem->cornerRadius = m_state->currentElementCornerRadius;
+            }
             break;
+        }
 
-        case MarkupTool::Arrow:
-            m_state->markup.drawArrow(start, end, m_state->currentColor);
+        case MarkupTool::Arrow: {
+            auto* elem = m_state->markup.drawArrow(start, end, m_state->currentColor, static_cast<float>(m_state->currentStrokeWidth));
+            if (elem) {
+                elem->lineStyle = m_state->currentLineStyle;
+                elem->arrowStyle = m_state->currentArrowStyle;
+            }
             break;
+        }
 
-        case MarkupTool::Ellipse:
-            m_state->markup.drawEllipse(start, end, m_state->currentColor);
+        case MarkupTool::Ellipse: {
+            auto* elem = m_state->markup.drawEllipse(start, end, m_state->currentColor, static_cast<float>(m_state->currentStrokeWidth));
+            if (elem) {
+                elem->fill = m_state->currentFillMode;
+            }
             break;
+        }
 
-        case MarkupTool::Pen:
-            m_state->markup.drawPenStroke(m_state->penPoints, m_state->currentColor);
+        case MarkupTool::Pen: {
+            auto* elem = m_state->markup.drawPenStroke(m_state->penPoints, m_state->currentColor, static_cast<float>(m_state->currentStrokeWidth));
+            if (elem) {
+                elem->lineStyle = m_state->currentLineStyle;
+            }
             break;
+        }
 
         case MarkupTool::Highlight:
             m_state->markup.drawHighlight(start, end, m_state->currentColor);
@@ -927,6 +1059,47 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 
             if ((int)m_state->state.load() == (int)OverlayState::Selected || (int)m_state->state.load() == (int)OverlayState::Marking) {
+                // 1. 如果尺寸设置菜单处于展开状态，优先检测点击
+                if (m_state->isSizeMenuOpen) {
+                    float mx = static_cast<float>(point.x);
+                    float my = static_cast<float>(point.y);
+                    auto mr = m_state->sizeMenuRect;
+                    if (mx >= mr.left && mx <= mr.right && my >= mr.top && my <= mr.bottom) {
+                        const float scale = std::clamp(m_state->dpiScale > 0.0f ? m_state->dpiScale : 1.0f, 1.0f, 5.0f);
+                        float row1Y = mr.top + 16.0f * scale;
+                        float row2Y = row1Y + 22.0f * scale;
+                        float row3Y = row2Y + 26.0f * scale;
+                        float row4Y = row3Y + 28.0f * scale;
+
+                        if (my >= mr.top && my < row2Y) {
+                            if (mx < mr.left + (mr.right - mr.left) * 0.5f) {
+                                m_state->sizeUnit = CaptureState::SizeUnit::Pixel;
+                            } else {
+                                m_state->sizeUnit = CaptureState::SizeUnit::DeviceIndependentPixel;
+                            }
+                        } else if (my >= row2Y && my < row4Y) {
+                            m_state->showPositionInHud = !m_state->showPositionInHud;
+                        } else if (my >= row4Y) {
+                            m_state->showUnitInHud = !m_state->showUnitInHud;
+                        }
+                        m_renderer->invalidate();
+                        return 0;
+                    } else {
+                        m_state->isSizeMenuOpen = false;
+                        m_renderer->invalidate();
+                    }
+                }
+
+                // 2. 检测是否点击尺寸胶囊（HUD）以展开/收起菜单
+                float px = static_cast<float>(point.x);
+                float py = static_cast<float>(point.y);
+                auto hr = m_state->sizeHudRect;
+                if (px >= hr.left && px <= hr.right && py >= hr.top && py <= hr.bottom) {
+                    m_state->isSizeMenuOpen = !m_state->isSizeMenuOpen;
+                    m_renderer->invalidate();
+                    return 0;
+                }
+
                 HitArea selHit = HitArea::None;
                 if (auto* button = hitTestToolbar(point)) {
                     // 如果正在编辑文字且点击的不是选颜色按钮，退出编辑
@@ -1073,7 +1246,8 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 float cy = (r.top + r.bottom) * 0.5f;
                 float selW = r.right - r.left;
                 float selH = r.bottom - r.top;
-                float maxRadius = std::min(selW, selH) * 0.5f;
+                float cfgMaxRadius = static_cast<float>(easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0));
+                float maxRadius = std::min(std::min(selW, selH) * 0.5f, cfgMaxRadius);
 
                 float signX = (m_state->cornerDragStartPos.x < cx) ? 1.0f : -1.0f;
                 float signY = (m_state->cornerDragStartPos.y < cy) ? 1.0f : -1.0f;
@@ -1546,9 +1720,10 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             switch (wParam) {
                 case VK_OEM_4: // '[' 键：减小选区圆角
                     if (hasSelection) {
-                        static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+                        float cfgMaxRadius = static_cast<float>(easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0));
+                        static const std::array<float, 6> radiuses = {0.0f, 8.0f, 14.0f, 24.0f, 40.0f, 60.0f};
                         for (int i = (int)radiuses.size() - 1; i >= 0; --i) {
-                            if (radiuses[i] < m_state->cornerRadius - 0.5f) {
+                            if (radiuses[i] <= cfgMaxRadius && radiuses[i] < m_state->cornerRadius - 0.5f) {
                                 m_state->cornerRadius = radiuses[i];
                                 break;
                             }
@@ -1561,13 +1736,14 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     break;
                 case VK_OEM_6: // ']' 键：增加选区圆角
                     if (hasSelection) {
-                        static const std::array<float, 5> radiuses = {0.0f, 8.0f, 12.0f, 16.0f, 24.0f};
+                        float cfgMaxRadius = static_cast<float>(easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0));
+                        static const std::array<float, 6> radiuses = {0.0f, 8.0f, 14.0f, 24.0f, 40.0f, 60.0f};
                         for (size_t i = 0; i < radiuses.size(); ++i) {
-                            if (radiuses[i] > m_state->cornerRadius + 0.5f) {
+                            if (radiuses[i] <= cfgMaxRadius && radiuses[i] > m_state->cornerRadius + 0.5f) {
                                 m_state->cornerRadius = radiuses[i];
                                 break;
                             }
-                            if (i == radiuses.size() - 1) m_state->cornerRadius = 24.0f;
+                            if (i == radiuses.size() - 1) m_state->cornerRadius = std::min(60.0f, cfgMaxRadius);
                         }
                         prepareMarkupBase();
                         m_renderer->invalidate();

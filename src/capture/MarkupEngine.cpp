@@ -16,10 +16,15 @@
 //   - 智能消除: cv::inpaint (TELEA) 背景重建
 // ─────────────────────────────────────────────────────────────────────────────
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "capture/MarkupEngine.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
+#include <algorithm>
 #include <windows.h>
 
 #include <objidl.h>
@@ -680,6 +685,72 @@ void MarkupEngine::applyInpaint(cv::Point p1, cv::Point p2, int radius) {
 // 渲染
 // ─────────────────────────────────────────────────────────────────────────────
 
+namespace {
+
+void drawPatternedLine(cv::Mat& canvas, cv::Point p1, cv::Point p2, const cv::Scalar& color, int thick, LineStyle style) {
+    if (style == LineStyle::Solid) {
+        cv::line(canvas, p1, p2, color, thick, cv::LINE_AA);
+        return;
+    }
+
+    float dx = static_cast<float>(p2.x - p1.x);
+    float dy = static_cast<float>(p2.y - p1.y);
+    float dist = std::hypot(dx, dy);
+    if (dist < 1.0f) return;
+
+    float ux = dx / dist;
+    float uy = dy / dist;
+
+    std::vector<float> pattern;
+    if (style == LineStyle::Dashed) {
+        pattern = { 10.0f, 6.0f }; // 10px 实线, 6px 空白
+    } else if (style == LineStyle::Dotted) {
+        pattern = { 3.0f, 4.0f };  // 3px 实线点, 4px 空白
+    } else if (style == LineStyle::DashDot) {
+        pattern = { 10.0f, 4.0f, 3.0f, 4.0f }; // 线 - 间隙 - 点 - 间隙
+    } else {
+        pattern = { dist, 0.0f };
+    }
+
+    float cur = 0.0f;
+    size_t patIdx = 0;
+    while (cur < dist) {
+        float segLen = pattern[patIdx % pattern.size()];
+        bool isDraw = (patIdx % 2 == 0);
+        float nextCur = (std::min)(dist, cur + segLen);
+        if (isDraw) {
+            cv::Point ptA(static_cast<int>(std::round(p1.x + ux * cur)), static_cast<int>(std::round(p1.y + uy * cur)));
+            cv::Point ptB(static_cast<int>(std::round(p1.x + ux * nextCur)), static_cast<int>(std::round(p1.y + uy * nextCur)));
+            cv::line(canvas, ptA, ptB, color, thick, cv::LINE_AA);
+        }
+        cur = nextCur;
+        ++patIdx;
+    }
+}
+
+void drawPatternedRect(cv::Mat& canvas, cv::Point p1, cv::Point p2, const cv::Scalar& color, int thick, LineStyle style, bool fill) {
+    int x1 = (std::min)(p1.x, p2.x);
+    int y1 = (std::min)(p1.y, p2.y);
+    int x2 = (std::max)(p1.x, p2.x);
+    int y2 = (std::max)(p1.y, p2.y);
+
+    if (fill) {
+        cv::rectangle(canvas, cv::Point(x1, y1), cv::Point(x2, y2), color, cv::FILLED);
+    }
+    if (style == LineStyle::Solid) {
+        if (!fill || thick > 1) {
+            cv::rectangle(canvas, cv::Point(x1, y1), cv::Point(x2, y2), color, thick, cv::LINE_AA);
+        }
+    } else {
+        drawPatternedLine(canvas, cv::Point(x1, y1), cv::Point(x2, y1), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x2, y1), cv::Point(x2, y2), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x2, y2), cv::Point(x1, y2), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x1, y2), cv::Point(x1, y1), color, thick, style);
+    }
+}
+
+}  // namespace
+
 void MarkupEngine::renderAll(cv::Mat& canvas) const {
     for (const auto& elem : m_elements) {
         renderElement(canvas, *elem);
@@ -688,16 +759,33 @@ void MarkupEngine::renderAll(cv::Mat& canvas) const {
 
 void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) const {
     auto color = element.color.toCvScalar();
-    int thick = static_cast<int>(element.thickness);
+    int thick = std::max(1, static_cast<int>(element.thickness));
 
     switch (element.tool) {
         case MarkupTool::Rectangle: {
-            cv::rectangle(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA);
+            drawPatternedRect(canvas, element.startPt, element.endPt, color, thick, element.lineStyle, element.fill);
             break;
         }
 
         case MarkupTool::Arrow: {
-            cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+            if (element.arrowStyle == ArrowStyle::DoubleEnded) {
+                cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+                cv::arrowedLine(canvas, element.endPt, element.startPt, color, thick, cv::LINE_AA, 0, 0.08);
+            } else {
+                if (element.lineStyle == LineStyle::Solid) {
+                    cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+                } else {
+                    drawPatternedLine(canvas, element.startPt, element.endPt, color, thick, element.lineStyle);
+                    double angle = std::atan2(element.endPt.y - element.startPt.y, element.endPt.x - element.startPt.x);
+                    double arrowLen = std::max(12.0, thick * 3.5);
+                    cv::Point arrowP1(static_cast<int>(element.endPt.x - arrowLen * std::cos(angle - CV_PI / 6)),
+                                      static_cast<int>(element.endPt.y - arrowLen * std::sin(angle - CV_PI / 6)));
+                    cv::Point arrowP2(static_cast<int>(element.endPt.x - arrowLen * std::cos(angle + CV_PI / 6)),
+                                      static_cast<int>(element.endPt.y - arrowLen * std::sin(angle + CV_PI / 6)));
+                    cv::line(canvas, element.endPt, arrowP1, color, thick, cv::LINE_AA);
+                    cv::line(canvas, element.endPt, arrowP2, color, thick, cv::LINE_AA);
+                }
+            }
             break;
         }
 
@@ -706,13 +794,24 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
                              (element.startPt.y + element.endPt.y) / 2);
             cv::Size axes(std::abs(element.endPt.x - element.startPt.x) / 2,
                           std::abs(element.endPt.y - element.startPt.y) / 2);
-            cv::ellipse(canvas, center, axes, 0, 0, 360, color, thick, cv::LINE_AA);
+            if (axes.width > 0 && axes.height > 0) {
+                if (element.fill) {
+                    cv::ellipse(canvas, center, axes, 0, 0, 360, color, cv::FILLED, cv::LINE_AA);
+                }
+                cv::ellipse(canvas, center, axes, 0, 0, 360, color, thick, cv::LINE_AA);
+            }
             break;
         }
 
         case MarkupTool::Pen: {
             if (element.penPoints.size() >= 2) {
-                cv::polylines(canvas, element.penPoints, false, color, thick, cv::LINE_AA);
+                if (element.lineStyle == LineStyle::Solid) {
+                    cv::polylines(canvas, element.penPoints, false, color, thick, cv::LINE_AA);
+                } else {
+                    for (size_t i = 1; i < element.penPoints.size(); ++i) {
+                        drawPatternedLine(canvas, element.penPoints[i - 1], element.penPoints[i], color, thick, element.lineStyle);
+                    }
+                }
             }
             break;
         }
@@ -729,22 +828,22 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
 
         case MarkupTool::Mosaic: {
             // 马赛克: 区域像素块化
-            int x1 = std::min(element.startPt.x, element.endPt.x);
-            int y1 = std::min(element.startPt.y, element.endPt.y);
-            int x2 = std::max(element.startPt.x, element.endPt.x);
-            int y2 = std::max(element.startPt.y, element.endPt.y);
+            int x1 = (std::min)(element.startPt.x, element.endPt.x);
+            int y1 = (std::min)(element.startPt.y, element.endPt.y);
+            int x2 = (std::max)(element.startPt.x, element.endPt.x);
+            int y2 = (std::max)(element.startPt.y, element.endPt.y);
 
             // 边界裁剪
-            x1 = std::max(0, x1);
-            y1 = std::max(0, y1);
-            x2 = std::min(canvas.cols, x2);
-            y2 = std::min(canvas.rows, y2);
+            x1 = (std::max)(0, x1);
+            y1 = (std::max)(0, y1);
+            x2 = (std::min)(canvas.cols, x2);
+            y2 = (std::min)(canvas.rows, y2);
 
             int bs = element.mosaicBlockSize;
             for (int yy = y1; yy < y2; yy += bs) {
                 for (int xx = x1; xx < x2; xx += bs) {
-                    int bw = std::min(bs, x2 - xx);
-                    int bh = std::min(bs, y2 - yy);
+                    int bw = (std::min)(bs, x2 - xx);
+                    int bh = (std::min)(bs, y2 - yy);
                     cv::Rect blockRect(xx, yy, bw, bh);
                     cv::Mat block = canvas(blockRect);
                     cv::Scalar meanColor = cv::mean(block);
