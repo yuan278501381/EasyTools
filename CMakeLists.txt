@@ -297,6 +297,7 @@ if(BUILD_TESTING)
         src/dialog/ExplorerTracker.cpp
         src/dialog/DialogNavigator.cpp
         src/ui/SpotlightOverlay.cpp
+        src/keycast/KeycastOverlay.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_include_directories(EasyToolsTests PRIVATE ${FFMPEG_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})

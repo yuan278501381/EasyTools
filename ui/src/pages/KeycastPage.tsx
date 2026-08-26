@@ -36,6 +36,13 @@ interface KeycastSettings {
   fontSize: number;
   textColor: string;
   backgroundColor: string;
+  modifierKeycapColor: string;
+  modifierKeycapOpacity: number;
+  modifierTextColor: string;
+  firstKeyAnim: 'slide' | 'pop' | 'fade' | 'none';
+  subsequentKeyAnim: 'pop' | 'slide' | 'fade' | 'none';
+  rowCascadeAnim: boolean;
+  exitDriftAnim: boolean;
 }
 
 const DEFAULT_SETTINGS: KeycastSettings = {
@@ -50,6 +57,13 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   fontSize: 18,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
+  modifierKeycapColor: 'auto',
+  modifierKeycapOpacity: 22,
+  modifierTextColor: 'auto',
+  firstKeyAnim: 'slide',
+  subsequentKeyAnim: 'fade',
+  rowCascadeAnim: true,
+  exitDriftAnim: true,
 };
 
 const ACCENT_COLOR_MAP: Record<string, string> = {
@@ -337,15 +351,79 @@ export const KeycastPage: FC = () => {
         <Card>
           <Toggle
             id="keycast-merge-recent"
-            label={t('keycast.mergeRecentKeys', '连续按键同排横向推入')}
-            description={t('keycast.mergeRecentKeysDesc', '短时间内连续按键在同一排向左阻尼推入；停顿后向下换行并将上一排向上推移消融。')}
+            label={t('keycast.mergeRecentKeys', '连续按键同排横向追加')}
+            description={t('keycast.mergeRecentKeysDesc', '短时间内连续按键在同一排依次推入/冒出；达到屏幕中线或停顿后自动换行。')}
             checked={settings.mergeRecentKeys}
             onChange={(v) => saveSetting('mergeRecentKeys', v)}
           />
+          <Toggle
+            id="keycast-row-cascade"
+            label={t('keycast.rowCascadeAnim', '新行换行时旧行级联上推')}
+            description={t('keycast.rowCascadeAnimDesc', '开启后新行从下方跃入，上方旧行伴随物理推力优雅上浮，呈现层级机械质感')}
+            checked={settings.rowCascadeAnim}
+            onChange={(v) => saveSetting('rowCascadeAnim', v)}
+          />
+          <Toggle
+            id="keycast-exit-drift"
+            label={t('keycast.exitDriftAnim', '按键消融时轻盈飘升')}
+            description={t('keycast.exitDriftAnimDesc', '停留寿命结束时伴随微幅轻盈向上飘升消融，消除生硬的瞬间闪退')}
+            checked={settings.exitDriftAnim}
+            onChange={(v) => saveSetting('exitDriftAnim', v)}
+          />
         </Card>
 
-        {/* 属性网格：显示时长、合并间隔、文字大小、文字颜色、背景颜色 */}
+        {/* 属性网格：首键动效、后续按键动效、显示时长、合并间隔、文字大小、颜色 */}
         <div className="keycast-page__grid" style={{ marginTop: '16px' }}>
+          {/* 首键进场动效 */}
+          <div className="keycast-page__prop-card">
+            <div className="keycast-page__prop-header">
+              <span className="keycast-page__prop-title">{t('keycast.firstKeyAnim', '每排首键进场')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.firstKeyAnimDesc', '新排首个按键的物理进场方式')}</span>
+            </div>
+            <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
+              {([
+                { id: 'slide', label: '阻尼推入' },
+                { id: 'pop', label: '弹性冒出' },
+                { id: 'fade', label: '渐现' },
+                { id: 'none', label: '静态' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`keycast-page__capsule-btn ${settings.firstKeyAnim === opt.id ? 'active' : ''}`}
+                  onClick={() => saveSetting('firstKeyAnim', opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 同排后续按键动效 */}
+          <div className="keycast-page__prop-card">
+            <div className="keycast-page__prop-header">
+              <span className="keycast-page__prop-title">{t('keycast.subsequentKeyAnim', '同排后续按键')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.subsequentKeyAnimDesc', '同行连续输入的按键出现方式')}</span>
+            </div>
+            <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
+              {([
+                { id: 'pop', label: '气泡冒出' },
+                { id: 'slide', label: '阻尼推入' },
+                { id: 'fade', label: '渐现' },
+                { id: 'none', label: '静态' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`keycast-page__capsule-btn ${settings.subsequentKeyAnim === opt.id ? 'active' : ''}`}
+                  onClick={() => saveSetting('subsequentKeyAnim', opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* 同排连击合并间隔 */}
           {settings.mergeRecentKeys && (
             <div className="keycast-page__prop-card">
@@ -426,6 +504,46 @@ export const KeycastPage: FC = () => {
             defaultCustomFallback="#1c1c22"
             brandAccentHex={currentBrandAccentHex}
             onChange={(val) => saveSetting('backgroundColor', val)}
+          />
+
+          {/* 修饰键底色 (双态胶囊) */}
+          <ColorSegmentControl
+            label={t('keycast.modifierKeycapColor', '修饰键底色')}
+            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随品牌色）。')}
+            value={settings.modifierKeycapColor || 'auto'}
+            defaultCustomFallback="#3b82f6"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('modifierKeycapColor', val)}
+          />
+
+          {/* 修饰键底色不透明度 */}
+          <div className="keycast-page__prop-card">
+            <div className="keycast-page__prop-header">
+              <span className="keycast-page__prop-title">{t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.modifierKeycapOpacityDesc', '按键底色不透明度 (0%~100%，仅影响底色，按键文字始终清晰显示)。')}</span>
+            </div>
+            <div className="keycast-page__prop-body">
+              <input
+                type="number"
+                className="keycast-page__number-input"
+                min={0}
+                max={100}
+                step={2}
+                value={settings.modifierKeycapOpacity ?? 22}
+                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 22)))}
+                aria-label={t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}
+              />
+            </div>
+          </div>
+
+          {/* 修饰键文字颜色 (双态胶囊) */}
+          <ColorSegmentControl
+            label={t('keycast.modifierTextColor', '修饰键文字颜色')}
+            desc={t('keycast.modifierTextColorDesc', 'Ctrl / Alt / Win 等按键文字与徽标颜色（默认智能自适应底色明暗，暗底纯白、亮底深黑）。')}
+            value={settings.modifierTextColor || 'auto'}
+            defaultCustomFallback="#ffffff"
+            brandAccentHex={currentBrandAccentHex}
+            onChange={(val) => saveSetting('modifierTextColor', val)}
           />
         </div>
       </SettingGroup>

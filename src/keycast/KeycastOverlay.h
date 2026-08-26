@@ -25,6 +25,15 @@ struct KeycastSettings {
     int fontSize = 18;
     std::string textColor = "#ffffff";
     std::string backgroundColor = "#1c1c22";
+    std::string modifierKeycapColor = "auto"; // "auto" (跟随品牌色) 或 HEX 颜色
+    int modifierKeycapOpacity = 22;            // 0~100 修饰键底色不透明度 (默认 22%)
+    std::string modifierTextColor = "auto";    // "auto" (智能根据底色明暗自适应黑白) 或自定义 HEX 颜色 (默认白)
+
+    // ── 物理微动效自由配置体系 (World-Class Motion Presets & Custom Combos) ──
+    std::string firstKeyAnim = "slide";      // "slide" (阻尼滑入), "pop" (气泡冒出), "fade" (渐现), "none" (无动效)
+    std::string subsequentKeyAnim = "fade";  // "fade" (渐现默认), "pop" (气泡冒出), "slide" (阻尼滑入), "none" (无动效)
+    bool rowCascadeAnim = true;              // 换行时旧行物理级联上推
+    bool exitDriftAnim = true;               // 寿命结束时轻盈飘升消融
 };
 
 struct KeycastItem {
@@ -32,15 +41,27 @@ struct KeycastItem {
     std::vector<std::string> tokens; // e.g. ["Ctrl", "C"]
     int repeatCount = 1;
     uint64_t pushTime = 0;
-    float offsetX = 28.0f; // 从右向左阻尼推入
-    float opacity = 0.0f;  // 阻尼渐现
+    float offsetX = 0.0f;     // 横向推入偏移 (首项)
+    float offsetY = 0.0f;     // 微垂直位移 (冒出项)
+    float scale = 1.0f;       // 弹性气泡缩放比例
+    float scaleVel = 0.0f;    // 弹性速度
+    float opacity = 0.0f;     // 阻尼渐现
+    bool isFirstInRow = true; // 首项推入 vs 后续项
+
+    // ── 连击微动画物理连续性状态 (Continuous Fluid Dynamics) ──
+    float badgeScale = 0.0f;          // 角标微弹簧缩放
+    float badgeScaleVel = 0.0f;       // 角标弹簧速度
+    float badgeOpacity = 0.0f;        // 角标平滑透明度
+    float badgeWidthProgress = 0.0f;  // 胶囊向右延伸因子 (0.0f -> 1.0f)
 };
 
 struct KeycastRow {
     std::vector<KeycastItem> items;
     uint64_t lastActiveTime = 0;
-    float offsetY = 0.0f; // 向上平移换行
+    float offsetY = 0.0f;       // 当前垂直位移插值
+    float targetOffsetY = 0.0f; // 目标垂直位移
     float opacity = 1.0f;
+    bool isExiting = false;     // 是否正在消融退出
 };
 
 class KeycastOverlay {
@@ -69,6 +90,12 @@ public:
     /// 颜色解析（支持 auto 与十六进制 HEX）
     D2D1_COLOR_F parseColor(const std::string& hex, float alpha = 1.0f) const;
 
+    /// 响应全局主题与品牌色实时变更
+    void onThemeChanged();
+
+    /// 胶囊项宽度测量
+    float calculateItemWidth(const KeycastItem& item, float dpiScale) const;
+
 private:
     KeycastOverlay() = default;
     ~KeycastOverlay() = default;
@@ -87,17 +114,24 @@ private:
     HWND m_helperOwnerHwnd = nullptr;
     KeycastSettings m_settings;
     mutable std::mutex m_settingsMutex;
+    std::string m_lastAccentColor;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_keycapTextFormat;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> m_repeatTextFormat;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushText;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushModifierText;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBg;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBorder;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushKeycapBg;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushKeycapBorder;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushFuncKeyBg;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushFuncKeyBorder;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBadgeBg;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBadgeBorder;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushPlusText;
 
     HDC m_memoryDC = nullptr;

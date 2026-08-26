@@ -38,6 +38,7 @@
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/ShortcutHintStyle.h"
 #include "keycast/KeycastStyle.h"
+#include "keycast/KeycastOverlay.h"
 #include "ocr/OcrResultStyle.h"
 #include "ui/ToastStyle.h"
 #include "ui/SpotlightOverlay.h"
@@ -4691,6 +4692,89 @@ TEST(TitleBarAndKeycastTest, SeamlessWindowAndFluidKeycast) {
     EXPECT_EQ(config.get("/keycast/mergeTimeoutMs", 0), 1500);
 
     hook.setKeycastCallback(nullptr);
+}
+
+TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
+    auto& overlay = easy::keycast::KeycastOverlay::instance();
+    
+    // 1. 测试默认配置获取
+    easy::keycast::KeycastSettings s = overlay.getSettings();
+    EXPECT_TRUE(s.enabled);
+    EXPECT_EQ(s.firstKeyAnim, "slide");
+    EXPECT_EQ(s.subsequentKeyAnim, "fade");
+    EXPECT_TRUE(s.rowCascadeAnim);
+    EXPECT_TRUE(s.exitDriftAnim);
+
+    // 2. 测试颜色解析 (带 auto、HEX 及异常兜底)
+    D2D1_COLOR_F cWhite = overlay.parseColor("#ffffff", 1.0f);
+    EXPECT_FLOAT_EQ(cWhite.r, 1.0f);
+    EXPECT_FLOAT_EQ(cWhite.g, 1.0f);
+    EXPECT_FLOAT_EQ(cWhite.b, 1.0f);
+
+    D2D1_COLOR_F cDark = overlay.parseColor("#1c1c22", 0.98f);
+    EXPECT_GT(cDark.a, 0.90f);
+
+    D2D1_COLOR_F cAuto = overlay.parseColor("auto", 1.0f);
+    EXPECT_FLOAT_EQ(cAuto.a, 1.0f);
+
+    D2D1_COLOR_F cFallback = overlay.parseColor("invalid_hex", 1.0f);
+    EXPECT_FLOAT_EQ(cFallback.a, 1.0f);
+
+    // 3. 测试单项宽度计算
+    easy::keycast::KeycastItem item1;
+    item1.rawKey = "Win+E";
+    item1.tokens = {"Win", "E"};
+    item1.repeatCount = 1;
+    float w1 = overlay.calculateItemWidth(item1, 1.0f);
+    EXPECT_GT(w1, 50.0f);
+
+    easy::keycast::KeycastItem item2;
+    item2.rawKey = "Ctrl+Shift+Alt+Tab";
+    item2.tokens = {"Ctrl", "Shift", "Alt", "Tab"};
+    item2.repeatCount = 3;
+    float w2 = overlay.calculateItemWidth(item2, 1.0f);
+    EXPECT_GT(w2, w1);
+
+    // 4. 覆盖不同动效组合配置
+    s.firstKeyAnim = "pop";
+    s.subsequentKeyAnim = "slide";
+    s.rowCascadeAnim = true;
+    s.exitDriftAnim = true;
+    overlay.updateSettings(s);
+    overlay.pushKey("Win+D");
+    overlay.pushKey("Win+E");
+
+    s.firstKeyAnim = "fade";
+    s.subsequentKeyAnim = "fade";
+    s.rowCascadeAnim = false;
+    s.exitDriftAnim = false;
+    overlay.updateSettings(s);
+    overlay.pushKey("Ctrl+C");
+    overlay.pushKey("Ctrl+V");
+
+    s.modifierKeycapColor = "#3b82f6";
+    s.modifierKeycapOpacity = 40;
+    s.modifierTextColor = "#0e0f12";
+    s.firstKeyAnim = "none";
+    s.subsequentKeyAnim = "none";
+    overlay.updateSettings(s);
+    EXPECT_EQ(overlay.getSettings().modifierTextColor, "#0e0f12");
+    overlay.pushKey("Alt+Tab");
+
+    s.modifierTextColor = "auto";
+    overlay.updateSettings(s);
+    EXPECT_EQ(overlay.getSettings().modifierTextColor, "auto");
+    overlay.pushKey("Win+E");
+
+    overlay.setAutoBypassFullscreen(false);
+    EXPECT_FALSE(overlay.autoBypassFullscreen());
+    overlay.setAutoBypassFullscreen(true);
+    EXPECT_TRUE(overlay.autoBypassFullscreen());
+
+    // 验证全局主题与品牌色变更响应
+    overlay.onThemeChanged();
+
+    overlay.resetDefaults();
 }
 
 // -----------------------------------------------------------------------------

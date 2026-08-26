@@ -141,7 +141,7 @@
   height: 0;
   background: var(--primary);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  transition: height var(--transition-normal);
+  transition: height 0.32s var(--ease-spring), opacity 0.2s ease;
 }
 
 .sidebar__item--active .sidebar__item-indicator {

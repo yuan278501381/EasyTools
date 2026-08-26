@@ -3,7 +3,7 @@
 #include "core/logger/Logger.h"
 #include "core/hotkey/KeyboardHook.h"
 #include "core/ipc/MessageBridge.h"
-#include "core/config/ConfigManager.h"
+#include "core/events/EventBus.h"
 #include "core/utils/WinUtils.h"
 #include "KeycastOverlay.h"
 #include <windows.h>
@@ -28,6 +28,11 @@ public:
             KeycastOverlay::instance().pushKey(sequence);
         });
 
+        // 订阅全局主题与品牌色变更事件
+        m_themeSubscription = easy::core::EventBus::instance().subscribe<easy::core::ThemeChangedEvent>([](const easy::core::ThemeChangedEvent&) {
+            KeycastOverlay::instance().onThemeChanged();
+        });
+
         auto& mb = easy::core::MessageBridge::instance();
         mb.registerHandler("keycast.getSettings", [](const nlohmann::json&) -> nlohmann::json {
             auto s = KeycastOverlay::instance().getSettings();
@@ -43,7 +48,14 @@ public:
                 {"displayDurationMs", s.displayDurationMs},
                 {"fontSize", s.fontSize},
                 {"textColor", s.textColor},
-                {"backgroundColor", s.backgroundColor}
+                {"backgroundColor", s.backgroundColor},
+                {"modifierKeycapColor", s.modifierKeycapColor},
+                {"modifierKeycapOpacity", s.modifierKeycapOpacity},
+                {"modifierTextColor", s.modifierTextColor},
+                {"firstKeyAnim", s.firstKeyAnim},
+                {"subsequentKeyAnim", s.subsequentKeyAnim},
+                {"rowCascadeAnim", s.rowCascadeAnim},
+                {"exitDriftAnim", s.exitDriftAnim}
             };
         });
 
@@ -91,6 +103,27 @@ public:
             if (params.contains("backgroundColor") && params["backgroundColor"].is_string()) {
                 s.backgroundColor = params["backgroundColor"].get<std::string>();
             }
+            if (params.contains("modifierKeycapColor") && params["modifierKeycapColor"].is_string()) {
+                s.modifierKeycapColor = params["modifierKeycapColor"].get<std::string>();
+            }
+            if (params.contains("modifierKeycapOpacity") && params["modifierKeycapOpacity"].is_number_integer()) {
+                s.modifierKeycapOpacity = params["modifierKeycapOpacity"].get<int>();
+            }
+            if (params.contains("modifierTextColor") && params["modifierTextColor"].is_string()) {
+                s.modifierTextColor = params["modifierTextColor"].get<std::string>();
+            }
+            if (params.contains("firstKeyAnim") && params["firstKeyAnim"].is_string()) {
+                s.firstKeyAnim = params["firstKeyAnim"].get<std::string>();
+            }
+            if (params.contains("subsequentKeyAnim") && params["subsequentKeyAnim"].is_string()) {
+                s.subsequentKeyAnim = params["subsequentKeyAnim"].get<std::string>();
+            }
+            if (params.contains("rowCascadeAnim") && params["rowCascadeAnim"].is_boolean()) {
+                s.rowCascadeAnim = params["rowCascadeAnim"].get<bool>();
+            }
+            if (params.contains("exitDriftAnim") && params["exitDriftAnim"].is_boolean()) {
+                s.exitDriftAnim = params["exitDriftAnim"].get<bool>();
+            }
 
             overlay.updateSettings(s);
             return {{"success", true}};
@@ -112,6 +145,10 @@ public:
     void shutdown() override {
         LOG_INFO("Keycast Plugin shutdown");
         
+        if (m_themeSubscription != 0) {
+            easy::core::EventBus::instance().unsubscribeAndWait(m_themeSubscription);
+            m_themeSubscription = 0;
+        }
         easy::core::MessageBridge::instance().unregisterHandlersByPrefix("keycast.");
         easy::core::KeyboardHook::instance().setKeycastCallback(nullptr);
         
@@ -120,6 +157,8 @@ public:
         easy::core::WinUtils::trimWorkingSet();
     }
 
+private:
+    easy::core::SubscriptionId m_themeSubscription = 0;
 };
 
 extern "C" __declspec(dllexport) easy::core::IPlugin* CreatePlugin() {

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
-import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, Keyboard, MousePointer, RotateCw } from 'lucide-react';
+import { Settings, Camera, Video, Search, Shield, ShieldCheck, LogOut, RotateCw } from 'lucide-react';
 import { bridgeRequest } from './hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { useAppearance } from './hooks/useAppearance';
+import { TRAY_CONTROL_REGISTRY, type TrayControlItem } from './tray/trayRegistry';
 import './TrayApp.css';
 
 export default function TrayApp() {
@@ -15,7 +16,9 @@ export default function TrayApp() {
   const [busy, setBusy] = useState(false);
   const [pendingRestart, setPendingRestart] = useState(false);
   const pendingRestartRef = useRef(false);
-  const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set(['capture', 'search', 'gesture']));
+  const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set([
+    'capture', 'search', 'gesture', 'keycast', 'spotlight', 'dialogenhancer', 'dialog_enhancer'
+  ]));
 
   // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 200px，仅高度自适应内容）
   const reportSize = useCallback(() => {
@@ -127,7 +130,7 @@ export default function TrayApp() {
     };
   }, []);
 
-  // 快捷胶囊开关（不收起托盘，支持连续切换多个插件；标记待重启状态）
+  // 快捷胶囊开关：手势特殊暂停/恢复处理
   const toggleGesture = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!activePlugins.has('gesture')) {
@@ -157,15 +160,23 @@ export default function TrayApp() {
     }
   };
 
-  const togglePlugin = async (e: React.MouseEvent, id: string) => {
+  // 通用插件开关逻辑（含别名同步与乐观回滚机制）
+  const togglePlugin = async (e: React.MouseEvent, id: string, aliases?: string[]) => {
     e.stopPropagation();
-    const willEnable = !activePlugins.has(id);
+    const allIds = [id, ...(aliases || [])];
+    const currentlyActive = allIds.some((k) => activePlugins.has(k));
+    const willEnable = !currentlyActive;
+
     setActivePlugins((prev) => {
       const next = new Set(prev);
-      if (willEnable) next.add(id);
-      else next.delete(id);
+      if (willEnable) {
+        allIds.forEach((k) => next.add(k));
+      } else {
+        allIds.forEach((k) => next.delete(k));
+      }
       return next;
     });
+
     try {
       const res = await bridgeRequest<{ success: boolean; restartRequired?: boolean }>('plugins.setEnabled', { id, enabled: willEnable });
       if (res?.restartRequired) {
@@ -175,17 +186,38 @@ export default function TrayApp() {
     } catch {
       setActivePlugins((prev) => {
         const next = new Set(prev);
-        if (willEnable) next.delete(id);
-        else next.add(id);
+        if (willEnable) {
+          allIds.forEach((k) => next.delete(k));
+        } else {
+          allIds.forEach((k) => next.add(k));
+        }
         return next;
       });
     }
   };
 
+  // 框架化判定某项是否处于活跃状态
+  const isItemActive = useCallback((item: TrayControlItem): boolean => {
+    if (item.getCustomActive) {
+      return item.getCustomActive(activePlugins, { gesturePaused });
+    }
+    if (activePlugins.has(item.pluginId)) return true;
+    if (item.aliasPluginIds?.some((id) => activePlugins.has(id))) return true;
+    return false;
+  }, [activePlugins, gesturePaused]);
+
+  // 框架化分发点击切换
+  const handleToggleItem = async (e: React.MouseEvent, item: TrayControlItem) => {
+    e.stopPropagation();
+    if (item.id === 'gesture') {
+      await toggleGesture(e);
+      return;
+    }
+    await togglePlugin(e, item.pluginId, item.aliasPluginIds);
+  };
+
   const captureActive = activePlugins.has('capture');
   const searchActive = activePlugins.has('search');
-  const gestureEffectiveActive = activePlugins.has('gesture') && !gesturePaused;
-  const keycastActive = activePlugins.has('keycast');
 
   // 触发全局命令动作（立即乐观收起托盘，带来零延迟体验）
   const handleAction = async (action: string) => {
@@ -224,51 +256,30 @@ export default function TrayApp() {
 
   return (
     <div ref={menuRef} className="tray-menu" role="menu">
-      {/* 顶部 Mini Control Center 快捷胶囊栏 */}
-      <div className="tray-control-center" role="group" aria-label={t('tray.quickControls', 'Quick Controls')}>
-        <button
-          type="button"
-          className={`tray-pill ${gestureEffectiveActive ? 'tray-pill--active' : ''}`}
-          onClick={(e) => void toggleGesture(e)}
-          title={`${t('tray.pillGesture', 'Gestures')}: ${gestureEffectiveActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
-        >
-          <MousePointer size={13} className="tray-pill__icon" />
-          <span className="tray-pill__label">{t('tray.pillGesture', 'Gestures')}</span>
-          <span className="tray-pill__dot" />
-        </button>
+      {/* 顶部 Mini Control Center 快捷胶囊栏 (基于数据驱动注册表自适应网格) */}
+      <div className="tray-control-center" role="group" aria-label={t('tray.quickControls', '快捷功能开关')}>
+        {TRAY_CONTROL_REGISTRY.map((item) => {
+          const active = isItemActive(item);
+          const IconComponent = item.icon;
+          const label = t(item.labelKey as never, item.fallbackLabel);
+          const desc = t(item.descKey as never, item.fallbackDesc);
+          const statusText = active ? t('tray.enabled', '已启用') : t('tray.disabled', '已停用');
 
-        <button
-          type="button"
-          className={`tray-pill ${keycastActive ? 'tray-pill--active' : ''}`}
-          onClick={(e) => void togglePlugin(e, 'keycast')}
-          title={`${t('tray.pillKeycast', 'Keycast')}: ${keycastActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
-        >
-          <Keyboard size={13} className="tray-pill__icon" />
-          <span className="tray-pill__label">{t('tray.pillKeycast', 'Keycast')}</span>
-          <span className="tray-pill__dot" />
-        </button>
-
-        <button
-          type="button"
-          className={`tray-pill ${captureActive ? 'tray-pill--active' : ''}`}
-          onClick={(e) => void togglePlugin(e, 'capture')}
-          title={`${t('tray.pillCapture', 'Capture')}: ${captureActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
-        >
-          <Camera size={13} className="tray-pill__icon" />
-          <span className="tray-pill__label">{t('tray.pillCapture', 'Capture')}</span>
-          <span className="tray-pill__dot" />
-        </button>
-
-        <button
-          type="button"
-          className={`tray-pill ${searchActive ? 'tray-pill--active' : ''}`}
-          onClick={(e) => void togglePlugin(e, 'search')}
-          title={`${t('tray.pillSearch', 'Search')}: ${searchActive ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled')}`}
-        >
-          <Search size={13} className="tray-pill__icon" />
-          <span className="tray-pill__label">{t('tray.pillSearch', 'Search')}</span>
-          <span className="tray-pill__dot" />
-        </button>
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`tray-pill ${active ? 'tray-pill--active' : ''}`}
+              onClick={(e) => void handleToggleItem(e, item)}
+              title={`${desc}: ${statusText}`}
+              aria-label={`${desc}: ${statusText}`}
+            >
+              <IconComponent size={13} className="tray-pill__icon" />
+              <span className="tray-pill__label">{label}</span>
+              <span className="tray-pill__dot" />
+            </button>
+          );
+        })}
       </div>
 
       {/* 待生效智能提示条 (支持多选连续切换，点击立即重启生效或收起托盘后后台自动生效) */}
@@ -277,14 +288,14 @@ export default function TrayApp() {
           type="button"
           className="tray-restart-banner"
           onClick={() => void applyPendingRestart()}
-          title={t('tray.restartToApply', 'Plugin settings updated (Click to restart now)')}
+          title={t('tray.restartToApply', '插件状态已更新 (点击立即重启)')}
         >
           <span className="tray-restart-banner__info">
             <RotateCw size={12} className="tray-menu__icon--spinning" />
-            <span>{t('tray.restartToApply', 'Settings updated')}</span>
+            <span>{t('tray.restartToApply', '设置已更新')}</span>
           </span>
           <span className="tray-restart-banner__btn">
-            {t('tray.restartNow', 'Restart')}
+            {t('tray.restartNow', '重启')}
           </span>
         </button>
       )}
@@ -294,18 +305,18 @@ export default function TrayApp() {
       {/* 核心操作项 */}
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('openSettings')}>
         <Settings size={15} className="tray-menu__icon" />
-        <span className="tray-menu__label">{t('tray.settings', 'Settings')}</span>
+        <span className="tray-menu__label">{t('tray.settings', '设置')}</span>
       </button>
 
       {captureActive && (
         <>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
             <Camera size={15} className="tray-menu__icon" />
-            <span className="tray-menu__label">{t('tray.capture', 'Capture')}</span>
+            <span className="tray-menu__label">{t('tray.capture', '截图')}</span>
           </button>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('recording')}>
             <Video size={15} className="tray-menu__icon" />
-            <span className="tray-menu__label">{t('tray.recording', 'Recording')}</span>
+            <span className="tray-menu__label">{t('tray.recording', '录屏')}</span>
           </button>
         </>
       )}
@@ -313,7 +324,7 @@ export default function TrayApp() {
       {searchActive && (
         <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('search')}>
           <Search size={15} className="tray-menu__icon" />
-          <span className="tray-menu__label">{t('tray.search', 'File Search')}</span>
+          <span className="tray-menu__label">{t('tray.search', '文件搜索')}</span>
         </button>
       )}
 
@@ -324,14 +335,14 @@ export default function TrayApp() {
         className={`tray-menu__item tray-menu__item--admin ${elevated ? 'tray-menu__item--admin-active' : ''} ${elevating ? 'tray-menu__item--elevating' : ''}`}
         disabled={busy || elevating}
         onClick={() => void handleToggleElevated()}
-        title={elevated ? t('tray.adminActiveDesc', 'Running with highest privileges (Click to restart with normal privileges)') : t('tray.restartElevated', 'Run as Administrator')}
+        title={elevated ? t('tray.adminActiveDesc', '当前已具备最高特权 (点击降权重启)') : t('tray.restartElevated', '以管理员身份运行')}
       >
         {elevated ? (
           <ShieldCheck size={15} className="tray-menu__icon tray-menu__icon--admin" />
         ) : (
           <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
         )}
-        <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
+        <span className="tray-menu__label">{t('tray.restartElevated', '以管理员身份运行')}</span>
         <span className={`tray-menu__dot ${elevated ? 'tray-menu__dot--active' : ''}`} />
       </button>
 
@@ -339,7 +350,7 @@ export default function TrayApp() {
 
       <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={15} className="tray-menu__icon" />
-        <span className="tray-menu__label">{t('tray.exit', 'Exit')}</span>
+        <span className="tray-menu__label">{t('tray.exit', '退出')}</span>
       </button>
     </div>
   );
