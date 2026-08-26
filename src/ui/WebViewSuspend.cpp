@@ -1,6 +1,7 @@
 #include "ui/WebViewSuspend.h"
 
 #include "core/logger/Logger.h"
+#include "core/utils/WinUtils.h"
 
 #include <windows.h>
 #include <wrl/client.h>
@@ -44,6 +45,8 @@ HRESULT WebViewSuspendController::requestSuspend(ICoreWebView2* webView,
                 switch (outcome) {
                     case WebViewSuspendOutcome::Suspended:
                         LOG_DEBUG("WebView suspended: {}", surfaceName);
+                        // Chromium 异步挂起完成，GPU/DOM 显存已释放，在此精准触发物理内存修剪
+                        easy::core::WinUtils::trimWorkingSet();
                         break;
                     case WebViewSuspendOutcome::Refused:
                         LOG_DEBUG("WebView suspend was declined by runtime: {}", surfaceName);

@@ -34,20 +34,26 @@ bool ToastOverlay::initialize(HINSTANCE hInstance) {
     wc.lpszClassName = TOAST_CLASS;
     RegisterClassExW(&wc);
 
+    m_helperOwnerHwnd = easy::core::WinUtils::createOverlayHelperOwner(hInstance, L"EasyTools_ToastHelperOwner");
+
     m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         TOAST_CLASS, L"",
         WS_POPUP,
         0, 0, 1, 1,
-        nullptr, nullptr, hInstance, nullptr
+        m_helperOwnerHwnd, nullptr, hInstance, nullptr
     );
 
-    if (!m_hwnd) return false;
+    if (!m_hwnd) {
+        if (m_helperOwnerHwnd) {
+            DestroyWindow(m_helperOwnerHwnd);
+            m_helperOwnerHwnd = nullptr;
+        }
+        return false;
+    }
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
-        LOG_WARN("当前 Windows 版本无法从捕获中排除通知窗口: error={}", GetLastError());
-    }
+    easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd);
 
     if (FAILED(D2D1CreateFactory(
             D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf())) ||
@@ -56,14 +62,19 @@ bool ToastOverlay::initialize(HINSTANCE hInstance) {
             reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf())))) {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+        if (m_helperOwnerHwnd) {
+            DestroyWindow(m_helperOwnerHwnd);
+            m_helperOwnerHwnd = nullptr;
+        }
         m_d2dFactory.Reset();
         m_dwriteFactory.Reset();
         return false;
     }
 
     updatePlacement();
-    ShowWindow(m_hwnd, SW_HIDE);
-    LOG_INFO("系统通知 Overlay 初始化完成");
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+    LOG_INFO("系统通知 Overlay 初始化完成 (Taskbar Safe)");
     return true;
 }
 
@@ -74,6 +85,10 @@ void ToastOverlay::shutdown() {
         KillTimer(m_hwnd, FADE_IN_TIMER_ID);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+    }
+    if (m_helperOwnerHwnd) {
+        DestroyWindow(m_helperOwnerHwnd);
+        m_helperOwnerHwnd = nullptr;
     }
     m_dwriteFactory.Reset();
     m_d2dFactory.Reset();

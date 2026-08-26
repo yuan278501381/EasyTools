@@ -31,6 +31,7 @@ interface SearchSettings {
   matchPath: boolean;
   pinyinEnabled: boolean;
   keepServiceRunning: boolean;
+  autoBypassFullscreen?: boolean;
 }
 
 interface ServiceStatus {
@@ -50,6 +51,7 @@ export const SearchPage: FC = () => {
     matchPath: false,
     pinyinEnabled: true,
     keepServiceRunning: false,
+    autoBypassFullscreen: true,
   });
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     available: false,
@@ -78,13 +80,13 @@ export const SearchPage: FC = () => {
   }, []);
 
   const saveSetting = async <K extends keyof SearchSettings>(key: K, value: SearchSettings[K]) => {
+    const previous = settings[key];
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     try {
       await bridgeRequest('search.saveSettings', { [key]: value });
-      toast.success(t('searchPage.saved', '搜索设置已保存'));
     } catch {
-      toast.error(t('searchPage.saveFailed', '保存设置失败'));
+      setSettings(prev => ({ ...prev, [key]: previous }));
     }
   };
 
@@ -98,12 +100,9 @@ export const SearchPage: FC = () => {
         await saveSetting('hotkey', res.shortcut ?? newKey);
         const refreshed = await bridgeRequest<HotkeyEntry[]>('hotkey.getAll');
         if (Array.isArray(refreshed)) setHotkeys(refreshed);
-        toast.success(t('searchPage.hotkeySaved', '搜索快捷键已更新'));
-      } else {
-        toast.error(t('searchPage.hotkeyFailed', '快捷键可能已被其他程序占用'));
       }
     } catch {
-      toast.error(t('searchPage.hotkeyFailed', '快捷键注册失败'));
+      // 错误已由 bridgeRequest 自动提示失败
     }
   };
 
@@ -164,6 +163,17 @@ export const SearchPage: FC = () => {
                   value={settings.hotkey}
                   onChange={handleHotkeyChange}
                   placeholder="Alt+Space"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('searchPage.autoBypassFullscreen', '全屏游戏/视频免打扰')}
+                description={t('searchPage.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰忽略快捷键，防止 3D 游戏或全屏观影时误唤出搜索框')}
+              >
+                <Toggle
+                  id="search-auto-bypass-toggle"
+                  checked={settings.autoBypassFullscreen ?? true}
+                  onChange={v => saveSetting('autoBypassFullscreen', v)}
                 />
               </SettingRow>
 

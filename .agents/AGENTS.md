@@ -9,6 +9,9 @@
    - **Win32 Host Filtering**: All top-level UI windows (`SettingsWindow`, `SearchWindow`, `TrayWindow`, etc.) must route messages through `KeyboardPipeline::filterWindowMessage` to intercept `SC_KEYMENU`, `SC_CONTEXTHELP`, and `WM_HELP`, preventing native menus from stealing focus when users press Alt, F10, or F1.
    - **WebView2 Accelerator Policy**: Must attach `KeyboardPipeline::applyWebKeyboardPolicy` to `ICoreWebView2Controller` to suppress default Chromium browser shortcuts (`Ctrl+P`, `Ctrl+F`, `Ctrl+U`, `Ctrl+J`, `Ctrl+H`, `Ctrl+W`, `Alt+Left/Right`), ensuring all key combinations are 100% forwarded to the React DOM.
    - **Silent Recording Mode**: During hotkey recording in UI, frontend must notify backend via `hotkey.setPaused(true)` to mute background global hotkey dispatching and prevent accidental tool triggering.
+5. **Overlay Viewport & Focus Assist Avoidance (`FocusAssistAvoidance`)**:
+   - **Local Bounding Box First**: For localized transient overlays (mouse ripples, particle trails, gesture strokes), NEVER create or resize windows to full virtual screen size. Compute the dynamic union bounding box of active elements to constrain the layered window to compact local viewports (e.g., 100~300px), reducing memory/GPU cost by 99% and preventing Windows Shell from triggering Focus Assist (`🔔z` Do Not Disturb).
+   - **Safe Bounding Geometry**: For full-screen ambient overlays (e.g., Spotlight vignette), shrink physical window dimensions by 1 pixel (e.g., `vw - 1, vh - 1`) to break the exact full-screen exclusive geometric match checked by Windows `SHQueryUserNotificationState`.
 
 ## Quality Assurance & Code Coverage (100% Coverage Mandate)
 1. **100% Code Coverage Standard**: All core business logic, utility classes, codecs, parsers, state machines, math/transform algorithms, and plugin contracts must maintain 100% statement and branch test coverage.
@@ -21,6 +24,9 @@
    - **Zero System Font Pollution**: 严禁在安装包中向 Windows `C:\Windows\Fonts` 写入字体或修改系统注册表，杜绝管理员权限受限、DirectWrite 进程锁定导致的卸载残留以及字体分发版权合规风险。
    - **App-Embedded WebFont & DirectWrite Fallback**: 采用“应用级内嵌 WebFont + 系统 DirectWrite 梯队回退”体系。全局字体栈统一为：`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;` 并标配 `-webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;`。
    - **Legibility & Font Size Floor**: 界面中所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，行高不得低于 `1.4`，保障 ClearType 次像素渲染字字锐利。
+3. **Zero Emoji & Vector Iconography Standard**:
+   - **Strict Red Lines**: Strictly prohibit hardcoded Unicode color emojis (e.g., `📦`, `💻`, `🟢`) in UI badges, state indicators, and descriptions.
+   - **Vector SVG Consistency**: Uniformly use crisp Lucide vector SVG icons paired with semi-transparent glass capsule badges and ClearType subpixel rendering.
 
 ## Copyright & Open Source Attribution Standards
 1. **Author Identity**: The official author identifier for the project is **`Yy1 (yuan278501381)`** (display format: `Yy1 (@yuan278501381)`).

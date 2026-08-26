@@ -14,6 +14,7 @@
 #include <shlobj.h>
 #include <shldisp.h>
 #include <exdisp.h>
+#include <dwmapi.h>
 #include <wrl/client.h>
 #include <string>
 #include <filesystem>
@@ -35,15 +36,40 @@ public:
         return std::filesystem::path(path).parent_path();
     }
 
-    /// 获取 AppData/Local/EasyTools 目录（自动创建）
+    /// 判断是否处于绿色便携模式 (Portable Mode)
+    static bool isPortableMode() {
+        const auto exeDir = getExeDirectory();
+        std::error_code ec;
+        if (std::filesystem::is_directory(exeDir / L".easytools", ec)) return true;
+        if (std::filesystem::is_directory(exeDir / L"data", ec)) return true;
+        if (std::filesystem::is_directory(exeDir / L"portable_data", ec)) return true;
+        return false;
+    }
+
+    /// 获取应用数据根目录（优先使用主程序目录下 .easytools / data 便携目录，否则使用 LocalAppData）
     static std::filesystem::path getAppDataDirectory() {
+        const auto exeDir = getExeDirectory();
+        std::error_code ec;
+        
+        // 1. 便携模式检测：若主程序同级目录下存在 .easytools 或 data 目录，优先作为数据根目录
+        if (std::filesystem::is_directory(exeDir / L".easytools", ec)) {
+            return exeDir / L".easytools";
+        }
+        if (std::filesystem::is_directory(exeDir / L"data", ec)) {
+            return exeDir / L"data";
+        }
+        if (std::filesystem::is_directory(exeDir / L"portable_data", ec)) {
+            return exeDir / L"portable_data";
+        }
+
+        // 2. 标准系统模式：回退到 %LOCALAPPDATA%\EasyTools
         wchar_t path[MAX_PATH] = {};
         if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path))) {
             auto dir = std::filesystem::path(path) / L"EasyTools";
-            std::filesystem::create_directories(dir);
+            std::filesystem::create_directories(dir, ec);
             return dir;
         }
-        return getExeDirectory() / L"data";
+        return exeDir / L"data";
     }
 
     /// 获取日志目录
@@ -662,6 +688,151 @@ public:
         const bool ok = ShellExecuteExW(&sei) != FALSE;
         if (SUCCEEDED(hrCo)) CoUninitialize();
         return ok;
+    }
+
+    /// 判断 Windows 系统任务栏是否为深色模式 (用于自适应托盘图标与浮层明暗)
+    static bool isSystemTaskbarDark() {
+        DWORD data = 0;
+        DWORD dataSize = sizeof(data);
+        // 读取 Windows 10 (1903+) / Windows 11 系统任务栏主题设置 (0: Dark, 1: Light)
+        LONG res = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"SystemUsesLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &data,
+            &dataSize
+        );
+        if (res == ERROR_SUCCESS) {
+            return (data == 0); // 0 为深色任务栏，1 为浅色任务栏
+        }
+
+        // 若不存在，尝试读取应用级主题 AppsUseLightTheme 回退
+        res = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &data,
+            &dataSize
+        );
+        if (res == ERROR_SUCCESS) {
+            return (data == 0);
+        }
+
+        // 默认回退深色
+        return true;
+    }
+
+    /// 获取/初始化进程级 Job Object (带 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+    static HANDLE getProcessJobObject() {
+        static HANDLE s_job = []() -> HANDLE {
+            HANDLE job = CreateJobObjectW(nullptr, nullptr);
+            if (!job) return nullptr;
+
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+            jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli))) {
+                CloseHandle(job);
+                return nullptr;
+            }
+            // 将当前主进程绑定到 Job Object
+            AssignProcessToJobObject(job, GetCurrentProcess());
+            return job;
+        }();
+        return s_job;
+    }
+
+    /// 将派生子进程安全加入到当前进程树的 Job Object 中
+    static bool assignProcessToCurrentJob(HANDLE hProcess) {
+        if (!hProcess) return false;
+        HANDLE job = getProcessJobObject();
+        if (!job) return false;
+        return AssignProcessToJobObject(job, hProcess) != FALSE;
+    }
+
+    /// 强制将文件句柄对应的未写缓冲刷入物理存储硬件 (FlushFileBuffers)
+    static bool flushFileToPhysicalDisk(HANDLE hFile) {
+        if (!hFile || hFile == INVALID_HANDLE_VALUE) return false;
+        return FlushFileBuffers(hFile) != FALSE;
+    }
+
+    /// 原子级写入文件 (写临时文件 + 物理硬件落盘 + ReplaceFile/MoveFileEx 原子替换)
+    static bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::string& data) {
+        if (targetPath.empty()) return false;
+        std::wstring tempPath = targetPath + L"." + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(GetTickCount64()) + L".tmp";
+        
+        HANDLE hFile = CreateFileW(
+            tempPath.c_str(),
+            GENERIC_WRITE,
+            0,
+            nullptr,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
+            nullptr
+        );
+        if (hFile == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+
+        DWORD bytesWritten = 0;
+        BOOL writeOk = WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), &bytesWritten, nullptr);
+        if (writeOk && bytesWritten == data.size()) {
+            FlushFileBuffers(hFile);
+        } else {
+            CloseHandle(hFile);
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
+        CloseHandle(hFile);
+
+        if (!MoveFileExW(tempPath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    /// 创建系统低物理内存状态事件通知句柄
+    static HANDLE createLowMemoryNotification() {
+        return CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    }
+
+    /// 创建轻量级不可见辅助宿主窗口，用于隔绝 Overlay 窗口在 Windows 任务栏与通知区域产生图标
+    static HWND createOverlayHelperOwner(HINSTANCE hInstance, const wchar_t* name = L"EasyTools_OverlayHelperOwner") {
+        return CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            L"STATIC",
+            name,
+            WS_POPUP,
+            0, 0, 0, 0,
+            nullptr, nullptr, hInstance, nullptr
+        );
+    }
+
+    /// 将窗口样式标准化为绝对不污染任务栏与 Alt+Tab 的零泄漏 Overlay 窗口
+    static void applyTaskbarSafeOverlayStyle(HWND hwnd, bool excludeFromCapture = true) {
+        if (!hwnd || !IsWindow(hwnd)) return;
+        LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        constexpr LONG_PTR required = WS_EX_LAYERED | WS_EX_TRANSPARENT |
+                                      WS_EX_TOPMOST | WS_EX_NOACTIVATE |
+                                      WS_EX_TOOLWINDOW;
+        exStyle = (exStyle | required) & ~static_cast<LONG_PTR>(WS_EX_APPWINDOW);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
+
+        const DWM_WINDOW_CORNER_PREFERENCE noCorners = DWMWCP_DONOTROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                              &noCorners, sizeof(noCorners));
+        const BOOL disableTransitions = TRUE;
+        DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
+                              &disableTransitions, sizeof(disableTransitions));
+        if (excludeFromCapture) {
+            excludeWindowFromCapture(hwnd);
+        } else {
+            SetWindowDisplayAffinity(hwnd, WDA_NONE);
+        }
     }
 };
 

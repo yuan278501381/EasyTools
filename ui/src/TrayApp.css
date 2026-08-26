@@ -86,7 +86,8 @@ html[data-surface="tray"] #root {
   border: 1px solid var(--tray-border);
   background: rgba(255, 255, 255, 0.04);
   color: var(--tray-text-muted);
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.4;
   font-weight: 500;
   cursor: pointer;
   user-select: none;

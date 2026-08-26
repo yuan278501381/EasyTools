@@ -20,6 +20,7 @@ public:
 
     void setKeycastCallback(std::function<void(const std::string&)> cb);
     void setKeyInterceptor(std::function<bool(DWORD vkCode, WPARAM wParam)> interceptor);
+    void setKeyboardActivityCallback(std::function<void(DWORD vkCode, WPARAM wParam)> cb);
 
 private:
     KeyboardHook() = default;
@@ -31,6 +32,7 @@ private:
     std::atomic<bool> m_paused{false};
     std::function<void(const std::string&)> m_keycastCallback;
     std::function<bool(DWORD, WPARAM)> m_keyInterceptor;
+    std::function<void(DWORD, WPARAM)> m_activityCallback;
     mutable std::mutex m_callbackMutex;
 };
 

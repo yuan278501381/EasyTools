@@ -1,7 +1,7 @@
 import { useState, useEffect, type FC } from 'react';
 import { Card, SettingGroup, Badge, Toggle, Button } from '../components/UIKit';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, Info, Layers, Cpu, RefreshCw, User, ShieldCheck } from 'lucide-react';
+import { ExternalLink, Info, Layers, Cpu, RefreshCw, User, ShieldCheck, Download } from 'lucide-react';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import './AboutPage.css';
@@ -152,6 +152,17 @@ export const AboutPage: FC = () => {
     if (!response.success) toast.error(t('about.openReleaseFailed'));
   };
 
+  const handleExportLogs = async () => {
+    try {
+      const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
+      if (res.cancelled) return;
+      if (!res.success) throw new Error(res.error || '导出失败');
+      toast.success(t('about.exportLogsSuccess', '诊断日志已成功导出并定位'));
+    } catch (e) {
+      toast.error(t('about.exportLogsFailed', '日志导出失败'), { description: String(e) });
+    }
+  };
+
   return (
     <div className="about-page" style={{ animation: 'fadeIn 0.3s ease' }}>
 
@@ -197,6 +208,10 @@ export const AboutPage: FC = () => {
               <Button variant="secondary" onClick={() => void checkForUpdates()} disabled={checkingUpdate}>
                 <RefreshCw size={14} className={checkingUpdate ? 'about-update-spin' : undefined} />
                 <span>{checkingUpdate ? t('about.checkingUpdate') : t('about.checkUpdate')}</span>
+              </Button>
+              <Button variant="secondary" onClick={() => void handleExportLogs()} title="导出系统诊断日志与环境报告">
+                <Download size={14} />
+                <span>{t('about.exportLogs', '导出日志')}</span>
               </Button>
               {updateResult?.status === 'available' && updateResult.releaseUrl && (
                 <Button variant="primary" onClick={() => void openReleasePage()}>

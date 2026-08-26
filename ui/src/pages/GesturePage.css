@@ -164,6 +164,19 @@
   overflow: hidden;
 }
 
+.gesture-action-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.gesture-action-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .gesture-table__col--type {
   width: 72px;
   flex-shrink: 0;
@@ -930,7 +943,7 @@
 
 .gesture-action-name {
   font-weight: 600;
-  font-size: 0.84rem;
+  font-size: 0.94rem;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -940,9 +953,9 @@
 
 .gesture-action-desc {
   display: block;
-  font-size: 0.70rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
-  margin-top: 1px;
+  margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

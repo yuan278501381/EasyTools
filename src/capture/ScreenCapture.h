@@ -53,9 +53,10 @@ struct CaptureOptions {
     bool saveToFile = false;           // 保存到文件
     std::string savePath;              // 保存路径（空则自动生成）
     bool autoNumber = false;           // 标注时自动编号
-    bool showCrosshair = true;         // 选区前显示十字准星/取色放大镜
+    bool showCrosshair = false;        // 选区前显示全屏十字对齐线 (默认关闭)
     bool autoDetectWindow = true;      // 光标悬停时检测并吸附窗口
     bool showShortcutHints = true;     // 操作期间在当前显示器左下角显示轻量快捷键提示
+    bool autoBypassFullscreen = true;  // 前台处于全屏独占应用时自动免打扰 (默认开启)
 };
 
 /// 截图结果

@@ -8,11 +8,11 @@ EasyTools 官方 CLI 静默卸载工具 (Official CLI Uninstaller)
 .EXAMPLE
 .\uninstall.ps1
 .\uninstall.cmd
-.\uninstall.ps1 -CleanConfig
+.\uninstall.ps1 -KeepPersonalData
 #>
 
 param (
-    [switch]$CleanConfig = $false,        # 是否同时清理本地用户配置 (%LOCALAPPDATA%\EasyTools)
+    [switch]$KeepPersonalData = $false,   # 保留配置、日志、转储、索引、历史、截图和录屏
     [switch]$Force = $false               # 强制杀死残留进程
 )
 
@@ -86,6 +86,9 @@ if ($UninstallerPath -and (Test-Path $UninstallerPath)) {
     $pinfo = New-Object System.Diagnostics.ProcessStartInfo
     $pinfo.FileName = $UninstallerPath
     $pinfo.Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+    if ($KeepPersonalData) {
+        $pinfo.Arguments += " /KEEPPERSONALDATA"
+    }
     $pinfo.Verb = "runas"
     $pinfo.UseShellExecute = $true
 
@@ -105,14 +108,20 @@ if ($UninstallerPath -and (Test-Path $UninstallerPath)) {
     Write-CliLog "未在注册表或默认路径检测到 EasyTools 安装记录。" "WARN"
 }
 
-# 3. 清理用户配置 (可选)
-if ($CleanConfig) {
-    $UserDataDir = Join-Path $env:LOCALAPPDATA "EasyTools"
-    if (Test-Path $UserDataDir) {
-        Write-CliLog "正在清理用户本地配置缓存: $UserDataDir" "INFO"
-        Remove-Item -Path $UserDataDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-CliLog "用户配置已清理完毕！" "SUCCESS"
+# 3. 默认清理全部个人数据；可用 -KeepPersonalData 明确保留
+if (-not $KeepPersonalData) {
+    $PersonalDataDirs = @(
+        (Join-Path $env:LOCALAPPDATA "EasyTools"),
+        (Join-Path $env:APPDATA "EasyTools"),
+        (Join-Path $env:ProgramData "EasyTools")
+    )
+    foreach ($dir in $PersonalDataDirs) {
+        if (Test-Path -LiteralPath $dir) {
+            Write-CliLog "正在清理个人数据: $dir" "INFO"
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
+    Write-CliLog "个人数据已清理完毕！" "SUCCESS"
 }
 
 Write-Host "=======================================================" -ForegroundColor Green

@@ -172,6 +172,7 @@ void SearchWindow::hide() {
     m_visible = false;
     if (m_controller) m_controller->put_IsVisible(FALSE);
     if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "search");
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 bool SearchWindow::isVisible() const {

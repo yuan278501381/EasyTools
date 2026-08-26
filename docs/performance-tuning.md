@@ -70,6 +70,8 @@ flowchart TD
         C5["设置中心窗口 (SettingsWindow) 隐藏 / 关闭"]
         C6["全局搜索浮窗 (SearchWindow) 隐藏"]
         C7["插件禁用 / 暂停 (Plugin Disabled)"]
+        C8["鼠标聚光灯 / 演示光晕 (Spotlight) 动画结束退场"]
+        C9["按键回显 (Keycast) 浮动卡片淡出结束隐藏"]
     end
 
     HotPath -->|操作结束 / 状态退出| ColdPath

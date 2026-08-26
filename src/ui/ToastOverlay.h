@@ -39,6 +39,7 @@ private:
     void hideNow();
 
     HWND m_hwnd = nullptr;
+    HWND m_helperOwnerHwnd = nullptr;
     bool m_enabled = true;
     float m_dpiScale = 1.0f;
     bool m_updatingPlacement = false;

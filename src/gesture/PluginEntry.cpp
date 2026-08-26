@@ -80,7 +80,7 @@ nlohmann::json updateHotCornerSettings(const nlohmann::json& params) {
     }
 
     static const std::unordered_set<std::string> allowedKeys = {
-        "enabled", "delay", "triggerDelay", "corners",
+        "enabled", "autoBypassFullscreen", "delay", "triggerDelay", "corners",
         "topLeft", "topRight", "bottomLeft", "bottomRight"
     };
     for (const auto& [key, value] : params.items()) {
@@ -92,6 +92,7 @@ nlohmann::json updateHotCornerSettings(const nlohmann::json& params) {
     auto& engine = HotCornerEngine::instance();
     json desired = {
         {"enabled", engine.isEnabled()},
+        {"autoBypassFullscreen", engine.autoBypassFullscreen()},
         {"triggerDelay", engine.triggerDelay()},
         {"topLeft", engine.getCornerAction(HotCorner::TopLeft)},
         {"topRight", engine.getCornerAction(HotCorner::TopRight)},
@@ -104,6 +105,13 @@ nlohmann::json updateHotCornerSettings(const nlohmann::json& params) {
             return {{"success", false}, {"error", "enabled must be boolean"}};
         }
         desired["enabled"] = params["enabled"];
+    }
+
+    if (params.contains("autoBypassFullscreen")) {
+        if (!params["autoBypassFullscreen"].is_boolean()) {
+            return {{"success", false}, {"error", "autoBypassFullscreen must be boolean"}};
+        }
+        desired["autoBypassFullscreen"] = params["autoBypassFullscreen"];
     }
 
     const char* delayKey = params.contains("delay") ? "delay" :
@@ -149,6 +157,7 @@ nlohmann::json updateHotCornerSettings(const nlohmann::json& params) {
     }
 
     engine.setEnabled(desired["enabled"].get<bool>());
+    engine.setAutoBypassFullscreen(desired.value("autoBypassFullscreen", true));
     engine.setTriggerDelay(desired["triggerDelay"].get<int>());
     for (const auto& [key, corner] : kHotCorners) {
         engine.setCornerAction(corner, desired[key].get<std::string>());
@@ -283,7 +292,7 @@ public:
                 {"trailColorMode", config.get<std::string>("/gesture/trailColorMode", "auto")},
                 {"trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6")},
                 {"trailWidth", config.get<float>("/gesture/trailWidth", 2.5f)},
-                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)},
+                {"trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 1.5f)},
                 {"elevated", easy::core::WinUtils::isCurrentProcessElevated()},
                 {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)}
             };
@@ -352,7 +361,7 @@ public:
             std::string trailColor = params.value("trailColor", config.get<std::string>("/gesture/trailColor", "#3B82F6"));
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
             float trailOutlineWidth = clampTrailOutlineWidth(
-                params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 2.5f)));
+                params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 1.5f)));
 
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},
@@ -513,6 +522,7 @@ public:
             LOG_DEBUG("IPC: hotcorner.getSettings 查询触发角配置");
             return {
                 {"enabled", hce.isEnabled()},
+                {"autoBypassFullscreen", hce.autoBypassFullscreen()},
                 {"delay", config.get<int>("/gesture/hotCorners/triggerDelay", 300)},
                 {"corners", {
                     {"topLeft", {{"commandIndex", hotCornerCommandIndex(hce.getCornerAction(easy::gesture::HotCorner::TopLeft))}}},
@@ -596,6 +606,7 @@ public:
         hce.setCornerAction(easy::gesture::HotCorner::BottomLeft, config.get<std::string>("/gesture/hotCorners/bottomLeft", ""));
         hce.setCornerAction(easy::gesture::HotCorner::BottomRight, config.get<std::string>("/gesture/hotCorners/bottomRight", "search")); // 默认右下角搜索
         hce.setEnabled(config.get<bool>("/gesture/hotCorners/enabled", false));
+        hce.setAutoBypassFullscreen(config.get<bool>("/gesture/hotCorners/autoBypassFullscreen", true));
         hce.setTriggerDelay(std::clamp(config.get<int>("/gesture/hotCorners/triggerDelay", 300), 100, 2000));
 
         // 初始化 RadialMenu — 优先从配置加载，无配置时使用默认项

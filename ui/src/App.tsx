@@ -13,6 +13,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { TitleBar } from './components/TitleBar';
 import { Sidebar, type NavId } from './components/Sidebar';
 import { GesturePage } from './pages/GesturePage';
 import { CapturePage } from './pages/CapturePage';
@@ -24,9 +25,14 @@ import HistoryPage from './pages/HistoryPage';
 import { KeyStatsPage } from './pages/KeyStatsPage';
 import { HotCornerPage } from './pages/HotCornerPage';
 import { SearchPage } from './pages/SearchPage';
+import { KeycastPage } from './pages/KeycastPage';
+import { SpotlightPage } from './pages/SpotlightPage';
 import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
 import { ExtensionPage } from './pages/ExtensionPage';
 import { OnboardingModal } from './components/OnboardingModal';
+import { SavedToast } from './components/SavedToast';
+import { WindowResizeHandles } from './components/WindowResizeHandles';
+import { getPageMetadata } from './pages/registry';
 import { bridgeRequest } from './hooks/useBridge';
 import { Toaster } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -37,23 +43,12 @@ import './App.css';
 type Theme = 'dark' | 'light';
 type ThemePreference = Theme | 'system';
 
-const NAV_TITLE_KEYS: Record<NavId, string> = {
-  stats: 'nav.stats', gesture: 'nav.gesture', hotcorner: 'nav.hotcorner', capture: 'nav.capture',
-  ocr: 'nav.ocr', history: 'nav.history', search: 'nav.search', dialog_enhancer: 'nav.dialog_enhancer', plugins: 'nav.plugins', general: 'nav.settings', about: 'nav.about',
-  ai_assistant: 'nav.ai_assistant', color_picker: 'nav.color_picker', clipboard_manager: 'nav.clipboard_manager', markdown_preview: 'nav.markdown_preview',
-};
-const NAV_SUBTITLE_KEYS: Record<NavId, string> = {
-  stats: 'navSubtitle.stats', gesture: 'navSubtitle.gesture', hotcorner: 'navSubtitle.hotcorner', capture: 'navSubtitle.capture',
-  ocr: 'navSubtitle.ocr', history: 'navSubtitle.history', search: 'navSubtitle.search', dialog_enhancer: 'navSubtitle.dialog_enhancer', plugins: 'navSubtitle.plugins', general: 'navSubtitle.general', about: 'navSubtitle.about',
-  ai_assistant: 'navSubtitle.ai_assistant', color_picker: 'navSubtitle.color_picker', clipboard_manager: 'navSubtitle.clipboard_manager', markdown_preview: 'navSubtitle.markdown_preview',
-};
-
 function App() {
   const { t, i18n } = useTranslation();
   const [activeNav, setActiveNav] = useState<NavId>(() => {
     try {
       const saved = localStorage.getItem('easytools:last-nav');
-      if (saved && saved in NAV_TITLE_KEYS) {
+      if (saved) {
         return saved as NavId;
       }
     } catch {
@@ -207,6 +202,8 @@ function App() {
       case 'ocr':             return <OcrPage />;
       case 'history':         return <HistoryPage />;
       case 'search':          return <SearchPage />;
+      case 'keycast':         return <KeycastPage />;
+      case 'spotlight':       return <SpotlightPage />;
       case 'dialog_enhancer': return <DialogEnhancerPage />;
       case 'plugins':         return <PluginsPage initialPlugins={plugins} />;
       case 'general':         return <GeneralPage />;
@@ -233,49 +230,55 @@ function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        activeNav={activeNav}
-        onNavigate={handleNavSelect}
-        theme={theme}
-        themePreference={themePreference}
-        onSelectThemePreference={(pref) => {
-          setThemePreference(pref);
-          bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
-          window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
-        }}
-        accent={accent}
-        onSelectAccent={(newAccent) => {
-          setAccent(newAccent);
-          try {
-            localStorage.setItem('easytools:accent-color', newAccent);
-          } catch (e) {
-            void e;
-          }
-          bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
-          window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
-        }}
-        activePlugins={plugins.length > 0 ? activePlugins : undefined}
-        installedExtensionIds={installedExtensionIds}
-        isElevated={isElevated}
-      />
-      <main className="app__main" aria-labelledby="app-page-title">
-        <Toaster position="bottom-right" theme={theme} richColors expand={true} />
-        {/* ── 页面头部 ────────────────────────────────────── */}
-        <header className="app__header">
-          <div className="app__header-text">
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(NAV_TITLE_KEYS[activeNav] as any)}</h1>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <p className="app__header-subtitle">{t(NAV_SUBTITLE_KEYS[activeNav] as any)}</p>
-          </div>
-        </header>
+      <TitleBar isElevated={isElevated} />
+      <div className="app__body">
+        <Sidebar
+          activeNav={activeNav}
+          onNavigate={handleNavSelect}
+          theme={theme}
+          themePreference={themePreference}
+          onSelectThemePreference={(pref) => {
+            setThemePreference(pref);
+            bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
+            window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
+          }}
+          accent={accent}
+          onSelectAccent={(newAccent) => {
+            setAccent(newAccent);
+            try {
+              localStorage.setItem('easytools:accent-color', newAccent);
+            } catch (e) {
+              void e;
+            }
+            bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
+            window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
+          }}
+          activePlugins={plugins.length > 0 ? activePlugins : undefined}
+          installedExtensionIds={installedExtensionIds}
+        />
+        <main className="app__main" aria-labelledby="app-page-title">
+          <Toaster position="bottom-right" theme={theme} richColors expand={true} />
+          {/* ── 页面头部 ────────────────────────────────────── */}
+          <header className="app__header">
+            <div className="app__header-text">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <h1 id="app-page-title" ref={pageTitleRef} tabIndex={-1} className="app__header-title">{t(getPageMetadata(activeNav).titleKey as any)}</h1>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <p className="app__header-subtitle">{t(getPageMetadata(activeNav).subtitleKey as any)}</p>
+            </div>
+          </header>
 
-        {/* ── 页面内容 ────────────────────────────────────── */}
-        <div className="app__content" key={activeNav}>
-          {renderPage()}
-        </div>
-      </main>
+          {/* ── 页面内容 ────────────────────────────────────── */}
+          <div className="app__content" key={activeNav}>
+            {renderPage()}
+          </div>
+
+          {/* ── 世界级浮动胶囊已保存 Toast ─────────────────── */}
+          <SavedToast />
+        </main>
+      </div>
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
+      <WindowResizeHandles />
     </div>
   );
 }

@@ -81,11 +81,11 @@
 
 .plugin-card {
   display: flex;
-  min-height: 210px;
+  min-height: 180px;
   flex-direction: column;
-  padding: 20px;
+  padding: 16px 18px;
   border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--card-bg);
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-fast), transform var(--transition-fast), background var(--transition-fast);
@@ -181,10 +181,10 @@
 }
 
 .plugin-card__description {
-  margin: 14px 0;
+  margin: 8px 0 10px;
   color: var(--text-secondary);
   font-size: 0.86rem;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .plugin-card__manifest {
@@ -192,9 +192,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin: -4px 0 14px;
+  margin: 0 0 10px;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
 }
 
 .plugin-card__manifest code {

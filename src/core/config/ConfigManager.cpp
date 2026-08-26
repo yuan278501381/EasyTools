@@ -5,6 +5,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/WinUtils.h"
 
 #include <fstream>
 #include <filesystem>
@@ -147,28 +148,12 @@ bool ConfigManager::save() const {
 
 bool ConfigManager::writeSnapshotLocked(const json& snapshot) const {
     try {
-        auto tempPath = m_configFilePath;
-        tempPath += L".tmp";
-        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
-        if (file.is_open()) {
-            file << snapshot.dump(2);
-            file.flush();
-            if (!file.good()) {
-                throw std::runtime_error("写入临时配置文件失败");
-            }
-            file.close();
-
-            if (!MoveFileExW(tempPath.c_str(), m_configFilePath.c_str(),
-                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-                const DWORD error = GetLastError();
-                std::error_code ec;
-                std::filesystem::remove(tempPath, ec);
-                throw std::runtime_error("替换配置文件失败, error=" + std::to_string(error));
-            }
-            LOG_TRACE("配置已保存到文件: {}", m_configFilePath.string());
+        const std::string payload = snapshot.dump(2);
+        if (WinUtils::atomicWriteFileWithFlush(m_configFilePath.wstring(), payload)) {
+            LOG_TRACE("配置已通过硬件原子刷盘保存到文件: {}", m_configFilePath.string());
             return true;
         } else {
-            LOG_ERROR("无法打开临时配置文件进行写入: {}", tempPath.string());
+            LOG_ERROR("配置原子硬件刷盘失败: {}", m_configFilePath.string());
         }
     } catch (const std::exception& e) {
         LOG_ERROR("配置保存失败: {}", e.what());

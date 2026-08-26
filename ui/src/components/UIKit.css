@@ -6,16 +6,16 @@
 .uikit-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), var(--card-highlight);
 }
 
 .uikit-card:hover {
-  border-color: rgba(139, 92, 246, 0.3);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15), 0 0 20px var(--primary-dim);
-  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--card-border));
+  box-shadow: var(--shadow-md), var(--card-highlight);
+  transform: translateY(-1px);
 }
 
 .uikit-card__header {
@@ -33,14 +33,16 @@
 }
 
 .uikit-card__title {
-  font-size: 0.95rem;
+  font-size: 0.96rem;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .uikit-card__subtitle {
-  font-size: 0.8rem;
+  font-size: 0.84rem;
   color: var(--text-muted);
+  line-height: 1.45;
   margin-top: 2px;
 }
 
@@ -58,7 +60,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-sm) 0;
-  min-height: 44px;
+  min-height: 42px;
 }
 
 .uikit-toggle--disabled {
@@ -73,22 +75,22 @@
 }
 
 .uikit-toggle__label {
-  font-size: 0.92rem;
+  font-size: 0.94rem;
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .uikit-toggle__desc {
-  font-size: 0.83rem;
+  font-size: 0.84rem;
   color: var(--text-muted);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .uikit-toggle__switch {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 40px;
+  height: 22px;
   flex-shrink: 0;
   cursor: pointer;
 }
@@ -107,19 +109,20 @@
   bottom: 0;
   background: var(--input-border);
   border-radius: var(--radius-full);
-  transition: all var(--transition-normal);
+  transition: background var(--transition-normal), border-color var(--transition-normal);
 }
 
 .uikit-toggle__slider::after {
   content: '';
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   left: 3px;
   top: 3px;
   background: var(--text-muted);
   border-radius: 50%;
-  transition: all var(--transition-normal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.32s var(--ease-spring), background var(--transition-fast);
 }
 
 .uikit-toggle__switch input:checked + .uikit-toggle__slider {
@@ -127,9 +130,9 @@
 }
 
 .uikit-toggle__switch input:checked + .uikit-toggle__slider::after {
-  transform: translateX(20px);
+  transform: translateX(18px);
   background: white;
-  box-shadow: 0 0 8px var(--primary-glow);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 6px var(--primary-glow);
 }
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
@@ -155,16 +158,16 @@
 }
 
 .uikit-setting-row__label {
-  font-size: 0.92rem;
+  font-size: 0.94rem;
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .uikit-setting-row__desc {
-  font-size: 0.83rem;
+  font-size: 0.84rem;
   color: var(--text-muted);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .uikit-setting-row__control {

@@ -82,9 +82,10 @@ CaptureOptions configuredCaptureOptions() {
     options.quality = std::clamp(config.get<int>("/capture/quality", 90), 1, 100);
     options.saveToFile = config.get<bool>("/capture/saveToFile", true);
     options.copyToClipboard = config.get<bool>("/capture/copyToClipboard", true);
-    options.showCrosshair = config.get<bool>("/capture/showCrosshair", true);
+    options.showCrosshair = config.get<bool>("/capture/showCrosshair", false);
     options.autoDetectWindow = config.get<bool>("/capture/autoDetectWindow", true);
     options.showShortcutHints = config.get<bool>("/capture/showShortcutHints", true);
+    options.autoBypassFullscreen = config.get<bool>("/capture/autoBypassFullscreen", true);
     const auto directory = config.get<std::string>(
         "/capture/saveDirectory", config.get<std::string>("/capture/savePath", ""));
     options.savePath = timestampedPath(directory, "EasyTools_", imageExtension(options.format));
@@ -434,9 +435,10 @@ public:
                 {"copyToClipboard", config.get<bool>("/capture/copyToClipboard", true)},
                 {"saveDirectory", config.get<std::string>(
                     "/capture/saveDirectory", config.get<std::string>("/capture/savePath", ""))},
-                {"showCrosshair", config.get<bool>("/capture/showCrosshair", true)},
+                {"showCrosshair", config.get<bool>("/capture/showCrosshair", false)},
                 {"autoDetectWindow", config.get<bool>("/capture/autoDetectWindow", true)},
-                {"showShortcutHints", config.get<bool>("/capture/showShortcutHints", true)}
+                {"showShortcutHints", config.get<bool>("/capture/showShortcutHints", true)},
+                {"autoBypassFullscreen", config.get<bool>("/capture/autoBypassFullscreen", true)}
             };
         });
 
@@ -444,7 +446,7 @@ public:
             static const std::unordered_set<std::string> formats = {"png", "jpg", "jpeg", "webp", "bmp"};
             static const std::unordered_set<std::string> boolKeys = {
                 "saveToFile", "copyToClipboard", "showCrosshair", "autoDetectWindow",
-                "showShortcutHints"
+                "showShortcutHints", "autoBypassFullscreen"
             };
             if (!params.is_object() || params.empty()) return {{"success", false}, {"error", "no settings supplied"}};
             for (const auto& [key, value] : params.items()) {

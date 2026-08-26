@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -20,6 +20,9 @@ interface GeneralSettings {
   elevated?: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
+  showOnboarding?: boolean;
+  isPortableMode?: boolean;
+  dataDirectory?: string;
   language: string;
   logLevel: string;
   theme: string;
@@ -60,15 +63,15 @@ export const GeneralPage: FC = () => {
   const [hotkeys, setHotkeys] = useState<HotkeyEntry[]>([]);
   const [accent, setAccent] = useState<string>(() => {
     try {
-      return localStorage.getItem('easytools:accent-color') || 'violet';
+      return localStorage.getItem('easytools:accent-color') || 'blue';
     } catch {
-      return 'violet';
+      return 'blue';
     }
   });
 
   const { t, i18n } = useTranslation();
 
-  const handleAccentChange = (id: string, label: string) => {
+  const handleAccentChange = (id: string) => {
     setAccent(id);
     try {
       localStorage.setItem('easytools:accent-color', id);
@@ -77,7 +80,6 @@ export const GeneralPage: FC = () => {
     }
     bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: id }).catch(console.error);
     window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: id }));
-    toast.success(t('general.accentApplied', { name: label }));
   };
 
   // 初始化获取设置
@@ -321,6 +323,13 @@ export const GeneralPage: FC = () => {
             checked={settings.checkUpdates}
             onChange={(v) => updateSetting('checkUpdates', v)}
           />
+          <Toggle
+            id="showOnboarding"
+            label={t('general.showOnboarding')}
+            description={t('general.showOnboardingDesc')}
+            checked={settings.showOnboarding ?? false}
+            onChange={(v) => updateSetting('showOnboarding', v)}
+          />
         </Card>
       </SettingGroup>
 
@@ -360,7 +369,7 @@ export const GeneralPage: FC = () => {
                     key={preset.id}
                     type="button"
                     className={`general-accent-btn ${isSelected ? 'active' : ''}`}
-                    onClick={() => handleAccentChange(preset.id, label)}
+                    onClick={() => handleAccentChange(preset.id)}
                     style={{ '--accent-dot-color': preset.color } as React.CSSProperties}
                     title={label}
                   >
@@ -403,6 +412,25 @@ export const GeneralPage: FC = () => {
             >
               <FolderOpen size={15} style={{ marginRight: 6 }} />
               {t('general.openLogDirBtn', '打开日志目录')}
+            </Button>
+          </SettingRow>
+
+          <SettingRow label={t('general.exportLogs', '导出诊断日志')} description={t('general.exportLogsDesc', '将所有运行诊断日志与系统环境报告导出为文件，便于排查反馈')}>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
+                  if (res.cancelled) return;
+                  if (!res.success) throw new Error(res.error || '导出失败');
+                  toast.success(t('general.exportLogsSuccess', '诊断日志已成功导出并定位'));
+                } catch (e) {
+                  toast.error(t('general.exportLogsFailed', '日志导出失败'), { description: String(e) });
+                }
+              }}
+            >
+              <Download size={15} style={{ marginRight: 6 }} />
+              {t('general.exportLogsBtn', '导出日志')}
             </Button>
           </SettingRow>
         </Card>
@@ -493,6 +521,43 @@ export const GeneralPage: FC = () => {
       {/* ── 数据管理 ────────────────────────────────────────────── */}
       <SettingGroup title={t('general.dataManagement')} icon={<Database size={20} strokeWidth={2.5} />}>
         <Card>
+          <SettingRow
+            label={t('general.portableMode')}
+            description={t('general.portableModeDesc')}
+            layout="vertical"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '12px', marginTop: '6px' }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.83rem',
+                fontWeight: 600,
+                backgroundColor: settings.isPortableMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.12)',
+                color: settings.isPortableMode ? '#10b981' : '#3b82f6',
+                border: `1px solid ${settings.isPortableMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.25)'}`
+              }}>
+                {settings.isPortableMode ? (
+                  <>
+                    <Package size={14} strokeWidth={2.2} />
+                    <span>{t('general.portableModeActive')}</span>
+                  </>
+                ) : (
+                  <>
+                    <HardDrive size={14} strokeWidth={2.2} />
+                    <span>{t('general.portableModeStandard')}</span>
+                  </>
+                )}
+              </span>
+              {settings.dataDirectory && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'ui-monospace, monospace' }} title={settings.dataDirectory}>
+                  {settings.dataDirectory}
+                </span>
+              )}
+            </div>
+          </SettingRow>
           <SettingRow label={t('general.exportConfig')} description={t('general.exportConfigDesc')}>
             <Button variant="ghost" onClick={handleExportConfig}>
               <Download size={16} />

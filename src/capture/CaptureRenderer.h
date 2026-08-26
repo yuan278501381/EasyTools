@@ -48,6 +48,7 @@ private:
     void drawDynamicMagnifier(CaptureState& state);
     void drawSelectionLoupe(float cx, float cy, CaptureState& state);
     void drawCrosshair(float x, float y);
+    void drawVectorButtonIcon(const ToolbarButton& button, const D2D1_RECT_F& rect, ID2D1Brush* brush, float scale);
 
     public:
     bool sampleScreenColor(int x, int y, int& r, int& g, int& b, CaptureState& state) const;

@@ -196,7 +196,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 确保全套多分辨率 Windows 图标与托盘图标存在，并清理旧版 .res 确保资源强制重新链接
-if (-not (Test-Path "$ScriptDir\resources\app.ico") -or -not (Test-Path "$ScriptDir\resources\tray.ico")) {
+if (-not (Test-Path "$ScriptDir\resources\app.ico") -or -not (Test-Path "$ScriptDir\resources\tray.ico") -or -not (Test-Path "$ScriptDir\resources\tray_dark.ico")) {
     Write-Log "检测到图标未初始化，调用母版管道生成 (resources/build_master_production_icons.py)..."
     python "$ScriptDir\resources\build_master_production_icons.py" 1
 }
@@ -418,7 +418,7 @@ if ($WebView2PackageDir) {
 $TargetResourcesDir = Join-Path $StagingDir "resources"
 New-Item -ItemType Directory -Path $TargetResourcesDir -ErrorAction SilentlyContinue | Out-Null
 
-$WhitelistedResourceFiles = @("app.ico", "tray.ico", "app_icon_hires.png")
+$WhitelistedResourceFiles = @("app.ico", "tray.ico", "tray_dark.ico", "app_icon_hires.png")
 foreach ($rFile in $WhitelistedResourceFiles) {
     $srcPath = Join-Path "resources" $rFile
     if (Test-Path $srcPath) {
@@ -551,8 +551,17 @@ if ($ISCC) {
     
     if (Test-Path $InstallerScript) {
         Write-Log "正在编译安装包 (EasyTools-Setup.exe)..."
+        $TargetSetupFile = Join-Path $OutputInstallerDir "EasyTools-Setup.exe"
+        if (Test-Path $TargetSetupFile) {
+            Remove-Item -Force $TargetSetupFile -ErrorAction SilentlyContinue
+        }
         & $ISCC "/DEasyToolsVersion=$ProjectVersion" $InstallerScript
         if ($LASTEXITCODE -eq 0) {
+            if (Test-Path $TargetSetupFile) {
+                $now = Get-Date
+                (Get-Item $TargetSetupFile).CreationTime = $now
+                (Get-Item $TargetSetupFile).LastWriteTime = $now
+            }
             Write-Log "安装包已成功生成到: $OutputInstallerDir" "SUCCESS"
         } else {
             throw "安装包编译失败！退出码: $LASTEXITCODE"

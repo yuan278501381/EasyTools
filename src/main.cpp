@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
+#include <wtsapi32.h>
 
 #include <atomic>
 #include <chrono>
@@ -37,6 +38,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "EasyToolsVersion.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
@@ -44,6 +46,7 @@
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/hotkey/KeyboardHook.h"
+#include "core/hotkey/MouseHook.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/stats/StatsManager.h"
 #include "core/crash/CrashHandler.h"
@@ -54,6 +57,7 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/utils/ShellContextMenuService.h"
+#include "core/ipc/AutoStartPolicy.h"
 #include "EasyToolsVersion.h"
 #include "tray/TrayIcon.h"
 #include "ui/SettingsWindow.h"
@@ -61,7 +65,9 @@
 #include "ui/QuickLookWindow.h"
 #include "ui/TrayWindow.h"
 #include "ui/ToastOverlay.h"
+#include "ui/SpotlightOverlay.h"
 #include "ui/WebViewEnvironmentManager.h"
+#include "gesture/GestureInputPolicy.h"
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────
 static constexpr const wchar_t* WINDOW_CLASS_NAME = L"EasyTools_MessageWindow";
@@ -183,6 +189,24 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
 // ─────────────────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     LPWSTR /*lpCmdLine*/, int /*nCmdShow*/) {
+    // 快捷自启动注册/注销独立命令处理（专供安装包或运维脚本原子调用）
+    if (hasCommandLineFlag(L"--register-autostart")) {
+        wchar_t exePath[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        easy::core::ConfigManager::instance().initialize(easy::core::WinUtils::getConfigDirectory());
+        bool ok = easy::core::autostart::registerTaskCOM(exePath);
+        easy::core::ConfigManager::instance().set("/general/autoStart", ok);
+        easy::core::ConfigManager::instance().shutdown();
+        return ok ? 0 : 1;
+    }
+    if (hasCommandLineFlag(L"--unregister-autostart")) {
+        easy::core::ConfigManager::instance().initialize(easy::core::WinUtils::getConfigDirectory());
+        bool ok = easy::core::autostart::unregisterTaskCOM();
+        easy::core::ConfigManager::instance().set("/general/autoStart", false);
+        easy::core::ConfigManager::instance().shutdown();
+        return ok ? 0 : 1;
+    }
+
     g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
     // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
@@ -193,7 +217,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 0;
     }
 
-    // ── 2. COM 初始化 ────────────────────────────────────────────────────
+    // ── 2. COM 初始化与 Job Object 生命周期绑定 ──────────────────────────
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         MessageBoxW(nullptr, L"COM 初始化失败", L"EasyTools 错误", MB_OK | MB_ICONERROR);
@@ -201,6 +225,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         g_singleInstanceMutex = nullptr;
         return 1;
     }
+
+    // 绑定当前进程树至 Job Object (带 KILL_ON_JOB_CLOSE 死亡绑定)
+    easy::core::WinUtils::getProcessJobObject();
 
     // ── 3. 崩溃处理器 ───────────────────────────────────────────────────
     auto dumpDir = easy::core::WinUtils::getAppDataDirectory() / L"crashdumps";
@@ -263,6 +290,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 1;
     }
     easy::core::MainThreadDispatcher::instance().initialize(hwndMessage);
+    WTSRegisterSessionNotification(hwndMessage, NOTIFY_FOR_THIS_SESSION);
 
     // ── 7. 初始化其他子系统 ──────────────────────────────────────────────
     const bool silentStart = hasCommandLineFlag(L"--silent");
@@ -384,10 +412,15 @@ bool checkSingleInstance() {
     const int maxRetries = (restartPid > 0) ? 30 : 1;
     for (int retry = 0; retry < maxRetries; ++retry) {
         g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
-        if (g_singleInstanceMutex && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return true;
-        }
         if (g_singleInstanceMutex) {
+            const DWORD waitResult = WaitForSingleObject(g_singleInstanceMutex, 0);
+            if (waitResult == WAIT_OBJECT_0) {
+                return true;
+            }
+            if (waitResult == WAIT_ABANDONED) {
+                // 上一个持有互斥量的进程异常被强杀或崩溃，操作系统已将孤儿锁授予当前进程，自愈启动
+                return true;
+            }
             CloseHandle(g_singleInstanceMutex);
             g_singleInstanceMutex = nullptr;
         }
@@ -538,19 +571,32 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             "/hotkeys/Toggle Search", searchFallback.toString());
         const auto searchHotkey = searchText.empty() ? easy::core::HotkeyDef{}
             : easy::core::HotkeyDef::fromString(searchText).value_or(searchFallback);
-        easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, []() {
+        auto toggleSearchSafe = []() {
             auto& searchWnd = easy::ui::SearchWindow::instance();
-            if (searchWnd.isVisible()) searchWnd.hide();
-            else searchWnd.show(GetModuleHandleW(nullptr));
+            if (searchWnd.isVisible()) {
+                searchWnd.hide();
+                return;
+            }
+            if (easy::core::ConfigManager::instance().get<bool>("/search/autoBypassFullscreen", true)) {
+                HWND fg = GetForegroundWindow();
+                if (fg && easy::core::WinUtils::isWindowFullscreen(fg)) {
+                    const std::wstring classWide = easy::core::WinUtils::getWindowClassName(fg);
+                    if (easy::gesture::shouldAutoBypassFullscreenGestures(true, easy::gesture::isProductivityToolkitClassName(classWide))) {
+                        LOG_INFO("前台处于全屏独占应用，自动免打扰跳过搜索窗口呼出: hwnd=0x{:X}", reinterpret_cast<uintptr_t>(fg));
+                        return;
+                    }
+                }
+            }
+            searchWnd.show(GetModuleHandleW(nullptr));
+        };
+
+        easy::core::HotkeyManager::instance().registerHotkey("Toggle Search", searchHotkey, [toggleSearchSafe]() {
+            toggleSearchSafe();
         });
 
         easy::core::MessageBridge::instance().registerHandler(
-            "search.toggle", [](const nlohmann::json&) -> nlohmann::json {
-                if (easy::ui::SearchWindow::instance().isVisible()) {
-                    easy::ui::SearchWindow::instance().hide();
-                } else {
-                    easy::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
-                }
+            "search.toggle", [toggleSearchSafe](const nlohmann::json&) -> nlohmann::json {
+                toggleSearchSafe();
                 return {{"success", true}};
             });
         easy::core::MessageBridge::instance().registerHandler(
@@ -652,6 +698,95 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}, {"path", easy::core::WinUtils::wstringToUtf8(logDir.wstring())}};
     });
 
+    // 注册导出诊断日志 IPC 处理器
+    easy::core::MessageBridge::instance().registerHandler("app.exportLogs", [](const nlohmann::json& params) -> nlohmann::json {
+        std::optional<std::filesystem::path> savePath;
+        const auto supplied = params.value("path", "");
+        if (!supplied.empty()) {
+            savePath = easy::core::WinUtils::utf8ToWstring(supplied);
+        } else {
+            IFileDialog* dialog = nullptr;
+            HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+            if (SUCCEEDED(hr) && dialog) {
+                static const COMDLG_FILTERSPEC filters[] = {
+                    {L"日志文件 (*.log;*.txt)", L"*.log;*.txt"},
+                    {L"所有文件 (*.*)", L"*.*"},
+                };
+                dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+                dialog->SetDefaultExtension(L"log");
+                
+                auto now = std::chrono::system_clock::now();
+                auto in_time_t = std::chrono::system_clock::to_time_t(now);
+                std::tm tmBuffer{};
+                localtime_s(&tmBuffer, &in_time_t);
+                wchar_t defaultName[64];
+                swprintf_s(defaultName, L"EasyTools_Logs_%04d%02d%02d_%02d%02d%02d.log",
+                           tmBuffer.tm_year + 1900, tmBuffer.tm_mon + 1, tmBuffer.tm_mday,
+                           tmBuffer.tm_hour, tmBuffer.tm_min, tmBuffer.tm_sec);
+
+                dialog->SetFileName(defaultName);
+                dialog->SetTitle(L"导出 EasyTools 诊断日志");
+                
+                if (SUCCEEDED(dialog->Show(nullptr))) {
+                    IShellItem* item = nullptr;
+                    if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+                        PWSTR rawPath = nullptr;
+                        if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &rawPath)) && rawPath) {
+                            savePath = std::filesystem::path(rawPath);
+                            CoTaskMemFree(rawPath);
+                        }
+                        item->Release();
+                    }
+                }
+                dialog->Release();
+            }
+        }
+
+        if (!savePath) {
+            return {{"success", false}, {"cancelled", true}};
+        }
+
+        // 刷写日志缓存
+        if (easy::core::Logger::instance()) {
+            easy::core::Logger::instance()->flush();
+        }
+
+        std::filesystem::path target = *savePath;
+        std::ofstream out(target, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            return {{"success", false}, {"error", "无法创建目标导出文件"}};
+        }
+
+        // 写入环境诊断头
+        out << "=======================================================\n";
+        out << " EasyTools 诊断日志导出报告\n";
+        out << " 软件版本: " << easy::version::String << "\n";
+        out << " 进程 PID: " << GetCurrentProcessId() << "\n";
+        out << "=======================================================\n\n";
+
+        // 读取所有当前存在的日志文件并合并
+        std::filesystem::path logDir = easy::core::WinUtils::getLogDirectory();
+        std::error_code ec;
+        if (std::filesystem::exists(logDir, ec)) {
+            for (const auto& entry : std::filesystem::directory_iterator(logDir, ec)) {
+                if (entry.is_regular_file(ec) && entry.path().extension() == ".log") {
+                    out << ">>> File: " << entry.path().filename().string() << " <<<\n";
+                    std::ifstream in(entry.path(), std::ios::in | std::ios::binary);
+                    if (in.is_open()) {
+                        out << in.rdbuf() << "\n\n";
+                    }
+                }
+            }
+        }
+        out.close();
+
+        // 自动在资源管理器中高亮选中导出的日志
+        std::wstring targetStr = target.wstring();
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + targetStr + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+
+        return {{"success", true}, {"path", easy::core::WinUtils::wstringToUtf8(targetStr)}};
+    });
+
     // 注册应用一键热重启 IPC 处理器
     easy::core::MessageBridge::instance().registerHandler("app.restart", [hwnd](const nlohmann::json&) -> nlohmann::json {
         wchar_t exePath[MAX_PATH];
@@ -703,6 +838,37 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    // ── 沉浸式标题栏窗口控制 (Seamless Titlebar Window Controls) ────────
+    easy::core::MessageBridge::instance().registerHandler("window.minimize", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().minimize();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.toggleMaximize", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().toggleMaximize();
+        return {{"success", true}, {"isMaximized", easy::ui::SettingsWindow::instance().isMaximized()}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.close", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().close();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.isMaximized", [](const nlohmann::json&) -> nlohmann::json {
+        return {{"isMaximized", easy::ui::SettingsWindow::instance().isMaximized()}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.dragMove", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SettingsWindow::instance().dragMove();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("window.startResize", [](const nlohmann::json& params) -> nlohmann::json {
+        std::string edge = params.value("edge", "");
+        easy::ui::SettingsWindow::instance().startResize(edge);
+        return {{"success", true}};
+    });
+
     // 注册托盘菜单 IPC 处理函数
     easy::core::MessageBridge::instance().registerHandler("tray.action", [hwnd](const nlohmann::json& params) -> nlohmann::json {
         std::string action = params.value("action", "");
@@ -750,8 +916,91 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
-    // 5. 键盘钩子（用于按键统计、按键显示与空格键 QuickLook 预览拦截）
+    // 5. 鼠标演示与特效 (Spotlight) Overlay 初始化与 IPC 注册
+    easy::ui::SpotlightOverlay::instance().initialize(GetModuleHandleW(nullptr));
+    easy::core::KeyboardHook::instance().setKeyboardActivityCallback([](DWORD vk, WPARAM wp) {
+        easy::ui::SpotlightOverlay::instance().onKeyboardEvent(vk, wp);
+    });
+
+    easy::core::EventBus::instance().subscribe<easy::core::SpotlightStateChangedEvent>(
+        [](const easy::core::SpotlightStateChangedEvent& e) {
+            auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+            s.enabled = e.enabled;
+            easy::ui::SpotlightOverlay::instance().updateSettings(s);
+            if (!e.enabled) {
+                easy::ui::SpotlightOverlay::instance().dismiss();
+            }
+        }
+    );
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.getSettings", [](const nlohmann::json&) -> nlohmann::json {
+        auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+        return {
+            {"enabled", s.enabled},
+            {"triggerDoubleCtrl", s.triggerDoubleCtrl},
+            {"triggerShakeMouse", s.triggerShakeMouse},
+            {"autoBypassFullscreen", s.autoBypassFullscreen},
+            {"spotlightColor", s.spotlightColor},
+            {"spotlightSize", s.spotlightSize},
+            {"animationDurationMs", s.animationDurationMs},
+            {"holdDurationMs", s.holdDurationMs},
+            {"shakeThreshold", s.shakeThreshold},
+            {"spotlightAnimStyle", s.spotlightAnimStyle},
+            {"clickRippleEnabled", s.clickRippleEnabled},
+            {"clickRippleStyle", s.clickRippleStyle},
+            {"mouseTrailEnabled", s.mouseTrailEnabled},
+            {"mouseTrailStyle", s.mouseTrailStyle},
+            {"mouseTrailColorMode", s.mouseTrailColorMode},
+            {"leftClickColor", s.leftClickColor},
+            {"rightClickColor", s.rightClickColor},
+            {"middleClickColor", s.middleClickColor}
+        };
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
+        auto s = easy::ui::SpotlightOverlay::instance().getSettings();
+        if (params.contains("enabled") && params["enabled"].is_boolean()) s.enabled = params["enabled"].get<bool>();
+        if (params.contains("triggerDoubleCtrl") && params["triggerDoubleCtrl"].is_boolean()) s.triggerDoubleCtrl = params["triggerDoubleCtrl"].get<bool>();
+        if (params.contains("triggerShakeMouse") && params["triggerShakeMouse"].is_boolean()) s.triggerShakeMouse = params["triggerShakeMouse"].get<bool>();
+        if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) s.autoBypassFullscreen = params["autoBypassFullscreen"].get<bool>();
+        if (params.contains("spotlightColor") && params["spotlightColor"].is_string()) s.spotlightColor = params["spotlightColor"].get<std::string>();
+        if (params.contains("spotlightSize") && params["spotlightSize"].is_number()) s.spotlightSize = params["spotlightSize"].get<int>();
+        if (params.contains("animationDurationMs") && params["animationDurationMs"].is_number()) s.animationDurationMs = params["animationDurationMs"].get<int>();
+        if (params.contains("holdDurationMs") && params["holdDurationMs"].is_number()) s.holdDurationMs = params["holdDurationMs"].get<int>();
+        if (params.contains("shakeThreshold") && params["shakeThreshold"].is_number()) s.shakeThreshold = params["shakeThreshold"].get<int>();
+        if (params.contains("spotlightAnimStyle") && params["spotlightAnimStyle"].is_string()) s.spotlightAnimStyle = params["spotlightAnimStyle"].get<std::string>();
+
+        if (params.contains("clickRippleEnabled") && params["clickRippleEnabled"].is_boolean()) s.clickRippleEnabled = params["clickRippleEnabled"].get<bool>();
+        if (params.contains("clickRippleStyle") && params["clickRippleStyle"].is_string()) s.clickRippleStyle = params["clickRippleStyle"].get<std::string>();
+        if (params.contains("mouseTrailEnabled") && params["mouseTrailEnabled"].is_boolean()) s.mouseTrailEnabled = params["mouseTrailEnabled"].get<bool>();
+        if (params.contains("mouseTrailStyle") && params["mouseTrailStyle"].is_string()) s.mouseTrailStyle = params["mouseTrailStyle"].get<std::string>();
+        if (params.contains("mouseTrailColorMode") && params["mouseTrailColorMode"].is_string()) s.mouseTrailColorMode = params["mouseTrailColorMode"].get<std::string>();
+        if (params.contains("leftClickColor") && params["leftClickColor"].is_string()) s.leftClickColor = params["leftClickColor"].get<std::string>();
+        if (params.contains("rightClickColor") && params["rightClickColor"].is_string()) s.rightClickColor = params["rightClickColor"].get<std::string>();
+        if (params.contains("middleClickColor") && params["middleClickColor"].is_string()) s.middleClickColor = params["middleClickColor"].get<std::string>();
+
+        easy::ui::SpotlightOverlay::instance().updateSettings(s);
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.trigger", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().trigger();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.dismiss", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().dismiss();
+        return {{"success", true}};
+    });
+
+    easy::core::MessageBridge::instance().registerHandler("spotlight.resetDefaults", [](const nlohmann::json&) -> nlohmann::json {
+        easy::ui::SpotlightOverlay::instance().resetDefaults();
+        return {{"success", true}};
+    });
+
+    // 6. 键盘与鼠标核心输入总线
     easy::core::KeyboardHook::instance().install();
+    easy::core::MouseHook::instance().install();
     easy::core::KeyboardHook::instance().setKeyInterceptor([hwnd](DWORD vkCode, WPARAM wParam) -> bool {
         if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return false;
 
@@ -846,8 +1095,10 @@ void shutdownSubsystems() {
     easy::core::PluginManager::instance().shutdownPlugins();
     easy::core::ShellContextMenuService::instance().shutdown();
     easy::ui::ToastOverlay::instance().shutdown();
+    easy::ui::SpotlightOverlay::instance().shutdown();
     easy::ui::WebViewEnvironmentManager::instance().shutdown();
     easy::core::KeyboardHook::instance().uninstall();
+    easy::core::MouseHook::instance().uninstall();
     easy::core::StatsManager::instance().shutdown();
     easy::core::PerformanceMonitor::instance().stop();
     easy::tray::TrayIcon::instance().destroy();
@@ -945,7 +1196,24 @@ LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return 0;
     }
 
+    if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED) {
+        easy::tray::TrayIcon::instance().refreshThemeIcon();
+        return 0;
+    }
+
+    if (msg == WM_WTSSESSION_CHANGE) {
+        if (wParam == WTS_SESSION_LOCK || wParam == WTS_SESSION_LOGOFF) {
+            LOG_INFO("检测到 Windows 系统会话锁屏或注销 (0x{:X})，主动挂起渲染并释放物理内存", wParam);
+            easy::ui::SpotlightOverlay::instance().dismiss();
+            easy::core::WinUtils::trimWorkingSet();
+        } else if (wParam == WTS_SESSION_UNLOCK) {
+            LOG_INFO("检测到 Windows 系统会话解锁，恢复正常工作状态");
+        }
+        return 0;
+    }
+
     if (msg == WM_CLOSE || msg == WM_DESTROY) {
+        WTSUnRegisterSessionNotification(hwnd);
         PostQuitMessage(0);
         return 0;
     }

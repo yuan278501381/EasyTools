@@ -37,7 +37,7 @@ import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  MousePointer2,
+  Mouse,
   Hand,
   Edit3,
   Trash2,
@@ -117,7 +117,7 @@ export const GesturePage: FC = () => {
   const [trailColorMode, setTrailColorMode] = useState<'auto' | 'custom'>('auto');
   const [trailColor, setTrailColor] = useState('#3B82F6');
   const [trailWidth, setTrailWidth] = useState(2.5);
-  const [trailOutlineWidth, setTrailOutlineWidth] = useState(2.5);
+  const [trailOutlineWidth, setTrailOutlineWidth] = useState(1.5);
   const [elevated, setElevated] = useState(false);
   
   // Profiles & Rules
@@ -186,7 +186,7 @@ export const GesturePage: FC = () => {
         setTrailColorMode(state.trailColorMode ?? 'auto');
         setTrailColor(state.trailColor ?? '#3B82F6');
         setTrailWidth(state.trailWidth ?? 2.5);
-        setTrailOutlineWidth(state.trailOutlineWidth ?? 2.5);
+        setTrailOutlineWidth(state.trailOutlineWidth ?? 1.5);
         setInitialTimeoutMs(state.initialTimeoutMs ?? 500);
         setMinSegmentDistance(state.minSegmentDistance ?? 24);
         setElevated(state.elevated ?? false);
@@ -706,7 +706,7 @@ export const GesturePage: FC = () => {
   return (
     <div className="gesture-page" style={{ animation: 'fadeIn 0.3s ease', paddingBottom: '2.5rem' }}>
       {/* ── 顶部全局开关与触发设置 ──────────────────────────────────── */}
-      <SettingGroup title={tr('gesture.title')} icon={<MousePointer2 size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={tr('gesture.title')} icon={<Mouse size={20} strokeWidth={2.2} />}>
         <Card>
           <div className={`gesture-status ${enabled ? 'gesture-status--active' : 'gesture-status--paused'}`}>
             <span className="gesture-status__dot" />
@@ -722,6 +722,13 @@ export const GesturePage: FC = () => {
             description={tr('gesture.enabledDesc')}
             checked={enabled}
             onChange={handleToggleEnabled}
+          />
+          <Toggle
+            id="gesture-bypass-fullscreen"
+            label={tr('gesture.autoBypassFullscreen')}
+            description={tr('gesture.autoBypassFullscreenDesc')}
+            checked={autoBypassFullscreen}
+            onChange={handleToggleAutoBypass}
           />
           <div className="gesture-admin-hint-card">
             <ShieldAlert size={18} className="gesture-admin-hint-icon" />
@@ -888,13 +895,6 @@ export const GesturePage: FC = () => {
               </div>
             </div>
           )}
-          <Toggle
-            id="gesture-bypass-fullscreen"
-            label={tr('gesture.autoBypassFullscreen')}
-            description={tr('gesture.autoBypassFullscreenDesc')}
-            checked={autoBypassFullscreen}
-            onChange={handleToggleAutoBypass}
-          />
           <SettingRow label={tr('gesture.initialTimeout')} description={tr('gesture.initialTimeoutDesc')}>
             <Select
               id="gesture-initial-timeout"

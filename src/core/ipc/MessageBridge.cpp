@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "core/ipc/MessageBridge.h"
+#include "core/ipc/AutoStartPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/plugin/PluginManager.h"
 #include "core/utils/TraceId.h"
@@ -14,7 +15,7 @@
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
 #include "core/events/EventBus.h"
-
+#include "EasyToolsVersion.h"
 #include <algorithm>
 #include <cstddef>
 #include <condition_variable>
@@ -79,15 +80,33 @@ std::optional<std::filesystem::path> choosePath(bool save, bool folder = false) 
     return result;
 }
 
+bool setAutoStart(bool enabled);
+
 namespace {
 
 constexpr wchar_t AUTOSTART_TASK_NAME[] = L"EasyTools_Autostart";
 
-bool executeSilentCommand(const std::wstring& cmd) {
+bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput = nullptr) {
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
+
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (capturedOutput) {
+        SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        if (!CreatePipe(&readPipe, &writePipe, &pipeSecurity, 0) ||
+            !SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0)) {
+            if (readPipe) CloseHandle(readPipe);
+            if (writePipe) CloseHandle(writePipe);
+            return false;
+        }
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdOutput = writePipe;
+        si.hStdError = writePipe;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    }
 
     PROCESS_INFORMATION pi{};
     std::wstring cmdBuffer = cmd;
@@ -97,7 +116,7 @@ bool executeSilentCommand(const std::wstring& cmd) {
         cmdBuffer.data(),
         nullptr,
         nullptr,
-        FALSE,
+        capturedOutput != nullptr,
         CREATE_NO_WINDOW,
         nullptr,
         nullptr,
@@ -106,16 +125,82 @@ bool executeSilentCommand(const std::wstring& cmd) {
     );
 
     if (!ok) {
+        if (readPipe) CloseHandle(readPipe);
+        if (writePipe) CloseHandle(writePipe);
         return false;
+    }
+
+    if (writePipe) {
+        CloseHandle(writePipe);
+        writePipe = nullptr;
+    }
+
+    bool timedOut = false;
+    if (capturedOutput) {
+        capturedOutput->clear();
+        char buffer[4096];
+        const ULONGLONG deadline = GetTickCount64() + 3000;
+        for (;;) {
+            DWORD available = 0;
+            if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr)) break;
+            while (available > 0) {
+                DWORD bytesRead = 0;
+                const DWORD requested = std::min<DWORD>(available, sizeof(buffer));
+                if (!ReadFile(readPipe, buffer, requested, &bytesRead, nullptr) || bytesRead == 0) break;
+                capturedOutput->append(buffer, bytesRead);
+                available -= bytesRead;
+            }
+
+            DWORD currentExitCode = STILL_ACTIVE;
+            GetExitCodeProcess(pi.hProcess, &currentExitCode);
+            if (currentExitCode != STILL_ACTIVE) break;
+            if (GetTickCount64() >= deadline) {
+                timedOut = true;
+                TerminateProcess(pi.hProcess, ERROR_TIMEOUT);
+                WaitForSingleObject(pi.hProcess, 1000);
+                break;
+            }
+            Sleep(10);
+        }
+
+        DWORD bytesRead = 0;
+        while (ReadFile(readPipe, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
+            capturedOutput->append(buffer, bytesRead);
+        }
+        CloseHandle(readPipe);
     }
 
     WaitForSingleObject(pi.hProcess, 3000);
     DWORD exitCode = 1;
     GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+    return !timedOut && exitCode == 0;
+}
 
-    return exitCode == 0;
+std::optional<std::filesystem::path> currentExecutablePath() {
+    wchar_t exePath[32768]{};
+    const DWORD length = GetModuleFileNameW(
+        nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+    if (length == 0 || length >= std::size(exePath)) return std::nullopt;
+    return std::filesystem::path(std::wstring(exePath, length));
+}
+
+std::optional<std::wstring> queryAutoStartTaskXml() {
+    std::string output;
+    // 优先查询当前用户隔离的任务计划 (EasyTools\Autorun for <User>)
+    std::wstring taskName = easy::core::autostart::getAutoStartTaskName();
+    std::wstring queryCmd = L"schtasks.exe /query /tn \"" + taskName + L"\" /xml";
+    if (executeSilentCommand(queryCmd, &output) && !output.empty()) {
+        return easy::core::WinUtils::utf8ToWstring(output);
+    }
+
+    // 兼容历史全局任务计划 (EasyTools_Autostart)
+    output.clear();
+    queryCmd = L"schtasks.exe /query /tn \"" + std::wstring(easy::core::autostart::LEGACY_AUTOSTART_TASK_NAME) + L"\" /xml";
+    if (executeSilentCommand(queryCmd, &output) && !output.empty()) {
+        return easy::core::WinUtils::utf8ToWstring(output);
+    }
+
+    return std::nullopt;
 }
 
 bool removeRegistryAutoStart() {
@@ -157,9 +242,21 @@ bool setRegistryAutoStart(bool enabled) {
 }
 
 bool isAutoStartEnabled() {
-    std::wstring queryCmd = L"schtasks.exe /query /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\"";
-    if (executeSilentCommand(queryCmd)) {
+    const auto executable = currentExecutablePath();
+    if (executable && easy::core::autostart::isTaskRegisteredCOM(executable->wstring())) {
         return true;
+    }
+    if (const auto taskXml = queryAutoStartTaskXml()) {
+        if (executable && easy::core::autostart::taskTargetsExecutable(*taskXml, *executable)) {
+            return true;
+        }
+
+        LOG_WARN("AutoStart task points to a stale executable; repairing it for the current install.");
+        if (setAutoStart(true)) {
+            LOG_INFO("AutoStart task repaired successfully.");
+            return true;
+        }
+        LOG_ERROR("AutoStart task repair failed.");
     }
     constexpr wchar_t keyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     HKEY key = nullptr;
@@ -175,39 +272,67 @@ bool isAutoStartEnabled() {
 } // namespace
 
 bool setAutoStart(bool enabled) {
-    wchar_t exePath[32768]{};
-    DWORD length = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
-    if (length == 0 || length >= std::size(exePath)) {
+    const auto executable = currentExecutablePath();
+    if (!executable) {
         return setRegistryAutoStart(enabled);
     }
 
-    std::wstring exeStr(exePath, length);
+    const std::wstring exeStr = executable->wstring();
+    const std::wstring userTaskName = easy::core::autostart::getFullTaskPath();
 
     if (enabled) {
-        // 幂等性清理：确保旧注册表 Run 项无冗余残留
         removeRegistryAutoStart();
 
-        // 注册 Windows 任务计划（Task Scheduler）：
-        // /sc onlogon: 用户登录时触发
-        // /delay 0000:10: 延时 10 秒（排在系统与常规自启软件最后，零抢占 I/O）
-        // /rl highest: 以最高特权（管理员身份）免 UAC 弹窗静默运行
-        // /f: 强制原子化覆盖更新（保证多次安装/覆盖安装/路径变更时严格幂等）
-        std::wstring schCmd = L"schtasks.exe /create /tn \"" + std::wstring(AUTOSTART_TASK_NAME) +
-                              L"\" /tr \"\\\"" + exeStr + L"\\\" --silent\" /sc onlogon /delay 0000:10 /rl highest /f";
-
-        bool taskOk = executeSilentCommand(schCmd);
-        if (taskOk) {
-            LOG_INFO("AutoStart Task Scheduler task '{}' created/updated idempotently with 10s delay & highest privileges.",
-                     "EasyTools_Autostart");
-            return true;
+        // 1. 如果已是管理员，直接原生 COM API 注册
+        if (easy::core::WinUtils::isCurrentProcessElevated()) {
+            if (easy::core::autostart::registerTaskCOM(exeStr)) {
+                LOG_INFO("AutoStart Task Scheduler task '{}' created via native TaskScheduler COM API.",
+                         easy::core::WinUtils::wstringToUtf8(userTaskName));
+                return true;
+            }
+        } else {
+            // 2. 如果是普通权限，通过 ShellExecuteEx 请求提权执行 --register-autostart
+            SHELLEXECUTEINFOW sei = {sizeof(sei)};
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb = L"runas";
+            sei.lpFile = exeStr.c_str();
+            sei.lpParameters = L"--register-autostart";
+            sei.nShow = SW_HIDE;
+            if (ShellExecuteExW(&sei)) {
+                if (sei.hProcess) {
+                    WaitForSingleObject(sei.hProcess, 5000);
+                    DWORD exitCode = 1;
+                    GetExitCodeProcess(sei.hProcess, &exitCode);
+                    CloseHandle(sei.hProcess);
+                    if (exitCode == 0) {
+                        LOG_INFO("AutoStart Task Scheduler task '{}' registered via elevated helper.",
+                                 easy::core::WinUtils::wstringToUtf8(userTaskName));
+                        return true;
+                    }
+                }
+            }
         }
 
-        LOG_WARN("Task Scheduler autostart failed, falling back to Registry Run key.");
+        // 3. 兜底方案：注册表 HKCU Run 键
+        LOG_WARN("Task Scheduler autostart failed/denied, falling back to Registry Run key.");
         return setRegistryAutoStart(true);
     } else {
-        // 幂等性删除任务计划（/f 强制删除，静默忽略不存在错误）
-        std::wstring delCmd = L"schtasks.exe /delete /tn \"" + std::wstring(AUTOSTART_TASK_NAME) + L"\" /f";
-        executeSilentCommand(delCmd);
+        if (easy::core::WinUtils::isCurrentProcessElevated()) {
+            easy::core::autostart::unregisterTaskCOM();
+        } else {
+            SHELLEXECUTEINFOW sei = {sizeof(sei)};
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb = L"runas";
+            sei.lpFile = exeStr.c_str();
+            sei.lpParameters = L"--unregister-autostart";
+            sei.nShow = SW_HIDE;
+            if (ShellExecuteExW(&sei)) {
+                if (sei.hProcess) {
+                    WaitForSingleObject(sei.hProcess, 5000);
+                    CloseHandle(sei.hProcess);
+                }
+            }
+        }
         removeRegistryAutoStart();
         LOG_INFO("AutoStart disabled idempotently (Task Scheduler and Registry entries cleared).");
         return true;
@@ -676,13 +801,21 @@ const std::vector<MarketplaceItem>& getMarketplaceCatalog() {
     return catalog;
 }
 
+bool isCoreBuiltinPlugin(const std::string& id) {
+    return id == "gesture" || id == "capture" || id == "search" ||
+           id == "keycast" || id == "dialogenhancer" || id == "dialog_enhancer" ||
+           id == "spotlight";
+}
+
 bool isExtensionInstalled(const std::string& id) {
+    if (isCoreBuiltinPlugin(id)) return false;
     auto& config = ConfigManager::instance();
     auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
     return std::find(installedList.begin(), installedList.end(), id) != installedList.end();
 }
 
 void markExtensionInstalled(const std::string& id, bool installed) {
+    if (isCoreBuiltinPlugin(id)) return;
     auto& config = ConfigManager::instance();
     auto installedList = config.get<std::vector<std::string>>("/plugins/installedExtensions", {});
     auto it = std::find(installedList.begin(), installedList.end(), id);
@@ -710,8 +843,7 @@ void MessageBridge::registerBuiltinHandlers() {
         std::unordered_set<std::string> existingIds;
         for (const auto& plugin : statuses) {
             existingIds.insert(plugin.id);
-            const bool isExt = isExtensionInstalled(plugin.id) ||
-                (plugin.id != "gesture" && plugin.id != "capture" && plugin.id != "search" && plugin.id != "keycast");
+            const bool isExt = !isCoreBuiltinPlugin(plugin.id);
             plugins.push_back({
                 {"id", plugin.id},
                 {"name", plugin.name},
@@ -728,6 +860,25 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"isExtension", isExt}
             });
         }
+
+        // 内置核心模块：鼠标演示与特效 (spotlight)
+        const bool spotlightEnabled = ConfigManager::instance().get<bool>("/spotlight/enabled", true);
+        plugins.push_back({
+            {"id", "spotlight"},
+            {"name", "鼠标演示与特效"},
+            {"version", easy::version::String},
+            {"fileName", "EasyTools.exe"},
+            {"abiVersion", 1},
+            {"capabilities", {"spotlight", "click-ripple", "mouse-trail"}},
+            {"permissions", {"low-level-mouse-hook", "direct2d-overlay"}},
+            {"enabled", spotlightEnabled},
+            {"active", spotlightEnabled},
+            {"restartRequired", false},
+            {"state", spotlightEnabled ? "running" : "disabled"},
+            {"error", ""},
+            {"isExtension", false}
+        });
+        existingIds.insert("spotlight");
 
         // 合并已安装的扩展插件
         auto& config = ConfigManager::instance();
@@ -763,6 +914,12 @@ void MessageBridge::registerBuiltinHandlers() {
         }
         const std::string id = params["id"].get<std::string>();
         const bool enabled = params["enabled"].get<bool>();
+
+        if (id == "spotlight") {
+            ConfigManager::instance().set<bool>("/spotlight/enabled", enabled);
+            EventBus::instance().publish(SpotlightStateChangedEvent{enabled});
+            return {{"success", true}, {"restartRequired", false}};
+        }
 
         if (isExtensionInstalled(id)) {
             return {
@@ -1028,13 +1185,32 @@ void MessageBridge::registerBuiltinHandlers() {
     // ── 通用设置与系统交互 ───────────────────────────────────────────────
     registerHandler("general.getSettings", [](const json&) -> json {
         auto& config = ConfigManager::instance();
+        bool autoStart = false;
+        if (config.has("/general/autoStart")) {
+            const bool desiredAutoStart = config.get<bool>("/general/autoStart", false);
+            if (desiredAutoStart) {
+                autoStart = isAutoStartEnabled();
+                if (!autoStart) {
+                    LOG_WARN("AutoStart is enabled in settings but its OS registration is missing; recreating it.");
+                    autoStart = setAutoStart(true);
+                    if (autoStart) LOG_INFO("Missing AutoStart registration recreated successfully.");
+                    else LOG_ERROR("Failed to recreate missing AutoStart registration.");
+                }
+            }
+        } else {
+            // Migrate installations that predate the persisted /general/autoStart key.
+            autoStart = isAutoStartEnabled();
+        }
         return {
-            {"autoStart", config.get<bool>("/general/autoStart", isAutoStartEnabled())},
+            {"autoStart", autoStart},
             {"runAsAdmin", config.get<bool>("/general/runAsAdmin", true)},
             {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
-            {"keycastEnabled", config.get<bool>("/general/keycastEnabled", false)},
+            {"keycastEnabled", config.get<bool>("/general/keycastEnabled", true)},
+            {"showOnboarding", config.get<bool>("/general/showOnboarding", !config.get<bool>("/app/onboardingCompleted", false))},
+            {"isPortableMode", WinUtils::isPortableMode()},
+            {"dataDirectory", WinUtils::wstringToUtf8(WinUtils::getAppDataDirectory().wstring())},
             {"language", config.get<std::string>("/general/language", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
@@ -1043,7 +1219,7 @@ void MessageBridge::registerBuiltinHandlers() {
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
         static const std::unordered_set<std::string> boolKeys = {
-            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled"
+            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled", "showOnboarding"
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};
@@ -1079,6 +1255,10 @@ void MessageBridge::registerBuiltinHandlers() {
         }
         if (params.contains("autoStart") && !setAutoStart(params["autoStart"].get<bool>())) {
             return {{"success", false}, {"error", "failed to update auto-start"}};
+        }
+        if (params.contains("showOnboarding")) {
+            const bool showOb = params["showOnboarding"].get<bool>();
+            config.set<bool>("/app/onboardingCompleted", !showOb);
         }
         const bool saved = config.mergePatch({{"general", params}}, "/general");
         if (!saved) {

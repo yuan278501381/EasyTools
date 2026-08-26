@@ -410,6 +410,7 @@ static bool ensureSearchServiceRunning() {
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
             g_serviceSpawnedByUs.store(true);
+            easy::core::WinUtils::assignProcessToCurrentJob(pi.hProcess);
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
         } else {
@@ -769,6 +770,7 @@ public:
             bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
             bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
             bool keepServiceRunning = cfg.get<bool>("/search/keepServiceRunning", false);
+            bool autoBypassFullscreen = cfg.get<bool>("/search/autoBypassFullscreen", true);
 
             return {
                 {"keepServiceRunning", keepServiceRunning},
@@ -781,7 +783,8 @@ public:
                 {"enabledDrives", enabledDrives},
                 {"excludePatterns", excludePatterns},
                 {"excludeHidden", excludeHidden},
-                {"excludeSystem", excludeSystem}
+                {"excludeSystem", excludeSystem},
+                {"autoBypassFullscreen", autoBypassFullscreen}
             };
         });
 
@@ -819,6 +822,9 @@ public:
             }
             if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
                 cfg.set("/search/keepServiceRunning", params["keepServiceRunning"].get<bool>());
+            }
+            if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
+                cfg.set("/search/autoBypassFullscreen", params["autoBypassFullscreen"].get<bool>());
             }
             return {{"success", true}};
         });

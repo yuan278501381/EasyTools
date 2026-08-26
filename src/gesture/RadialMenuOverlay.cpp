@@ -45,6 +45,9 @@ RadialMenuOverlay::~RadialMenuOverlay() {
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
     }
+    if (m_helperOwnerHwnd) {
+        DestroyWindow(m_helperOwnerHwnd);
+    }
 }
 
 void RadialMenuOverlay::registerWindowClass() {
@@ -89,16 +92,20 @@ void RadialMenuOverlay::show(POINT centerPt) {
     std::fill(m_hoverRadii.begin(), m_hoverRadii.end(), 0.0f);
 
     if (!m_hwnd) {
+        HINSTANCE hInst = GetModuleHandle(nullptr);
+        m_helperOwnerHwnd = easy::core::WinUtils::createOverlayHelperOwner(hInst, L"EasyTools_RadialMenuHelperOwner");
+
         m_hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
             CLASS_NAME, L"RadialMenu",
             WS_POPUP,
             centerPt.x - m_windowSize / 2, centerPt.y - m_windowSize / 2,
             m_windowSize, m_windowSize,
-            nullptr, nullptr, GetModuleHandle(nullptr), this
+            m_helperOwnerHwnd, nullptr, hInst, this
         );
-        if (m_hwnd && !easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
-            LOG_WARN("当前 Windows 版本无法从捕获中排除手势轮盘: error={}", GetLastError());
+        if (m_hwnd) {
+            easy::core::WinUtils::applyTaskbarSafeOverlayStyle(m_hwnd, false);
+            SetWindowDisplayAffinity(m_hwnd, WDA_NONE);
         }
     }
 
@@ -109,7 +116,7 @@ void RadialMenuOverlay::show(POINT centerPt) {
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, 
                  centerPt.x - m_windowSize / 2, centerPt.y - m_windowSize / 2,
-                 m_windowSize, m_windowSize, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                 m_windowSize, m_windowSize, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     
     // 捕获鼠标
     SetCapture(m_hwnd);

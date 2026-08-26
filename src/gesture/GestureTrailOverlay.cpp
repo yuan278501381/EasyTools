@@ -121,7 +121,7 @@ void GestureTrailOverlay::applyThemeColorsLocked() {
     const std::string customHex = cfg.get<std::string>("/gesture/trailColor", "#3B82F6");
     m_style.lineWidth = cfg.get<float>("/gesture/trailWidth", 2.5f);
     m_style.outlineWidth = clampTrailOutlineWidth(
-        cfg.get<float>("/gesture/trailOutlineWidth", 2.5f));
+        cfg.get<float>("/gesture/trailOutlineWidth", 1.5f));
 
     const std::string accent = cfg.get<std::string>("/general/accentColor", "blue");
     const easy::core::AccentColorRGB themeRgb = easy::core::getAccentColorRGB(accent);
@@ -847,9 +847,7 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
     const BOOL disableTransitions = TRUE;
     DwmSetWindowAttribute(m_hwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
                           &disableTransitions, sizeof(disableTransitions));
-    if (!easy::core::WinUtils::excludeWindowFromCapture(m_hwnd)) {
-        LOG_WARN("当前 Windows 版本无法从捕获中排除手势轨迹窗口: error={}", GetLastError());
-    }
+    SetWindowDisplayAffinity(m_hwnd, WDA_NONE);
     // HWND 需要非零尺寸才能创建；追踪表面从 0 开始，避免把虚拟屏左上角的 256×256
     // 占位框并进第一笔轨迹，把覆盖层钉死在屏幕角落。
     m_width = 0;
@@ -877,9 +875,7 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
                               &noCorners, sizeof(noCorners));
         DwmSetWindowAttribute(m_toastHwnd, DWMWA_TRANSITIONS_FORCEDISABLED,
                               &disableTransitions, sizeof(disableTransitions));
-        if (!easy::core::WinUtils::excludeWindowFromCapture(m_toastHwnd)) {
-            LOG_WARN("当前 Windows 版本无法从捕获中排除手势卡片窗口: error={}", GetLastError());
-        }
+        SetWindowDisplayAffinity(m_toastHwnd, WDA_NONE);
         ShowWindow(m_toastHwnd, SW_HIDE);
     } else {
         LOG_WARN("创建手势结果卡片窗口失败，轨迹仍可绘制");

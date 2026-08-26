@@ -386,16 +386,34 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         case WM_ACTIVATEAPP:
             if (wParam == FALSE && inst.m_visible.load()) {
                 const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-                if (elapsed >= 200) {
+                if (elapsed >= 100) {
                     inst.hide();
                 }
             }
             break;
         case WM_ACTIVATE:
-            if (LOWORD(wParam) != WA_INACTIVE) {
+            if (LOWORD(wParam) == WA_INACTIVE) {
+                if (inst.m_visible.load()) {
+                    const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+                    if (elapsed >= 100) {
+                        inst.hide();
+                    }
+                }
+            } else {
                 if (inst.m_controller) {
                     inst.m_controller->put_IsVisible(TRUE);
                     inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                }
+            }
+            break;
+        case WM_KILLFOCUS:
+            if (inst.m_visible.load()) {
+                HWND newFocus = reinterpret_cast<HWND>(wParam);
+                if (newFocus != hwnd && (!newFocus || !IsChild(hwnd, newFocus))) {
+                    const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
+                    if (elapsed >= 100) {
+                        inst.hide();
+                    }
                 }
             }
             break;
@@ -406,12 +424,12 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     break;
                 }
                 const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-                if (elapsed < 200) {
-                    // 窗口刚打开 200ms 容差期，避免初始创建与焦点转移抖动
+                if (elapsed < 100) {
+                    // 初始创建与动画容差期
                     break;
                 }
 
-                // 1. 外部鼠标点击判定：若在托盘窗口外部按下鼠标键，平滑收起
+                // 1. 外部鼠标按下判定：在托盘气泡窗口外部按下任意鼠标键，立即收起
                 const bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) ||
                                        (GetAsyncKeyState(VK_RBUTTON) & 0x8000) ||
                                        (GetAsyncKeyState(VK_MBUTTON) & 0x8000);
@@ -427,12 +445,12 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     }
                 }
 
-                // 2. 外部前台切换判定：若前台窗口已切换为非本进程窗口，自动收起
+                // 2. 外部前台切换判定：若前台窗口不是本窗口且不是本窗口的子控件，立即收起
                 const HWND foreground = GetForegroundWindow();
-                if (foreground && foreground != hwnd) {
+                if (foreground && foreground != hwnd && !IsChild(hwnd, foreground)) {
                     DWORD fgPid = 0;
                     GetWindowThreadProcessId(foreground, &fgPid);
-                    if (fgPid != 0 && fgPid != GetCurrentProcessId()) {
+                    if (fgPid != GetCurrentProcessId()) {
                         inst.hide();
                         KillTimer(hwnd, IDT_TRAY_AUTOHIDE);
                         break;

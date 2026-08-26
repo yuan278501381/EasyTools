@@ -9,7 +9,7 @@ import {
   FolderDown,
   FolderSymlink,
   Keyboard,
-  MousePointer2,
+  Mouse,
   Pipette,
   Puzzle,
   RotateCw,
@@ -75,10 +75,11 @@ const CATEGORY_KEY_MAP: Record<string, string> = {
 };
 
 const ICONS = {
-  gesture: MousePointer2,
+  gesture: Mouse,
   capture: Camera,
   search: FileSearch,
   keycast: Keyboard,
+  spotlight: Sparkles,
   dialogenhancer: FolderSymlink,
   dialog_enhancer: FolderSymlink,
   ai_assistant: Bot,
@@ -87,7 +88,17 @@ const ICONS = {
   markdown_preview: FileCode2,
 } as const;
 
-const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast', 'dialogenhancer', 'dialog_enhancer']);
+const CORE_PLUGIN_IDS = new Set(['gesture', 'capture', 'search', 'keycast', 'spotlight', 'dialogenhancer', 'dialog_enhancer']);
+
+const PLUGIN_DISPLAY_ORDER: Record<string, number> = {
+  search: 1,
+  gesture: 2,
+  capture: 3,
+  dialogenhancer: 4,
+  dialog_enhancer: 4,
+  keycast: 5,
+  spotlight: 6,
+};
 
 export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
   const { t, i18n } = useTranslation();
@@ -144,7 +155,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
     setSavingId(plugin.id);
     setPlugins((items) => items.map((item) => item.id === plugin.id ? { ...item, enabled } : item));
     try {
-      const result = await bridgeRequest<UpdateResult>('plugins.setEnabled', { id: plugin.id, enabled });
+      const result = await bridgeRequest<UpdateResult>('plugins.setEnabled', { id: plugin.id, enabled }, { silent: true });
       if (!result.success) throw new Error(result.error || t('plugins.saveFailed'));
       await refresh();
       toast.success(enabled ? t('plugins.enabledSaved') : t('plugins.disabledSaved'), {
@@ -211,6 +222,14 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
       },
     });
   };
+
+  const sortedPlugins = useMemo(() => {
+    return [...plugins].sort((a, b) => {
+      const orderA = PLUGIN_DISPLAY_ORDER[a.id] ?? 99;
+      const orderB = PLUGIN_DISPLAY_ORDER[b.id] ?? 99;
+      return orderA - orderB;
+    });
+  }, [plugins]);
 
   const filteredMarketplace = useMemo(() => {
     const isEn = i18n.language.startsWith('en');
@@ -287,12 +306,12 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
       {/* 选项卡 1: 已安装模块 */}
       {activeTab === 'installed' && (
         <div className="plugins-page__grid">
-          {plugins.map((plugin) => {
+          {sortedPlugins.map((plugin) => {
             const Icon = ICONS[plugin.id as keyof typeof ICONS] ?? Puzzle;
             const failed = plugin.state === 'failed';
             const isUnavailable = plugin.state === 'unavailable';
             const badgeVariant = failed ? 'danger' : isUnavailable ? 'muted' : plugin.restartRequired ? 'warning' : plugin.active ? 'success' : 'muted';
-            const isExtension = Boolean(plugin.isExtension || !CORE_PLUGIN_IDS.has(plugin.id));
+            const isExtension = !CORE_PLUGIN_IDS.has(plugin.id) && Boolean(plugin.isExtension);
             const isUninstalling = uninstallingId === plugin.id;
 
             return (

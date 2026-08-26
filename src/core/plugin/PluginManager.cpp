@@ -44,8 +44,7 @@ bool configuredEnabled(const std::string& id) {
     auto& config = ConfigManager::instance();
     const auto key = pluginConfigKey(id);
     if (config.has(key)) return config.get<bool>(key, true);
-    // 兼容旧版按键回显开关；其他核心插件默认启用。
-    if (id == "keycast") return config.get<bool>("/general/keycastEnabled", false);
+    if (id == "keycast") return config.get<bool>("/general/keycastEnabled", true);
     return true;
 }
 

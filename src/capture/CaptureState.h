@@ -18,7 +18,19 @@ namespace easy::capture {
 enum class OverlayMode { Screenshot, RecordRegion };
 enum class OverlayState { Idle, Selecting, Selected, Marking };
 enum class CaptureCompletionAction { Default, Copy, SaveAs };
-enum class ToolbarCommand { SelectTool, SelectColor, Undo, Redo, Clear, ExtractText, PinWindow, ScrollCapture, Confirm, Cancel };
+enum class ToolbarCommand { SelectTool, SelectColor, ToggleCornerRadius, Undo, Redo, Clear, ExtractText, PinWindow, ScrollCapture, Confirm, Cancel };
+
+enum class ColorFormatType {
+    HEX = 0,     // #3A86FF
+    RGB,         // rgb(58, 134, 255)
+    RGBA,        // rgba(58, 134, 255, 1.0)
+    HEX_0x,      // 0x3A86FF
+    HSL,         // hsl(217, 100%, 61%)
+    HSV,         // hsv(217, 77%, 100%)
+    CMYK,        // cmyk(77%, 47%, 0%, 0%)
+    DEC,         // 3835647
+    COUNT
+};
 
 struct CaptureCompletion {
     CaptureCompletionAction action = CaptureCompletionAction::Default;
@@ -49,6 +61,8 @@ public:
     POINT currentCursor{};
     bool dragging = false;
     RECT detectedWindow{};
+    std::vector<RECT> detectedWindowHierarchy;
+    int detectedWindowHierarchyIndex = 0;
     POINT lastMousePos{};
 
     cv::Mat frozenScreen;
@@ -76,14 +90,21 @@ public:
     HitArea selAdjustHandle = HitArea::None;
     POINT selAdjustLast{};
 
+    bool isAdjustingCornerRadius = false;
+    float cornerDragStartRadius = 0.0f;
+    POINT cornerDragStartPos{};
+
     int dynamicMagnifierRadius = 60;
     float dynamicMagnifierScale = 2.0f;
 
     DWORD loupeToastUntil = 0;
-    DWORD showTimestamp = 0;
     bool isFadingOut = false;
     float dpiScale = 1.0f;
-    bool colorFormatHex = false;
+    ColorFormatType colorFormat = ColorFormatType::HEX;
+    bool colorFormatHex = true;
+    bool showTimestamp = false;
+    float cornerRadius = 0.0f; // 选区圆角半径 (0, 8, 12, 16, 24)
+    float detectedWindowCornerRadius = 10.0f; // 现代 Windows 11 窗口圆角高亮半径
     DWORD fadeOutStart = 0;
 
     SelectionCallback callback;

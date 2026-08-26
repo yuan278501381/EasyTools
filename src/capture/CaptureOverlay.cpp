@@ -90,7 +90,7 @@ bool CaptureOverlay::createOverlayWindow(HINSTANCE hInstance) {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = staticWndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_CROSS);
+    wc.hCursor = nullptr;
     wc.lpszClassName = L"EasyTools_CaptureOverlay";
     RegisterClassExW(&wc);
 
@@ -163,7 +163,7 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     m_state.toolbarLayoutValid = false;
     m_state.markup.clearAll();
     m_state.loupeToastUntil = 0;
-    m_state.showTimestamp = GetTickCount();
+    m_state.currentTool = MarkupTool::Rectangle;
     m_state.isFadingOut = false;
     m_state.fadeOutStart = 0;
 
@@ -417,8 +417,14 @@ void CaptureOverlay::realCancel() {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    m_state.markup.clearAll();
+    m_state.detectedWindowHierarchy.clear();
+    m_state.detectedWindow = {};
     releaseFrozenSurface();
     if (wasActive && m_closedCallback) m_closedCallback();
+
+    // 冷路径退场：主动修剪物理内存，将大图/D2D/DirectX 缓存归还系统
+    easy::core::WinUtils::trimWorkingSet();
 }
 
 void CaptureOverlay::confirmSelection(CaptureCompletion completion) {

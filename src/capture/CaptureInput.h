@@ -41,6 +41,7 @@ private:
     void rebuildMarkupBase();
     
     RECT detectWindowUnderCursor(POINT cursorPos);
+    std::vector<RECT> detectWindowHierarchy(POINT cursorPos);
     D2D1_RECT_F currentSelectionRect() const;
 
     HWND m_hwnd = nullptr;
