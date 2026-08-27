@@ -1,4 +1,4 @@
-﻿import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefCallback } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefCallback } from 'react';
 import { 
   File, 
   Folder, 
@@ -832,7 +832,7 @@ export default function SearchApp() {
 
   const [maxResultLimit, setMaxResultLimit] = useState<number>(() => {
     const saved = localStorage.getItem('easytools_search_max_results');
-    return saved !== null ? parseInt(saved, 10) : 100;
+    return saved !== null ? parseInt(saved, 10) : 0;
   });
 
   const changeMaxResultLimit = (limit: number) => {
@@ -885,14 +885,10 @@ export default function SearchApp() {
       }>('search.getDbStats');
       if (res && res.success) {
         setDbStats(res);
-        const needsIndex = !res.exists || res.totalRecords === 0 || !!res.indexing;
-        if (needsIndex) {
+        const isIndexing = !!res.indexing;
+        if (isIndexing) {
           setIsInitialIndexing(true);
           isInitialIndexingRef.current = true;
-          if (!res.indexing && (!res.exists || res.totalRecords === 0)) {
-            // 没有固化索引文件且当前未在构建，自动发起一次全盘索引扫描并固化快照
-            void bridgeRequest('search.rebuildIndex').catch(() => {});
-          }
           return true;
         } else {
           if (isInitialIndexingRef.current) {
@@ -902,6 +898,7 @@ export default function SearchApp() {
             toast.success(t('search.indexReadyToast', 'Full disk index built and ready!'));
           } else {
             setIsInitialIndexing(false);
+            setServiceAvailable(true);
           }
           return false;
         }

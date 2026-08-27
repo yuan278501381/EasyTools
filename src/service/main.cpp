@@ -1,4 +1,4 @@
-﻿#include <windows.h>
+#include <windows.h>
 #include <iostream>
 #include <algorithm>
 #include <array>
@@ -364,6 +364,11 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 if (act == "getDbStats") {
                     auto stats = easy::service::db::DatabaseManager::instance().getStats();
+                    uint64_t totalMemRecords = 0;
+                    for (const auto& p : g_MftParsers) {
+                        if (p) totalMemRecords += p->getFileCount();
+                    }
+                    const uint64_t effectiveRecords = stats.totalRecords > 0 ? stats.totalRecords : totalMemRecords;
                     const bool isIndexing = g_InitialIndexWorkers.load(std::memory_order_acquire) > 0 ||
                                             g_RebuildInProgress.load(std::memory_order_acquire) ||
                                             g_SnapshotInProgress.load(std::memory_order_acquire) ||
@@ -373,9 +378,9 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         {"dbPath", WStringToString(stats.dbPath)},
                         {"dbSize", stats.fileSize},
                         {"timestamp", stats.timestamp},
-                        {"totalRecords", stats.totalRecords},
+                        {"totalRecords", effectiveRecords},
                         {"volumeCount", stats.volumeCount},
-                        {"exists", stats.exists},
+                        {"exists", stats.exists || totalMemRecords > 0},
                         {"indexing", isIndexing},
                         {"initialWorkers", g_InitialIndexWorkers.load(std::memory_order_acquire)},
                         {"rebuildInProgress", g_RebuildInProgress.load(std::memory_order_acquire)},
