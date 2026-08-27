@@ -405,9 +405,10 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     {
         std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
         if (generation == m_CachedGeneration && !m_CachedQuery.empty() &&
+            !expr.requiresFullPath() &&
             lowerQuery.rfind(m_CachedQuery, 0) == 0 &&
-            lowerQuery.find_first_of(L"*?|/\\:") == std::wstring::npos &&
-            m_CachedQuery.find_first_of(L"*?|/\\:") == std::wstring::npos) {
+            lowerQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos &&
+            m_CachedQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos) {
             candidates = m_CachedCandidates;
             canNarrow = true;
         }
@@ -548,9 +549,18 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         std::sort(ranked.begin(), ranked.end(), compareRank);
     }
 
-    m_CachedQuery = lowerQuery;
-    m_CachedCandidates = std::move(candidates);
-    m_CachedGeneration = generation;
+    {
+        std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
+        if (!expr.requiresFullPath() &&
+            lowerQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos) {
+            m_CachedQuery = lowerQuery;
+            m_CachedCandidates = std::move(candidates);
+            m_CachedGeneration = generation;
+        } else {
+            m_CachedQuery.clear();
+            m_CachedCandidates.clear();
+        }
+    }
 
     results.reserve(resultCount);
     for (size_t i = 0; i < resultCount; ++i) {

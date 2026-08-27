@@ -3691,6 +3691,45 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
 // 把 ERROR_MORE_DATA 当成失败并丢弃整份结果，残留数据还会拖垮后续连接。
 // 现在改为显式长度前缀，这些用例锁定编解码的边界行为。
 // -----------------------------------------------------------------------------
+TEST(MftParserTest, IncrementalTypingMultiWordCrossPathSearch) {
+    auto parser = std::make_unique<MftParser>();
+    std::vector<FileRecordInit> mockRecords;
+    
+    // 构造目录: 226-苏州同心 (id = 100)
+    FileRecordInit dirRec{};
+    dirRec.fileReferenceNumber = 100;
+    dirRec.parentFileReferenceNumber = 0;
+    dirRec.fileName = L"226-苏州同心";
+    dirRec.isDirectory = true;
+    mockRecords.push_back(std::move(dirRec));
+
+    // 构造文件: 账号密码.txt (id = 101, parent = 100)
+    FileRecordInit fileRec{};
+    fileRec.fileReferenceNumber = 101;
+    fileRec.parentFileReferenceNumber = 100;
+    fileRec.fileName = L"账号密码.txt";
+    fileRec.isDirectory = false;
+    fileRec.fileSize = 1024;
+    mockRecords.push_back(std::move(fileRec));
+
+    EXPECT_TRUE(parser->importSnapshot(std::move(mockRecords), 123456ULL, 0x11223344));
+
+    // 模拟连续打字:
+    // 1. 用户先搜 "同" (单字仅匹配文件名/目录名，此时 账号密码.txt 仅在目录命中，缓存被填入)
+    auto res1 = parser->Search(L"同");
+    EXPECT_GE(res1.size(), 1u);
+
+    // 2. 用户接着打 "同心" (缩小缓存)
+    auto res2 = parser->Search(L"同心");
+    EXPECT_GE(res2.size(), 1u);
+
+    // 3. 用户追加空格与第二个词 "同心 账号密码" (多词全路径匹配，必须绕开单字文件名缓存，正确命中 账号密码.txt)
+    auto res3 = parser->Search(L"同心 账号密码");
+    ASSERT_EQ(res3.size(), 1u);
+    EXPECT_EQ(res3[0].fileName, L"账号密码.txt");
+    EXPECT_NE(res3[0].fullPath.find(L"226-苏州同心"), std::wstring::npos);
+}
+
 TEST(PipeProtocolTest, HeaderRoundTripsPayloadSize) {
     namespace frame = easy::service::pipe;
     for (uint32_t size : {1u, 2u, 255u, 256u, 65535u, 65536u, 1048576u, frame::MaxFrameBytes}) {
