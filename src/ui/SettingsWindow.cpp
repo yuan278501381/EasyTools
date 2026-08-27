@@ -689,13 +689,18 @@ void SettingsWindow::showSystemMenu(int screenX, int screenY) {
     EnableMenuItem(hMenu, SC_MAXIMIZE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
     EnableMenuItem(hMenu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
 
-    if (screenX == -1 || screenY == -1) {
+    POINT pt{};
+    if (GetCursorPos(&pt)) {
+        screenX = pt.x;
+        screenY = pt.y;
+    } else if (screenX == -1 || screenY == -1) {
         RECT rc{};
         GetWindowRect(m_hwnd, &rc);
         screenX = rc.left + 24;
         screenY = rc.top + 32;
     }
 
+    SetForegroundWindow(m_hwnd);
     int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_TOPALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON,
                              screenX, screenY, 0, m_hwnd, nullptr);
     if (cmd > 0) {
