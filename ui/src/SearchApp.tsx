@@ -917,6 +917,11 @@ export default function SearchApp() {
     let active = true;
     let pollTimer: number | undefined;
 
+    // 首次打开或唤醒时，立即异步在后台拉起搜索服务并执行索引增量预热，UI 线程 0 卡顿
+    void bridgeRequest('search.warmup').then(() => {
+      void bridgeRequest('search.sync').catch(() => {});
+    }).catch(() => {});
+
     void bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 })
       .then((res) => {
         if (active && res && res.success && Array.isArray(res.history)) {
@@ -936,6 +941,9 @@ export default function SearchApp() {
     void runPoll();
 
     const onFocusEvt = () => {
+      void bridgeRequest('search.warmup').then(() => {
+        void bridgeRequest('search.sync').catch(() => {});
+      }).catch(() => {});
       void runPoll();
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
