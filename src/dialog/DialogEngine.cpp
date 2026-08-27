@@ -443,49 +443,9 @@ void DialogEngine::monitorThreadMain() {
                     continue;
                 }
 
-                if (!snapshot.restoreAttempted && now - snapshot.discoveredAt >= 200ms) {
-                    stage = "mark-restore-attempt";
-                    {
-                        std::lock_guard lock(m_mutex);
-                        auto it = m_sessions.find(hwnd);
-                        if (it == m_sessions.end()) continue;
-                        it->second.restoreAttempted = true;
-                    }
-
-                    if (!snapshot.restorePath.empty() &&
-                        !equalsIgnoreCase(snapshot.restorePath, snapshot.initialFolder)) {
-                        stage = "restore-folder";
-                        const bool restored = DialogNavigator::instance().navigateToFolder(
-                            hwnd, snapshot.restorePath);
-                        if (restored) {
-                            std::lock_guard lock(m_mutex);
-                            auto it = m_sessions.find(hwnd);
-                            if (it != m_sessions.end()) it->second.currentFolder = snapshot.restorePath;
-                        }
-                        LOG_INFO("DialogEngine: EXE 目录恢复完成, exe={}, path={}, success={}",
-                                 snapshot.processName, snapshot.restorePath, restored);
-                    }
-                }
-
-                if (now - snapshot.lastPoll < 200ms) continue;
-
-                stage = "poll-current-folder";
-                const std::string currentFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
-                stage = "poll-selection";
-                const std::string selectedPath = DialogNavigator::getSelectedPath(hwnd);
-                stage = "commit-poll-snapshot";
-                {
-                    std::lock_guard lock(m_mutex);
-                    auto it = m_sessions.find(hwnd);
-                    if (it == m_sessions.end()) continue;
-                    it->second.lastPoll = now;
-                    if (!currentFolder.empty()) it->second.currentFolder = currentFolder;
-                    if (!selectedPath.empty() &&
-                        !equalsIgnoreCase(selectedPath, it->second.initialSelection)) {
-                        it->second.lastSelection = selectedPath;
-                        it->second.selectionChanged = true;
-                    }
-                }
+                // 零侵扰架构准则：绝不在对话框弹出时自动篡改地址栏或强行发送虚拟回车，
+                // 彻底杜绝与宿主程序（如 VS Code、Office）初始意图及选区焦点的冲突。
+                // 记忆路径与工作区一律由顶部 Ribbon 悬浮胶囊栏提供一键直达，实现 100% 用户可控。
             } catch (const std::exception& error) {
                 logWorkerFailureNoexcept("monitor", stage, hwnd, error.what());
                 // Quarantine only the failing dialog. Other applications and
