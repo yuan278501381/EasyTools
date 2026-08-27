@@ -286,6 +286,8 @@ public:
                 {"triggerButton", engine.triggerButton()},
                 {"trailVisible", engine.trailVisible()},
                 {"autoBypassFullscreen", engine.autoBypassFullscreen()},
+                {"enableScribbleCancel", config.get<bool>("/gesture/enableScribbleCancel", true)},
+                {"enableInFlightCompass", config.get<bool>("/gesture/enableInFlightCompass", true)},
                 {"targetMode", engine.targetMode()},
                 {"initialTimeoutMs", engine.initialTimeoutMs()},
                 {"minSegmentDistance", engine.minSegmentDistance()},
@@ -307,7 +309,8 @@ public:
             static const std::unordered_set<std::string> allowed = {
                 "enabled", "paused", "triggerButton", "trailVisible", "autoBypassFullscreen",
                 "targetMode", "initialTimeoutMs", "minSegmentDistance",
-                "trailColorMode", "trailColor", "trailWidth", "trailOutlineWidth"
+                "trailColorMode", "trailColor", "trailWidth", "trailOutlineWidth",
+                "enableScribbleCancel", "enableInFlightCompass"
             };
             for (const auto& [key, value] : params.items()) {
                 if (!allowed.contains(key)) {
@@ -318,6 +321,8 @@ public:
                 (params.contains("paused") && !params["paused"].is_boolean()) ||
                 (params.contains("trailVisible") && !params["trailVisible"].is_boolean()) ||
                 (params.contains("autoBypassFullscreen") && !params["autoBypassFullscreen"].is_boolean()) ||
+                (params.contains("enableScribbleCancel") && !params["enableScribbleCancel"].is_boolean()) ||
+                (params.contains("enableInFlightCompass") && !params["enableInFlightCompass"].is_boolean()) ||
                 (params.contains("targetMode") && !params["targetMode"].is_string()) ||
                 (params.contains("initialTimeoutMs") && !params["initialTimeoutMs"].is_number_integer()) ||
                 (params.contains("minSegmentDistance") && !params["minSegmentDistance"].is_number_integer()) ||
@@ -362,11 +367,15 @@ public:
             float trailWidth = params.value("trailWidth", config.get<float>("/gesture/trailWidth", 2.5f));
             float trailOutlineWidth = clampTrailOutlineWidth(
                 params.value("trailOutlineWidth", config.get<float>("/gesture/trailOutlineWidth", 1.5f)));
+            bool enableScribbleCancel = params.value("enableScribbleCancel", config.get<bool>("/gesture/enableScribbleCancel", true));
+            bool enableInFlightCompass = params.value("enableInFlightCompass", config.get<bool>("/gesture/enableInFlightCompass", true));
 
             nlohmann::json patch = {
                 {"paused", paused}, {"enabled", !paused},
                 {"triggerButton", trigger}, {"trailVisible", trailVisible},
                 {"autoBypassFullscreen", autoBypassFullscreen},
+                {"enableScribbleCancel", enableScribbleCancel},
+                {"enableInFlightCompass", enableInFlightCompass},
                 {"targetMode", targetMode},
                 {"initialTimeoutMs", initialTimeoutMs},
                 {"minSegmentDistance", minSegmentDistance},
@@ -384,6 +393,12 @@ public:
             engine.setTargetMode(targetMode);
             engine.setInitialTimeoutMs(initialTimeoutMs);
             engine.setMinSegmentDistance(minSegmentDistance);
+            easy::gesture::RecognizerConfig recConfig;
+            recConfig.minSegmentDistance = 14;
+            recConfig.samplingInterval = 2;
+            recConfig.angleToleranceDeg = 22.5;
+            recConfig.enableScribbleCancel = enableScribbleCancel;
+            engine.setRecognizerConfig(recConfig);
             easy::gesture::GestureTrailOverlay::instance().reloadThemeColors();
 
             const bool pauseApplied = engine.setPaused(paused);
