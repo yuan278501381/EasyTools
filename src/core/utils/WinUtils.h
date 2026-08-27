@@ -633,25 +633,53 @@ public:
         return drives;
     }
 
-    /// 在 Windows 资源管理器中定位并高亮选中文件或目录。Shell API 自身只负责
-    /// 发起激活，不等待目标窗口退出，因此无需制造无法管理的 detached 线程。
+    /// 在 Windows 资源管理器中定位并高亮选中文件或目录。
+    /// 采用独立 STA 线程异步解耦与三级降级容灾链 (Tier 1: SHOpenFolderAndSelectItems -> Tier 2: explorer /select -> Tier 3: 打开父目录)
+    /// 配合异常隔离，彻底杜绝主 UI 线程 / IPC 线程在 Windows Explorer 繁忙时出现卡死 (AppHang) 或崩溃。
     static bool openFolderAndSelectItem(const std::wstring& filePath) {
         if (filePath.empty()) return false;
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-        PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(filePath.c_str());
-        if (pidl) {
-            const HRESULT hr = SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
-            ILFree(pidl);
-            if (SUCCEEDED(hr)) {
-                if (SUCCEEDED(hrCo)) CoUninitialize();
-                return true;
-            }
-        }
-        if (SUCCEEDED(hrCo)) CoUninitialize();
 
-        const std::wstring args = L"/select,\"" + filePath + L"\"";
-        return reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL)) > 32;
+        // 异步派发到独立 STA 工作线程中执行，彻底解耦调用方线程（UI/IPC）与 Shell 唤醒阻塞
+        std::thread([path = filePath]() {
+            try {
+                const HRESULT hrOle = OleInitialize(nullptr);
+
+                bool located = false;
+                PIDLIST_ABSOLUTE pidl = nullptr;
+                // Tier 1: 原生 PIDL 定位高亮
+                if (SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) && pidl) {
+                    const HRESULT hr = SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
+                    ILFree(pidl);
+                    if (SUCCEEDED(hr)) {
+                        located = true;
+                    }
+                }
+
+                if (SUCCEEDED(hrOle)) {
+                    OleUninitialize();
+                }
+
+                if (located) return;
+
+                // Tier 2: 降级通过 explorer.exe /select,"path" 调起
+                const std::wstring args = L"/select,\"" + path + L"\"";
+                const auto ret = reinterpret_cast<INT_PTR>(
+                    ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
+                if (ret > 32) return;
+
+                // Tier 3: 兜底直接打开父文件夹
+                std::filesystem::path fsPath(path);
+                std::error_code ec;
+                auto parent = fsPath.parent_path();
+                if (!parent.empty() && std::filesystem::exists(parent, ec)) {
+                    ShellExecuteW(nullptr, L"open", parent.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                }
+            } catch (...) {
+                // 异常隔离
+            }
+        }).detach();
+
+        return true;
     }
 
     /// 非阻塞启动/打开指定文件或应用程序
@@ -679,16 +707,21 @@ public:
     /// 非阻塞弹出 Windows 原生文件属性对话框
     static bool showFileProperties(const std::wstring& filePath) {
         if (filePath.empty()) return false;
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-        SHELLEXECUTEINFOW sei{};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_INVOKEIDLIST;
-        sei.lpVerb = L"properties";
-        sei.lpFile = filePath.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-        const bool ok = ShellExecuteExW(&sei) != FALSE;
-        if (SUCCEEDED(hrCo)) CoUninitialize();
-        return ok;
+        std::thread([path = filePath]() {
+            try {
+                const HRESULT hrOle = OleInitialize(nullptr);
+                SHELLEXECUTEINFOW sei{};
+                sei.cbSize = sizeof(sei);
+                sei.fMask = SEE_MASK_INVOKEIDLIST;
+                sei.lpVerb = L"properties";
+                sei.lpFile = path.c_str();
+                sei.nShow = SW_SHOWNORMAL;
+                ShellExecuteExW(&sei);
+                if (SUCCEEDED(hrOle)) OleUninitialize();
+            } catch (...) {
+            }
+        }).detach();
+        return true;
     }
 
     /// 判断 Windows 系统任务栏是否为深色模式 (用于自适应托盘图标与浮层明暗)

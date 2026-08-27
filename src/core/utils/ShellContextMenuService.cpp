@@ -4,6 +4,7 @@
 
 #include <chrono>
 
+#include <ole2.h>
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -36,9 +37,19 @@ ShellContextMenuService& ShellContextMenuService::instance() {
 
 bool ShellContextMenuService::showAsync(std::wstring path) {
     if (path.empty() || m_stopping.load(std::memory_order_acquire)) return false;
+
+    // 若旧菜单窗口仍在展示，主动向其投递取消消息，促使其非阻塞平稳退出
+    if (const HWND oldHelper = m_helperWindow.load(std::memory_order_acquire); oldHelper && IsWindow(oldHelper)) {
+        PostMessageW(oldHelper, WM_CANCELMODE, 0, 0);
+    }
+
     std::lock_guard lock(m_mutex);
-    if (m_busy.exchange(true, std::memory_order_acq_rel)) return false;
-    if (m_worker.joinable()) m_worker.join();
+    if (m_worker.joinable()) {
+        m_worker.request_stop();
+        m_worker.detach(); // 分离旧工作线程，绝不在调用方线程（UI/IPC）上发生同步阻塞等待
+    }
+
+    m_busy.store(true, std::memory_order_release);
     m_worker = std::jthread(
         [this, path = std::move(path)](std::stop_token stop) mutable {
             run(std::move(path), stop);
@@ -58,7 +69,6 @@ void ShellContextMenuService::shutdown() {
         }
         worker = std::move(m_worker);
     }
-    // 析构 worker 时在锁外等待，避免与 showAsync 形成锁反转。
     m_busy.store(false, std::memory_order_release);
 }
 
@@ -67,96 +77,100 @@ ShellContextMenuService::~ShellContextMenuService() {
 }
 
 void ShellContextMenuService::run(std::wstring path, std::stop_token stop) {
-    const HWND searchWindow = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-    if (searchWindow) SetPropW(searchWindow, L"EasyTools_ShellMenuActive", reinterpret_cast<HANDLE>(1));
-    auto clearActive = [&]() {
-        if (searchWindow && IsWindow(searchWindow)) {
-            RemovePropW(searchWindow, L"EasyTools_ShellMenuActive");
+    try {
+        const HWND searchWindow = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+        if (searchWindow) SetPropW(searchWindow, L"EasyTools_ShellMenuActive", reinterpret_cast<HANDLE>(1));
+        auto clearActive = [&]() {
+            if (searchWindow && IsWindow(searchWindow)) {
+                RemovePropW(searchWindow, L"EasyTools_ShellMenuActive");
+            }
+        };
+
+        const HRESULT oleResult = OleInitialize(nullptr);
+        PIDLIST_ABSOLUTE itemId = nullptr;
+        IShellFolder* parent = nullptr;
+        IContextMenu* contextMenu = nullptr;
+        HMENU menu = nullptr;
+        HWND helper = nullptr;
+
+        const auto cleanup = [&]() {
+            t_contextMenu3 = nullptr;
+            t_contextMenu2 = nullptr;
+            if (helper && IsWindow(helper)) DestroyWindow(helper);
+            m_helperWindow.store(nullptr, std::memory_order_release);
+            if (menu) DestroyMenu(menu);
+            if (contextMenu) contextMenu->Release();
+            if (parent) parent->Release();
+            if (itemId) CoTaskMemFree(itemId);
+            clearActive();
+            if (SUCCEEDED(oleResult)) OleUninitialize();
+        };
+
+        if (stop.stop_requested() || FAILED(SHParseDisplayName(path.c_str(), nullptr, &itemId, 0, nullptr)) || !itemId) {
+            cleanup();
+            return;
         }
-    };
+        PCUITEMID_CHILD child = nullptr;
+        if (FAILED(SHBindToParent(itemId, IID_IShellFolder, reinterpret_cast<void**>(&parent), &child)) || !parent) {
+            cleanup();
+            return;
+        }
+        if (FAILED(parent->GetUIObjectOf(nullptr, 1, &child, IID_IContextMenu, nullptr,
+                                         reinterpret_cast<void**>(&contextMenu))) || !contextMenu) {
+            cleanup();
+            return;
+        }
 
-    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    PIDLIST_ABSOLUTE itemId = nullptr;
-    IShellFolder* parent = nullptr;
-    IContextMenu* contextMenu = nullptr;
-    HMENU menu = nullptr;
-    HWND helper = nullptr;
+        menu = CreatePopupMenu();
+        if (!menu || FAILED(contextMenu->QueryContextMenu(menu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE))) {
+            cleanup();
+            return;
+        }
+        contextMenu->QueryInterface(IID_IContextMenu2, reinterpret_cast<void**>(&t_contextMenu2));
+        contextMenu->QueryInterface(IID_IContextMenu3, reinterpret_cast<void**>(&t_contextMenu3));
 
-    const auto cleanup = [&]() {
-        t_contextMenu3 = nullptr;
-        t_contextMenu2 = nullptr;
-        if (helper && IsWindow(helper)) DestroyWindow(helper);
-        m_helperWindow.store(nullptr, std::memory_order_release);
-        if (menu) DestroyMenu(menu);
-        if (contextMenu) contextMenu->Release();
-        if (parent) parent->Release();
-        if (itemId) CoTaskMemFree(itemId);
-        clearActive();
-        if (SUCCEEDED(comResult)) CoUninitialize();
-    };
+        WNDCLASSEXW windowClass{};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.lpfnWndProc = helperWindowProc;
+        windowClass.hInstance = GetModuleHandleW(nullptr);
+        windowClass.lpszClassName = HelperClassName;
+        RegisterClassExW(&windowClass);
 
-    if (stop.stop_requested() || FAILED(SHParseDisplayName(path.c_str(), nullptr, &itemId, 0, nullptr))) {
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, HelperClassName, L"", WS_POPUP,
+                                 cursor.x, cursor.y, 1, 1, nullptr, nullptr,
+                                 GetModuleHandleW(nullptr), nullptr);
+        m_helperWindow.store(helper, std::memory_order_release);
+        if (helper) {
+            ShowWindow(helper, SW_SHOWNOACTIVATE);
+            SetForegroundWindow(helper);
+        }
+
+        const UINT command = TrackPopupMenuEx(
+            menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+            cursor.x, cursor.y, helper ? helper : GetForegroundWindow(), nullptr);
+        if (command >= 1 && !stop.stop_requested()) {
+            CMINVOKECOMMANDINFOEX info{};
+            info.cbSize = sizeof(info);
+            info.fMask = CMIC_MASK_UNICODE;
+            info.hwnd = helper;
+            info.lpVerb = reinterpret_cast<LPCSTR>(MAKEINTRESOURCEA(command - 1));
+            info.lpVerbW = reinterpret_cast<LPCWSTR>(MAKEINTRESOURCEW(command - 1));
+            info.nShow = SW_SHOWNORMAL;
+            contextMenu->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
+        }
+
+        if (t_contextMenu3) { t_contextMenu3->Release(); t_contextMenu3 = nullptr; }
+        if (t_contextMenu2) { t_contextMenu2->Release(); t_contextMenu2 = nullptr; }
+        if (!stop.stop_requested() && searchWindow && IsWindow(searchWindow)) {
+            SetForegroundWindow(searchWindow);
+            SetFocus(searchWindow);
+        }
         cleanup();
-        return;
+    } catch (...) {
+        LOG_WARN("ShellContextMenuService: 捕获第三方 Shell 扩展异常，已安全隔离防御");
     }
-    PCUITEMID_CHILD child = nullptr;
-    if (FAILED(SHBindToParent(itemId, IID_IShellFolder, reinterpret_cast<void**>(&parent), &child)) || !parent) {
-        cleanup();
-        return;
-    }
-    if (FAILED(parent->GetUIObjectOf(nullptr, 1, &child, IID_IContextMenu, nullptr,
-                                     reinterpret_cast<void**>(&contextMenu))) || !contextMenu) {
-        cleanup();
-        return;
-    }
-
-    menu = CreatePopupMenu();
-    if (!menu || FAILED(contextMenu->QueryContextMenu(menu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE))) {
-        cleanup();
-        return;
-    }
-    contextMenu->QueryInterface(IID_IContextMenu2, reinterpret_cast<void**>(&t_contextMenu2));
-    contextMenu->QueryInterface(IID_IContextMenu3, reinterpret_cast<void**>(&t_contextMenu3));
-
-    WNDCLASSEXW windowClass{};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.lpfnWndProc = helperWindowProc;
-    windowClass.hInstance = GetModuleHandleW(nullptr);
-    windowClass.lpszClassName = HelperClassName;
-    RegisterClassExW(&windowClass);
-
-    POINT cursor{};
-    GetCursorPos(&cursor);
-    helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, HelperClassName, L"", WS_POPUP,
-                             cursor.x, cursor.y, 1, 1, nullptr, nullptr,
-                             GetModuleHandleW(nullptr), nullptr);
-    m_helperWindow.store(helper, std::memory_order_release);
-    if (helper) {
-        ShowWindow(helper, SW_SHOWNOACTIVATE);
-        SetForegroundWindow(helper);
-    }
-
-    const UINT command = TrackPopupMenuEx(
-        menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
-        cursor.x, cursor.y, helper ? helper : GetForegroundWindow(), nullptr);
-    if (command >= 1 && !stop.stop_requested()) {
-        CMINVOKECOMMANDINFOEX info{};
-        info.cbSize = sizeof(info);
-        info.fMask = CMIC_MASK_UNICODE;
-        info.hwnd = helper;
-        info.lpVerb = reinterpret_cast<LPCSTR>(MAKEINTRESOURCEA(command - 1));
-        info.lpVerbW = reinterpret_cast<LPCWSTR>(MAKEINTRESOURCEW(command - 1));
-        info.nShow = SW_SHOWNORMAL;
-        contextMenu->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
-    }
-
-    if (t_contextMenu3) { t_contextMenu3->Release(); t_contextMenu3 = nullptr; }
-    if (t_contextMenu2) { t_contextMenu2->Release(); t_contextMenu2 = nullptr; }
-    if (!stop.stop_requested() && searchWindow && IsWindow(searchWindow)) {
-        SetForegroundWindow(searchWindow);
-        SetFocus(searchWindow);
-    }
-    cleanup();
 }
 
 }  // namespace easy::core
