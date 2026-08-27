@@ -39,7 +39,7 @@ export const HotkeyStatusBadge: FC<HotkeyStatusBadgeProps> = ({
     return (
       <span className="hotkey-badge badge-disabled">
         <MinusCircle size={11} />
-        <span>{t('general.shortcutDisabled', '未绑定')}</span>
+        <span>{t('general.shortcutDisabled', 'Disabled')}</span>
       </span>
     );
   }
@@ -53,36 +53,36 @@ export const HotkeyStatusBadge: FC<HotkeyStatusBadgeProps> = ({
 
   if (isSessionOnly) {
     return (
-      <span className="hotkey-badge badge-session" title={t('general.shortcutRecordingOnly', '仅在录屏时占用快捷键')}>
+      <span className="hotkey-badge badge-session" title={t('general.shortcutRecordingOnly', 'Active while recording')}>
         <Disc size={11} />
-        <span>{t('general.shortcutRecordingOnly', '仅录屏时生效')}</span>
+        <span>{t('general.shortcutRecordingOnly', 'Active while recording')}</span>
       </span>
     );
   }
 
   if (isInternal) {
     return (
-      <span className="hotkey-badge badge-warning" title={conflictWith || t('general.shortcutConflictInternal', '内部快捷键冲突')}>
+      <span className="hotkey-badge badge-warning" title={conflictWith || t('general.shortcutConflictInternal', 'Internal Conflict: duplicate with other plugin shortcut')}>
         <AlertTriangle size={11} />
-        <span>{conflictWith || t('general.shortcutConflictInternal', '内部冲突')}</span>
+        <span>{conflictWith || t('general.shortcutConflictInternal', 'Internal Conflict: duplicate with other plugin shortcut')}</span>
       </span>
     );
   }
 
   if (isExternal) {
     return (
-      <span className="hotkey-badge badge-danger" title={conflictWith || t('general.shortcutConflictExternal', '已被系统或其他软件占用')}>
+      <span className="hotkey-badge badge-danger" title={conflictWith || t('general.shortcutConflictExternal', 'External Conflict: occupied by system or 3rd-party app')}>
         <AlertOctagon size={11} />
-        <span>{conflictWith || t('general.shortcutConflictExternal', '已被外部软件占用')}</span>
+        <span>{conflictWith || t('general.shortcutConflictExternal', 'External Conflict: occupied by system or 3rd-party app')}</span>
       </span>
     );
   }
 
   if (isActive) {
     return (
-      <span className="hotkey-badge badge-active" title="快捷键已成功注册并全局生效">
+      <span className="hotkey-badge badge-active" title={t('components.hotkeyActiveTip', 'Hotkey registered and active globally')}>
         <CheckCircle2 size={11} />
-        <span>{t('general.shortcutActive', '正常生效')}</span>
+        <span>{t('general.shortcutActive', 'Active')}</span>
       </span>
     );
   }

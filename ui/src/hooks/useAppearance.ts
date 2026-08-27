@@ -35,11 +35,23 @@ export function useAppearance() {
       if (preference === 'system') applyTheme(preference);
     };
 
+    const syncLanguage = (lang?: unknown) => {
+      if (typeof lang !== 'string' || !lang) return;
+      const targetLang = lang === 'auto'
+        ? (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en')
+        : (lang.startsWith('zh') ? 'zh' : 'en');
+      if (i18n.language !== targetLang) {
+        void i18n.changeLanguage(targetLang);
+      }
+    };
+
     try {
       const storedAccent = localStorage.getItem('easytools:accent-color');
       if (storedAccent) applyAccent(storedAccent);
       const storedFont = localStorage.getItem('easytools:font-family');
       if (storedFont) applyFontFamily(storedFont);
+      const storedLang = localStorage.getItem('easytools:language');
+      if (storedLang) syncLanguage(storedLang);
     } catch (e) {
       void e;
     }
@@ -53,6 +65,9 @@ export function useAppearance() {
       }
       if (e.key === 'easytools:font-family' && e.newValue) {
         applyFontFamily(e.newValue);
+      }
+      if (e.key === 'easytools:language' && e.newValue) {
+        syncLanguage(e.newValue);
       }
     };
     const onAccentChanged = (e: Event) => {
@@ -70,11 +85,16 @@ export function useAppearance() {
       const newFont = (e as CustomEvent<string>).detail;
       if (newFont) applyFontFamily(newFont);
     };
+    const onLanguageChanged = (e: Event) => {
+      const newLang = (e as CustomEvent<string>).detail;
+      if (newLang) syncLanguage(newLang);
+    };
 
     window.addEventListener('storage', onStorage);
     window.addEventListener('easytools:accent-changed', onAccentChanged);
     window.addEventListener('easytools:theme-changed', onThemeChanged);
     window.addEventListener('easytools:font-changed', onFontChanged);
+    window.addEventListener('easytools:language-changed', onLanguageChanged);
 
     void bridgeRequest<{ theme?: unknown; language?: unknown; accentColor?: unknown; fontFamily?: unknown }>('general.getSettings')
       .then((settings) => {
@@ -89,10 +109,7 @@ export function useAppearance() {
         if (typeof settings.fontFamily === 'string' && settings.fontFamily) {
           applyFontFamily(settings.fontFamily);
         }
-        if (typeof settings.language === 'string' && settings.language !== 'auto' &&
-            i18n.language !== settings.language) {
-          void i18n.changeLanguage(settings.language);
-        }
+        syncLanguage(settings.language);
       })
       .catch(() => {
         // System appearance is already applied as a resilient fallback.
@@ -105,6 +122,7 @@ export function useAppearance() {
       window.removeEventListener('easytools:accent-changed', onAccentChanged);
       window.removeEventListener('easytools:theme-changed', onThemeChanged);
       window.removeEventListener('easytools:font-changed', onFontChanged);
+      window.removeEventListener('easytools:language-changed', onLanguageChanged);
     };
   }, [i18n]);
 }

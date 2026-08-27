@@ -8,22 +8,23 @@ export type TriggerState = 'default' | 'enabled' | 'disabled';
 export interface TriggerItemDef {
   key: string;
   name: string;
+  nameKey?: string;
   category: 'mouse' | 'edge';
   iconType: 'rclick' | 'mclick' | 'lclick' | 'xbutton1' | 'xbutton2' | 'edge_slide' | 'edge_wheel' | 'edge_rclick' | 'edge_mclick' | 'edge_lclick';
 }
 
 export const TRIGGER_ITEM_DEFINITIONS: TriggerItemDef[] = [
-  { key: 'right', name: '鼠标右键', category: 'mouse', iconType: 'rclick' },
-  { key: 'middle', name: '鼠标中键', category: 'mouse', iconType: 'mclick' },
-  { key: 'xbutton1', name: '鼠标侧键1', category: 'mouse', iconType: 'xbutton1' },
-  { key: 'xbutton2', name: '鼠标侧键2', category: 'mouse', iconType: 'xbutton2' },
-  { key: 'left', name: '鼠标左键', category: 'mouse', iconType: 'lclick' },
-  { key: 'edge_top_slide', name: '屏幕上边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
-  { key: 'edge_bottom_slide', name: '屏幕底边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
-  { key: 'edge_left_slide', name: '屏幕左边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
-  { key: 'edge_right_slide', name: '屏幕右边缘 + 鼠标滑动', category: 'edge', iconType: 'edge_slide' },
-  { key: 'edge_top_wheel', name: '屏幕上边缘 + 滚轮', category: 'edge', iconType: 'edge_wheel' },
-  { key: 'edge_bottom_wheel', name: '屏幕底边缘 + 滚轮', category: 'edge', iconType: 'edge_wheel' },
+  { key: 'right', name: 'Right Mouse Button', nameKey: 'gesture.triggerRightMouse', category: 'mouse', iconType: 'rclick' },
+  { key: 'middle', name: 'Middle Mouse Button', nameKey: 'gesture.triggerMiddleMouse', category: 'mouse', iconType: 'mclick' },
+  { key: 'xbutton1', name: 'Mouse Side Button 1', category: 'mouse', iconType: 'xbutton1' },
+  { key: 'xbutton2', name: 'Mouse Side Button 2', category: 'mouse', iconType: 'xbutton2' },
+  { key: 'left', name: 'Left Mouse Button', nameKey: 'gesture.triggerLeftMouse', category: 'mouse', iconType: 'lclick' },
+  { key: 'edge_top_slide', name: 'Top Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeTopSlide', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_bottom_slide', name: 'Bottom Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeBottomSlide', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_left_slide', name: 'Left Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeLeftSlide', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_right_slide', name: 'Right Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeRightSlide', category: 'edge', iconType: 'edge_slide' },
+  { key: 'edge_top_wheel', name: 'Top Screen Edge + Wheel', nameKey: 'gesture.triggerEdgeTopWheel', category: 'edge', iconType: 'edge_wheel' },
+  { key: 'edge_bottom_wheel', name: 'Bottom Screen Edge + Wheel', nameKey: 'gesture.triggerEdgeBottomWheel', category: 'edge', iconType: 'edge_wheel' },
 ];
 
 export interface GestureMapping {
@@ -212,19 +213,19 @@ export function codeToArrows(code: string): string {
   const parsed = parseGestureCode(code);
   let prefix = '';
 
-  if (parsed.edge === 'top') prefix += '[上边缘] ';
-  else if (parsed.edge === 'bottom') prefix += '[底边缘] ';
-  else if (parsed.edge === 'left') prefix += '[左边缘] ';
-  else if (parsed.edge === 'right') prefix += '[右边缘] ';
+  if (parsed.edge === 'top') prefix += '[Top Edge] ';
+  else if (parsed.edge === 'bottom') prefix += '[Bottom Edge] ';
+  else if (parsed.edge === 'left') prefix += '[Left Edge] ';
+  else if (parsed.edge === 'right') prefix += '[Right Edge] ';
 
   if (parsed.hasCtrl) prefix += 'Ctrl+';
   if (parsed.hasAlt) prefix += 'Alt+';
   if (parsed.hasShift) prefix += 'Shift+';
 
-  if (parsed.triggerButton === 'middle') prefix += '[中键] ';
-  else if (parsed.triggerButton === 'x1') prefix += '[侧键1] ';
-  else if (parsed.triggerButton === 'x2') prefix += '[侧键2] ';
-  else if (parsed.triggerButton === 'left') prefix += '[左键] ';
+  if (parsed.triggerButton === 'middle') prefix += '[Middle] ';
+  else if (parsed.triggerButton === 'x1') prefix += '[X1] ';
+  else if (parsed.triggerButton === 'x2') prefix += '[X2] ';
+  else if (parsed.triggerButton === 'left') prefix += '[Left] ';
 
   const bareCode = parsed.bareCode;
   if (!bareCode) return prefix.trim();
@@ -235,7 +236,6 @@ export function codeToArrows(code: string): string {
   if (CODE_TO_ARROWS[bareCode]) {
     return prefix + CODE_TO_ARROWS[bareCode];
   }
-  // 逐字符解析 (如 "DR" -> "↓ →")
   const chars = bareCode.split('');
   if (chars.length > 0 && chars.every((c) => CODE_TO_ARROWS[c])) {
     return prefix + chars.map((c) => CODE_TO_ARROWS[c]).join(' ');

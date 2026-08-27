@@ -548,6 +548,10 @@ textarea,
   font-weight: var(--font-semibold);
 }
 
+code, kbd, samp, pre, tt, var {
+  font-family: var(--font-mono);
+}
+
 
 /* ── 界面字体预设体系 (World-Class Dynamic Font Preset Matrix) ─────────────── */
 

@@ -16,7 +16,7 @@ class EASYCORE_API ShellContextMenuService final {
 public:
     static ShellContextMenuService& instance();
 
-    bool showAsync(std::wstring path);
+    bool showAsync(std::wstring path, int screenX = -1, int screenY = -1);
     void shutdown();
 
 private:
@@ -25,7 +25,7 @@ private:
     ShellContextMenuService(const ShellContextMenuService&) = delete;
     ShellContextMenuService& operator=(const ShellContextMenuService&) = delete;
 
-    void run(std::wstring path, std::stop_token stop);
+    void run(std::wstring path, int screenX, int screenY, std::stop_token stop);
 
     std::mutex m_mutex;
     std::jthread m_worker;

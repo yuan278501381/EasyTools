@@ -83,11 +83,11 @@ describe('VirtualSearchResults', () => {
 
     expect(view.getByText('report.pdf')).not.toBeNull();
     expect(view.getByText('PDF')).not.toBeNull();
-    expect(view.getByTitle('所属文件夹：Project')).not.toBeNull();
+    expect(view.getByTitle('Folder: Project')).not.toBeNull();
     expect(view.getByTitle(item.path)).not.toBeNull();
-    expect(view.getByTitle('大小').textContent).toBe('2.0 KB');
-    expect(view.getByTitle('修改时间').textContent).toMatch(/^修改\d{4}-\d{2}-\d{2}/);
-    expect(view.getByTitle('创建时间').textContent).toMatch(/^创建\d{4}-\d{2}-\d{2}/);
+    expect(view.getByTitle('Size').textContent).toBe('2.0 KB');
+    expect(view.getByTitle('Modified').textContent).toMatch(/^Mod\d{4}-\d{2}-\d{2}/);
+    expect(view.getByTitle('Created').textContent).toMatch(/^Cre\d{4}-\d{2}-\d{2}/);
   });
 
   it('keeps type and parent properties independent from name and full path', () => {
@@ -107,7 +107,7 @@ describe('VirtualSearchResults', () => {
     const view = render(<VirtualSearchResults {...props([item])} columns={independentColumns} />);
 
     expect(view.getByText('PDF')).not.toBeNull();
-    expect(view.getByTitle('所属文件夹：Project')).not.toBeNull();
+    expect(view.getByTitle('Folder: Project')).not.toBeNull();
     expect(view.queryByTitle(item.path)).toBeNull();
   });
 

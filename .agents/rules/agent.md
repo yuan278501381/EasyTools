@@ -34,3 +34,8 @@ trigger: always_on
 9、零 Emoji 矢量化与统一设计语言红线：
    - 严禁在 UI 状态徽章、提示标签及正文中内嵌 Unicode 彩色 Emoji 字符。
    - 全面采用 Lucide 高精度矢量 SVG 图标与玻璃拟态胶囊微徽章，保障世界级桌面软件原生设计质感。
+10、Git 分支管理与非快进显式合并发版标准（GitFlowReleasePipeline）：
+   - `dev` 分支（日常研发试验田）：保留所有细粒度提交，发版前在 `dev` 上提交版本升级与发布说明（`chore(release): 升级项目版本至 vX.Y.Z 并同步官方发布日志与版本元数据`）。
+   - `main` 分支（生产发版主线）：严禁使用 Fast-Forward 快进合并，必须执行显式非快进合并 `git merge --no-ff dev -m "merge(dev): 合并 dev 分支至 main 分支，发布 vX.Y.Z 正式版"`，确保在 Git Graph 中呈现出独立的开发支线气泡与顶部的双圆环汇聚节点。
+   - 标签与发版：在该 `merge(dev)` 节点上打 Tag `vX.Y.Z` 并调用 `publish_release.ps1` 发布 GitHub Release。
+   - 发版后分支：基于最新的 `main` 检出下一阶段的 `feature/*` 特性分支开启新工作。

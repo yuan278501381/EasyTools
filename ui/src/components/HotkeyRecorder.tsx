@@ -222,8 +222,8 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
     );
   };
 
-  const defaultPlaceholder = placeholder ?? t('capture.pressToBind', '点击设置快捷键');
-  const recordingPlaceholder = t('hotkey.pressKeys', '按下快捷键... (Esc 取消)');
+  const defaultPlaceholder = placeholder ?? t('capture.pressToBind', 'Press any key combination...');
+  const recordingPlaceholder = t('hotkey.pressKeys', 'Press a key combination...');
 
   return (
     <div ref={containerRef} className="hotkey-recorder-wrap">
@@ -267,8 +267,8 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({ value, onChange, place
           type="button"
           className="hotkey-recorder__clear"
           onClick={() => onChange('')}
-          aria-label={t('hotkey.clearBinding', '清除快捷键')}
-          title={t('hotkey.clearBinding', '清除快捷键')}
+          aria-label={t('hotkey.clearBinding', 'Clear hotkey binding')}
+          title={t('hotkey.clearBinding', 'Clear hotkey binding')}
         >
           <X size={12} strokeWidth={2.5} />
         </button>

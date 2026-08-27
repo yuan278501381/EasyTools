@@ -29,9 +29,11 @@ public:
     bool initialize() override {
         LOG_INFO("初始化文件对话框增强插件 (DialogEnhancerPlugin)");
 
-        if (!DialogEngine::instance().start()) {
-            LOG_ERROR("启动 DialogEngine 失败");
-            return false;
+        if (PathMemoryManager::instance().isEnabled()) {
+            if (!DialogEngine::instance().start()) {
+                LOG_ERROR("启动 DialogEngine 失败");
+                return false;
+            }
         }
 
         registerIpcHandlers();
@@ -61,7 +63,15 @@ private:
 
         bridge.registerHandler("dialog.updateConfig", [](const json& params) -> json {
             auto& mgr = PathMemoryManager::instance();
-            if (params.contains("enabled")) mgr.setEnabled(params["enabled"].get<bool>());
+            if (params.contains("enabled")) {
+                bool enabled = params["enabled"].get<bool>();
+                mgr.setEnabled(enabled);
+                if (enabled) {
+                    DialogEngine::instance().start();
+                } else {
+                    DialogEngine::instance().stop();
+                }
+            }
             if (params.contains("perAppMemory")) mgr.setPerAppMemoryEnabled(params["perAppMemory"].get<bool>());
             if (params.contains("quickSwitch")) mgr.setQuickSwitchEnabled(params["quickSwitch"].get<bool>());
             if (params.contains("ribbonEnabled")) mgr.setRibbonEnabled(params["ribbonEnabled"].get<bool>());
