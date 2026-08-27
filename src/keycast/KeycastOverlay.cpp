@@ -408,8 +408,11 @@ bool KeycastOverlay::createResources() {
         m_plusTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
-    // 动态画刷体系 (智能双层微透与反差保护)
-    auto bgColor = parseColor(settings.backgroundColor, 0.90f);
+    // 动态画刷体系 (100% 深度支持所有自定义配置与智能自适应)
+    auto bgColor = (settings.backgroundColor == "auto") ? 
+        D2D1::ColorF(0.15f, 0.15f, 0.18f, 0.90f) : 
+        parseColor(settings.backgroundColor, 0.90f);
+
     float luminance = 0.299f * bgColor.r + 0.587f * bgColor.g + 0.114f * bgColor.b;
     bool isDarkBg = (luminance < 0.55f);
 
@@ -424,29 +427,46 @@ bool KeycastOverlay::createResources() {
     D2D1_COLOR_F badgeBg;
     D2D1_COLOR_F badgeBorder;
 
+    // 1. 修饰键底座颜色
     D2D1_COLOR_F baseKeycapColor = parseColor(settings.modifierKeycapColor, 1.0f);
+    keycapBg = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
 
+    // 2. 主按键文字颜色 (优先使用用户自定义配置，auto 时自适应黑白)
+    if (settings.textColor == "auto") {
+        textColor = isDarkBg ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f) : D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.98f);
+    } else {
+        textColor = parseColor(settings.textColor, 0.98f);
+    }
+
+    // 3. 修饰键文字/图标颜色 (优先使用用户自定义配置，auto 时根据底座复合明暗智能自适应)
+    if (settings.modifierTextColor == "auto") {
+        float keycapAlpha = (std::max)(0.0f, (std::min)(1.0f, static_cast<float>(settings.modifierKeycapOpacity) / 100.0f));
+        float effR = keycapAlpha * baseKeycapColor.r + (1.0f - keycapAlpha) * bgColor.r;
+        float effG = keycapAlpha * baseKeycapColor.g + (1.0f - keycapAlpha) * bgColor.g;
+        float effB = keycapAlpha * baseKeycapColor.b + (1.0f - keycapAlpha) * bgColor.b;
+        float effLum = 0.2126f * effR + 0.7152f * effG + 0.0722f * effB;
+        if (effLum >= 0.36f) {
+            // 浅色/微晶亮色底座：使用高对比深暗色文字与矢量图标
+            modifierTextColor = D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.95f);
+        } else {
+            // 深暗色底座：使用纯白高亮文字与矢量图标
+            modifierTextColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f);
+        }
+    } else {
+        modifierTextColor = parseColor(settings.modifierTextColor, 0.98f);
+    }
+
+    // 4. 连接符 '+'、功能键与边框
     if (isDarkBg) {
-        textColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f);         // 主键: 纯白高亮悬浮
-        // 修饰键内部文字/图标: 优雅深暗色 (高对比键帽反差)
-        modifierTextColor = (settings.modifierTextColor == "auto") ? 
-            D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.95f) : 
-            parseColor(settings.modifierTextColor, 0.98f);
-        plusText = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.40f);          // 加号: 浅灰半透
-        keycapBg = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
-        keycapBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f);       // 修饰键框: 细腻微亮边
+        plusText = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.40f);
+        keycapBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f);
         funcKeyBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f);
         funcKeyBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f);
         badgeBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
         badgeBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f);
-        borderColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f);       // 外壳胶囊暗调微边框
+        borderColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f);
     } else {
-        textColor = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.98f);
-        modifierTextColor = (settings.modifierTextColor == "auto") ?
-            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f) :
-            parseColor(settings.modifierTextColor, 0.98f);
         plusText = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.45f);
-        keycapBg = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
         keycapBorder = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 0.35f);
         funcKeyBg = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
         funcKeyBorder = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.14f);

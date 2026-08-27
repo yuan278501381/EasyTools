@@ -540,8 +540,8 @@ export const KeycastPage: FC = () => {
                 min={0}
                 max={100}
                 step={2}
-                value={settings.modifierKeycapOpacity ?? 22}
-                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 22)))}
+                value={settings.modifierKeycapOpacity ?? 65}
+                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 65)))}
                 aria-label={t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}
               />
             </div>
