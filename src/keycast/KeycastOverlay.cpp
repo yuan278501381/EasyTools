@@ -119,7 +119,7 @@ bool KeycastOverlay::init() {
         m_settings.autoBypassFullscreen = cfg.get<bool>("/keycast/autoBypassFullscreen", true);
         m_settings.showKeyboard = cfg.get<bool>("/keycast/showKeyboard", true);
         m_settings.filterMode = cfg.get<std::string>("/keycast/filterMode", "smart_shortcuts");
-        m_settings.includeFunctionKeys = cfg.get<bool>("/keycast/includeFunctionKeys", true);
+        m_settings.includeFunctionKeys = cfg.get<bool>("/keycast/includeFunctionKeys", false);
         m_settings.position = cfg.get<std::string>("/keycast/position", "top_left");
         m_settings.mergeRecentKeys = cfg.get<bool>("/keycast/mergeRecentKeys", true);
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);

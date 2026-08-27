@@ -5283,7 +5283,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
 TEST(KeycastSmartFilterAndModifierStateMachineTest, ComprehensiveBehavior) {
     auto& overlay = easy::keycast::KeycastOverlay::instance();
     auto s = overlay.getSettings();
-    EXPECT_TRUE(s.includeFunctionKeys);
+    EXPECT_FALSE(s.includeFunctionKeys);
 
     // 1. 配置更新与持久化测试
     s.includeFunctionKeys = false;

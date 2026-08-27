@@ -122,7 +122,7 @@ LRESULT CALLBACK KeyboardHook::lowLevelKeyboardProc(int nCode, WPARAM wParam, LP
                         filterMode = onlyShortcuts ? "smart_shortcuts" : "all_keys";
                     }
                     const bool includeFunctionKeys = easy::core::ConfigManager::instance().get<bool>(
-                        "/keycast/includeFunctionKeys", true);
+                        "/keycast/includeFunctionKeys", false);
 
                     DWORD vk = data->vkCode;
                     bool isMod = (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL ||

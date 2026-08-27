@@ -18,7 +18,7 @@ struct KeycastSettings {
     bool autoBypassFullscreen = true;
     bool showKeyboard = true;
     std::string filterMode = "smart_shortcuts";
-    bool includeFunctionKeys = true; // "smart_shortcuts", "with_single_modifiers", "all_keys"
+    bool includeFunctionKeys = false; // "smart_shortcuts", "with_single_modifiers", "all_keys"
     std::string position = "top_left";         // "top_left", "top_right", "bottom_left", "bottom_center", "bottom_right"
     bool mergeRecentKeys = true;
     int mergeTimeoutMs = 1200; // 同排连击合并间隔 (ms)
