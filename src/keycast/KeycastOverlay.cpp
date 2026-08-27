@@ -38,34 +38,34 @@ inline bool isModifierKey(const std::string& token) {
 }
 
 struct KeycastDynamicMetrics {
-    float fontSize;       // 实际生效的字体尺寸 (DPI 缩放后)
+    float fontSize;       // 实际生效的字体基准尺寸
     float charWidth;      // 单字符估算宽度
-    float capHeight;      // 键帽高度 = fontSize * 1.32f (~23px)
-    float capRadius;      // 键帽圆角 = capHeight * 0.24f (~5.5px)
-    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.65f (~35px)
-    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.28f (~10px)
-    float paddingX;       // 胶囊左右内边距 = fontSize * 0.45f
-    float winWidth;       // Windows 键宽度 = fontSize * 1.85f (~32px, 长宽比 1.4:1)
-    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.48f (~11px)
-    float plusWidth;      // 加号总占用宽度 = fontSize * 0.48f
-    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.25f
-    float borderWidth;    // 动态微边框 = max(1.0f * dpiScale, fontSize * 0.045f)
+    float capHeight;      // 键帽底座高度 = fontSize * 1.40f (~20.5px)
+    float capRadius;      // 键帽圆角 = 5.2f * dpiScale (~5.2px)
+    float capsuleHeight;  // 外层胶囊高度 = capHeight + 8.8f * dpiScale (~29px~32px)
+    float capsuleRadius;  // 外层胶囊圆角 = 8.5f * dpiScale (~8.5px)
+    float paddingX;       // 胶囊左右内边距 = fontSize * 0.42f (~6.0px)
+    float winWidth;       // Windows 键宽度 = fontSize * 2.10f (~30.5px, 宽高比 1.48:1)
+    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.46f (~9.5px, 充足呼吸留白)
+    float plusWidth;      // 加号总占用宽度 = fontSize * 0.42f
+    float rowStep;        // 多行垂直步进 = capsuleHeight + 6.0f * dpiScale
+    float borderWidth;    // 动态微边框 = 1.0f * dpiScale
 };
 
 inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
     KeycastDynamicMetrics m;
-    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 0.88f) * dpiScale;
+    m.fontSize = (std::max)(11.0f, static_cast<float>(baseFontSize) * 0.72f) * dpiScale;
     m.charWidth = m.fontSize * 0.58f;
-    m.capHeight = m.fontSize * 1.32f;
-    m.capRadius = m.capHeight * 0.24f;
-    m.capsuleHeight = m.capHeight + m.fontSize * 0.65f;
-    m.capsuleRadius = m.capsuleHeight * 0.28f;
-    m.paddingX = m.fontSize * 0.45f;
-    m.winWidth = m.fontSize * 1.85f;
-    m.logoSize = m.capHeight * 0.48f;
-    m.plusWidth = m.fontSize * 0.48f;
-    m.rowStep = m.capsuleHeight + m.fontSize * 0.25f;
-    m.borderWidth = (std::max)(1.0f * dpiScale, m.fontSize * 0.045f);
+    m.capHeight = m.fontSize * 1.40f;
+    m.capRadius = 5.2f * dpiScale;
+    m.capsuleHeight = m.capHeight + 8.8f * dpiScale;
+    m.capsuleRadius = 8.5f * dpiScale;
+    m.paddingX = m.fontSize * 0.42f;
+    m.winWidth = m.fontSize * 2.10f;
+    m.logoSize = m.capHeight * 0.46f;
+    m.plusWidth = m.fontSize * 0.42f;
+    m.rowStep = m.capsuleHeight + 6.0f * dpiScale;
+    m.borderWidth = (std::max)(1.0f * dpiScale, 1.0f);
     return m;
 }
 }
@@ -124,7 +124,7 @@ bool KeycastOverlay::init() {
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
-        m_settings.modifierKeycapOpacity = cfg.get<int>("/keycast/modifierKeycapOpacity", 48);
+        m_settings.modifierKeycapOpacity = cfg.get<int>("/keycast/modifierKeycapOpacity", 65);
         m_settings.modifierTextColor = cfg.get<std::string>("/keycast/modifierTextColor", "auto");
         m_settings.firstKeyAnim = cfg.get<std::string>("/keycast/firstKeyAnim", "slide");
         m_settings.subsequentKeyAnim = cfg.get<std::string>("/keycast/subsequentKeyAnim", "fade");
@@ -496,7 +496,7 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
         } else if (isModifier(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.72f);
+            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.82f);
             totalW += btnW;
         } else if (isSpecialKey(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
@@ -507,7 +507,7 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
         } else {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.fontSize * 0.85f, textW + dyn.fontSize * 0.40f);
+            float btnW = (std::max)(dyn.fontSize * 0.85f, textW + dyn.fontSize * 0.38f);
             totalW += btnW;
         }
         if (i + 1 < item.tokens.size()) {
@@ -876,7 +876,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.72f);
+            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.82f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 

@@ -27,7 +27,7 @@ struct KeycastSettings {
     std::string textColor = "#ffffff";
     std::string backgroundColor = "#1c1c22";
     std::string modifierKeycapColor = "auto"; // "auto" (跟随品牌色) 或 HEX 颜色
-    int modifierKeycapOpacity = 48;            // 0~100 修饰键底色不透明度 (默认 48% 高雅微晶)
+    int modifierKeycapOpacity = 65;            // 0~100 修饰键底色不透明度 (默认 48% 高雅微晶)
     std::string modifierTextColor = "auto";    // "auto" (智能根据底色明暗自适应黑白) 或自定义 HEX 颜色 (默认白)
 
     // ── 物理微动效自由配置体系 (World-Class Motion Presets & Custom Combos) ──
