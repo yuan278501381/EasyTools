@@ -115,10 +115,10 @@ Name: "{group}\{cm:UninstallProgram,EasyTools}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\EasyTools"; Filename: "{app}\EasyTools.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: not ServiceExists
-Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: ServiceExists
-Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"
+Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: IsSearchServiceInstallNeeded
+Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: IsSearchServiceConfigNeeded
+Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated; Check: IsSearchComponentSelected
+Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"; Check: IsSearchComponentSelected
 Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -247,6 +247,20 @@ begin
   Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\EasyTools_SearchService');
 end;
 
+function IsSearchComponentSelected(): Boolean;
+begin
+  Result := WizardIsComponentSelected('search');
+end;
+
+function IsSearchServiceInstallNeeded(): Boolean;
+begin
+  Result := IsSearchComponentSelected() and (not ServiceExists());
+end;
+
+function IsSearchServiceConfigNeeded(): Boolean;
+begin
+  Result := IsSearchComponentSelected() and ServiceExists();
+end;
 function AutoStartTaskExists(): Boolean;
 var
   ResultCode: Integer;
@@ -282,10 +296,57 @@ begin
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "EasyTools_Autostart" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+procedure SyncInitialModuleConfig();
+var
+  AppDir, InitialModulesPath: String;
+  SearchSel, CaptureSel, GestureSel, KeycastSel, DialogSel, SpotlightSel: Boolean;
+  SearchStr, CaptureStr, GestureStr, KeycastStr, DialogStr, SpotlightStr: String;
+  JsonContent: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  InitialModulesPath := AppDir + '\initial_modules.json';
+
+  SearchSel := WizardIsComponentSelected('search');
+  CaptureSel := WizardIsComponentSelected('capture');
+  GestureSel := WizardIsComponentSelected('gesture');
+  KeycastSel := WizardIsComponentSelected('keycast');
+  DialogSel := WizardIsComponentSelected('dialogenhancer');
+  SpotlightSel := WizardIsComponentSelected('spotlight');
+
+  if SearchSel then SearchStr := 'true' else SearchStr := 'false';
+  if CaptureSel then CaptureStr := 'true' else CaptureStr := 'false';
+  if GestureSel then GestureStr := 'true' else GestureStr := 'false';
+  if KeycastSel then KeycastStr := 'true' else KeycastStr := 'false';
+  if DialogSel then DialogStr := 'true' else DialogStr := 'false';
+  if SpotlightSel then SpotlightStr := 'true' else SpotlightStr := 'false';
+
+  JsonContent :=
+    '{' + #13#10 +
+    '  "plugins": {' + #13#10 +
+    '    "search": { "enabled": ' + SearchStr + ' },' + #13#10 +
+    '    "capture": { "enabled": ' + CaptureStr + ' },' + #13#10 +
+    '    "gesture": { "enabled": ' + GestureStr + ' },' + #13#10 +
+    '    "keycast": { "enabled": ' + KeycastStr + ' },' + #13#10 +
+    '    "dialogenhancer": { "enabled": ' + DialogStr + ' }' + #13#10 +
+    '  },' + #13#10 +
+    '  "search": { "enabled": ' + SearchStr + ' },' + #13#10 +
+    '  "gesture": { "enabled": ' + GestureStr + ' },' + #13#10 +
+    '  "dialog": { "enabled": ' + DialogStr + ' },' + #13#10 +
+    '  "spotlight": { "enabled": ' + SpotlightStr + ' },' + #13#10 +
+    '  "general": {' + #13#10 +
+    '    "keycastEnabled": ' + KeycastStr + '' + #13#10 +
+    '  }' + #13#10 +
+    '}';
+
+  SaveStringToFile(InitialModulesPath, JsonContent, False);
+  Log('SyncInitialModuleConfig: Wrote initial_modules.json -> ' + InitialModulesPath);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    SyncInitialModuleConfig();
     if WizardIsTaskSelected('autostart') then
       CreateAutoStartTask()
     else
