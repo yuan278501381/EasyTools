@@ -1075,11 +1075,8 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     // 用户主动启动时预热设置页；开机静默驻留不额外预热完整设置页。
     if (preloadSettings) preloadSettingsWindow(GetModuleHandleW(nullptr));
 
-    // 全局搜索窗口默认按需创建以避免常驻 Chromium 进程；需要极致首开速度的用户
-    // 可显式开启预热。隐藏后 SearchWindow 会请求 WebView2 挂起，释放渲染资源。
-    if (easy::core::ConfigManager::instance().get<bool>("/search/preloadWindow", false)) {
-        easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
-    }
+    // 全局搜索窗口与托盘均为核心高频入口：启动后立即在隐藏窗口中预热 WebView2，确保 0ms 秒开
+    easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
 
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);

@@ -370,10 +370,11 @@ void SearchWindow::initializeWebView2() {
                             std::wstring targetUrl = baseUrl + L"#/search";
                             m_webView->Navigate(targetUrl.c_str());
 
-                            // 导航完成后自动聚焦输入框
+                            // 导航完成后标记就绪并自动聚焦输入框
                             m_webView->add_NavigationCompleted(
                                 Callback<ICoreWebView2NavigationCompletedEventHandler>(
                                     [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                                        m_webViewReady = true;
                                         if (m_controller) {
                                             m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
                                         }
@@ -511,6 +512,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         case WM_SEARCH_VERIFY_DEACTIVATED: {
             if (!inst.m_visible.load()) break;
             if (inst.isMenuActive()) break;
+            if (!inst.m_webViewReady.load()) break; // 渲染就绪前严禁失焦误杀
             const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
             if (elapsed < 350) {
                 // 窗口刚打开 350ms 内不因初始焦点抖动或创建子窗口而意外关闭
