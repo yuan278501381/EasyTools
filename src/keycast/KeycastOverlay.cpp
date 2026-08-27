@@ -1067,7 +1067,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
 void KeycastOverlay::render() {
     if (!m_hwnd || !m_renderTarget || !m_memoryDC) return;
 
-    // 动态检测全局品牌色/强调色实时变更 (0ms 极速响应)
+    // 动态检测全局主题色/强调色实时变更 (0ms 极速响应)
     std::string curAccent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
     if (m_lastAccentColor != curAccent) {
         m_lastAccentColor = curAccent;

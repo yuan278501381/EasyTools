@@ -4822,7 +4822,7 @@ TEST(SpotlightOverlayTest, ColorParsingAndAutoAccent) {
     EXPECT_NEAR(c2.g, 1.0f, 0.01f);
     EXPECT_NEAR(c2.a, 0.5f, 0.01f);
 
-    // 2. auto 与品牌色联动
+    // 2. auto 与主题色联动
     auto temp = std::filesystem::temp_directory_path() /
         (L"EasyTools_SpotlightTest_" + std::to_wstring(GetCurrentProcessId()));
     std::error_code ec;
@@ -5270,7 +5270,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     overlay.setAutoBypassFullscreen(true);
     EXPECT_TRUE(overlay.autoBypassFullscreen());
 
-    // 验证全局主题与品牌色变更响应
+    // 验证全局主题与主题色变更响应
     overlay.onThemeChanged();
 
     overlay.resetDefaults();

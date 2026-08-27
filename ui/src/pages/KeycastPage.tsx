@@ -115,7 +115,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           onClick={() => onChange('auto')}
         >
           <Sparkles size={13} />
-          <span>{t('keycast.followBrandAccent', '跟随品牌色')}</span>
+          <span>{t('keycast.followBrandAccent', '跟随主题色')}</span>
           <span className="keycast-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
         </button>
 
@@ -143,10 +143,10 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
                 type="button"
                 className="keycast-page__restore-capsule"
                 onClick={() => onChange('auto')}
-                title={t('keycast.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 品牌主色')}
+                title={t('keycast.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 主题色')}
               >
                 <RotateCcw size={11} />
-                <span>{t('keycast.restoreFollowBrand', '恢复跟随品牌色')}</span>
+                <span>{t('keycast.restoreFollowBrand', '恢复跟随主题色')}</span>
               </button>
             )}
           </div>
@@ -542,7 +542,7 @@ export const KeycastPage: FC = () => {
           {/* 修饰键底色 (双态胶囊) */}
           <ColorSegmentControl
             label={t('keycast.modifierKeycapColor', '修饰键底色')}
-            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随品牌色）。')}
+            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随主题色）。')}
             value={settings.modifierKeycapColor || 'auto'}
             defaultCustomFallback="#3b82f6"
             brandAccentHex={currentBrandAccentHex}

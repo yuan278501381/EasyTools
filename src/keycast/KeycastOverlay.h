@@ -27,7 +27,7 @@ struct KeycastSettings {
     int opacity = 100;                         // 20~100 按键回显整体不透明度 (默认 100% 纯粹清晰)
     std::string textColor = "#ffffff";
     std::string backgroundColor = "#1c1c22";
-    std::string modifierKeycapColor = "auto"; // "auto" (跟随品牌色) 或 HEX 颜色
+    std::string modifierKeycapColor = "auto"; // "auto" (跟随主题色) 或 HEX 颜色
     int modifierKeycapOpacity = 40;            // 0~100 修饰键底色不透明度 (默认 65% 高雅微晶)
     std::string modifierTextColor = "#000000"; // 默认纯黑实体文字与徽标，呈现顶级键帽反差质感
 
@@ -92,7 +92,7 @@ public:
     /// 颜色解析（支持 auto 与十六进制 HEX）
     D2D1_COLOR_F parseColor(const std::string& hex, float alpha = 1.0f) const;
 
-    /// 响应全局主题与品牌色实时变更
+    /// 响应全局主题与主题色实时变更
     void onThemeChanged();
 
     /// 胶囊项宽度测量

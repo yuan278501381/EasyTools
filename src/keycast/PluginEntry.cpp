@@ -28,7 +28,7 @@ public:
             KeycastOverlay::instance().pushKey(sequence);
         });
 
-        // 订阅全局主题与品牌色变更事件
+        // 订阅全局主题与主题色变更事件
         m_themeSubscription = easy::core::EventBus::instance().subscribe<easy::core::ThemeChangedEvent>([](const easy::core::ThemeChangedEvent&) {
             KeycastOverlay::instance().onThemeChanged();
         });
