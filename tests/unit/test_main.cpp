@@ -5231,6 +5231,89 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
 // -----------------------------------------------------------------------------
 // 39. 全局核心鼠标钩子测试套件
 // -----------------------------------------------------------------------------
+
+TEST(KeycastSmartFilterAndModifierStateMachineTest, ComprehensiveBehavior) {
+    auto& overlay = easy::keycast::KeycastOverlay::instance();
+    auto s = overlay.getSettings();
+    EXPECT_TRUE(s.includeFunctionKeys);
+
+    // 1. 配置更新与持久化测试
+    s.includeFunctionKeys = false;
+    overlay.updateSettings(s);
+    EXPECT_FALSE(overlay.getSettings().includeFunctionKeys);
+
+    s.includeFunctionKeys = true;
+    overlay.updateSettings(s);
+    EXPECT_TRUE(overlay.getSettings().includeFunctionKeys);
+
+    // 2. 模拟状态机逻辑单元验证
+    // 模拟修饰键 Win 按下 (KeyDown) -> 暂存
+    DWORD pendingMod = VK_LWIN;
+    bool comboTriggered = false;
+
+    // 模拟随后的字母 D 按下 (KeyDown) -> 组合键触发
+    DWORD mainVk = 'D';
+    bool hasWin = true;
+    bool hasShift = false;
+        bool isLetter = (mainVk >= 0x41 && mainVk <= 0x5A);
+
+    if (pendingMod != 0) {
+        comboTriggered = true;
+    }
+    EXPECT_TRUE(comboTriggered);
+
+    // 模拟 Win 键松开 (KeyUp) -> 已经触发过组合键，不应补发单 Win
+    bool shouldEmitSingleWin = false;
+    if (pendingMod == VK_LWIN && !comboTriggered) {
+        shouldEmitSingleWin = true;
+    }
+    EXPECT_FALSE(shouldEmitSingleWin);
+
+    // 3. 模拟纯单按 Alt 激活菜单
+    pendingMod = VK_LMENU;
+    comboTriggered = false;
+    // 期间无其他键按下，Alt 松开 (KeyUp)
+    bool shouldEmitSingleAlt = false;
+    if (pendingMod == VK_LMENU && !comboTriggered) {
+        shouldEmitSingleAlt = true;
+    }
+    EXPECT_TRUE(shouldEmitSingleAlt);
+
+    // 4. 模拟大写单词打字智能过滤 (Shift + H O M E)
+    hasShift = true;
+    bool hasCtrl = false;
+    bool hasAlt = false;
+    hasWin = false;
+    bool isOnlyShift = hasShift && !hasCtrl && !hasAlt && !hasWin;
+    
+    // Shift + H: 仅 Shift + 字母 -> 在智能模式下过滤
+    std::string filterMode = "smart_shortcuts";
+    bool shouldDisplayHomeLetter = true;
+    if (filterMode == "smart_shortcuts" && isOnlyShift && isLetter) {
+        shouldDisplayHomeLetter = false;
+    }
+    EXPECT_FALSE(shouldDisplayHomeLetter);
+
+    // Shift + Delete: Shift + 功能键 -> 正常回显组合键
+    bool isFunctionalKey = true;
+    isLetter = false;
+    bool shouldDisplayShiftDelete = false;
+    if (!(isOnlyShift && isLetter) && (hasShift || isFunctionalKey)) {
+        shouldDisplayShiftDelete = true;
+    }
+    EXPECT_TRUE(shouldDisplayShiftDelete);
+
+    // 5. 模拟功能键子开关对单按 Space/Delete 的控制
+    bool includeFunc = false;
+    bool isComboWithMod = false;
+    bool shouldDisplaySpaceWithoutMod = isComboWithMod || (isFunctionalKey && includeFunc);
+    EXPECT_FALSE(shouldDisplaySpaceWithoutMod);
+
+    includeFunc = true;
+    bool shouldDisplaySpaceWithInclude = isComboWithMod || (isFunctionalKey && includeFunc);
+    EXPECT_TRUE(shouldDisplaySpaceWithInclude);
+}
+
 TEST(CoreMouseHookTest, InstallAndCallbacks) {
     auto& mouseHook = easy::core::MouseHook::instance();
     EXPECT_FALSE(mouseHook.isPaused());

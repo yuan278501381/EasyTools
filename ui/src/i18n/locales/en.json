@@ -1054,6 +1054,8 @@
     "testKeycast": "Try Keycast Now",
     "saved": "Keycast settings saved",
     "saveFailed": "Failed to save keycast settings",
-    "resetSuccess": "Restored default keycast settings"
+    "resetSuccess": "Restored default keycast settings",
+    "includeFunctionKeys": "Include Standalone Functional Keys",
+    "includeFunctionKeysDesc": "Show standalone Space, Backspace, Delete, Enter, Tab, Arrow keys, and F1~F12; when disabled, only display them when combined with modifiers."
   }
 }

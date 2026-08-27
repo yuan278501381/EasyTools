@@ -29,6 +29,7 @@ interface KeycastSettings {
   autoBypassFullscreen: boolean;
   showKeyboard: boolean;
   filterMode: 'smart_shortcuts' | 'with_single_modifiers' | 'all_keys';
+  includeFunctionKeys: boolean;
   position: 'bottom_left' | 'bottom_center' | 'bottom_right' | 'top_left' | 'top_right';
   mergeRecentKeys: boolean;
   mergeTimeoutMs: number;
@@ -50,6 +51,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   autoBypassFullscreen: true,
   showKeyboard: true,
   filterMode: 'smart_shortcuts',
+  includeFunctionKeys: true,
   position: 'bottom_left',
   mergeRecentKeys: true,
   mergeTimeoutMs: 1200,

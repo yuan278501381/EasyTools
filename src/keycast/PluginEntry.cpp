@@ -41,6 +41,7 @@ public:
                 {"autoBypassFullscreen", s.autoBypassFullscreen},
                 {"showKeyboard", s.showKeyboard},
                 {"filterMode", s.filterMode},
+                {"includeFunctionKeys", s.includeFunctionKeys},
                 {"position", s.position},
                 {"mergeRecentKeys", s.mergeRecentKeys},
                 {"mergeTimeoutMs", s.mergeTimeoutMs},

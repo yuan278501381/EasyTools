@@ -1,4 +1,4 @@
-#ifndef EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
+﻿#ifndef EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
 #define EASYTOOLS_CORE_HOTKEY_KEYBOARDHOOK_H
 
 #include "core/utils/Export.h"
@@ -34,6 +34,8 @@ private:
     std::function<bool(DWORD, WPARAM)> m_keyInterceptor;
     std::function<void(DWORD, WPARAM)> m_activityCallback;
     mutable std::mutex m_callbackMutex;
+    DWORD m_pendingModifierVk = 0;
+    bool m_comboTriggered = false;
 };
 
 } // namespace easy::core
