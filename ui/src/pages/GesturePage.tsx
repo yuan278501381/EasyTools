@@ -831,7 +831,7 @@ export const GesturePage: FC = () => {
 
               {/* 实时平滑霓虹流光轨迹预览条 */}
               <div className="gesture-trail-preview-card">
-                <div className="gesture-trail-preview-label">轨迹流光渲染预览</div>
+                <div className="gesture-trail-preview-label">{t('gesture.trailPreview', 'Gesture Trail Glow Rendering Preview')}</div>
                 <svg className="gesture-trail-preview-svg" viewBox="0 0 400 50" preserveAspectRatio="none">
                   {trailOutlineWidth > 0 && (
                     <path
@@ -977,7 +977,7 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── WGestures 2 风格作用目标与手势管理 (Master-Detail) ─────── */}
-      <SettingGroup title="作用目标与手势配置" icon={<Hand size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('gesture.targetConfigTitle', 'Scope Targets & Gesture Configuration')} icon={<Hand size={20} strokeWidth={2.5} />}>
         <div className="gesture-master-detail-layout">
           {/* 左侧目标导航树 */}
           <ScopeTargetsSidebar
@@ -1014,7 +1014,7 @@ export const GesturePage: FC = () => {
                     onClick={() => handleToggleStrategy(2)}
                   >
                     <SlidersHorizontal size={13} />
-                    <span>自定义手势</span>
+                    <span>{t('gesture.customGestures', 'Custom Gestures')}</span>
                   </button>
                   <button
                     type="button"
@@ -1022,7 +1022,7 @@ export const GesturePage: FC = () => {
                     onClick={() => handleToggleStrategy(1)}
                   >
                     <ShieldAlert size={13} />
-                    <span>禁用手势 (免打扰)</span>
+                    <span>{t('gesture.disabledTarget', 'Disable Gestures (Do Not Disturb)')}</span>
                   </button>
                 </div>
               )}
@@ -1034,7 +1034,7 @@ export const GesturePage: FC = () => {
                 <div className="target-disabled-icon">
                   <ShieldAlert size={28} />
                 </div>
-                <span className="target-disabled-title">已在此目标中停用手势响应</span>
+                <span className="target-disabled-title">{t('gesture.targetDisabledNotice', 'Gestures are disabled for this target')}</span>
                 <p className="target-disabled-desc">
                   当该程序处于前台时，EasyTools 将自动放行全部鼠标操作，绝不拦截任何右键或中键事件，保障游戏与绘图无干扰。
                 </p>
@@ -1047,7 +1047,7 @@ export const GesturePage: FC = () => {
                 {/* ── 允许的触发方式 (极简单行药丸横向条) ── */}
                 <div className="trigger-strip-container">
                   <div className="trigger-strip-label">
-                    <span className="trigger-strip-title">触发方式</span>
+                    <span className="trigger-strip-title">{t('gesture.triggerModeStrip', 'Trigger Method')}</span>
                     <span className="trigger-strip-hint">
                       {selectedTarget.kind === 'global' ? '点击按键药丸快速启/禁' : '(覆盖目标)'}
                     </span>
@@ -1114,7 +1114,7 @@ export const GesturePage: FC = () => {
                         <input
                           type="text"
                           className="gesture-search-input"
-                          placeholder="过滤手势或动作名称..."
+                          placeholder={t('gesture.filterPlaceholder', 'Filter gesture or action name...')}
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -1134,7 +1134,7 @@ export const GesturePage: FC = () => {
                         <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
                         <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
                         <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
-                        <span className="gesture-table__col gesture-table__col--switch">启用</span>
+                        <span className="gesture-table__col gesture-table__col--switch">{t('gesture.colEnable', 'Enable')}</span>
                         <span className="gesture-table__col gesture-table__col--actions" />
                       </div>
 
@@ -1169,14 +1169,14 @@ export const GesturePage: FC = () => {
                             onDoubleClick={() => openEditMapping(m)}
                             className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''} ${isDragging ? 'gesture-table__row--dragging' : ''}`}
                             style={{ animationDelay: `${i * 20}ms` }}
-                            title="双击进入编辑界面"
+                            title={t('gesture.editTip', 'Double-click to open editor')}
                           >
                             {/* 1. 拖拽抓手 + 动态手势画板 + 触发按键徽章 */}
                             <span className="gesture-table__col gesture-table__col--gesture">
                               <div className="gesture-handle-box">
                                 <div
                                   className="gesture-drag-handle"
-                                  title="按住拖拽调整手势顺序"
+                                  title={t('gesture.dragOrderTip', 'Hold and drag to reorder gestures')}
                                   onDoubleClick={(e) => e.stopPropagation()}
                                 >
                                   <GripVertical size={14} className="gesture-grip-icon" />
@@ -1204,7 +1204,7 @@ export const GesturePage: FC = () => {
                                   <button
                                     type="button"
                                     className="gesture-flag-badge gesture-flag-badge--instant gesture-flag-badge--clickable"
-                                    title="即时执行 (点击直接定位配置)"
+                                    title={t('gesture.instantTip', 'Instant Execution (click to locate config)')}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'instant');
@@ -1212,14 +1212,14 @@ export const GesturePage: FC = () => {
                                     onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <Zap size={10} />
-                                    <span>即时</span>
+                                    <span>{t('gesture.instantBadge', 'Instant')}</span>
                                   </button>
                                 )}
                                 {m.silentToast && (
                                   <button
                                     type="button"
                                     className="gesture-flag-badge gesture-flag-badge--silent gesture-flag-badge--clickable"
-                                    title="静默模式 (点击直接定位配置)"
+                                    title={t('gesture.silentTip', 'Silent Mode (click to locate config)')}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'silent');
@@ -1227,7 +1227,7 @@ export const GesturePage: FC = () => {
                                     onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <VolumeX size={10} />
-                                    <span>静默</span>
+                                    <span>{t('gesture.silentBadge', 'Silent')}</span>
                                   </button>
                                 )}
                               </div>
@@ -1241,7 +1241,7 @@ export const GesturePage: FC = () => {
                               <button
                                 type="button"
                                 className="gesture-type-badge-btn"
-                                title="点击直接配置此动作类型与参数"
+                                title={t('gesture.actionParamTip', 'Click to configure action type and parameters')}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openEditMapping(m, 'action_type');

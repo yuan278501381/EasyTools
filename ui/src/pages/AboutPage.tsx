@@ -209,7 +209,7 @@ export const AboutPage: FC = () => {
                 <RefreshCw size={14} className={checkingUpdate ? 'about-update-spin' : undefined} />
                 <span>{checkingUpdate ? t('about.checkingUpdate') : t('about.checkUpdate')}</span>
               </Button>
-              <Button variant="secondary" onClick={() => void handleExportLogs()} title="导出系统诊断日志与环境报告">
+              <Button variant="secondary" onClick={() => void handleExportLogs()} title={t('about.exportLogsTip', 'Export system diagnostic logs and environment report')}>
                 <Download size={14} />
                 <span>{t('about.exportLogs', 'Export Logs')}</span>
               </Button>
@@ -239,7 +239,7 @@ export const AboutPage: FC = () => {
                   e.preventDefault();
                   void bridgeRequest('system.openFile', { path: 'https://github.com/yuan278501381' });
                 }}
-                title="访问原作者 GitHub 主页"
+                title={t('about.authorGithubTip', 'Visit original author GitHub profile')}
               >
                 <strong className="about-meta-val">Yy1</strong>
                 <span className="about-meta-handle">(@yuan278501381)</span>

@@ -526,7 +526,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             </div>
             <div className="picker-strategy-card__content">
               <div className="picker-strategy-card__title">{t('scope.effectDisable', 'Disable gestures')}</div>
-              <div className="picker-strategy-card__desc">在此窗口下完全关闭鼠标手势</div>
+              <div className="picker-strategy-card__desc">{t('components.disableGesturesInWindow', 'Completely disable mouse gestures in this window')}</div>
             </div>
             {draft.effect === 1 && (
               <div className="picker-strategy-card__check">

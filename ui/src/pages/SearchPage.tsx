@@ -247,40 +247,40 @@ export const SearchPage: FC = () => {
               <table className="syntax-table">
                 <thead>
                   <tr>
-                    <th>操作符 / 语法</th>
-                    <th>功能说明</th>
-                    <th>示例</th>
+                    <th>{t('searchPage.thOpSyntax', 'Operator / Syntax')}</th>
+                    <th>{t('searchPage.thDesc', 'Description')}</th>
+                    <th>{t('searchPage.thExample', 'Example')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>space (空格)</code></td>
-                    <td>逻辑 <strong>与 (AND)</strong>，同时匹配多个关键词</td>
+                    <td><code>space</code></td>
+                    <td>{t('searchPage.opSpaceDesc', 'Logical AND, matches all keywords simultaneously')}</td>
                     <td><code>report 2026</code></td>
                   </tr>
                   <tr>
-                    <td><code>|</code> 或 <code>OR</code></td>
-                    <td>逻辑 <strong>或 (OR)</strong>，匹配任一条件</td>
+                    <td><code>|</code> / <code>OR</code></td>
+                    <td>{t('searchPage.opOrDesc', 'Logical OR, matches any condition')}</td>
                     <td><code>ext:jpg | ext:png</code></td>
                   </tr>
                   <tr>
-                    <td><code>!</code> 或 <code>NOT</code></td>
-                    <td>逻辑 <strong>非 (NOT)</strong>，排除包含特定词的文件</td>
+                    <td><code>!</code> / <code>NOT</code></td>
+                    <td>{t('searchPage.opNotDesc', 'Logical NOT, excludes files containing specific word')}</td>
                     <td><code>*.cpp !test</code></td>
                   </tr>
                   <tr>
                     <td><code>" "</code></td>
-                    <td><strong>双引号短语</strong>，精确匹配包含空格的完整文本</td>
+                    <td>{t('searchPage.opPhraseDesc', 'Quoted phrase, strictly matches exact text with spaces')}</td>
                     <td><code>"Program Files"</code></td>
                   </tr>
                   <tr>
                     <td><code>*</code></td>
-                    <td><strong>通配符</strong>，匹配 0 个或多个任意字符</td>
+                    <td>{t('searchPage.opWildcardMulti', 'Wildcard, matches 0 or more characters')}</td>
                     <td><code>*.pdf</code>, <code>report_*</code></td>
                   </tr>
                   <tr>
                     <td><code>?</code></td>
-                    <td><strong>通配符</strong>，匹配 1 个任意字符</td>
+                    <td>{t('searchPage.opWildcardSingle', 'Wildcard, matches 1 character')}</td>
                     <td><code>img_??.png</code></td>
                   </tr>
                 </tbody>
@@ -293,65 +293,65 @@ export const SearchPage: FC = () => {
               <table className="syntax-table">
                 <thead>
                   <tr>
-                    <th>前缀 / 修饰符</th>
-                    <th>功能说明</th>
-                    <th>示例</th>
+                    <th>{t('searchPage.thModifier', 'Prefix / Modifier')}</th>
+                    <th>{t('searchPage.thDesc', 'Description')}</th>
+                    <th>{t('searchPage.thExample', 'Example')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>ext:&lt;后缀列表&gt;</code></td>
-                    <td>指定文件扩展名，支持分号或逗号多选</td>
+                    <td><code>ext:&lt;ext_list&gt;</code></td>
+                    <td>{t('searchPage.modExtDesc', 'Filter by file extensions, comma or semicolon separated')}</td>
                     <td><code>ext:jpg;png;webp</code></td>
                   </tr>
                   <tr>
                     <td><code>file:</code></td>
-                    <td>仅匹配普通文件（排除所有文件夹）</td>
+                    <td>{t('searchPage.modFileDesc', 'Match files only (exclude folders)')}</td>
                     <td><code>file: *.txt</code></td>
                   </tr>
                   <tr>
                     <td><code>folder:</code> / <code>dir:</code></td>
-                    <td>仅匹配文件夹 / 目录</td>
+                    <td>{t('searchPage.modFolderDesc', 'Match folders / directories only')}</td>
                     <td><code>folder: project</code></td>
                   </tr>
                   <tr>
-                    <td><code>path:&lt;路径&gt;</code></td>
-                    <td>在文件完整绝对路径中检索</td>
+                    <td><code>path:&lt;path&gt;</code></td>
+                    <td>{t('searchPage.modPathDesc', 'Search within full absolute path')}</td>
                     <td><code>path:windows\system32</code></td>
                   </tr>
                   <tr>
-                    <td><code>parent:&lt;目录&gt;</code> / <code>p:</code></td>
-                    <td>在直接父级文件夹名称中匹配</td>
+                    <td><code>parent:&lt;dir&gt;</code> / <code>p:</code></td>
+                    <td>{t('searchPage.modParentDesc', 'Match in direct parent directory name')}</td>
                     <td><code>parent:easytools</code></td>
                   </tr>
                   <tr>
                     <td><code>c:</code> / <code>d:</code></td>
-                    <td>限定在指定磁盘驱动器下检索</td>
+                    <td>{t('searchPage.modDriveDesc', 'Restrict search to specified drive')}</td>
                     <td><code>d: *.zip</code></td>
                   </tr>
                   <tr>
-                    <td><code>exact:&lt;名称&gt;</code></td>
-                    <td>严格全字精确匹配文件名</td>
+                    <td><code>exact:&lt;name&gt;</code></td>
+                    <td>{t('searchPage.modExactDesc', 'Strict exact filename match')}</td>
                     <td><code>exact:README.md</code></td>
                   </tr>
                   <tr>
-                    <td><code>content:&lt;关键词&gt;</code> / <code>内容:</code></td>
-                    <td><strong>全文穿透内容检索</strong>，支持代码全家桶(C/C++/Rust/Python/SQL等)、Office文档(Word/Excel/PPT)、设计稿(PSD/AI/CDR/脑图)与AutoCAD图纸</td>
-                    <td><code>content:SELECT</code>, <code>ext:docx content:合同</code></td>
+                    <td><code>content:&lt;query&gt;</code></td>
+                    <td>{t('searchPage.modContentDesc', 'Full-text content search, supports code, Office documents, PSD/AI/CAD drawings')}</td>
+                    <td><code>content:SELECT</code>, <code>ext:docx content:contract</code></td>
                   </tr>
                   <tr>
-                    <td><code>case:&lt;文本&gt;</code> / <code>cs:</code></td>
-                    <td>强制区分大小写匹配</td>
+                    <td><code>case:&lt;text&gt;</code> / <code>cs:</code></td>
+                    <td>{t('searchPage.modCaseDesc', 'Enforce case-sensitive matching')}</td>
                     <td><code>case:EasyTools</code></td>
                   </tr>
                   <tr>
-                    <td><code>pinyin:&lt;拼音&gt;</code> / <code>py:</code></td>
-                    <td>显式进行拼音检索（全拼或首字母）</td>
+                    <td><code>pinyin:&lt;pinyin&gt;</code> / <code>py:</code></td>
+                    <td>{t('searchPage.modPinyinDesc', 'Explicit pinyin search (full spell or initials)')}</td>
                     <td><code>py:wx</code></td>
                   </tr>
                   <tr>
-                    <td><code>nopy:&lt;文本&gt;</code></td>
-                    <td>禁用拼音转换，仅匹配纯文本</td>
+                    <td><code>nopy:&lt;text&gt;</code></td>
+                    <td>{t('searchPage.modNopyDesc', 'Disable pinyin, match plain text only')}</td>
                     <td><code>nopy:wx</code></td>
                   </tr>
                 </tbody>
@@ -366,66 +366,66 @@ export const SearchPage: FC = () => {
         <div className="search-page__content">
           <Card title={t('searchPage.regexTitle', 'Regular Expression Query (regex: or r:)')}>
             <p className="syntax-hint-p">
-              使用 <code>regex:&lt;表达式&gt;</code> 或 <code>r:&lt;表达式&gt;</code> 前缀即可无缝启用标准 C++ ECMAScript 正则表达式检索。
+              {t('searchPage.regexHint', 'Use regex:<expr> or r:<expr> prefix to enable standard C++ ECMAScript regular expression search.')}
             </p>
             <div className="syntax-table-wrapper">
               <table className="syntax-table">
                 <thead>
                   <tr>
-                    <th>正则语法</th>
-                    <th>匹配规则说明</th>
-                    <th>实战应用示例</th>
+                    <th>{t('searchPage.thRegexSyntax', 'Regex Syntax')}</th>
+                    <th>{t('searchPage.thRegexRule', 'Matching Rule')}</th>
+                    <th>{t('searchPage.thRegexExample', 'Practical Example')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
                     <td><code>a|b</code></td>
-                    <td>匹配表达式 a 或 b</td>
+                    <td>{t('searchPage.regOr', 'Match expression a or b')}</td>
                     <td><code>r:test|debug</code></td>
                   </tr>
                   <tr>
                     <td><code>.</code></td>
-                    <td>匹配除换行符外的任意单个字符</td>
+                    <td>{t('searchPage.regAnyChar', 'Match any single character except newline')}</td>
                     <td><code>r:a.c\.txt</code></td>
                   </tr>
                   <tr>
                     <td><code>[abc]</code></td>
-                    <td>匹配括号内字符集的任意一个字符</td>
+                    <td>{t('searchPage.regCharSet', 'Match any single character in character set')}</td>
                     <td><code>r:log_[0-9]\.txt</code></td>
                   </tr>
                   <tr>
                     <td><code>[^abc]</code></td>
-                    <td>排除括号内字符集中的字符</td>
+                    <td>{t('searchPage.regNegSet', 'Exclude characters in character set')}</td>
                     <td><code>r:file_[^0-9]\.dat</code></td>
                   </tr>
                   <tr>
                     <td><code>[a-z]</code> / <code>[0-9]</code></td>
-                    <td>匹配指定区间范围内的字符</td>
+                    <td>{t('searchPage.regRange', 'Match characters within specified range')}</td>
                     <td><code>r:^[a-z]{3}_[0-9]{4}</code></td>
                   </tr>
                   <tr>
                     <td><code>^</code></td>
-                    <td>匹配文件名的起始位置（头部锚点）</td>
+                    <td>{t('searchPage.regStartAnchor', 'Match start of filename (head anchor)')}</td>
                     <td><code>r:^EasyTools.*\.exe$</code></td>
                   </tr>
                   <tr>
                     <td><code>$</code></td>
-                    <td>匹配文件名的结束位置（尾部锚点）</td>
+                    <td>{t('searchPage.regEndAnchor', 'Match end of filename (tail anchor)')}</td>
                     <td><code>r:\.min\.js$</code></td>
                   </tr>
                   <tr>
                     <td><code>*</code> / <code>+</code> / <code>?</code></td>
-                    <td>匹配 0 次或多次 / 1 次或多次 / 0 或 1 次</td>
+                    <td>{t('searchPage.regQuantifiers', 'Match 0 or more / 1 or more / 0 or 1 time')}</td>
                     <td><code>r:v\d+\.\d+</code></td>
                   </tr>
                   <tr>
                     <td><code>&#123;n&#125;</code> / <code>&#123;n,m&#125;</code></td>
-                    <td>精确指定匹配次数或范围区间</td>
+                    <td>{t('searchPage.regExactCount', 'Specify exact match count or range')}</td>
                     <td><code>r:\d&#123;4&#125;-\d&#123;2&#125;-\d&#123;2&#125;</code></td>
                   </tr>
                   <tr>
                     <td><code>\</code></td>
-                    <td>转义特殊字符（例如 <code>\.</code> 匹配字符点）</td>
+                    <td>{t('searchPage.regEscape', 'Escape special characters (e.g. \\. matches literal dot)')}</td>
                     <td><code>r:archive\.(tar\.gz|zip)</code></td>
                   </tr>
                 </tbody>
@@ -467,15 +467,15 @@ export const SearchPage: FC = () => {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">{t('searchPage.indexTech', 'Indexing Architecture')}</span>
-                  <span className="detail-value">NTFS MFT 内存树 + USN Journal 增量监听</span>
+                  <span className="detail-value">{t('searchPage.indexTechDesc', 'NTFS MFT memory tree + USN Journal incremental monitoring')}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">{t('searchPage.pinyinTech', 'Pinyin Engine')}</span>
-                  <span className="detail-value">零堆分配 GBK/Unicode 双向全拼与首字母表</span>
+                  <span className="detail-value">{t('searchPage.pinyinTechDesc', 'Zero-heap allocation GBK/Unicode bi-directional pinyin table')}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">{t('searchPage.daemonMode', 'Daemon Mode')}</span>
-                  <span className="detail-value">双模自适应（Windows 系统服务 / 独立无窗后台守护）</span>
+                  <span className="detail-value">{t('searchPage.daemonModeDesc', 'Dual-mode adaptive (Windows Service / Standalone Windowless Daemon)')}</span>
                 </div>
               </div>
             </div>

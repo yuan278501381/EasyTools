@@ -293,7 +293,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel', 'Cancel')}</Button>
-          <Button variant="primary" onClick={handleSave} disabled={!canSave}>添加并配置</Button>
+          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('components.addAndConfigure', 'Add & Configure')}</Button>
         </>
       }
     >
@@ -423,7 +423,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
           <TextInput
             value={name}
             onChange={setName}
-            placeholder="例如 Google Chrome / VS Code / Dota 2"
+            placeholder={t('components.appPlaceholder', 'e.g. Google Chrome / VS Code / Game')}
           />
         </Field>
 
@@ -453,7 +453,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
       </div>
 
       <div className="uikit-field">
-        <label className="uikit-field__label">作用策略</label>
+        <label className="uikit-field__label">{t('components.scopeStrategyLabel', 'Scope Strategy')}</label>
         <div className="picker-strategy-cards">
           <div
             className={`picker-strategy-card ${effect === 2 ? 'active' : ''}`}
@@ -463,8 +463,8 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
               <Sparkles size={16} />
             </div>
             <div className="picker-strategy-card__content">
-              <div className="picker-strategy-card__title">自定义独立手势</div>
-              <div className="picker-strategy-card__desc">覆盖或扩展全局手势</div>
+              <div className="picker-strategy-card__title">{t('components.customIndependentTitle', 'Custom Independent Gestures')}</div>
+              <div className="picker-strategy-card__desc">{t('components.customIndependentDesc', 'Override or extend global gestures')}</div>
             </div>
             {effect === 2 && (
               <div className="picker-strategy-card__check">
@@ -481,8 +481,8 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
               <Ban size={16} />
             </div>
             <div className="picker-strategy-card__content">
-              <div className="picker-strategy-card__title">禁用手势 (免打扰)</div>
-              <div className="picker-strategy-card__desc">在此应用中完全停用手势</div>
+              <div className="picker-strategy-card__title">{t('components.disableGestureTitle', 'Disable Gestures (Do Not Disturb)')}</div>
+              <div className="picker-strategy-card__desc">{t('components.disableGestureDesc', 'Completely disable gestures in this app')}</div>
             </div>
             {effect === 1 && (
               <div className="picker-strategy-card__check">

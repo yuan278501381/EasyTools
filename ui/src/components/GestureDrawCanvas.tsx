@@ -14,6 +14,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useRef, useCallback, useEffect, type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RotateCcw, MousePointer, Check } from 'lucide-react';
 import {
   codeToArrows,
@@ -237,6 +238,7 @@ export const GestureDrawCanvas: FC<Props> = ({
   screenEdge = 'none',
   onScreenEdgeChange,
 }) => {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingButton, setDrawingButton] = useState<number | null>(null);
@@ -436,88 +438,88 @@ export const GestureDrawCanvas: FC<Props> = ({
   return (
     <div className="gesture-draw-container">
       {/* 实时硬件与位置感应监视仪 (Live Sensor Cockpit - Zero Cognition Read-only Display) */}
-      <div className="gesture-cockpit-bar" title="自动识别监视区：根据你在画板上按下的鼠标按键、起笔位置与键盘修饰键全自动识别">
+      <div className="gesture-cockpit-bar" title={t('components.cockpitBarTip', 'Auto-detection zone: automatically senses mouse buttons, starting points, and keyboard modifiers')}>
         {/* 触发按键自动感应指示 */}
         <div className="gesture-cockpit-group">
-          <span className="gesture-cockpit-label">触发键:</span>
+          <span className="gesture-cockpit-label">{t('components.triggerKeyLabel', 'Trigger:')}</span>
           <span
             className={`gesture-cockpit-badge ${currentTrigger === 'right' ? 'active' : ''}`}
-            title="鼠标右键 (按住右键划动手势)"
+            title={t('components.rightButtonTip', 'Right mouse button (hold right button to draw)')}
           >
             <span>◐</span>
-            <span>右键</span>
+            <span>{t('components.rightButton', 'Right Click')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentTrigger === 'middle' ? 'active' : ''}`}
-            title="鼠标中键 (按住中键/滚轮划动手势)"
+            title={t('components.middleButtonTip', 'Middle mouse button (hold middle button/scroll wheel to draw)')}
           >
             <span>◓</span>
-            <span>中键</span>
+            <span>{t('components.middleButton', 'Middle Click')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentTrigger === 'x1' ? 'active' : ''}`}
-            title="鼠标侧键1 (按住后退键划动手势)"
+            title={t('components.x1ButtonTip', 'Mouse side button 1 (hold back button to draw)')}
           >
             <span>◧</span>
-            <span>侧键1</span>
+            <span>{t('components.x1Button', 'Side 1')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentTrigger === 'x2' ? 'active' : ''}`}
-            title="鼠标侧键2 (按住前进键划动手势)"
+            title={t('components.x2ButtonTip', 'Mouse side button 2 (hold forward button to draw)')}
           >
             <span>◨</span>
-            <span>侧键2</span>
+            <span>{t('components.x2Button', 'Side 2')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentTrigger === 'left' ? 'active' : ''}`}
-            title="鼠标左键 (在边缘起笔或配合修饰键生效)"
+            title={t('components.leftButtonTip', 'Left mouse button (starts on edge or with modifiers)')}
           >
             <span>◑</span>
-            <span>左键</span>
+            <span>{t('components.leftButton', 'Left Click')}</span>
           </span>
         </div>
 
         {/* 触发位置自动感应指示 */}
         <div className="gesture-cockpit-group">
-          <span className="gesture-cockpit-label">位置:</span>
+          <span className="gesture-cockpit-label">{t('components.positionLabel', 'Position:')}</span>
           <span
             className={`gesture-cockpit-badge ${currentEdge === 'none' ? 'active' : ''}`}
-            title="画板中央起笔自动识别为全局手势"
+            title={t('components.globalPositionTip', 'Starting from center is recognized as global gesture')}
           >
-            <span>全局</span>
+            <span>{t('components.globalPosition', 'Global')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentEdge === 'top' ? 'active' : ''}`}
-            title="画板顶部起笔自动识别为屏幕上边缘手势"
+            title={t('components.topEdgePositionTip', 'Starting from top is recognized as top edge gesture')}
           >
-            <span>◰ 上边缘</span>
+            <span>{t('components.topEdgePosition', '◰ Top Edge')}</span>
           </span>
           <span
             className={`gesture-cockpit-badge ${currentEdge === 'bottom' ? 'active' : ''}`}
-            title="画板底部起笔自动识别为屏幕底边缘手势"
+            title={t('components.bottomEdgePositionTip', 'Starting from bottom is recognized as bottom edge gesture')}
           >
-            <span>◲ 底边缘</span>
+            <span>{t('components.bottomEdgePosition', '◲ Bottom Edge')}</span>
           </span>
         </div>
 
         {/* 物理修饰键自动侦测指示 */}
         <div className="gesture-cockpit-group">
-          <span className="gesture-cockpit-label">修饰键:</span>
+          <span className="gesture-cockpit-label">{t('components.modifiersLabel', 'Modifiers:')}</span>
           <span
             className={`gesture-modifier-badge ${currentCtrl ? 'active' : ''} ${liveKeys.ctrl ? 'is-key-pressed' : ''}`}
-            title="Ctrl 键 (按住键盘物理 Ctrl 自动捕获)"
+            title={t('components.ctrlKeyTip', 'Ctrl key (hold physical Ctrl on keyboard)')}
           >
             Ctrl
           </span>
           <span
             className={`gesture-modifier-badge ${currentShift ? 'active' : ''} ${liveKeys.shift ? 'is-key-pressed' : ''}`}
-            title="Shift 键 (按住键盘物理 Shift 自动捕获)"
+            title={t('components.shiftKeyTip', 'Shift key (hold physical Shift on keyboard)')}
           >
             Shift
           </span>
           <span
             className={`gesture-modifier-badge ${currentAlt ? 'active' : ''} ${liveKeys.alt ? 'is-key-pressed' : ''}`}
-            title="Alt 键 (按住键盘物理 Alt 自动捕获)"
+            title={t('components.altKeyTip', 'Alt key (hold physical Alt on keyboard)')}
           >
             Alt
           </span>
@@ -526,10 +528,10 @@ export const GestureDrawCanvas: FC<Props> = ({
             type="button"
             className="gesture-draw-clear-btn"
             onClick={handleClear}
-            title="清空画板重新录制"
+            title={t('components.clearBoardTip', 'Clear canvas and re-record')}
           >
             <RotateCcw size={12} />
-            <span>清空重录</span>
+            <span>{t('components.clearBoard', 'Clear')}</span>
           </button>
         </div>
       </div>
@@ -549,12 +551,12 @@ export const GestureDrawCanvas: FC<Props> = ({
 
         {/* 顶部屏幕上边缘感应区指示 */}
         <div className={`gesture-edge-sensor-zone gesture-edge-sensor-zone--top ${currentEdge === 'top' ? 'active' : ''}`}>
-          <span className="gesture-edge-sensor-tag">◰ 顶部上边缘感应区</span>
+          <span className="gesture-edge-sensor-tag">{t('components.topEdgeSensor', '◰ Top Edge Sensor Zone')}</span>
         </div>
 
         {/* 底部屏幕底边缘感应区指示 */}
         <div className={`gesture-edge-sensor-zone gesture-edge-sensor-zone--bottom ${currentEdge === 'bottom' ? 'active' : ''}`}>
-          <span className="gesture-edge-sensor-tag">◲ 底部底边缘感应区</span>
+          <span className="gesture-edge-sensor-tag">{t('components.bottomEdgeSensor', '◲ Bottom Edge Sensor Zone')}</span>
         </div>
 
         {points.length === 0 && (
@@ -609,7 +611,7 @@ export const GestureDrawCanvas: FC<Props> = ({
 
       {/* 常用手势快捷预设栏 */}
       <div className="gesture-preset-tray">
-        <span className="gesture-preset-label">快捷预设:</span>
+        <span className="gesture-preset-label">{t('components.quickPresets', 'Presets:')}</span>
         <div className="gesture-preset-chips">
           {presets.map((preset) => (
             <button

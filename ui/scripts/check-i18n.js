@@ -83,13 +83,62 @@ function checkSourceCodeFallbacks() {
   }
 }
 
-console.log('🔍 [i18n Gate] 正在执行 EasyTools 世界级多语言体系与全量 Fallback 审查...');
+function checkNakedChineseInUI() {
+  const files = getFiles(path.resolve('./src'), ['.tsx']);
+  const chineseRegex = /[\u4e00-\u9fa5]/;
+
+  for (const file of files) {
+    if (file.endsWith('.test.tsx') || file.endsWith('.spec.tsx')) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    const lines = content.split('\n');
+    let inBlockComment = false;
+
+    lines.forEach((rawLine, idx) => {
+      const line = rawLine.trim();
+      if (line.startsWith('/*')) inBlockComment = true;
+      if (inBlockComment) {
+        if (line.includes('*/')) inBlockComment = false;
+        return;
+      }
+      if (line.startsWith('//') || line.startsWith('*')) return;
+
+      // 移除注释部分
+      const codeOnly = rawLine.replace(/\/\/.*$/, '');
+      if (!chineseRegex.test(codeOnly)) return;
+
+      // 如果包含 t('...') 或 t("...") 中的 fallback 违规在 checkSourceCodeFallbacks 处理
+      // 检查裸露在 JSX 标签中的中文文本 >文本<
+      const tagContentMatch = codeOnly.match(/>([^<>{}]*[\u4e00-\u9fa5]+[^<>{}]*)</);
+      if (tagContentMatch) {
+        const text = tagContentMatch[1].trim();
+        if (text && !text.startsWith('{/*')) {
+          console.error(`❌ [Naked Chinese in JSX] ${path.relative('./', file)}:${idx + 1}`);
+          console.error(`   "${rawLine.trim()}"`);
+          console.error(`   [Rule] 严禁在 JSX 中硬编码裸中文！必须使用 {t('namespace.key', 'English fallback')}`);
+          hasError = true;
+        }
+      }
+
+      // 检查 JSX 属性中的硬编码中文 (placeholder, title, label, aria-label 等)
+      const attrMatch = codeOnly.match(/(?:placeholder|title|label|aria-label|header|description)=["']([^"']*[\u4e00-\u9fa5]+[^"']*)["']/);
+      if (attrMatch) {
+        console.error(`❌ [Hardcoded Chinese in Attribute] ${path.relative('./', file)}:${idx + 1}`);
+        console.error(`   "${rawLine.trim()}"`);
+        console.error(`   [Rule] 严禁在属性中硬编码中文！必须使用 {t('namespace.key', 'English fallback')}`);
+        hasError = true;
+      }
+    });
+  }
+}
+
+console.log('🔍 [i18n Gate] 正在执行 EasyTools 世界级多语言体系、全量 Fallback 与零裸中文审查...');
 compareKeys(enData, zhData);
 checkSourceCodeFallbacks();
+checkNakedChineseInUI();
 
 if (hasError) {
-  console.error('\n❌ i18n 门禁审查失败！请修复上述缺失的键或非英文 Fallback。');
+  console.error('\n❌ i18n 门禁审查失败！请修复上述缺失的键、非英文 Fallback 或裸中文硬编码。');
   process.exit(1);
 } else {
-  console.log('✅ i18n 门禁审查全部通过！键位 100% 对齐，代码 Fallback 100% 符合英文基准。');
+  console.log('✅ i18n 门禁审查全部通过！键位 100% 对齐，代码 Fallback 100% 符合英文基准，0 裸中文硬编码。');
 }

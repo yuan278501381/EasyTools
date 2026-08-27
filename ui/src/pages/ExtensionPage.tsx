@@ -565,7 +565,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
                     </button>
                   </div>
                   <div className="playground-md-content">
-                    <h1>EasyTools 效率工具箱</h1>
+                    <h1>{t('extension.suiteTitle', 'EasyTools Productivity Suite')}</h1>
                     <p>
                       {isZh
                         ? '这是一个通过「空格键」唤起 Markdown 极速速览的真实渲染示例。支持语法高亮与数学公式：'
@@ -644,7 +644,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
                     </div>
                     <div className="playground-clip-item">
                       <span className="playground-clip-index">3</span>
-                      <span className="playground-clip-text">EasyTools: 现代化 Windows 桌面效率全家桶</span>
+                      <span className="playground-clip-text">{t('extension.suiteDesc', 'EasyTools: Modern Windows Desktop Productivity Toolbox')}</span>
                       <Badge text={isZh ? '文本' : 'Text'} variant="success" />
                     </div>
                   </div>

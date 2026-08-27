@@ -362,8 +362,8 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
         <div className={`keyboard-heatmap__tooltip keyboard-heatmap__tooltip--${tooltipPlacement}`}>
           <div className="tooltip-header">
             <span className="tooltip-key-name">{keyDef.fullName || keyDef.label}</span>
-            {isPeak && <span className="tooltip-badge-peak">今日最高频</span>}
-            {isLockedOn && <span className="tooltip-badge-lock">锁定开启</span>}
+            {isPeak && <span className="tooltip-badge-peak">{t('components.peakToday', 'Today\'s Peak')}</span>}
+            {isLockedOn && <span className="tooltip-badge-lock">{t('components.lockedOn', 'Locked On')}</span>}
           </div>
           <div className="tooltip-body">
             <span className="tooltip-count">
@@ -394,21 +394,21 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
             onClick={() => setLayoutMode('104')}
           >
             <LayoutGrid size={12} />
-            <span>104 全键盘</span>
+            <span>{t('components.kb104', '104 Full Keyboard')}</span>
           </button>
           <button
             type="button"
             className={`keyboard-layout-btn ${layoutMode === '87' ? 'active' : ''}`}
             onClick={() => setLayoutMode('87')}
           >
-            <span>87 键 TKL</span>
+            <span>{t('components.kb87', '87-Key TKL')}</span>
           </button>
           <button
             type="button"
             className={`keyboard-layout-btn ${layoutMode === '60' ? 'active' : ''}`}
             onClick={() => setLayoutMode('60')}
           >
-            <span>60 键主键区</span>
+            <span>{t('components.kb60', '60-Key Compact')}</span>
           </button>
         </div>
       </div>
@@ -548,8 +548,8 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
               <Keyboard size={12} strokeWidth={2} />
             </div>
             <div className="top-badge-content">
-              <span className="top-badge-label">今日击键:</span>
-              <span className="top-badge-key-name">尚未录入数据</span>
+              <span className="top-badge-label">{t('components.todayKeystrokes', 'Today\'s Keystrokes:')}</span>
+              <span className="top-badge-key-name">{t('components.noDataRecorded', 'No data recorded')}</span>
             </div>
           </div>
         )}

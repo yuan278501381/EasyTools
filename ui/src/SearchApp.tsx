@@ -522,6 +522,7 @@ const SearchResultRow = memo(function SearchResultRow({
   style,
   setSize,
 }: SearchResultRowProps) {
+  const { t } = useTranslation();
   const parentFolder = columns.parent ? extractParentFolder(result.path) : '';
   const sizeText = columns.size ? formatFileSize(result.size, result.isDirectory) : '';
   const badge = columns.ext ? getFileTypeBadge(result.name, result.isDirectory) : null;
@@ -553,15 +554,15 @@ const SearchResultRow = memo(function SearchResultRow({
               <span className="file-name" style={{ flex: `${columns.nameFlex} 1 0` }} title={result.name}>
                 <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
                 {Boolean(result.runCount && result.runCount > 0) && (
-                  <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
-                    打开 {result.runCount}次
+                  <span className="file-run-badge" title={t('search.runCountTip', 'Opened {{count}} times in history', { count: result.runCount })}>
+                    {t('search.runCountBadge', '{{count}} runs', { count: result.runCount })}
                   </span>
                 )}
               </span>
             )}
             {badge && <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>}
             {columns.parent && (
-              <span className="file-parent-column" title={`所属文件夹：${parentFolder || '—'}`}>
+              <span className="file-parent-column" title={t('search.parentFolderTip', 'Folder: {{folder}}', { folder: parentFolder || '—' }).replace('{{folder}}', parentFolder || '—')}>
                 <Folder size={11} aria-hidden="true" />
                 {parentFolder ? highlightMatch(parentFolder, queryKeywords) : '—'}
               </span>
@@ -572,15 +573,15 @@ const SearchResultRow = memo(function SearchResultRow({
               </span>
             )}
             <div className="file-meta-top">
-              {columns.size && <span className="meta-size-badge" title="大小">{sizeText || '—'}</span>}
+              {columns.size && <span className="meta-size-badge" title={t('search.colSize', 'Size')}>{sizeText || '—'}</span>}
               {columns.modified && (
-                <span className="meta-date-mod" title="修改时间">
-                  <span className="meta-field-label">修改</span>{modifiedText || '—'}
+                <span className="meta-date-mod" title={t('search.colModified', 'Modified')}>
+                  <span className="meta-field-label">{t('search.colModifiedShort', 'Mod')}</span>{modifiedText || '—'}
                 </span>
               )}
               {columns.created && (
-                <span className="meta-date-create" title="创建时间">
-                  <span className="meta-field-label">创建</span>{createdText || '—'}
+                <span className="meta-date-create" title={t('search.colCreated', 'Created')}>
+                  <span className="meta-field-label">{t('search.colCreatedShort', 'Cre')}</span>{createdText || '—'}
                 </span>
               )}
             </div>
@@ -592,30 +593,30 @@ const SearchResultRow = memo(function SearchResultRow({
                 <span className="file-name" title={result.name}>
                   <span className="file-name-text">{highlightMatch(result.name, queryKeywords)}</span>
                   {Boolean(result.runCount && result.runCount > 0) && (
-                    <span className="file-run-badge" title={`历史已打开 ${result.runCount} 次`}>
-                      打开 {result.runCount}次
+                    <span className="file-run-badge" title={t('search.runCountTip', 'Opened {{count}} times in history', { count: result.runCount })}>
+                      {t('search.runCountBadge', '{{count}} runs', { count: result.runCount })}
                     </span>
                   )}
                 </span>
               )}
               {badge && <span className={`file-ext-badge ${badge.colorClass}`}>{badge.label}</span>}
               <div className="file-meta-top">
-                {columns.size && <span className="meta-size-badge" title="大小">{sizeText || '—'}</span>}
+                {columns.size && <span className="meta-size-badge" title={t('search.colSize', 'Size')}>{sizeText || '—'}</span>}
                 {columns.modified && (
-                  <span className="meta-date-mod" title="修改时间">
-                    <span className="meta-field-label">修改</span>{modifiedText || '—'}
+                  <span className="meta-date-mod" title={t('search.colModified', 'Modified')}>
+                    <span className="meta-field-label">{t('search.colModifiedShort', 'Mod')}</span>{modifiedText || '—'}
                   </span>
                 )}
                 {columns.created && (
-                  <span className="meta-date-create" title="创建时间">
-                    <span className="meta-field-label">创建</span>{createdText || '—'}
+                  <span className="meta-date-create" title={t('search.colCreated', 'Created')}>
+                    <span className="meta-field-label">{t('search.colCreatedShort', 'Cre')}</span>{createdText || '—'}
                   </span>
                 )}
               </div>
             </div>
             <div className="file-row-sub">
               {columns.parent && (
-                <span className="file-parent-column" title={`所属文件夹：${parentFolder || '—'}`}>
+                <span className="file-parent-column" title={t('search.parentFolderTip', 'Folder: {{folder}}', { folder: parentFolder || '—' }).replace('{{folder}}', parentFolder || '—')}>
                   <Folder size={11} aria-hidden="true" />
                   {parentFolder ? highlightMatch(parentFolder, queryKeywords) : '—'}
                 </span>
@@ -2317,13 +2318,13 @@ export default function SearchApp() {
             {/* 全盘已索引总数与耗时统计胶囊 */}
             <div 
               className="search-stats-pill" 
-              title={`全盘共索引 ${totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '百万'} 个文件，最近一次查询耗时 ${searchElapsedMs} 毫秒`}
+              title={t('search.statsPillTip', 'Indexed {{total}} files across all disks, latest search elapsed {{ms}}ms', { total: totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '1,000,000+', ms: searchElapsedMs })}
             >
               <span className="search-stats-dot" />
               {sortedResults.length > 0 ? (
-                <span><strong>{sortedResults.length}</strong> / 全盘 {totalIndexedFiles ? (totalIndexedFiles > 10000 ? (totalIndexedFiles / 10000).toFixed(1) + '万' : totalIndexedFiles) : '--'} · {searchElapsedMs}ms</span>
+                <span><strong>{sortedResults.length}</strong> / {t('search.statsFullDisk', 'Total {{total}} · {{ms}}ms', { total: totalIndexedFiles ? (totalIndexedFiles > 10000 ? (totalIndexedFiles / 10000).toFixed(1) + 'w' : totalIndexedFiles.toString()) : '--', ms: searchElapsedMs })}</span>
               ) : (
-                <span>共 <strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> 文件</span>
+                <span>{t('search.totalFilesCount', 'Total {{count}} files', { count: totalIndexedFiles || 0 })}</span>
               )}
             </div>
 
@@ -2404,7 +2405,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'modified' && sortDirection === 'desc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('modified', 'desc'); }}
-                          title="从新到旧"
+                          title={t('search.sortNewest', 'Newest to oldest')}
                         >
                           {t('search.sortNewestFirst', 'Newest First ↓')}
                         </button>
@@ -2412,7 +2413,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'modified' && sortDirection === 'asc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('modified', 'asc'); }}
-                          title="从旧到新"
+                          title={t('search.sortOldest', 'Oldest to newest')}
                         >
                           {t('search.sortOldestFirst', 'Oldest First ↑')}
                         </button>
@@ -2430,7 +2431,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'name' && sortDirection === 'asc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('name', 'asc'); }}
-                          title="A 到 Z"
+                          title={t('search.sortAz', 'A to Z')}
                         >
                           A→Z ↓
                         </button>
@@ -2438,7 +2439,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'name' && sortDirection === 'desc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('name', 'desc'); }}
-                          title="Z 到 A"
+                          title={t('search.sortZa', 'Z to A')}
                         >
                           Z→A ↑
                         </button>
@@ -2456,7 +2457,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'size' && sortDirection === 'desc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('size', 'desc'); }}
-                          title="大文件优先"
+                          title={t('search.sortLargest', 'Largest first')}
                         >
                           {t('search.sortLargestFirst', 'Largest First ↓')}
                         </button>
@@ -2464,7 +2465,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'size' && sortDirection === 'asc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('size', 'asc'); }}
-                          title="小文件优先"
+                          title={t('search.sortSmallest', 'Smallest first')}
                         >
                           {t('search.sortSmallestFirst', 'Smallest First ↑')}
                         </button>
@@ -2482,7 +2483,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'created' && sortDirection === 'desc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'desc'); }}
-                          title="从新到旧"
+                          title={t('search.sortNewest', 'Newest to oldest')}
                         >
                           新→旧 ↓
                         </button>
@@ -2490,7 +2491,7 @@ export default function SearchApp() {
                           type="button"
                           className={`sort-dir-subpill ${sortField === 'created' && sortDirection === 'asc' ? 'sort-dir-subpill--active' : ''}`}
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'asc'); }}
-                          title="从旧到新"
+                          title={t('search.sortOldest', 'Oldest to newest')}
                         >
                           旧→新 ↑
                         </button>
@@ -2590,7 +2591,7 @@ export default function SearchApp() {
                 className="popover-close"
                 onClick={() => setShowViewSettings(false)}
                 type="button"
-                title="关闭"
+                title={t('search.close', 'Close')}
               >
                 <X size={14} />
               </button>
@@ -2600,7 +2601,7 @@ export default function SearchApp() {
               {/* 顶部一键全盘重新扫描与快照固化 */}
               <div className="popover-top-rebuild-card">
                 <div className="popover-top-rebuild-info">
-                  <div className="popover-top-rebuild-title">全盘文件索引与快照维护</div>
+                  <div className="popover-top-rebuild-title">{t('search.rebuildSectionTitle', 'Full-Disk Index & Snapshot Maintenance')}</div>
                   <div className="popover-top-rebuild-desc">
                     {t('search.indexMaintenanceDesc', 'Rescan all NTFS partitions for changes and synchronize snapshot to EasyTools.db (F5 / Ctrl+R)')}
                   </div>
@@ -2610,7 +2611,7 @@ export default function SearchApp() {
                   className={`popover-rebuild-btn popover-rebuild-btn--top ${isRebuilding ? 'popover-rebuild-btn--loading' : ''}`}
                   onClick={rebuildIndex}
                   disabled={isRebuilding}
-                  title="重新扫描全盘所有已选磁盘的 NTFS MFT 分区，并自动将最新全量索引固化写入 EasyTools.db 磁盘快照 (快捷键: F5 / Ctrl+R)"
+                  title={t('search.rebuildButtonTip', 'Rescan all selected disks NTFS MFT partitions and save snapshot (F5 / Ctrl+R)')}
                 >
                   <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
                   <span>{isRebuilding ? '正在重新扫描并更新快照...' : '立即重新扫描并更新索引与快照 (F5)'}</span>
@@ -2633,7 +2634,7 @@ export default function SearchApp() {
                     <div className="search-mode-header">
                       <div className="search-mode-title-wrap">
                         <Zap size={14} className="search-mode-icon-name" />
-                        <span className="search-mode-title">仅搜文件名 (极速·默认)</span>
+                        <span className="search-mode-title">{t('search.modeFileOnlyTitle', 'Search File Name Only (Fast · Default)')}</span>
                       </div>
                       {searchMode === 'name' && <Check size={13} className="search-mode-check" />}
                     </div>
@@ -3002,7 +3003,7 @@ export default function SearchApp() {
                                   e.stopPropagation();
                                   removeCustomContentFormat(ext);
                                 }}
-                                title="删除此自定义格式"
+                                title={t('search.deleteCustomExt', 'Delete this custom format')}
                               >
                                 <Trash2 size={10} />
                               </button>
@@ -3031,7 +3032,7 @@ export default function SearchApp() {
                         type="button"
                         className="popover-format-add-btn"
                         onClick={() => addCustomContentFormat(newFormatInput)}
-                        title="添加自定义格式 (支持逗号、空格批量添加)"
+                        title={t('search.addCustomExtTip', 'Add custom format (supports comma/space bulk adding)')}
                       >
                         <Plus size={13} />
                         <span>{t('search.addBtn', 'Add')}</span>
@@ -3143,7 +3144,7 @@ export default function SearchApp() {
                   key={idx}
                   className={`syntax-example-item ${item.highlight ? 'syntax-example-item--highlight' : ''}`}
                   onClick={() => applySyntaxExample(item.syntax)}
-                  title="点击直接填入搜索框"
+                  title={t('search.clickToFill', 'Click to insert into search box')}
                 >
                   <div className="syntax-example-item-top">
                     <code className="syntax-code">{item.syntax}</code>
@@ -3477,7 +3478,7 @@ export default function SearchApp() {
                 title={t('search.renameTooltip', 'Rename file or folder (F2)')}
               >
                 <Pencil size={14} className="menu-icon" />
-                <span className="menu-label">重命名</span>
+                <span className="menu-label">{t('search.rename', 'Rename')}</span>
                 <kbd className="menu-shortcut">F2</kbd>
               </button>
 

@@ -3,6 +3,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type ScopeRule } from './scopeModel';
 import {
   Globe,
@@ -96,10 +97,11 @@ export const ScopeTargetsSidebar: FC<Props> = ({
   onAddDisabled,
   onDeleteRule,
 }) => {
+  const { t } = useTranslation();
   const globalTarget: ScopeTargetItem = {
     id: 'global',
-    title: '全局',
-    subtitle: '所有未特别定制的窗口',
+    title: t('components.globalTitle', 'Global'),
+    subtitle: t('components.defaultGestureSubtitle', 'Default Gesture Config'),
     kind: 'global',
   };
 
@@ -126,7 +128,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
     <aside className="scope-targets-sidebar">
       {/* ── 全局 ── */}
       <div className="scope-target-section">
-        <div className="scope-target-section__header">全局手势</div>
+        <div className="scope-target-section__header">{t('components.globalGesturesSection', 'Global Gestures')}</div>
         <div
           className={`scope-target-item ${selectedId === 'global' ? 'active' : ''}`}
           onClick={() => onSelect(globalTarget)}
@@ -135,8 +137,8 @@ export const ScopeTargetsSidebar: FC<Props> = ({
             <Globe size={14} />
           </div>
           <div className="scope-target-item__content">
-            <span className="scope-target-item__title">全局</span>
-            <span className="scope-target-item__subtitle">默认手势配置</span>
+            <span className="scope-target-item__title">{t('components.globalTitle', 'Global')}</span>
+            <span className="scope-target-item__subtitle">{t('components.defaultGestureSubtitle', 'Default Gesture Config')}</span>
           </div>
         </div>
       </div>
@@ -144,11 +146,11 @@ export const ScopeTargetsSidebar: FC<Props> = ({
       {/* ── 禁用 / 黑名单 ── */}
       <div className="scope-target-section">
         <div className="scope-target-section__header">
-          <span>禁用 / 免打扰组</span>
+          <span>{t('components.disabledGroup', 'Disabled / DND Group')}</span>
           <button
             type="button"
             className="scope-target-section__add-btn"
-            title="添加免打扰游戏或软件"
+            title={t('components.addDndAppTip', 'Add DND game or application')}
             onClick={(e) => { e.stopPropagation(); onAddDisabled(); }}
           >
             <Plus size={13} />
@@ -178,11 +180,11 @@ export const ScopeTargetsSidebar: FC<Props> = ({
                 <span className="scope-target-item__title">{rule.name || rule.processName}</span>
                 <CodeBadge className="scope-target-item__subtitle">{rule.processName || rule.windowClass}</CodeBadge>
               </div>
-              <span className="scope-target-item__badge">禁用</span>
+              <span className="scope-target-item__badge">{t('components.badgeDisabled', 'Disabled')}</span>
               <button
                 type="button"
                 className="scope-target-item__delete-btn"
-                title="删除此规则"
+                title={t('components.deleteRuleTip', 'Delete this rule')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteRule(rule.id);
@@ -203,11 +205,11 @@ export const ScopeTargetsSidebar: FC<Props> = ({
       {/* ── 应用程序 ── */}
       <div className="scope-target-section">
         <div className="scope-target-section__header">
-          <span>应用程序</span>
+          <span>{t('components.appsSection', 'Applications')}</span>
           <button
             type="button"
             className="scope-target-section__add-btn"
-            title="添加应用程序专属手势"
+            title={t('components.addAppGestureTip', 'Add application-specific gestures')}
             onClick={(e) => { e.stopPropagation(); onAddApp(); }}
           >
             <Plus size={13} />
@@ -240,7 +242,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
               <button
                 type="button"
                 className="scope-target-item__delete-btn"
-                title="删除此应用配置"
+                title={t('components.deleteAppConfigTip', 'Delete this app configuration')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteRule(rule.id);
@@ -260,7 +262,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
 
       {/* ── 特殊目标 ── */}
       <div className="scope-target-section">
-        <div className="scope-target-section__header">特殊目标</div>
+        <div className="scope-target-section__header">{t('components.specialTargetsSection', 'Special Targets')}</div>
         <div
           className={`scope-target-item ${selectedId === 'special:desktop' ? 'active' : ''}`}
           onClick={() => onSelect(desktopTarget)}
@@ -269,7 +271,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
             <Monitor size={14} />
           </div>
           <div className="scope-target-item__content">
-            <span className="scope-target-item__title">桌面</span>
+            <span className="scope-target-item__title">{t('components.targetDesktop', 'Desktop')}</span>
             <span className="scope-target-item__subtitle">Progman / WorkerW</span>
           </div>
         </div>
@@ -281,7 +283,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
             <LayoutTemplate size={14} />
           </div>
           <div className="scope-target-item__content">
-            <span className="scope-target-item__title">任务栏</span>
+            <span className="scope-target-item__title">{t('components.targetTaskbar', 'Taskbar')}</span>
             <span className="scope-target-item__subtitle">Shell_TrayWnd</span>
           </div>
         </div>

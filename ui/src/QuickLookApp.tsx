@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   File, 
   Folder, 
@@ -51,7 +52,7 @@ function renderMarkdownToHtml(markdown: string): string {
     // 代码块 ```lang ... ```
     .replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
       const highlighted = highlightCode(code);
-      return `<div class="ql-code-block"><div class="ql-code-header"><span class="ql-code-lang">${lang || 'text'}</span><button class="ql-code-copy-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(code)}'))">复制</button></div><pre><code>${highlighted}</code></pre></div>`;
+      return `<div class="ql-code-block"><div class="ql-code-header"><span class="ql-code-lang">${lang || 'text'}</span><button class="ql-code-copy-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(code)}'))">Copy</button></div><pre><code>${highlighted}</code></pre></div>`;
     })
     // 标题 # - ######
     .replace(/^###### (.*$)/gim, '<h6>$1</h6>')
@@ -99,6 +100,7 @@ function highlightCode(code: string): string {
 }
 
 export default function QuickLookApp() {
+  const { t } = useTranslation();
   useAppearance();
   const [data, setData] = useState<FilePreviewData | null>(null);
   const [codeWrap, setCodeWrap] = useState(true);
@@ -146,17 +148,17 @@ export default function QuickLookApp() {
 
   const typeLabel = useMemo(() => {
     if (!data) return '';
-    if (data.isDirectory) return '文件夹';
+    if (data.isDirectory) return t('quicklook.typeFolder', 'Folder');
     switch (data.type) {
-      case 'markdown': return 'Markdown 文档';
-      case 'image': return `${data.extension.toUpperCase()} 图像`;
-      case 'video': return `${data.extension.toUpperCase()} 视频`;
-      case 'audio': return `${data.extension.toUpperCase()} 音频`;
-      case 'code': return `${data.extension.toUpperCase()} 源代码`;
-      case 'pdf': return 'PDF 文档';
-      default: return '文件';
+      case 'markdown': return t('quicklook.typeMarkdown', 'Markdown Document');
+      case 'image': return t('quicklook.typeImage', '{{ext}} Image', { ext: data.extension.toUpperCase() });
+      case 'video': return t('quicklook.typeVideo', '{{ext}} Video', { ext: data.extension.toUpperCase() });
+      case 'audio': return t('quicklook.typeAudio', '{{ext}} Audio', { ext: data.extension.toUpperCase() });
+      case 'code': return t('quicklook.typeCode', '{{ext}} Source Code', { ext: data.extension.toUpperCase() });
+      case 'pdf': return t('quicklook.typePdf', 'PDF Document');
+      default: return t('quicklook.typeFile', 'File');
     }
-  }, [data]);
+  }, [data, t]);
 
   const linesCount = useMemo(() => {
     if (!data?.content) return 0;
@@ -168,8 +170,8 @@ export default function QuickLookApp() {
       <div className="ql-container ql-empty-container">
         <div className="ql-empty-state">
           <div className="ql-empty-icon"><Search size={32} /></div>
-          <div className="ql-empty-title">在资源管理器中选中文件并按空格键</div>
-          <div className="ql-empty-desc">支持 Markdown、代码、图片、音视频、PDF 及文件夹等任意格式秒级预览</div>
+          <div className="ql-empty-title">{t('quicklook.emptyTitle', 'Select a file in File Explorer and press Space')}</div>
+          <div className="ql-empty-desc">{t('quicklook.emptyDesc', 'Instant preview for Markdown, code, images, audio, video, PDF and folders')}</div>
         </div>
       </div>
     );
@@ -188,8 +190,8 @@ export default function QuickLookApp() {
             </div>
             <div className="ql-file-sub-row">
               <span>{data.formattedSize}</span>
-              {linesCount > 0 && <span>· {linesCount} 行</span>}
-              <span>· 修改于 {data.modified}</span>
+              {linesCount > 0 && <span>· {t('quicklook.linesCount', '{{count}} lines', { count: linesCount })}</span>}
+              <span>· {t('quicklook.modifiedAt', 'Modified at {{time}}', { time: data.modified })}</span>
             </div>
           </div>
         </div>
@@ -201,7 +203,7 @@ export default function QuickLookApp() {
                 type="button"
                 className={`ql-btn-sub ${codeWrap ? 'active' : ''}`}
                 onClick={() => setCodeWrap(!codeWrap)}
-                title="自动换行"
+                title={t('quicklook.wrapLines', 'Word Wrap')}
               >
                 自动折行
               </button>
@@ -209,7 +211,7 @@ export default function QuickLookApp() {
                 type="button"
                 className="ql-btn-sub"
                 onClick={() => setFontSize(Math.max(10, fontSize - 1))}
-                title="缩小字号"
+                title={t('quicklook.decreaseFontSize', 'Decrease Font Size')}
               >
                 A-
               </button>
@@ -217,7 +219,7 @@ export default function QuickLookApp() {
                 type="button"
                 className="ql-btn-sub"
                 onClick={() => setFontSize(Math.min(24, fontSize + 1))}
-                title="放大字号"
+                title={t('quicklook.increaseFontSize', 'Increase Font Size')}
               >
                 A+
               </button>
@@ -230,7 +232,7 @@ export default function QuickLookApp() {
                 type="button"
                 className="ql-btn-sub"
                 onClick={() => setImageScale(Math.max(0.2, imageScale - 0.25))}
-                title="缩小"
+                title={t('quicklook.zoomOut', 'Zoom Out')}
               >
                 -
               </button>
@@ -239,7 +241,7 @@ export default function QuickLookApp() {
                 type="button"
                 className="ql-btn-sub"
                 onClick={() => setImageScale(Math.min(4, imageScale + 0.25))}
-                title="放大"
+                title={t('quicklook.zoomIn', 'Zoom In')}
               >
                 +
               </button>
@@ -247,7 +249,7 @@ export default function QuickLookApp() {
                 type="button"
                 className="ql-btn-sub"
                 onClick={() => setImageScale(1)}
-                title="重置"
+                title={t('quicklook.resetZoom', 'Reset')}
               >
                 100%
               </button>
@@ -258,7 +260,7 @@ export default function QuickLookApp() {
             type="button"
             className="ql-btn ql-btn-primary"
             onClick={() => bridgeRequest('quicklook.open', { path: data.path })}
-            title="使用默认程序打开 (Enter)"
+            title={t('quicklook.openFileTitle', 'Open with default application (Enter)')}
           >
             <ExternalLink size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
             打开文件
@@ -267,7 +269,7 @@ export default function QuickLookApp() {
             type="button"
             className="ql-btn ql-btn-secondary"
             onClick={() => bridgeRequest('quicklook.showInFolder', { path: data.path })}
-            title="在文件夹中定位文件"
+            title={t('quicklook.locateTitle', 'Locate in File Explorer')}
           >
             <FolderOpen size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
             定位
@@ -276,7 +278,7 @@ export default function QuickLookApp() {
             type="button"
             className="ql-btn ql-btn-secondary"
             onClick={() => bridgeRequest('quicklook.copyPath', { path: data.path })}
-            title="复制文件绝对路径"
+            title={t('quicklook.copyPathTitle', 'Copy absolute file path')}
           >
             <Copy size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
             复制路径
@@ -285,7 +287,7 @@ export default function QuickLookApp() {
             type="button"
             className="ql-btn ql-btn-close"
             onClick={() => bridgeRequest('quicklook.hide')}
-            title="关闭预览 (Esc / Space)"
+            title={t('quicklook.close', 'Close Preview (Esc / Space)')}
           >
             <X size={14} />
           </button>
@@ -330,7 +332,7 @@ export default function QuickLookApp() {
         {data.type === 'video' && (
           <div className="ql-media-view">
             <video controls autoPlay src={`https://easytools.local/` + encodeURIComponent(data.name)} className="ql-video-player">
-              <p>您的浏览器暂不支持此视频格式</p>
+              <p>{t('quicklook.videoNotSupported', 'Your browser does not support this video format')}</p>
             </video>
           </div>
         )}
@@ -348,15 +350,15 @@ export default function QuickLookApp() {
         {data.type === 'folder' && (
           <div className="ql-folder-view">
             <div className="ql-folder-header">
-              <span>文件夹内容预览 ({data.folderChildren?.length || 0} 项)</span>
+              <span>{t('quicklook.folderPreview', 'Folder Content Preview ({{count}} items)', { count: data.folderChildren?.length || 0 })}</span>
             </div>
             <div className="ql-folder-table-container">
               <table className="ql-folder-table">
                 <thead>
                   <tr>
-                    <th>名称</th>
-                    <th>大小</th>
-                    <th>类型</th>
+                    <th>{t('quicklook.colName', 'Name')}</th>
+                    <th>{t('quicklook.colSize', 'Size')}</th>
+                    <th>{t('quicklook.colType', 'Type')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -369,7 +371,7 @@ export default function QuickLookApp() {
                         <span>{child.name}</span>
                       </td>
                       <td>{child.formattedSize}</td>
-                      <td>{child.isDirectory ? '文件夹' : '文件'}</td>
+                      <td>{child.isDirectory ? t('quicklook.typeFolder', 'Folder') : t('quicklook.typeFile', 'File')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -383,11 +385,11 @@ export default function QuickLookApp() {
             <div className="ql-binary-card">
               <div className="ql-binary-icon"><FileDigit size={36} /></div>
               <div className="ql-binary-name">{data.name}</div>
-              <div className="ql-binary-meta">{data.formattedSize} · 二进制文件</div>
+              <div className="ql-binary-meta">{data.formattedSize} · {t('quicklook.typeBinary', 'Binary File')}</div>
               {data.hexDump ? (
                 <pre className="ql-hex-dump">{data.hexDump}</pre>
               ) : (
-                <p className="ql-binary-hint">此文件为二进制格式，请点击右上角按钮在专用应用中打开。</p>
+                <p className="ql-binary-hint">{t('quicklook.binaryHint', 'This file is in binary format. Click the button above to open it in an external application.')}</p>
               )}
             </div>
           </div>
@@ -397,13 +399,13 @@ export default function QuickLookApp() {
       {/* 底部快捷键提示状态栏 */}
       <footer className="ql-footer">
         <div className="ql-shortcut-hint">
-          <kbd>Space</kbd> <span>关闭/切换</span>
-          <kbd>Esc</kbd> <span>退出</span>
-          <kbd>↑</kbd> <kbd>↓</kbd> <span>切换选中文件</span>
-          <kbd>Enter</kbd> <span>打开文件</span>
+          <kbd>Space</kbd> <span>{t('quicklook.spaceClose', 'Close / Toggle')}</span>
+          <kbd>Esc</kbd> <span>{t('quicklook.escExit', 'Exit')}</span>
+          <kbd>↑</kbd> <kbd>↓</kbd> <span>{t('quicklook.arrowSwitch', 'Switch Selected File')}</span>
+          <kbd>Enter</kbd> <span>{t('quicklook.enterOpen', 'Open File')}</span>
         </div>
         <div className="ql-footer-status">
-          <span>EasyTools QuickLook 极速预览引擎</span>
+          <span>{t('quicklook.engineStatus', 'EasyTools QuickLook Instant Preview Engine')}</span>
         </div>
       </footer>
     </div>

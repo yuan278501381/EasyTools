@@ -3,6 +3,7 @@ import { StrictMode, Component, Suspense, lazy } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import i18n from 'i18next'
 import './i18n/config'
 
 // 每个 WebView 表面只解析自己的组件树。生产构建会为这些动态入口保留独立
@@ -27,13 +28,13 @@ class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean,
     if (this.state.hasError) {
       return (
         <div role="alert" style={{ maxWidth: '640px', margin: '10vh auto', padding: '24px', color: 'CanvasText', background: 'Canvas', fontFamily: 'Segoe UI, sans-serif' }}>
-          <h1 style={{ fontSize: '1.4rem' }}>界面暂时无法显示</h1>
-          <p style={{ margin: '12px 0' }}>重新加载后可以继续使用，您的设置不会丢失。</p>
+          <h1 style={{ fontSize: '1.4rem' }}>{i18n.t('main.errorTitle', 'UI Failed to Render')}</h1>
+          <p style={{ margin: '12px 0' }}>{i18n.t('main.errorDesc', 'Settings will not be lost after reload.')}</p>
           <button type="button" onClick={() => window.location.reload()} style={{ padding: '8px 16px' }}>
-            重新加载
+            {i18n.t('main.reload', 'Reload')}
           </button>
           <details style={{ marginTop: '16px' }}>
-            <summary>技术详情</summary>
+            <summary>{i18n.t('main.techDetails', 'Technical Details')}</summary>
             <pre style={{ marginTop: '8px', whiteSpace: 'pre-wrap', userSelect: 'text' }}>
               {this.state.error?.stack || this.state.error?.message}
             </pre>
@@ -86,7 +87,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <Suspense fallback={<div role="status" aria-live="polite" className="surface-loading">正在加载…</div>}>
+      <Suspense fallback={<div role="status" aria-live="polite" className="surface-loading">{i18n.t('main.loading', 'Loading...')}</div>}>
         {isTray ? <TrayApp /> : (isSearch ? <SearchApp /> : (isQuickLook ? <QuickLookApp /> : <SettingsApp />))}
       </Suspense>
     </ErrorBoundary>

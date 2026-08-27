@@ -80,7 +80,7 @@ export const HotkeyStatusBadge: FC<HotkeyStatusBadgeProps> = ({
 
   if (isActive) {
     return (
-      <span className="hotkey-badge badge-active" title="快捷键已成功注册并全局生效">
+      <span className="hotkey-badge badge-active" title={t('components.hotkeyActiveTip', 'Hotkey registered and active globally')}>
         <CheckCircle2 size={11} />
         <span>{t('general.shortcutActive', 'Active')}</span>
       </span>
