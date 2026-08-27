@@ -86,7 +86,7 @@
 
 .gesture-table {
   width: 100%;
-  min-width: 580px;
+  min-width: min(580px, 100%);
 }
 
 .gesture-table__header {
