@@ -1,4 +1,5 @@
 .extension-page {
+  font-family: var(--font-sans);
   display: flex;
   flex-direction: column;
   gap: 16px;

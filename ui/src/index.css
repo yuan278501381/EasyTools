@@ -318,6 +318,34 @@ body {
   -webkit-text-stroke: 0.12px rgba(255, 255, 255, 0.12);
 }
 
+/* ── 全局原生控件字体继承 (Form Controls Universal Font Reset) ───────────── */
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+/* ── 全局 Portal、浮层与独立通知容器统领 (Portal & Toast System Overlord) ── */
+[data-sonner-toaster],
+[data-sonner-toast],
+[data-radix-popper-content-wrapper],
+.uikit-tooltip,
+.uikit-dropdown,
+.uikit-modal,
+.saved-toast-host,
+.saved-toast,
+.saved-toast__text {
+  font-family: var(--font-sans) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 /* ── 滚动条美化 ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

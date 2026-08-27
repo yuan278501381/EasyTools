@@ -18,7 +18,12 @@ const applyAccent = (accent: string) => {
   document.documentElement.setAttribute('data-accent', accent || 'blue');
 };
 
-/** Keep auxiliary WebView surfaces aligned with the shared app appearance. */
+const applyFontFamily = (fontFamily?: string) => {
+  const preset = fontFamily || 'auto';
+  document.documentElement.setAttribute('data-font-preset', preset);
+};
+
+/** Keep auxiliary WebView surfaces aligned with the shared app appearance & typography. */
 export function useAppearance() {
   const { i18n } = useTranslation();
 
@@ -33,6 +38,8 @@ export function useAppearance() {
     try {
       const storedAccent = localStorage.getItem('easytools:accent-color');
       if (storedAccent) applyAccent(storedAccent);
+      const storedFont = localStorage.getItem('easytools:font-family');
+      if (storedFont) applyFontFamily(storedFont);
     } catch (e) {
       void e;
     }
@@ -43,6 +50,9 @@ export function useAppearance() {
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'easytools:accent-color' && e.newValue) {
         applyAccent(e.newValue);
+      }
+      if (e.key === 'easytools:font-family' && e.newValue) {
+        applyFontFamily(e.newValue);
       }
     };
     const onAccentChanged = (e: Event) => {
@@ -56,12 +66,17 @@ export function useAppearance() {
         applyTheme(preference);
       }
     };
+    const onFontChanged = (e: Event) => {
+      const newFont = (e as CustomEvent<string>).detail;
+      if (newFont) applyFontFamily(newFont);
+    };
 
     window.addEventListener('storage', onStorage);
     window.addEventListener('easytools:accent-changed', onAccentChanged);
     window.addEventListener('easytools:theme-changed', onThemeChanged);
+    window.addEventListener('easytools:font-changed', onFontChanged);
 
-    void bridgeRequest<{ theme?: unknown; language?: unknown; accentColor?: unknown }>('general.getSettings')
+    void bridgeRequest<{ theme?: unknown; language?: unknown; accentColor?: unknown; fontFamily?: unknown }>('general.getSettings')
       .then((settings) => {
         if (disposed) return;
         if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') {
@@ -70,6 +85,9 @@ export function useAppearance() {
         }
         if (typeof settings.accentColor === 'string' && settings.accentColor) {
           applyAccent(settings.accentColor);
+        }
+        if (typeof settings.fontFamily === 'string' && settings.fontFamily) {
+          applyFontFamily(settings.fontFamily);
         }
         if (typeof settings.language === 'string' && settings.language !== 'auto' &&
             i18n.language !== settings.language) {
@@ -86,6 +104,7 @@ export function useAppearance() {
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('easytools:accent-changed', onAccentChanged);
       window.removeEventListener('easytools:theme-changed', onThemeChanged);
+      window.removeEventListener('easytools:font-changed', onFontChanged);
     };
   }, [i18n]);
 }
