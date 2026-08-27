@@ -2489,7 +2489,7 @@ export default function SearchApp() {
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'desc'); }}
                           title={t('search.sortNewest', 'Newest to oldest')}
                         >
-                          {t('search.sortNewestShort', 'Newest ↓')}
+                          {t('search.sortNewestFirst', 'Newest First ↓')}
                         </button>
                         <button
                           type="button"
@@ -2497,7 +2497,7 @@ export default function SearchApp() {
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'asc'); }}
                           title={t('search.sortOldest', 'Oldest to newest')}
                         >
-                          {t('search.sortOldestShort', 'Oldest ↑')}
+                          {t('search.sortOldestFirst', 'Oldest First ↑')}
                         </button>
                       </div>
                     </div>
