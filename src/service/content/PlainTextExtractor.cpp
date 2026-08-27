@@ -327,8 +327,8 @@ bool PlainTextExtractor::canHandle(std::wstring_view extension) const {
     return m_supportedExts.find(lowerExt) != m_supportedExts.end();
 }
 
-// ── 纳秒级字节预过滤 (1 微秒内过滤 99.99% 无关文件，免去行循环与文本解码开销) ──
-static bool fastBytePreFilter(
+// ── 纳秒级单词字节预过滤 ──
+static bool fastByteSinglePattern(
     const uint8_t* data,
     size_t len,
     std::wstring_view queryPattern,
@@ -336,32 +336,22 @@ static bool fastBytePreFilter(
     DetectedEncoding enc
 ) {
     if (len == 0 || queryPattern.empty()) return false;
+    if (enc == DetectedEncoding::Utf16Le || enc == DetectedEncoding::Utf16Be) return true;
 
-    if (enc == DetectedEncoding::Utf16Le || enc == DetectedEncoding::Utf16Be) {
-        return true; 
-    }
-
-    // 检查查询词是否为纯 ASCII (如 "oitt", "class", "function", "select")
     bool isAscii = true;
     std::string asciiQuery;
     asciiQuery.reserve(queryPattern.size());
     for (wchar_t wc : queryPattern) {
-        if (wc < 128) {
-            asciiQuery.push_back(static_cast<char>(wc));
-        } else {
-            isAscii = false;
-            break;
-        }
+        if (wc < 128) asciiQuery.push_back(static_cast<char>(wc));
+        else { isAscii = false; break; }
     }
 
     if (isAscii) {
         const size_t patLen = asciiQuery.size();
         if (len < patLen) return false;
-
         const uint8_t firstLower = static_cast<uint8_t>(std::tolower(asciiQuery[0]));
         const uint8_t firstUpper = static_cast<uint8_t>(std::toupper(asciiQuery[0]));
         const size_t end = len - patLen + 1;
-
         for (size_t i = 0; i < end; ++i) {
             uint8_t b = data[i];
             if (caseSensitive ? (b == asciiQuery[0]) : (b == firstLower || b == firstUpper)) {
@@ -370,8 +360,7 @@ static bool fastBytePreFilter(
                     uint8_t bj = data[i + j];
                     uint8_t pj = static_cast<uint8_t>(asciiQuery[j]);
                     if (caseSensitive ? (bj != pj) : (bj != pj && std::tolower(bj) != std::tolower(pj))) {
-                        match = false;
-                        break;
+                        match = false; break;
                     }
                 }
                 if (match) return true;
@@ -379,39 +368,55 @@ static bool fastBytePreFilter(
         }
         return false;
     } else {
-        // 非 ASCII 查询词 (如中文 "表头" 或 "方案")
-        // 1. 生成 UTF-8 字节串比对
         int utf8Len = WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
         if (utf8Len > 0) {
             std::vector<uint8_t> utf8Pat(utf8Len);
             WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(utf8Pat.data()), utf8Len, nullptr, nullptr);
-            if (std::search(data, data + len, utf8Pat.begin(), utf8Pat.end()) != data + len) {
-                return true;
-            }
+            if (std::search(data, data + len, utf8Pat.begin(), utf8Pat.end()) != data + len) return true;
         }
-        // 2. 生成 GBK (936) / ACP 字节串比对
         const UINT gbkCp = getGbkCodePage();
         int gbkLen = WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
         if (gbkLen > 0) {
             std::vector<uint8_t> gbkPat(gbkLen);
             WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(gbkPat.data()), gbkLen, nullptr, nullptr);
-            if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) {
-                return true;
-            }
+            if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) return true;
         }
-        // 3. 生成 CP_ACP 字节串比对 (若非 936)
         if (GetACP() != gbkCp && GetACP() != CP_UTF8) {
             int acpLen = WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
             if (acpLen > 0) {
                 std::vector<uint8_t> acpPat(acpLen);
                 WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(acpPat.data()), acpLen, nullptr, nullptr);
-                if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) {
-                    return true;
-                }
+                if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) return true;
             }
         }
         return false;
     }
+}
+
+// ── 纳秒级多词组合字节预过滤 (1 微秒内过滤 99.99% 无关文件) ──
+static bool fastBytePreFilter(
+    const uint8_t* data,
+    size_t len,
+    std::wstring_view queryPattern,
+    bool caseSensitive,
+    DetectedEncoding enc
+) {
+    if (len == 0 || queryPattern.empty()) return false;
+    size_t start = 0;
+    while (start < queryPattern.size()) {
+        while (start < queryPattern.size() && iswspace(queryPattern[start])) start++;
+        if (start >= queryPattern.size()) break;
+        size_t end = start;
+        while (end < queryPattern.size() && !iswspace(queryPattern[end])) end++;
+        std::wstring_view subPat = queryPattern.substr(start, end - start);
+        if (!subPat.empty()) {
+            if (!fastByteSinglePattern(data, len, subPat, caseSensitive, enc)) {
+                return false;
+            }
+        }
+        start = end;
+    }
+    return true;
 }
 
 bool PlainTextExtractor::searchContent(
@@ -478,6 +483,22 @@ bool PlainTextExtractor::searchContent(
     }
 
     // ── 准备小写匹配模版 ──────────────────────────────────────────
+    std::vector<std::wstring> subQueries;
+    {
+        size_t s = 0;
+        while (s < queryPattern.size()) {
+            while (s < queryPattern.size() && iswspace(queryPattern[s])) s++;
+            if (s >= queryPattern.size()) break;
+            size_t e = s;
+            while (e < queryPattern.size() && !iswspace(queryPattern[e])) e++;
+            std::wstring sub = std::wstring(queryPattern.substr(s, e - s));
+            if (!caseSensitive) {
+                for (auto& c : sub) c = std::towlower(c);
+            }
+            if (!sub.empty()) subQueries.push_back(std::move(sub));
+            s = e;
+        }
+    }
     std::wstring lowerQuery;
     lowerQuery.reserve(queryPattern.size());
     for (wchar_t c : queryPattern) {
@@ -517,8 +538,19 @@ bool PlainTextExtractor::searchContent(
                 }
 
                 size_t pos = searchTarget.find(lowerQuery);
+                size_t matchLen = lowerQuery.size();
+                if (pos == std::wstring::npos && !subQueries.empty()) {
+                    for (const auto& sq : subQueries) {
+                        size_t p = searchTarget.find(sq);
+                        if (p != std::wstring::npos) {
+                            pos = p;
+                            matchLen = sq.size();
+                            break;
+                        }
+                    }
+                }
                 if (pos != std::wstring::npos) {
-                    formatAndAddSnippet(lineNumber, std::move(line), pos, lowerQuery.size(), outSnippets);
+                    formatAndAddSnippet(lineNumber, std::move(line), pos, matchLen, outSnippets);
                     if (outSnippets.size() >= maxSnippetsPerFile) break;
                 }
 
@@ -546,8 +578,19 @@ bool PlainTextExtractor::searchContent(
                 }
 
                 size_t pos = searchTarget.find(lowerQuery);
+                size_t matchLen = lowerQuery.size();
+                if (pos == std::wstring::npos && !subQueries.empty()) {
+                    for (const auto& sq : subQueries) {
+                        size_t p = searchTarget.find(sq);
+                        if (p != std::wstring::npos) {
+                            pos = p;
+                            matchLen = sq.size();
+                            break;
+                        }
+                    }
+                }
                 if (pos != std::wstring::npos) {
-                    formatAndAddSnippet(lineNumber, std::move(line), pos, lowerQuery.size(), outSnippets);
+                    formatAndAddSnippet(lineNumber, std::move(line), pos, matchLen, outSnippets);
                     if (outSnippets.size() >= maxSnippetsPerFile) break;
                 }
 

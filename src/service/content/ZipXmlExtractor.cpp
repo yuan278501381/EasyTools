@@ -240,6 +240,22 @@ bool ZipXmlExtractor::searchContent(
     if (!hasText || extractedAllText.empty()) return false;
 
     // ── 准备小写匹配模版 ──────────────────────────────────────────
+    std::vector<std::wstring> subQueries;
+    {
+        size_t s = 0;
+        while (s < queryPattern.size()) {
+            while (s < queryPattern.size() && iswspace(queryPattern[s])) s++;
+            if (s >= queryPattern.size()) break;
+            size_t e = s;
+            while (e < queryPattern.size() && !iswspace(queryPattern[e])) e++;
+            std::wstring sub = std::wstring(queryPattern.substr(s, e - s));
+            if (!caseSensitive) {
+                for (auto& c : sub) c = std::towlower(c);
+            }
+            if (!sub.empty()) subQueries.push_back(std::move(sub));
+            s = e;
+        }
+    }
     std::wstring lowerQuery;
     lowerQuery.reserve(queryPattern.size());
     for (wchar_t c : queryPattern) {
@@ -269,13 +285,24 @@ bool ZipXmlExtractor::searchContent(
         }
 
         size_t pos = searchTarget.find(lowerQuery);
+        size_t matchLen = lowerQuery.size();
+        if (pos == std::wstring::npos && !subQueries.empty()) {
+            for (const auto& sq : subQueries) {
+                size_t p = searchTarget.find(sq);
+                if (p != std::wstring::npos) {
+                    pos = p;
+                    matchLen = sq.size();
+                    break;
+                }
+            }
+        }
         if (pos != std::wstring::npos) {
             uint32_t snippetOffset = static_cast<uint32_t>(pos);
             std::wstring snippetLine = line;
 
             if (snippetLine.size() > MAX_SNIPPET_LEN) {
                 size_t start = (pos > CONTEXT_PADDING) ? (pos - CONTEXT_PADDING) : 0;
-                size_t end = std::min(snippetLine.size(), pos + lowerQuery.size() + CONTEXT_PADDING);
+                size_t end = std::min(snippetLine.size(), pos + matchLen + CONTEXT_PADDING);
                 std::wstring truncated;
                 if (start > 0) truncated += L"...";
                 snippetOffset = static_cast<uint32_t>(truncated.size() + (pos - start));
@@ -288,7 +315,7 @@ bool ZipXmlExtractor::searchContent(
                 .lineNumber = lineNumber,
                 .lineContent = std::move(snippetLine),
                 .matchOffset = snippetOffset,
-                .matchLength = static_cast<uint32_t>(lowerQuery.size())
+                .matchLength = static_cast<uint32_t>(matchLen)
             });
 
             if (outSnippets.size() >= maxSnippetsPerFile) break;

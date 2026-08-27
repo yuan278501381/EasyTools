@@ -3218,6 +3218,15 @@ TEST(ContentSearchTest, ExtractorEngines) {
     EXPECT_TRUE(expr3.hasContentFilter());
     EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(expr3.getContentQuery()), "工程图纸");
 
+    // 验证多关键词全文穿透检索 (如 content:同心 账号密码，后续词不会被误判为文件名过滤)
+    auto exprMultiContent = SearchExpression::parse(L"content:同心 账号密码");
+    EXPECT_TRUE(exprMultiContent.hasContentFilter());
+    EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(exprMultiContent.getContentQuery()), "同心 账号密码");
+    FileRecord recMulti;
+    recMulti.fileName = L"备忘录.txt";
+    recMulti.normalizedName = L"备忘录.txt";
+    EXPECT_TRUE(exprMultiContent.matches(recMulti, L'C'));
+
     // 拼音音节分隔符 (如输入法 tong'xi 匹配同喜 tongxi)
     auto exprPinyinSyllable = SearchExpression::parse(L"tong'xi");
     FileRecord recTongXi;

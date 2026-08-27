@@ -62,7 +62,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
-  modifierKeycapOpacity: 65,
+  modifierKeycapOpacity: 40,
   modifierTextColor: '#000000',
   firstKeyAnim: 'slide',
   subsequentKeyAnim: 'fade',

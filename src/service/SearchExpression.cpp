@@ -210,6 +210,7 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
 
     SearchOrGroup currentGroup;
     bool nextIsOr = false;
+    bool inContentMode = false;
 
     for (size_t idx = 0; idx < rawTokens.size(); ++idx) {
         const auto& token = rawTokens[idx];
@@ -219,6 +220,7 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
         }
         if (token == L"|" || token == L"OR" || token == L"or") {
             nextIsOr = true;
+            inContentMode = false;
             continue;
         }
 
@@ -228,8 +230,26 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
             expr.m_requiresFullPath = true;
         }
         if (clause.filterType == SearchFilterType::Content) {
+            inContentMode = true;
             expr.m_hasContentFilter = true;
-            expr.m_contentQuery = clause.rawPattern;
+            if (expr.m_contentQuery.empty()) {
+                expr.m_contentQuery = clause.rawPattern;
+            } else if (!clause.rawPattern.empty()) {
+                expr.m_contentQuery += L" " + clause.rawPattern;
+            }
+        } else if (inContentMode && clause.filterType == SearchFilterType::None) {
+            // 当前处于 content 搜索模式，后续未带任何显式语法前缀的词（如 content:同心 账号密码 中的 账号密码）
+            // 自动归入 content 全文内容检索词组，避免被误判为文件名过滤条件！
+            if (expr.m_contentQuery.empty()) {
+                expr.m_contentQuery = clause.rawPattern;
+            } else {
+                expr.m_contentQuery += L" " + clause.rawPattern;
+            }
+            clause.filterType = SearchFilterType::Content;
+        } else {
+            if (clause.filterType != SearchFilterType::None) {
+                inContentMode = false;
+            }
         }
 
         if (nextIsOr && !expr.m_orGroups.empty()) {
