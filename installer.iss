@@ -76,18 +76,18 @@ chinesesimplified.TypeCompact=极简轻量安装
 english.TypeCompact=Compact Installation
 chinesesimplified.TypeCustom=自定义模块选择
 english.TypeCustom=Custom Module Selection
-chinesesimplified.CompSearch=超级文件检索 (Search) — 全盘秒级索引与快速启动 [设置 -> 快速搜索]
-english.CompSearch=Fast File Search (Search) — Instant disk indexing & launcher [Settings -> Search]
-chinesesimplified.CompCapture=截图贴图与录屏 (Capture) — 智能贴图、长截图、拾色器与高清录屏 [设置 -> 截屏与录屏]
-english.CompCapture=Screenshot, Pin & Recording (Capture) — Smart pin, OCR & HD recording [Settings -> Capture]
-chinesesimplified.CompGesture=鼠标手势与触发角 (Gesture) — 右键手势轨迹、屏幕四角触发与轮盘菜单 [设置 -> 鼠标手势]
-english.CompGesture=Mouse Gestures & Hot Corners (Gesture) — Trailing gestures, hot corners & radial menu [Settings -> Gestures]
-chinesesimplified.CompKeycast=按键回显 (Keycast) — 屏幕实时按键显示、机械键帽动效 [设置 -> 按键回显]
-english.CompKeycast=Keycast Overlay (Keycast) — Real-time keystroke visualization [Settings -> Keycast]
-chinesesimplified.CompDialog=文件对话框增强 (Dialog Enhancer) — 常用目录快速跳转、历史路径记忆 [设置 -> 对话框增强]
-english.CompDialog=File Dialog Enhancer (Dialog) — Quick folders & path memory [Settings -> Dialog Enhancer]
-chinesesimplified.CompSpotlight=演示专用特效 (Spotlight) — 屏幕聚光灯聚焦、点击水波纹与鼠标流光轨迹 [设置 -> 演示与聚光灯]
-english.CompSpotlight=Presentation FX (Spotlight) — Screen spotlight focus, click ripple & mouse trails [Settings -> Presentation & Spotlight]
+chinesesimplified.CompSearch=超级文件检索 (Search) — 全盘秒级索引与极速文件启动
+english.CompSearch=Fast File Search (Search) — Instant disk indexing & launcher
+chinesesimplified.CompCapture=截图贴图与录屏 (Capture) — 智能贴图、长截图、拾色器与高清录屏
+english.CompCapture=Screenshot, Pin & Recording (Capture) — Smart pin, OCR & HD recording
+chinesesimplified.CompGesture=鼠标手势与触发角 (Gesture) — 右键手势轨迹、屏幕四角触发与轮盘菜单
+english.CompGesture=Mouse Gestures & Hot Corners (Gesture) — Trailing gestures, hot corners & radial menu
+chinesesimplified.CompKeycast=按键回显 (Keycast) — 屏幕实时按键显示、机械键帽动效
+english.CompKeycast=Keycast Overlay (Keycast) — Real-time keystroke visualization
+chinesesimplified.CompDialog=文件对话框增强 (Dialog Enhancer) — 常用目录快速跳转、历史路径记忆
+english.CompDialog=File Dialog Enhancer (Dialog) — Quick folders & path memory
+chinesesimplified.CompSpotlight=演示专用特效 (Spotlight) — 屏幕聚光灯聚焦、点击水波纹与流光轨迹
+english.CompSpotlight=Presentation FX (Spotlight) — Screen spotlight focus, click ripple & mouse trails
 
 [Types]
 Name: "full"; Description: "{cm:TypeFull}"
