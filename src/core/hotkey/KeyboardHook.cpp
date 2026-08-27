@@ -1,4 +1,4 @@
-﻿#include "core/hotkey/KeyboardHook.h"
+#include "core/hotkey/KeyboardHook.h"
 #include "core/logger/Logger.h"
 #include "core/stats/StatsManager.h"
 #include "core/config/ConfigManager.h"
@@ -40,8 +40,26 @@ void KeyboardHook::uninstall() {
     if (m_hookHandle) {
         UnhookWindowsHookEx(m_hookHandle);
         m_hookHandle = nullptr;
+        {
+            std::lock_guard lock(m_callbackMutex);
+            m_pendingModifierVk = 0;
+            m_comboTriggered = false;
+        }
         LOG_INFO("Hook uninstalled");
     }
+}
+
+void KeyboardHook::setPaused(bool paused) {
+    m_paused.store(paused, std::memory_order_relaxed);
+    if (paused) {
+        std::lock_guard lock(m_callbackMutex);
+        m_pendingModifierVk = 0;
+        m_comboTriggered = false;
+    }
+}
+
+bool KeyboardHook::isPaused() const {
+    return m_paused.load(std::memory_order_relaxed);
 }
 
 void KeyboardHook::setKeycastCallback(std::function<void(const std::string&)> cb) {

@@ -21,6 +21,8 @@ public:
     void setKeycastCallback(std::function<void(const std::string&)> cb);
     void setKeyInterceptor(std::function<bool(DWORD vkCode, WPARAM wParam)> interceptor);
     void setKeyboardActivityCallback(std::function<void(DWORD vkCode, WPARAM wParam)> cb);
+    void setPaused(bool paused);
+    bool isPaused() const;
 
 private:
     KeyboardHook() = default;

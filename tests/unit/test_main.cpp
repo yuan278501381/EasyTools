@@ -5314,6 +5314,20 @@ TEST(KeycastSmartFilterAndModifierStateMachineTest, ComprehensiveBehavior) {
     EXPECT_TRUE(shouldDisplaySpaceWithInclude);
 }
 
+
+TEST(CoreKeyboardHookTest, InstallPauseAndUninstall) {
+    auto& kbHook = easy::core::KeyboardHook::instance();
+    EXPECT_FALSE(kbHook.isPaused());
+
+    kbHook.setPaused(true);
+    EXPECT_TRUE(kbHook.isPaused());
+    kbHook.setPaused(false);
+    EXPECT_FALSE(kbHook.isPaused());
+
+    kbHook.install();
+    kbHook.uninstall();
+}
+
 TEST(CoreMouseHookTest, InstallAndCallbacks) {
     auto& mouseHook = easy::core::MouseHook::instance();
     EXPECT_FALSE(mouseHook.isPaused());
