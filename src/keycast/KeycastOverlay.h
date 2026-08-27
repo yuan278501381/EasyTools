@@ -111,7 +111,7 @@ private:
 
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    HWND m_hwnd = nullptr;
+        HWND m_hwnd = nullptr;
     HWND m_helperOwnerHwnd = nullptr;
     KeycastSettings m_settings;
     mutable std::mutex m_settingsMutex;
@@ -123,6 +123,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_keycapTextFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_repeatTextFormat;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> m_plusTextFormat;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushText;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushModifierText;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> m_brushBg;

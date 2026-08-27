@@ -40,30 +40,32 @@ inline bool isModifierKey(const std::string& token) {
 struct KeycastDynamicMetrics {
     float fontSize;       // 实际生效的字体尺寸 (DPI 缩放后)
     float charWidth;      // 单字符估算宽度
-    float capHeight;      // 键帽高度 = fontSize * 1.75f
-    float capRadius;      // 键帽圆角 = capHeight * 0.22f
-    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.65f
-    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.22f
-    float paddingX;       // 胶囊左右内边距 = fontSize * 0.55f
-    float winWidth;       // Windows 键宽度 = fontSize * 1.85f
-    float logoSize;       // Windows 徽标尺寸 = fontSize * 0.88f
-    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.35f
-    float borderWidth;    // 动态微边框 = max(1.0f * dpiScale, fontSize * 0.055f)
+    float capHeight;      // 键帽高度 = fontSize * 1.34f (修长紧凑黄金比)
+    float capRadius;      // 键帽圆角 = capHeight * 0.24f (~6px)
+    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.38f (~34px)
+    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.26f (~9px)
+    float paddingX;       // 胶囊左右内边距 = fontSize * 0.40f
+    float winWidth;       // Windows 键宽度 = fontSize * 1.82f (长宽比 1.36:1)
+    float logoSize;       // Windows 徽标尺寸 = fontSize * 0.72f
+    float plusWidth;      // 加号总占用宽度 = fontSize * 0.52f
+    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.25f
+    float borderWidth;    // 动态微边框 = max(1.0f * dpiScale, fontSize * 0.050f)
 };
 
 inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
     KeycastDynamicMetrics m;
-    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 1.08f) * dpiScale;
-    m.charWidth = m.fontSize * 0.62f;
-    m.capHeight = m.fontSize * 1.75f;
-    m.capRadius = m.capHeight * 0.22f;
-    m.capsuleHeight = m.capHeight + m.fontSize * 0.65f;
-    m.capsuleRadius = m.capsuleHeight * 0.22f;
-    m.paddingX = m.fontSize * 0.55f;
-    m.winWidth = m.fontSize * 1.85f;
-    m.logoSize = m.fontSize * 0.88f;
-    m.rowStep = m.capsuleHeight + m.fontSize * 0.35f;
-    m.borderWidth = (std::max)(1.0f * dpiScale, m.fontSize * 0.055f);
+    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 1.05f) * dpiScale;
+    m.charWidth = m.fontSize * 0.58f;
+    m.capHeight = m.fontSize * 1.34f;
+    m.capRadius = m.capHeight * 0.24f;
+    m.capsuleHeight = m.capHeight + m.fontSize * 0.38f;
+    m.capsuleRadius = m.capsuleHeight * 0.26f;
+    m.paddingX = m.fontSize * 0.40f;
+    m.winWidth = m.fontSize * 1.82f;
+    m.logoSize = m.fontSize * 0.72f;
+    m.plusWidth = m.fontSize * 0.52f;
+    m.rowStep = m.capsuleHeight + m.fontSize * 0.25f;
+    m.borderWidth = (std::max)(1.0f * dpiScale, m.fontSize * 0.050f);
     return m;
 }
 }
@@ -238,6 +240,7 @@ void KeycastOverlay::discardResources() {
     m_textFormat.Reset();
     m_keycapTextFormat.Reset();
     m_repeatTextFormat.Reset();
+    m_plusTextFormat.Reset();
     if (m_memoryDC && m_oldBitmap) SelectObject(m_memoryDC, m_oldBitmap);
     m_oldBitmap = nullptr;
     if (m_memoryBitmap) DeleteObject(m_memoryBitmap);
@@ -509,7 +512,7 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
             totalW += btnW;
         }
         if (i + 1 < item.tokens.size()) {
-            totalW += dyn.fontSize * 0.95f; // '+' 宽度与两侧间距
+            totalW += dyn.plusWidth; // 精致小巧 '+' 宽度与两侧紧致间距
         }
     }
     if (item.repeatCount > 1) {
@@ -742,55 +745,30 @@ void KeycastOverlay::pushKey(const std::string& keyStr) {
 }
 
 void KeycastOverlay::drawWindowsLogo(const D2D1_RECT_F& rect, float alpha) {
-    if (!m_renderTarget || !m_brushModifierText || !m_d2dFactory) return;
+    if (!m_renderTarget || !m_brushModifierText) return;
 
-    m_brushModifierText->SetOpacity(0.96f * alpha);
+    m_brushModifierText->SetOpacity(0.98f * alpha);
     float w = rect.right - rect.left;
     float h = rect.bottom - rect.top;
+    float side = (std::min)(w, h);
+    float left = rect.left + (w - side) / 2.0f;
+    float top = rect.top + (h - side) / 2.0f;
 
-    // 坐标映射公式：将 640x640 标准矢量坐标线性映射至当前目标键帽 Rect
-    auto mapX = [&](float x) -> float { return rect.left + (x / 640.0f) * w; };
-    auto mapY = [&](float y) -> float { return rect.top + (y / 640.0f) * h; };
+    float gap = side * 0.12f;
+    float boxSize = (side - gap) / 2.0f;
+    float radius = boxSize * 0.14f;
 
-    Microsoft::WRL::ComPtr<ID2D1PathGeometry> pathGeo;
-    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeo))) return;
+    D2D1_RECT_F boxes[4] = {
+        D2D1::RectF(left, top, left + boxSize, top + boxSize),
+        D2D1::RectF(left + boxSize + gap, top, left + side, top + boxSize),
+        D2D1::RectF(left, top + boxSize + gap, left + boxSize, top + side),
+        D2D1::RectF(left + boxSize + gap, top + boxSize + gap, left + side, top + side)
+    };
 
-    Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
-    if (FAILED(pathGeo->Open(&sink))) return;
-
-    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
-
-    // 窗格 1 [左上]: M.2 298.669 L0 90.615 L256.007 55.855 L256.007 298.669 Z
-    sink->BeginFigure(D2D1::Point2F(mapX(0.2f), mapY(298.669f)), D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLine(D2D1::Point2F(mapX(0.0f), mapY(90.615f)));
-    sink->AddLine(D2D1::Point2F(mapX(256.007f), mapY(55.855f)));
-    sink->AddLine(D2D1::Point2F(mapX(256.007f), mapY(298.669f)));
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-
-    // 窗格 2 [右上]: M298.658 49.654 L639.905 -.012 L639.905 298.669 L298.657 298.669 Z
-    sink->BeginFigure(D2D1::Point2F(mapX(298.658f), mapY(49.654f)), D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLine(D2D1::Point2F(mapX(639.905f), mapY(0.0f)));
-    sink->AddLine(D2D1::Point2F(mapX(639.905f), mapY(298.669f)));
-    sink->AddLine(D2D1::Point2F(mapX(298.657f), mapY(298.669f)));
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-
-    // 窗格 3 [右下]: M640 341.331 L639.929 640.012 L298.669 592.0 L298.669 341.332 Z
-    sink->BeginFigure(D2D1::Point2F(mapX(640.0f), mapY(341.331f)), D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLine(D2D1::Point2F(mapX(639.929f), mapY(640.012f)));
-    sink->AddLine(D2D1::Point2F(mapX(298.669f), mapY(592.0f)));
-    sink->AddLine(D2D1::Point2F(mapX(298.669f), mapY(341.332f)));
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-
-    // 窗格 4 [左下]: M255.983 586.543 L.189 551.463 L.189 341.283 L255.983 341.283 Z
-    sink->BeginFigure(D2D1::Point2F(mapX(255.983f), mapY(586.543f)), D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLine(D2D1::Point2F(mapX(0.189f), mapY(551.463f)));
-    sink->AddLine(D2D1::Point2F(mapX(0.189f), mapY(341.283f)));
-    sink->AddLine(D2D1::Point2F(mapX(255.983f), mapY(341.283f)));
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-
-    sink->Close();
-
-    m_renderTarget->FillGeometry(pathGeo.Get(), m_brushModifierText.Get());
+    for (const auto& b : boxes) {
+        D2D1_ROUNDED_RECT rb = D2D1::RoundedRect(b, radius, radius);
+        m_renderTarget->FillRoundedRectangle(&rb, m_brushModifierText.Get());
+    }
 }
 
 void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, float startY, float alpha, float dpiScale) {
@@ -948,17 +926,19 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             curX += btnW;
         }
 
-        // 绘制键间连接符号 '+'
+        // 绘制键间连接符号 '+' (小巧弱化微型字体)
         if (i + 1 < item.tokens.size()) {
-            curX += dyn.fontSize * 0.20f;
+            curX += dyn.fontSize * 0.08f;
             std::wstring plusStr = L"+";
             Microsoft::WRL::ComPtr<IDWriteTextLayout> plusLayout;
             m_dwriteFactory->CreateTextLayout(
-                plusStr.c_str(), 1, m_textFormat.Get(), 1000.0f, 1000.0f, &plusLayout);
+                plusStr.c_str(), 1,
+                m_plusTextFormat ? m_plusTextFormat.Get() : m_textFormat.Get(),
+                1000.0f, 1000.0f, &plusLayout);
             DWRITE_TEXT_METRICS pm{};
             if (plusLayout) plusLayout->GetMetrics(&pm);
 
-            m_brushPlusText->SetOpacity(0.80f * alpha);
+            m_brushPlusText->SetOpacity(0.85f * alpha);
             if (plusLayout) {
                 float plusX = curX - pm.left;
                 float plusY = capCenterY - pm.height / 2.0f - pm.top;
@@ -966,7 +946,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
                     D2D1::Point2F(plusX, plusY),
                     plusLayout.Get(), m_brushPlusText.Get());
             }
-            curX += pm.width + dyn.fontSize * 0.20f;
+            curX += pm.width + dyn.fontSize * 0.08f;
         }
     }
 
