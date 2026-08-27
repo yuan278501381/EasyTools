@@ -901,7 +901,7 @@ export default function SearchApp() {
       }>('search.getDbStats');
       if (res && res.success) {
         setDbStats(res);
-        const isIndexing = !!res.indexing;
+        const isIndexing = res.indexing === true || (res.totalRecords === 0 && res.exists === false);
         if (isIndexing) {
           setIsInitialIndexing(true);
           isInitialIndexingRef.current = true;
@@ -956,10 +956,15 @@ export default function SearchApp() {
 
     void runPoll();
 
+    let lastFocusSyncTick = 0;
     const onFocusEvt = () => {
-      void bridgeRequest('search.warmup').then(() => {
-        void bridgeRequest('search.sync').catch(() => {});
-      }).catch(() => {});
+      const now = Date.now();
+      if (now - lastFocusSyncTick > 5000) {
+        lastFocusSyncTick = now;
+        void bridgeRequest('search.warmup').then(() => {
+          void bridgeRequest('search.sync').catch(() => {});
+        }).catch(() => {});
+      }
       void runPoll();
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);

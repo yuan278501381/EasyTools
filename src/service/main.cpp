@@ -368,11 +368,15 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                     for (const auto& p : g_MftParsers) {
                         if (p) totalMemRecords += p->getFileCount();
                     }
-                    const uint64_t effectiveRecords = stats.totalRecords > 0 ? stats.totalRecords : totalMemRecords;
-                    const bool isIndexing = g_InitialIndexWorkers.load(std::memory_order_acquire) > 0 ||
-                                            g_RebuildInProgress.load(std::memory_order_acquire) ||
-                                            g_SnapshotInProgress.load(std::memory_order_acquire) ||
-                                            !g_SearchIndexReady.load(std::memory_order_acquire);
+                    const uint64_t effectiveRecords = totalMemRecords > 0 ? totalMemRecords : stats.totalRecords;
+                    const int initialWorkers = g_InitialIndexWorkers.load(std::memory_order_acquire);
+                    const bool rebuildInProgress = g_RebuildInProgress.load(std::memory_order_acquire);
+                    const bool snapshotInProgress = g_SnapshotInProgress.load(std::memory_order_acquire);
+                    const bool searchIndexReady = g_SearchIndexReady.load(std::memory_order_acquire);
+
+                    // 只要内存中已解析出文件记录 (totalMemRecords > 0) 且初始扫描线程完成，系统就 100% 具备全速搜索能力。
+                    // 快照落盘 (snapshotInProgress) 属于后台纯异步任务，绝不阻塞前端即时搜索！
+                    const bool isIndexing = (initialWorkers > 0 || rebuildInProgress || !searchIndexReady) && (totalMemRecords == 0);
                     return {
                         {"success", true},
                         {"dbPath", WStringToString(stats.dbPath)},
@@ -382,9 +386,9 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                         {"volumeCount", stats.volumeCount},
                         {"exists", stats.exists || totalMemRecords > 0},
                         {"indexing", isIndexing},
-                        {"initialWorkers", g_InitialIndexWorkers.load(std::memory_order_acquire)},
-                        {"rebuildInProgress", g_RebuildInProgress.load(std::memory_order_acquire)},
-                        {"snapshotInProgress", g_SnapshotInProgress.load(std::memory_order_acquire)},
+                        {"initialWorkers", initialWorkers},
+                        {"rebuildInProgress", rebuildInProgress},
+                        {"snapshotInProgress", snapshotInProgress},
                         {"runHistoryCount", easy::service::db::RunHistoryManager::instance().size()},
                         {"searchHistoryCount", easy::service::db::SearchHistoryManager::instance().size()}
                     };
