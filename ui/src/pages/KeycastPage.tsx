@@ -349,10 +349,10 @@ export const KeycastPage: FC = () => {
         <Card>
           <Toggle
             id="keycast-include-func-keys"
-            label={t("keycast.includeFunctionKeys" as any, "包含独立功能键")}
-            description={t("keycast.includeFunctionKeysDesc" as any, "包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显")}
+            label={t('keycast.includeFunctionKeys', '包含独立功能键')}
+            description={t('keycast.includeFunctionKeysDesc', '包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显')}
             checked={settings.includeFunctionKeys}
-            onChange={(v) => saveSetting("includeFunctionKeys", v)}
+            onChange={(v) => saveSetting('includeFunctionKeys', v)}
           />
         </Card>
       </SettingGroup>
