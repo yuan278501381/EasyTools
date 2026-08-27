@@ -185,16 +185,16 @@ const WINDOW_PRESETS: WindowPreset[] = [
   { id: 'extra', label: 'Ultra-Wide (1400×800)', width: 1400, height: 800 },
 ];
 
-const CATEGORY_DEFS: { id: string; extKey: string; prefix: string; icon?: LucideIcon }[] = [
-  { id: 'all', extKey: 'search.catAll', prefix: '', icon: Sparkles },
-  { id: 'content', extKey: 'search.catContent', prefix: 'content:', icon: FileText },
-  { id: 'doc', extKey: 'search.catDocs', prefix: 'ext:doc;docx;xls;xlsx;ppt;pptx;pdf;txt;md ', icon: FileSpreadsheet },
-  { id: 'image', extKey: 'search.catImages', prefix: 'ext:jpg;jpeg;png;webp;gif;bmp;svg ', icon: FileImage },
-  { id: 'video', extKey: 'search.catVideos', prefix: 'ext:mp4;mkv;avi;mov;wmv;flv;webm ', icon: FileVideo },
-  { id: 'audio', extKey: 'search.catAudio', prefix: 'ext:mp3;wav;flac;aac;m4a;ogg ', icon: FileAudio },
-  { id: 'archive', extKey: 'search.catArchives', prefix: 'ext:zip;rar;7z;tar;gz ', icon: FileArchive },
-  { id: 'code', extKey: 'search.catCode', prefix: 'ext:cpp;h;ts;tsx;js;py;rs;go;java;lua;json ', icon: FileCode },
-  { id: 'folder', extKey: 'search.catFolders', prefix: 'folder: ', icon: Folder },
+const CATEGORY_DEFS: { id: string; labelKey: string; defaultLabel: string; prefix: string; icon?: LucideIcon }[] = [
+  { id: 'all', labelKey: 'search.catAll', defaultLabel: 'All', prefix: '', icon: Sparkles },
+  { id: 'content', labelKey: 'search.catContent', defaultLabel: 'Content', prefix: 'content:', icon: FileText },
+  { id: 'doc', labelKey: 'search.catDocs', defaultLabel: 'Documents', prefix: 'ext:doc;docx;xls;xlsx;ppt;pptx;pdf;txt;md ', icon: FileSpreadsheet },
+  { id: 'image', labelKey: 'search.catImages', defaultLabel: 'Images', prefix: 'ext:jpg;jpeg;png;webp;gif;bmp;svg ', icon: FileImage },
+  { id: 'video', labelKey: 'search.catVideos', defaultLabel: 'Videos', prefix: 'ext:mp4;mkv;avi;mov;wmv;flv;webm ', icon: FileVideo },
+  { id: 'audio', labelKey: 'search.catAudio', defaultLabel: 'Audio', prefix: 'ext:mp3;wav;flac;aac;m4a;ogg ', icon: FileAudio },
+  { id: 'archive', labelKey: 'search.catArchives', defaultLabel: 'Archives', prefix: 'ext:zip;rar;7z;tar;gz ', icon: FileArchive },
+  { id: 'code', labelKey: 'search.catCode', defaultLabel: 'Code', prefix: 'ext:cpp;h;ts;tsx;js;py;rs;go;java;lua;json ', icon: FileCode },
+  { id: 'folder', labelKey: 'search.catFolders', defaultLabel: 'Folders', prefix: 'folder: ', icon: Folder },
 ];
 
 export interface SyntaxExampleItem {
@@ -840,7 +840,9 @@ export default function SearchApp() {
   const categories: CategoryFilter[] = useMemo(() => {
     return CATEGORY_DEFS.map(def => ({
       id: def.id,
-      label: t(def.extKey as never),
+      label: t(def.labelKey as unknown as 'search.catAll', def.defaultLabel),
+      labelKey: def.labelKey,
+      defaultLabel: def.defaultLabel,
       prefix: def.prefix,
       icon: def.icon
     }));
@@ -2322,7 +2324,8 @@ export default function SearchApp() {
                 onClick={() => selectCategory(cat)}
                 type="button"
               >
-                {t(cat.labelKey as unknown as 'search.rebuildButton', cat.defaultLabel || cat.label)}
+                {cat.icon && <cat.icon size={13} className="category-pill-icon" />}
+                <span>{cat.label}</span>
               </button>
             ))}
           </div>
