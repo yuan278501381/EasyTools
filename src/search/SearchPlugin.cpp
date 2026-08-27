@@ -966,6 +966,13 @@ public:
                  "search.getDbStats",
                  "search.saveSnapshot",
                  "search.warmup",
+                 "search.openFolder",
+                 "search.openFile",
+                 "search.openFileAsAdmin",
+                 "search.openWithNotepad",
+                 "search.showFileProperties",
+                 "search.showShellContextMenu",
+                 "search.renamePath",
              }) {
             mb.markMethodAsync(method);
         }

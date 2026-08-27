@@ -128,10 +128,13 @@ void ShellContextMenuService::run(std::wstring path, std::stop_token stop) {
     POINT cursor{};
     GetCursorPos(&cursor);
     helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, HelperClassName, L"", WS_POPUP,
-                             cursor.x, cursor.y, 0, 0, nullptr, nullptr,
+                             cursor.x, cursor.y, 1, 1, nullptr, nullptr,
                              GetModuleHandleW(nullptr), nullptr);
     m_helperWindow.store(helper, std::memory_order_release);
-    if (helper) SetForegroundWindow(helper);
+    if (helper) {
+        ShowWindow(helper, SW_SHOWNOACTIVATE);
+        SetForegroundWindow(helper);
+    }
 
     const UINT command = TrackPopupMenuEx(
         menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
