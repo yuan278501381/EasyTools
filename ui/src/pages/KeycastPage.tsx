@@ -346,7 +346,7 @@ export const KeycastPage: FC = () => {
             );
           })}
         </div>
-        <Card style={{ marginTop: 12 }}>
+        <Card>
           <Toggle
             id="keycast-include-func-keys"
             label={t("keycast.includeFunctionKeys" as any, "包含独立功能键")}
