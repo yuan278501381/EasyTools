@@ -395,10 +395,10 @@ export const KeycastPage: FC = () => {
             </div>
             <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
               {([
-                { id: 'slide', label: '阻尼推入' },
-                { id: 'pop', label: '弹性冒出' },
-                { id: 'fade', label: '渐现' },
-                { id: 'none', label: '静态' },
+                { id: 'slide', labelKey: 'keycast.animSlide', defaultLabel: 'Slide' },
+                { id: 'pop', labelKey: 'keycast.animPop', defaultLabel: 'Pop' },
+                { id: 'fade', labelKey: 'keycast.animFade', defaultLabel: 'Fade' },
+                { id: 'none', labelKey: 'keycast.animNone', defaultLabel: 'None' },
               ] as const).map((opt) => (
                 <button
                   key={opt.id}
@@ -406,7 +406,7 @@ export const KeycastPage: FC = () => {
                   className={`keycast-page__capsule-btn ${settings.firstKeyAnim === opt.id ? 'active' : ''}`}
                   onClick={() => saveSetting('firstKeyAnim', opt.id)}
                 >
-                  {opt.label}
+                  {t(opt.labelKey as unknown as 'keycast.firstKeyAnim', opt.defaultLabel)}
                 </button>
               ))}
             </div>
@@ -420,10 +420,10 @@ export const KeycastPage: FC = () => {
             </div>
             <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
               {([
-                { id: 'pop', label: '气泡冒出' },
-                { id: 'slide', label: '阻尼推入' },
-                { id: 'fade', label: '渐现' },
-                { id: 'none', label: '静态' },
+                { id: 'pop', labelKey: 'keycast.animPop', defaultLabel: 'Pop' },
+                { id: 'slide', labelKey: 'keycast.animSlide', defaultLabel: 'Slide' },
+                { id: 'fade', labelKey: 'keycast.animFade', defaultLabel: 'Fade' },
+                { id: 'none', labelKey: 'keycast.animNone', defaultLabel: 'None' },
               ] as const).map((opt) => (
                 <button
                   key={opt.id}
@@ -431,7 +431,7 @@ export const KeycastPage: FC = () => {
                   className={`keycast-page__capsule-btn ${settings.subsequentKeyAnim === opt.id ? 'active' : ''}`}
                   onClick={() => saveSetting('subsequentKeyAnim', opt.id)}
                 >
-                  {opt.label}
+                  {t(opt.labelKey as unknown as 'keycast.subsequentKeyAnim', opt.defaultLabel)}
                 </button>
               ))}
             </div>

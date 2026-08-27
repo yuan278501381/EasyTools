@@ -110,7 +110,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
 
   const desktopTarget: ScopeTargetItem = {
     id: 'special:desktop',
-    title: '桌面 (Desktop)',
+    title: t('components.desktopTitle', 'Desktop'),
     subtitle: 'Progman / WorkerW',
     kind: 'special',
     specialType: 'desktop',
@@ -118,7 +118,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
 
   const taskbarTarget: ScopeTargetItem = {
     id: 'special:taskbar',
-    title: '任务栏 (Taskbar)',
+    title: t('components.taskbarTitle', 'Taskbar'),
     subtitle: 'Shell_TrayWnd',
     kind: 'special',
     specialType: 'taskbar',
@@ -166,7 +166,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
               onClick={() =>
                 onSelect({
                   id: targetId,
-                  title: rule.name || rule.processName || '未命名',
+                  title: rule.name || rule.processName || t('components.unnamedTarget', 'Unnamed Target'),
                   subtitle: rule.processName || rule.windowClass,
                   kind: 'disabled',
                   rule,
@@ -197,7 +197,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
         })}
         {disabledRules.length === 0 && (
           <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', padding: '2px 8px' }}>
-            暂无免打扰应用
+            {t('components.noDisabledApps', 'No Do Not Disturb Apps')}
           </div>
         )}
       </div>
@@ -225,7 +225,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
               onClick={() =>
                 onSelect({
                   id: targetId,
-                  title: rule.name || rule.processName || '未命名应用',
+                  title: rule.name || rule.processName || t('components.unnamedTarget', 'Unnamed Target'),
                   subtitle: rule.processName || rule.windowClass,
                   kind: 'app',
                   rule,
@@ -255,7 +255,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
         })}
         {appRules.length === 0 && (
           <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', padding: '2px 8px' }}>
-            点击右上角加号添加自定义应用
+            {t('components.addCustomAppHint', 'Click + at top right to add custom application')}
           </div>
         )}
       </div>
@@ -293,10 +293,10 @@ export const ScopeTargetsSidebar: FC<Props> = ({
       <div className="scope-sidebar-footer">
         <div className="scope-sidebar-footer__stats">
           <span className="scope-sidebar-footer__dot" />
-          <span>已就绪 {1 + rules.length + 2} 个目标作用域</span>
+          <span>{t('components.readyTargetsCount', '{{count}} target scopes ready', { count: 1 + rules.length + 2 })}</span>
         </div>
         <div className="scope-sidebar-footer__tip">
-          专属配置将优先于全局默认手势生效
+          {t('components.scopePriorityHint', 'App-specific rules take precedence over global default gestures')}
         </div>
       </div>
     </aside>

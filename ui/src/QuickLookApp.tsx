@@ -205,7 +205,7 @@ export default function QuickLookApp() {
                 onClick={() => setCodeWrap(!codeWrap)}
                 title={t('quicklook.wrapLines', 'Word Wrap')}
               >
-                自动折行
+                {t('quicklook.wrapLines', 'Word Wrap')}
               </button>
               <button
                 type="button"
@@ -263,7 +263,7 @@ export default function QuickLookApp() {
             title={t('quicklook.openFileTitle', 'Open with default application (Enter)')}
           >
             <ExternalLink size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
-            打开文件
+            {t('quicklook.openFile', 'Open')}
           </button>
           <button
             type="button"
@@ -272,7 +272,7 @@ export default function QuickLookApp() {
             title={t('quicklook.locateTitle', 'Locate in File Explorer')}
           >
             <FolderOpen size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
-            定位
+            {t('quicklook.locate', 'Locate')}
           </button>
           <button
             type="button"
@@ -281,7 +281,7 @@ export default function QuickLookApp() {
             title={t('quicklook.copyPathTitle', 'Copy absolute file path')}
           >
             <Copy size={13} style={{ marginRight: 4, verticalAlign: -1 }} />
-            复制路径
+            {t('quicklook.copyPath', 'Copy Path')}
           </button>
           <button
             type="button"

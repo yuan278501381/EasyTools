@@ -23,12 +23,6 @@ function compareKeys(obj1, obj2, prefix = '') {
       if (obj2[key] === undefined) {
         console.error(`❌ [Missing Key] zh.json is missing translation for: ${prefix}${key}`);
         hasError = true;
-      } else if (obj2[key] === obj1[key] && obj1[key] !== '') {
-        const fullKey = `${prefix}${key}`;
-        const allowedIdentical = new Set(['app.title']);
-        if (!allowedIdentical.has(fullKey)) {
-          // 专有名词允许相同
-        }
       }
     }
   }
@@ -83,14 +77,27 @@ function checkSourceCodeFallbacks() {
   }
 }
 
+// 3. 全库源码深度零裸中文扫描 (涵盖 JSX 文本节点、三元表达式、模板字符串、字符串字面量、HTML属性)
 function checkNakedChineseInUI() {
-  const files = getFiles(path.resolve('./src'), ['.tsx']);
+  const files = getFiles(path.resolve('./src'), ['.ts', '.tsx']);
   const chineseRegex = /[\u4e00-\u9fa5]/;
 
+  // 合法中文白名单模式 (如搜索语法兼容判断 query.startsWith('内容:'))
+  const allowedPatterns = [
+    /startsWith\(['"`]内容:['"`]\)/,
+    /CONTENT_PREFIXES/,
+    /localeCompare/,
+    /Chinese/,
+    /titleZh:/,
+    /descZh:/,
+    /conditionZh:/,
+    /supportedFormats:/
+  ];
+
   for (const file of files) {
-    if (file.endsWith('.test.tsx') || file.endsWith('.spec.tsx')) continue;
+    if (file.endsWith('.test.tsx') || file.endsWith('.spec.tsx') || file.endsWith('.test.ts') || file.endsWith('useBridge.ts')) continue;
     const content = fs.readFileSync(file, 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     let inBlockComment = false;
 
     lines.forEach((rawLine, idx) => {
@@ -102,31 +109,17 @@ function checkNakedChineseInUI() {
       }
       if (line.startsWith('//') || line.startsWith('*')) return;
 
-      // 移除注释部分
-      const codeOnly = rawLine.replace(/\/\/.*$/, '');
+      // 剔除单行注释与 JSX 注释
+      let codeOnly = rawLine.replace(/\/\/.*$/, '').replace(/\{\/\*.*?\*\/\}/g, '');
       if (!chineseRegex.test(codeOnly)) return;
 
-      // 如果包含 t('...') 或 t("...") 中的 fallback 违规在 checkSourceCodeFallbacks 处理
-      // 检查裸露在 JSX 标签中的中文文本 >文本<
-      const tagContentMatch = codeOnly.match(/>([^<>{}]*[\u4e00-\u9fa5]+[^<>{}]*)</);
-      if (tagContentMatch) {
-        const text = tagContentMatch[1].trim();
-        if (text && !text.startsWith('{/*')) {
-          console.error(`❌ [Naked Chinese in JSX] ${path.relative('./', file)}:${idx + 1}`);
-          console.error(`   "${rawLine.trim()}"`);
-          console.error(`   [Rule] 严禁在 JSX 中硬编码裸中文！必须使用 {t('namespace.key', 'English fallback')}`);
-          hasError = true;
-        }
-      }
+      // 检查白名单
+      if (allowedPatterns.some(p => p.test(codeOnly))) return;
 
-      // 检查 JSX 属性中的硬编码中文 (placeholder, title, label, aria-label 等)
-      const attrMatch = codeOnly.match(/(?:placeholder|title|label|aria-label|header|description)=["']([^"']*[\u4e00-\u9fa5]+[^"']*)["']/);
-      if (attrMatch) {
-        console.error(`❌ [Hardcoded Chinese in Attribute] ${path.relative('./', file)}:${idx + 1}`);
-        console.error(`   "${rawLine.trim()}"`);
-        console.error(`   [Rule] 严禁在属性中硬编码中文！必须使用 {t('namespace.key', 'English fallback')}`);
-        hasError = true;
-      }
+      console.error(`❌ [Zero-Naked-Chinese Gate] 发现未国际化的裸中文硬编码: ${path.relative('./', file)}:${idx + 1}`);
+      console.error(`   代码行: "${rawLine.trim()}"`);
+      console.error(`   [Rule] 严禁在源码或 JSX 中硬编码任何中文文本/属性/三元表达式！必须 100% 接入 t('namespace.key', 'English fallback')`);
+      hasError = true;
     });
   }
 }

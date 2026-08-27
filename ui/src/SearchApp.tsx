@@ -145,7 +145,8 @@ export type ColumnId = 'name' | 'ext' | 'parent' | 'path' | 'size' | 'modified' 
 
 export interface ColumnSetting {
   id: ColumnId;
-  label: string;
+  label?: string;
+  labelKey?: string;
   visible: boolean;
   flex?: number;
 }
@@ -160,26 +161,28 @@ export interface WindowPreset {
 export interface CategoryFilter {
   id: string;
   label: string;
+  labelKey?: string;
+  defaultLabel?: string;
   prefix: string;
   icon?: LucideIcon;
 }
 
 const DEFAULT_COLUMNS: ColumnSetting[] = [
-  { id: 'name', label: '文件名', visible: true, flex: 32 },
-  { id: 'ext', label: '类型标签', visible: true },
-  { id: 'parent', label: '所属文件夹', visible: true },
-  { id: 'path', label: '完整路径', visible: true, flex: 42 },
-  { id: 'size', label: '大小', visible: true },
-  { id: 'modified', label: '修改时间', visible: true },
-  { id: 'created', label: '创建时间', visible: false },
-  { id: 'snippets', label: '内容摘要', visible: true },
+  { id: 'name', labelKey: 'search.colName', visible: true, flex: 32 },
+  { id: 'ext', labelKey: 'search.colExt', visible: true },
+  { id: 'parent', labelKey: 'search.colParent', visible: true },
+  { id: 'path', labelKey: 'search.colPath', visible: true, flex: 42 },
+  { id: 'size', labelKey: 'search.colSize', visible: true },
+  { id: 'modified', labelKey: 'search.colModified', visible: true },
+  { id: 'created', labelKey: 'search.colCreated', visible: false },
+  { id: 'snippets', labelKey: 'search.colSnippets', visible: true },
 ];
 
 const WINDOW_PRESETS: WindowPreset[] = [
-  { id: 'standard', label: '标准 (800×600)', width: 800, height: 600 },
-  { id: 'wide', label: '宽屏 (1000×650)', width: 1000, height: 650 },
-  { id: 'large', label: '大屏 (1200×750)', width: 1200, height: 750 },
-  { id: 'extra', label: '超宽 (1400×800)', width: 1400, height: 800 },
+  { id: 'standard', label: 'Standard (800×600)', width: 800, height: 600 },
+  { id: 'wide', label: 'Widescreen (1000×650)', width: 1000, height: 650 },
+  { id: 'large', label: 'Large (1200×750)', width: 1200, height: 750 },
+  { id: 'extra', label: 'Ultra-Wide (1400×800)', width: 1400, height: 800 },
 ];
 
 const CATEGORY_DEFS: { id: string; extKey: string; prefix: string; icon?: LucideIcon }[] = [
@@ -197,42 +200,43 @@ const CATEGORY_DEFS: { id: string; extKey: string; prefix: string; icon?: Lucide
 export interface SyntaxExampleItem {
   category: 'content' | 'path' | 'ext' | 'logic';
   syntax: string;
-  desc: string;
+  descKey: string;
+  defaultDesc: string;
   highlight?: boolean;
 }
 
-const SYNTAX_CATEGORIES = [
-  { id: 'all', label: '全部语法' },
-  { id: 'content', label: '全文检索' },
-  { id: 'path', label: '路径盘符' },
-  { id: 'ext', label: '通配扩展' },
-  { id: 'logic', label: '逻辑正则' },
+const SYNTAX_CATEGORIES: { id: string; labelKey: string; defaultLabel: string }[] = [
+  { id: 'all', labelKey: 'search.syntaxCatAll', defaultLabel: 'All Syntax' },
+  { id: 'content', labelKey: 'search.syntaxCatContent', defaultLabel: 'Content Search' },
+  { id: 'path', labelKey: 'search.syntaxCatPath', defaultLabel: 'Path & Drive' },
+  { id: 'ext', labelKey: 'search.syntaxCatExt', defaultLabel: 'Wildcards & Exts' },
+  { id: 'logic', labelKey: 'search.syntaxCatLogic', defaultLabel: 'Logic & Regex' },
 ];
 
 const SYNTAX_EXAMPLES: SyntaxExampleItem[] = [
-  // 1. 全文穿透检索
-  { category: 'content', syntax: 'content:SELECT', desc: '全文穿透代码、文档、设计稿与 CAD 内文本', highlight: true },
-  { category: 'content', syntax: 'ext:docx;sql content:订单', desc: '在指定扩展名类型文件中穿透搜索内容' },
-  { category: 'content', syntax: 'c:\\ content:财务报表', desc: '限定在指定目录路径下穿透检索全文' },
+  // 1. Content search
+  { category: 'content', syntax: 'content:SELECT', descKey: 'search.syntaxExContent1', defaultDesc: 'Full-text search inside code, documents, designs, and CAD', highlight: true },
+  { category: 'content', syntax: 'ext:docx;sql content:order', descKey: 'search.syntaxExContent2', defaultDesc: 'Penetrate search in files of specified extension types' },
+  { category: 'content', syntax: 'c:\\ content:report', descKey: 'search.syntaxExContent3', defaultDesc: 'Limit full-text search strictly under directory path' },
 
-  // 2. 路径与盘符过滤
-  { category: 'path', syntax: 'c:\\', desc: '限定在 C 盘根目录及路径范围检索' },
-  { category: 'path', syntax: 'c:\\repo\\ *.ts', desc: '在指定子目录下检索特定类型文件' },
-  { category: 'path', syntax: 'path:windows', desc: '在文件完整路径中匹配关键词' },
-  { category: 'path', syntax: 'folder: project', desc: '仅搜索文件夹/目录，排除文件' },
+  // 2. Path and drive
+  { category: 'path', syntax: 'c:\\', descKey: 'search.syntaxExPath1', defaultDesc: 'Limit search scope strictly within C: root and directory' },
+  { category: 'path', syntax: 'c:\\repo\\ *.ts', descKey: 'search.syntaxExPath2', defaultDesc: 'Search specific file types within given subdirectory' },
+  { category: 'path', syntax: 'path:windows', descKey: 'search.syntaxExPath3', defaultDesc: 'Match keyword in complete file path' },
+  { category: 'path', syntax: 'folder: project', descKey: 'search.syntaxExPath4', defaultDesc: 'Match folders and directories only, exclude files' },
 
-  // 3. 通配符与扩展名
-  { category: 'ext', syntax: '*.txt', desc: '通配符匹配所有 txt 后缀文件' },
-  { category: 'ext', syntax: 'ext:jpg;png;webp', desc: '多扩展名同时筛选 (分号分隔)' },
-  { category: 'ext', syntax: 'file: *.pdf', desc: '仅搜索文件，排除文件夹' },
-  { category: 'ext', syntax: '"Program Files"', desc: '双引号短语精确匹配 (含空格路径)' },
+  // 3. Wildcards and extensions
+  { category: 'ext', syntax: '*.txt', descKey: 'search.syntaxExExt1', defaultDesc: 'Wildcard match all files with txt extension' },
+  { category: 'ext', syntax: 'ext:jpg;png;webp', descKey: 'search.syntaxExExt2', defaultDesc: 'Filter multiple extensions at once (semicolon separated)' },
+  { category: 'ext', syntax: 'file: *.pdf', descKey: 'search.syntaxExExt3', defaultDesc: 'Search files only, exclude folders' },
+  { category: 'ext', syntax: '"Program Files"', descKey: 'search.syntaxExExt4', defaultDesc: 'Double quotes phrase exact match (handles paths with spaces)' },
 
-  // 4. 逻辑组合与正则
-  { category: 'logic', syntax: 'report !draft', desc: '包含 report 但排除包含 draft 的项 (NOT)' },
-  { category: 'logic', syntax: 'ext:jpg | ext:png', desc: '逻辑或 OR 条件组合检索' },
-  { category: 'logic', syntax: 'regex:^app_\\d+\\.log$', desc: '正则表达式检索 (以 app_数字 开头)' },
-  { category: 'logic', syntax: 'case:EasyTools', desc: '区分大小写精确匹配' },
-  { category: 'logic', syntax: 'pinyin:wx', desc: '显式拼音首字母/全拼检索 (如 wx 搜微信)' },
+  // 4. Logic & Regex
+  { category: 'logic', syntax: 'report !draft', descKey: 'search.syntaxExLogic1', defaultDesc: 'Contains report but excludes items containing draft (NOT)' },
+  { category: 'logic', syntax: 'ext:jpg | ext:png', descKey: 'search.syntaxExLogic2', defaultDesc: 'Logical OR condition combined search' },
+  { category: 'logic', syntax: 'regex:^app_\\d+\\.log$', descKey: 'search.syntaxExLogic3', defaultDesc: 'Regex search (starts with app_digits)' },
+  { category: 'logic', syntax: 'case:EasyTools', descKey: 'search.syntaxExLogic4', defaultDesc: 'Case-sensitive exact match' },
+  { category: 'logic', syntax: 'pinyin:wx', descKey: 'search.syntaxExLogic5', defaultDesc: 'Explicit Pinyin initials / full Pinyin search (e.g. wx for WeChat)' },
 ];
 
 interface FormatCategory {
@@ -976,7 +980,7 @@ export default function SearchApp() {
   const clearAllHistory = async () => {
     await bridgeRequest('search.clearSearchHistory');
     setSearchHistory([]);
-    toast.success('已清空所有搜索历史');
+    toast.success(t('search.historyCleared', 'Search history cleared'));
     void refreshDbStats();
     void refreshHistory();
   };
@@ -1206,7 +1210,7 @@ export default function SearchApp() {
       return next;
     });
     setNewFormatInput('');
-    toast.success(`已添加 ${parts.map(p => '.' + p).join(', ')} 到文档内容搜索支持列表`);
+    toast.success(t('search.customExtAddedToast', 'Added {{exts}} to content search support list', { exts: parts.map(p => '.' + p).join(', ') }));
   };
 
   const removeCustomContentFormat = (ext: string) => {
@@ -1228,15 +1232,15 @@ export default function SearchApp() {
     setCustomContentFormats([]);
     localStorage.removeItem('easytools_search_disabled_formats');
     localStorage.removeItem('easytools_search_custom_formats');
-    toast.success('已恢复文档内容检索默认格式配置');
+    toast.success(t('search.customExtResetToast', 'Content search format configuration reset to default'));
   };
 
   const rebuildIndex = useCallback(async () => {
     setIsRebuilding(true);
-    toast.loading('正在全盘重新扫描 NTFS 索引并保存快照...', { id: 'rebuild-idx' });
+    toast.loading(t('search.rebuildingToast', 'Rescanning NTFS index and saving snapshot...'), { id: 'rebuild-idx' });
     try {
       await bridgeRequest('search.rebuildIndex');
-      toast.success('全盘索引已重新扫描并同步保存至 EasyTools.db 快照！', { id: 'rebuild-idx' });
+      toast.success(t('search.rebuildSuccessToast', 'Full-disk index rescanned and saved to snapshot!'), { id: 'rebuild-idx' });
       void refreshDbStats();
       void refreshHistory();
     } catch {
@@ -1592,10 +1596,10 @@ export default function SearchApp() {
       return;
     }
 
-    const headers = ['文件名', '完整路径', '类型', '大小(字节)', '大小(易读)', '修改时间', '创建时间'];
+    const headers = [t('search.csvName', 'File Name'), t('search.csvPath', 'Full Path'), t('search.csvType', 'Type'), t('search.csvSizeBytes', 'Size (Bytes)'), t('search.csvSizeHuman', 'Size (Readable)'), t('search.csvModified', 'Modified Time'), t('search.csvCreated', 'Created Time')];
     const rows = sortedResults.map((item) => {
       const isDir = item.isDirectory;
-      const typeStr = isDir ? '文件夹' : (item.name.includes('.') ? item.name.split('.').pop()?.toUpperCase() || '文件' : '文件');
+      const typeStr = isDir ? t('search.folderType', 'Folder') : (item.name.includes('.') ? item.name.split('.').pop()?.toUpperCase() || t('search.fileType', 'File') : t('search.fileType', 'File'));
       const sizeBytes = item.size ?? 0;
       const sizeFormatted = isDir ? '-' : formatFileSize(sizeBytes, isDir);
       const modTime = item.lastWriteTime ? formatWindowsTime(item.lastWriteTime) : '-';
@@ -2309,7 +2313,7 @@ export default function SearchApp() {
                 onClick={() => selectCategory(cat)}
                 type="button"
               >
-                {cat.label}
+                {t(cat.labelKey as unknown as 'search.rebuildButton', cat.defaultLabel || cat.label)}
               </button>
             ))}
           </div>
@@ -2334,10 +2338,10 @@ export default function SearchApp() {
                 type="button"
                 className="search-action-pill-btn"
                 onClick={exportResultsToCsv}
-                title={`导出当前搜索结果清单为 CSV / Excel 格式 (Ctrl+E) - 共 ${sortedResults.length} 项`}
+                title={t('search.exportCsvTip', 'Export search results to CSV / Excel (Ctrl+E) - {{count}} items', { count: sortedResults.length })}
               >
                 <FileSpreadsheet size={13} />
-                <span>导出 CSV ({sortedResults.length})</span>
+                <span>{t('search.exportCsv', 'Export CSV')} ({sortedResults.length})</span>
               </button>
             )}
 
@@ -2356,11 +2360,11 @@ export default function SearchApp() {
                    sortField === 'created' ? <Calendar size={12} /> :
                    <Zap size={12} />}
                   <span>
-                    {sortField === 'relevance' ? '智能匹配' :
-                     sortField === 'modified' ? '修改时间' :
-                     sortField === 'name' ? '文件名' :
-                     sortField === 'size' ? '文件大小' :
-                     '创建时间'}
+                    {sortField === 'relevance' ? t('search.sortRelevance', 'Smart Relevance') :
+                     sortField === 'modified' ? t('search.sortModified', 'Modified Time') :
+                     sortField === 'name' ? t('search.sortName', 'File Name') :
+                     sortField === 'size' ? t('search.sortSize', 'File Size') :
+                     t('search.sortCreated', 'Created Time')}
                   </span>
                   <ChevronDown size={11} className={`sort-chevron ${showSortMenu ? 'sort-chevron--open' : ''}`} />
                 </button>
@@ -2369,7 +2373,7 @@ export default function SearchApp() {
                     type="button"
                     className="sort-split-dir-toggle"
                     onClick={toggleSortDirection}
-                    title={`当前为 ${sortDirection === 'desc' ? '降序 (新/大优先)' : '升序 (旧/小优先)'}，点击直接原地切换`}
+                    title={t('search.sortDirectionTip', 'Currently sorted in {{dir}}, click to toggle', { dir: sortDirection === 'desc' ? t('search.sortDescName', 'descending (newest / largest first)') : t('search.sortAscName', 'ascending (oldest / smallest first)') })}
                   >
                     <span className="sort-dir-icon">{sortDirection === 'desc' ? '↓' : '↑'}</span>
                   </button>
@@ -2485,7 +2489,7 @@ export default function SearchApp() {
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'desc'); }}
                           title={t('search.sortNewest', 'Newest to oldest')}
                         >
-                          新→旧 ↓
+                          {t('search.sortNewestShort', 'Newest ↓')}
                         </button>
                         <button
                           type="button"
@@ -2493,7 +2497,7 @@ export default function SearchApp() {
                           onClick={(e) => { e.stopPropagation(); handleSetSortDirect('created', 'asc'); }}
                           title={t('search.sortOldest', 'Oldest to newest')}
                         >
-                          旧→新 ↑
+                          {t('search.sortOldestShort', 'Oldest ↑')}
                         </button>
                       </div>
                     </div>
@@ -2558,7 +2562,7 @@ export default function SearchApp() {
                     updateQuery(item.search);
                     inputRef.current?.focus();
                   }}
-                  title={`搜索频次: ${item.searchCount} 次 · 点击直接复用`}
+                  title={t('search.searchCountTip', 'Search frequency: {{count}} times · Click to reuse', { count: item.searchCount })}
                 >
                   <Clock size={11} className="search-history-chip-icon" />
                   <span className="search-history-chip-text">{item.search}</span>
@@ -2614,7 +2618,7 @@ export default function SearchApp() {
                   title={t('search.rebuildButtonTip', 'Rescan all selected disks NTFS MFT partitions and save snapshot (F5 / Ctrl+R)')}
                 >
                   <RefreshCw size={13} className={isRebuilding ? 'spin-animation' : ''} />
-                  <span>{isRebuilding ? '正在重新扫描并更新快照...' : '立即重新扫描并更新索引与快照 (F5)'}</span>
+                  <span>{isRebuilding ? t('search.rebuildingInProgress', 'Rescanning and updating snapshot...') : t('search.rebuildButton', 'Rescan and Update Index & Snapshot (F5)')}</span>
                 </button>
               </div>
 
@@ -2623,7 +2627,7 @@ export default function SearchApp() {
                 <div className="popover-section-title">
                   <span>{t('search.defaultSearchMode', 'Default Search Mode')}</span>
                   <span className="popover-badge-curr">
-                    {searchMode === 'name' ? '仅搜文件名' : searchMode === 'both' ? '混合双搜' : '仅搜内容'}
+                    {searchMode === 'name' ? t('search.modeFileOnlyBadge', 'Name Only') : searchMode === 'both' ? t('search.modeBothBadge', 'Name + Content') : t('search.modeContentOnlyBadge', 'Content Only')}
                   </span>
                 </div>
                 <div className="popover-search-modes-grid">
@@ -2639,7 +2643,7 @@ export default function SearchApp() {
                       {searchMode === 'name' && <Check size={13} className="search-mode-check" />}
                     </div>
                     <div className="search-mode-desc">
-                      毫秒级响应 (&lt; 5ms)；若需临时搜内容，可点击顶部「文件内容」标签或输入 content:
+                      {t('search.modeNameDesc', 'Sub-millisecond response (<5ms); to search content, click the top "Content" tab or prefix with content:')}
                     </div>
                   </div>
 
@@ -2715,7 +2719,7 @@ export default function SearchApp() {
                 <div className="popover-section-title">
                   <span>{t('search.maxResults')}</span>
                   <span className="popover-badge-curr">
-                    {maxResultLimit === 0 ? t('search.maxResultsAll') : `${maxResultLimit} 条`}
+                    {maxResultLimit === 0 ? t('search.maxResultsAll') : t('search.maxResultsCount', '{{count}} items', { count: maxResultLimit })}
                   </span>
                 </div>
                 <div className="popover-segmented-control">
@@ -2742,7 +2746,7 @@ export default function SearchApp() {
                     onClick={() => {
                       void bridgeRequest('search.resetPlacement');
                       setWindowSize({ width: 760, height: 520 });
-                      toast.success('已恢复默认居中与 760×520 尺寸');
+                      toast.success(t('search.placementReset', 'Window placement and size reset to default'));
                     }}
                     title={t('search.resetPlacementBtn', 'Reset to Default Center (760×520)')}
                   >
@@ -2756,7 +2760,7 @@ export default function SearchApp() {
                     className={`popover-preset-btn ${windowSize.width === 760 && windowSize.height === 520 ? 'popover-preset-btn--active' : ''}`}
                     onClick={() => changeWindowSize(760, 520)}
                   >
-                    默认 (760×520)
+                    {t('search.sizeDefault', 'Default (760×520)')}
                   </button>
                   {WINDOW_PRESETS.map((preset) => (
                     <button
@@ -2765,7 +2769,10 @@ export default function SearchApp() {
                       className={`popover-preset-btn ${windowSize.width === preset.width && windowSize.height === preset.height ? 'popover-preset-btn--active' : ''}`}
                       onClick={() => changeWindowSize(preset.width, preset.height)}
                     >
-                      {preset.label}
+                      {preset.id === 'standard' ? t('search.presetStandard', 'Standard (800×600)') :
+                       preset.id === 'wide' ? t('search.presetWide', 'Widescreen (1000×650)') :
+                       preset.id === 'large' ? t('search.presetLarge', 'Large (1200×750)') :
+                       preset.id === 'extra' ? t('search.presetExtra', 'Ultra-Wide (1400×800)') : preset.label}
                     </button>
                   ))}
                 </div>
@@ -2788,7 +2795,14 @@ export default function SearchApp() {
                         checked={col.visible}
                         onChange={() => toggleColumnVisibility(col.id)}
                       />
-                      <span>{col.label}</span>
+                      <span>{col.id === 'name' ? t('search.colName', 'File Name') :
+                           col.id === 'ext' ? t('search.colExt', 'Type Tag') :
+                           col.id === 'parent' ? t('search.colParent', 'Folder') :
+                           col.id === 'path' ? t('search.colPath', 'Full Path') :
+                           col.id === 'size' ? t('search.colSize', 'Size') :
+                           col.id === 'modified' ? t('search.colModified', 'Modified Time') :
+                           col.id === 'created' ? t('search.colCreated', 'Created Time') :
+                           col.id === 'snippets' ? t('search.colSnippets', 'Content Snippets') : col.label}</span>
                     </label>
                   ))}
                 </div>
@@ -2825,7 +2839,7 @@ export default function SearchApp() {
                         className="popover-mini-link"
                         onClick={selectAllDrives}
                       >
-                        全选
+                        {t('search.selectAll', 'Select All')}
                       </button>
                       <span className="popover-action-divider">/</span>
                       <button
@@ -2833,7 +2847,7 @@ export default function SearchApp() {
                         className="popover-mini-link"
                         onClick={deselectAllDrives}
                       >
-                        全不选
+                        {t('search.deselectAll', 'Deselect All')}
                       </button>
                     </div>
                   </div>
@@ -2843,8 +2857,8 @@ export default function SearchApp() {
                       const isRemote = drv.type === 'remote';
                       const isRemovable = drv.type === 'removable';
                       const totalStr = drv.totalBytes > 0 ? formatBytes(drv.totalBytes) : '';
-                      const freeStr = drv.freeBytes > 0 ? `(可用 ${formatBytes(drv.freeBytes)})` : '';
-                      const label = drv.volumeLabel ? `${drv.volumeLabel} (${drv.letter}:)` : (isRemote ? `网络驱动器 (${drv.letter}:)` : `本地磁盘 (${drv.letter}:)`);
+                      const freeStr = drv.freeBytes > 0 ? t('search.freeSpace', '(Free {{size}})', { size: formatBytes(drv.freeBytes) }) : '';
+                      const label = drv.volumeLabel ? `${drv.volumeLabel} (${drv.letter}:)` : (isRemote ? t('search.remoteDrive', 'Network Drive ({{letter}}:)', { letter: drv.letter }) : t('search.localDrive', 'Local Disk ({{letter}}:)', { letter: drv.letter }));
 
                       return (
                         <div
@@ -2857,7 +2871,7 @@ export default function SearchApp() {
                             checked={isChecked}
                             onChange={() => {}}
                             className="drive-card-checkbox"
-                            aria-label={`启用 ${drv.letter} 盘`}
+                            aria-label={t('search.enableDriveAria', 'Enable Drive {{letter}}', { letter: drv.letter })}
                           />
                           <div className="drive-card-icon">
                             {isRemote ? <Network size={15} /> : isRemovable ? <Disc size={15} /> : <HardDrive size={15} />}
@@ -2865,7 +2879,7 @@ export default function SearchApp() {
                           <div className="drive-card-details">
                             <div className="drive-card-title-row">
                               <span className="drive-card-title">{label}</span>
-                              <span className="drive-card-tag">{drv.fileSystem || (isRemote ? '网络共享' : '本地')}</span>
+                              <span className="drive-card-tag">{drv.fileSystem || (isRemote ? t('search.remoteShare', 'Network Share') : t('search.localDisk', 'Local'))}</span>
                             </div>
                             <div className="drive-card-meta">
                               {totalStr} {freeStr}
@@ -2962,7 +2976,7 @@ export default function SearchApp() {
                                 type="button"
                                 className={`format-chip ${isEnabled ? 'format-chip--enabled' : 'format-chip--disabled'}`}
                                 onClick={() => toggleContentFormat(ext)}
-                                title={isEnabled ? `点击禁用 .${ext}` : `点击启用 .${ext}`}
+                                title={isEnabled ? t('search.disableExtTip', 'Click to disable .{{ext}}', { ext }) : t('search.enableExtTip', 'Click to enable .{{ext}}', { ext })}
                               >
                                 <span>.{ext}</span>
                               </button>
@@ -2981,7 +2995,7 @@ export default function SearchApp() {
                           <Sparkles size={12} />
                         </div>
                         <span className="popover-format-cat-name">{t('search.customFormats')}</span>
-                        <span className="popover-format-badge-count">{customContentFormats.length} 项</span>
+                        <span className="popover-format-badge-count">{t('search.customFormatsCount', '{{count}} items', { count: customContentFormats.length })}</span>
                       </div>
                     </div>
                     {customContentFormats.length > 0 && (
@@ -3069,15 +3083,15 @@ export default function SearchApp() {
                   </div>
                   <div className="popover-db-row">
                     <span className="popover-db-label">{t('search.totalRecords', 'Indexed Records:')}</span>
-                    <span className="popover-db-val">{dbStats?.totalRecords ? dbStats.totalRecords.toLocaleString() : (totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '0')} 条</span>
+                    <span className="popover-db-val">{t('search.maxResultsCount', { defaultValue: '{{count}} items', count: Number(dbStats?.totalRecords ?? totalIndexedFiles ?? 0) })}</span>
                   </div>
                   <div className="popover-db-row">
                     <span className="popover-db-label">{t('search.runHistory', 'Run History:')}</span>
-                    <span className="popover-db-val">Run History ({dbStats?.runHistoryCount ?? 0} 条高频)</span>
+                    <span className="popover-db-val">{t('search.runHistoryStats', 'Run History ({{count}} frequent)', { count: dbStats?.runHistoryCount ?? 0 })}</span>
                   </div>
                   <div className="popover-db-row">
                     <span className="popover-db-label">{t('search.searchHistory', 'Search History:')}</span>
-                    <span className="popover-db-val">Search History ({dbStats?.searchHistoryCount ?? 0} 条检索词)</span>
+                    <span className="popover-db-val">{t('search.searchHistoryStats', 'Search History ({{count}} queries)', { count: dbStats?.searchHistoryCount ?? 0 })}</span>
                   </div>
                   <div className="popover-db-actions">
                     <button
@@ -3124,7 +3138,7 @@ export default function SearchApp() {
                       className={`syntax-drawer-tab ${syntaxCat === cat.id ? 'active' : ''}`}
                       onClick={() => setSyntaxCat(cat.id)}
                     >
-                      {cat.label}
+                      {t(cat.labelKey, cat.defaultLabel)}
                     </button>
                   ))}
                 </div>
@@ -3150,7 +3164,7 @@ export default function SearchApp() {
                     <code className="syntax-code">{item.syntax}</code>
                     <span className="syntax-example-action-hint">{t('search.fillInHint', 'Insert ↵')}</span>
                   </div>
-                  <span className="syntax-desc">{item.desc}</span>
+                  <span className="syntax-desc">{t(item.descKey, item.defaultDesc)}</span>
                 </div>
               ))}
             </div>
@@ -3655,7 +3669,7 @@ export default function SearchApp() {
                   className="search-rename-btn search-rename-btn--cancel"
                   onClick={() => setRenameTarget({ visible: false, newName: '' })}
                 >
-                  取消
+                  {t('common.cancel', 'Cancel')}
                 </button>
                 <button
                   type="button"
@@ -3663,7 +3677,7 @@ export default function SearchApp() {
                   onClick={() => void confirmRename()}
                   disabled={!renameTarget.newName.trim() || renameTarget.newName.trim() === renameTarget.result.name}
                 >
-                  确定重命名
+                {t('search.confirmRename', 'Confirm Rename')}
                 </button>
               </div>
             </div>

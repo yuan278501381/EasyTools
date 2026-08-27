@@ -57,33 +57,33 @@ interface AppPreset {
 
 const PRESETS: AppPreset[] = [
   // 浏览器
-  { name: 'Google Chrome', category: 'browser', categoryLabel: '浏览器', processName: 'chrome.exe', windowClass: 'Chrome_WidgetWin_1' },
-  { name: 'Microsoft Edge', category: 'browser', categoryLabel: '浏览器', processName: 'msedge.exe', windowClass: 'Chrome_WidgetWin_1' },
-  { name: 'Mozilla Firefox', category: 'browser', categoryLabel: '浏览器', processName: 'firefox.exe', windowClass: 'MozillaWindowClass' },
-  { name: '360 极速浏览器', category: 'browser', categoryLabel: '浏览器', processName: '360chrome.exe' },
+  { name: 'Google Chrome', category: 'browser', categoryLabel: 'Browser', processName: 'chrome.exe', windowClass: 'Chrome_WidgetWin_1' },
+  { name: 'Microsoft Edge', category: 'browser', categoryLabel: 'Browser', processName: 'msedge.exe', windowClass: 'Chrome_WidgetWin_1' },
+  { name: 'Mozilla Firefox', category: 'browser', categoryLabel: 'Browser', processName: 'firefox.exe', windowClass: 'MozillaWindowClass' },
+  { name: '360 Extreme Browser', category: 'browser', categoryLabel: 'Browser', processName: '360chrome.exe' },
   
   // 开发与设计
-  { name: 'VS Code', category: 'dev', categoryLabel: '开发设计', processName: 'Code.exe', windowClass: 'Chrome_WidgetWin_1' },
-  { name: 'Visual Studio', category: 'dev', categoryLabel: '开发设计', processName: 'devenv.exe' },
-  { name: 'Windows Terminal', category: 'dev', categoryLabel: '开发设计', processName: 'WindowsTerminal.exe' },
-  { name: 'IntelliJ IDEA', category: 'dev', categoryLabel: '开发设计', processName: 'idea64.exe' },
-  { name: 'Adobe Photoshop', category: 'dev', categoryLabel: '开发设计', processName: 'Photoshop.exe' },
-  { name: 'AutoCAD', category: 'dev', categoryLabel: '开发设计', processName: 'acad.exe' },
+  { name: 'VS Code', category: 'dev', categoryLabel: 'Dev & Design', processName: 'Code.exe', windowClass: 'Chrome_WidgetWin_1' },
+  { name: 'Visual Studio', category: 'dev', categoryLabel: 'Dev & Design', processName: 'devenv.exe' },
+  { name: 'Windows Terminal', category: 'dev', categoryLabel: 'Dev & Design', processName: 'WindowsTerminal.exe' },
+  { name: 'IntelliJ IDEA', category: 'dev', categoryLabel: 'Dev & Design', processName: 'idea64.exe' },
+  { name: 'Adobe Photoshop', category: 'dev', categoryLabel: 'Dev & Design', processName: 'Photoshop.exe' },
+  { name: 'AutoCAD', category: 'dev', categoryLabel: 'Dev & Design', processName: 'acad.exe' },
 
   // 办公协同
-  { name: 'Microsoft Word', category: 'office', categoryLabel: '办公协同', processName: 'WINWORD.EXE' },
-  { name: 'Microsoft Excel', category: 'office', categoryLabel: '办公协同', processName: 'EXCEL.EXE' },
-  { name: 'Microsoft PowerPoint', category: 'office', categoryLabel: '办公协同', processName: 'POWERPNT.EXE' },
-  { name: 'WPS Office', category: 'office', categoryLabel: '办公协同', processName: 'wps.exe' },
-  { name: '微信', category: 'office', categoryLabel: '办公协同', processName: 'WeChat.exe', windowClass: 'WeChatMainWndForPC' },
-  { name: '飞书', category: 'office', categoryLabel: '办公协同', processName: 'Feishu.exe' },
-  { name: '钉钉', category: 'office', categoryLabel: '办公协同', processName: 'DingTalk.exe' },
-  { name: 'QQ', category: 'office', categoryLabel: '办公协同', processName: 'QQ.exe' },
+  { name: 'Microsoft Word', category: 'office', categoryLabel: 'Office & Collab', processName: 'WINWORD.EXE' },
+  { name: 'Microsoft Excel', category: 'office', categoryLabel: 'Office & Collab', processName: 'EXCEL.EXE' },
+  { name: 'Microsoft PowerPoint', category: 'office', categoryLabel: 'Office & Collab', processName: 'POWERPNT.EXE' },
+  { name: 'WPS Office', category: 'office', categoryLabel: 'Office & Collab', processName: 'wps.exe' },
+  { name: 'WeChat', category: 'office', categoryLabel: 'Office & Collab', processName: 'WeChat.exe', windowClass: 'WeChatMainWndForPC' },
+  { name: 'Feishu', category: 'office', categoryLabel: 'Office & Collab', processName: 'Feishu.exe' },
+  { name: 'DingTalk', category: 'office', categoryLabel: 'Office & Collab', processName: 'DingTalk.exe' },
+  { name: 'QQ', category: 'office', categoryLabel: 'Office & Collab', processName: 'QQ.exe' },
 
   // 系统工具
-  { name: '文件资源管理器', category: 'system', categoryLabel: '系统工具', processName: 'explorer.exe', windowClass: 'CabinetWClass' },
-  { name: '记事本', category: 'system', categoryLabel: '系统工具', processName: 'notepad.exe', windowClass: 'Notepad' },
-  { name: '任务管理器', category: 'system', categoryLabel: '系统工具', processName: 'Taskmgr.exe' },
+  { name: 'File Explorer', category: 'system', categoryLabel: 'System Tools', processName: 'explorer.exe', windowClass: 'CabinetWClass' },
+  { name: 'Notepad', category: 'system', categoryLabel: 'System Tools', processName: 'notepad.exe', windowClass: 'Notepad' },
+  { name: 'Task Manager', category: 'system', categoryLabel: 'System Tools', processName: 'Taskmgr.exe' },
 ];
 
 function renderVectorAppIcon(proc: string) {
@@ -189,7 +189,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
       friendlyName = parts[parts.length - 1].trim();
     }
     const finalName = friendlyName || win.processName;
-    if (!draft.name || draft.name.startsWith('例如') || !isEdit) {
+    if (!draft.name || draft.name.startsWith('e.g.') || !isEdit) {
       set({ name: finalName });
     }
     if (targetKind === 'process') {
@@ -199,16 +199,16 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
     }
     setJustPicked(true);
     setPickedName(finalName);
-    toast.success(`已选定应用：${finalName}`, {
+    toast.success(t('picker.toastAppSelected', 'Selected application: {{name}}', { name: finalName }), {
       duration: 2000,
-      description: `进程: ${win.processName}`,
+      description: t('picker.toastProcessDesc', 'Process: {{proc}}', { proc: win.processName }),
     });
     setTimeout(() => setJustPicked(false), 2500);
   };
 
   const handleSelectPreset = (preset: AppPreset) => {
     const finalName = preset.name;
-    if (!draft.name || draft.name.startsWith('例如') || !isEdit) {
+    if (!draft.name || draft.name.startsWith('e.g.') || !isEdit) {
       set({ name: finalName });
     }
     if (targetKind === 'process') {
@@ -218,9 +218,9 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
     }
     setJustPicked(true);
     setPickedName(finalName);
-    toast.success(`已选定预设：${preset.name}`, {
+    toast.success(t('picker.toastPresetSelected', 'Selected preset: {{name}}', { name: preset.name }), {
       duration: 2000,
-      description: `进程: ${preset.processName}`,
+      description: t('picker.toastProcessDesc', 'Process: {{proc}}', { proc: preset.processName }),
     });
     setTimeout(() => setJustPicked(false), 2500);
   };
@@ -229,7 +229,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
     setCountdown(3);
     setJustPicked(false);
     setPickedName(null);
-    toast.loading('3 秒窗口识别已启动，请立即切换/点击目标窗口...', {
+    toast.loading(t('picker.toastCountdownStart', '3s window recognition started, please switch to target window immediately...'), {
       id: 'window-picker-toast',
       duration: 3500,
     });
@@ -265,23 +265,23 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
         setJustPicked(true);
         setPickedName(finalName);
 
-        toast.success(`已成功识别目标窗口：${finalName}`, {
+        toast.success(t('picker.toastWindowIdentified', 'Target window recognized: {{name}}', { name: finalName }), {
           id: 'window-picker-toast',
           duration: 4000,
-          description: `匹配目标已填入: ${targetVal} (${targetKind === 'process' ? '进程' : '类名'})`,
+          description: t('picker.pickToastDesc', 'Target: {{val}} ({{kind}})', { val: targetVal, kind: targetKind === 'process' ? t('picker.fieldProcess', 'Process Name') : t('picker.fieldClass', 'Window Class Name') }),
         });
 
         setTimeout(() => {
           setJustPicked(false);
         }, 3000);
       } else {
-        toast.error('未检测到有效前台窗口，请重试或直接在下方列表中点选', {
+        toast.error(t('picker.pickToastNoWindow', 'No active foreground window detected, please retry or select from list below'), {
           id: 'window-picker-toast',
           duration: 3000,
         });
       }
     } catch (err) {
-      toast.error('拾取前台窗口失败', {
+      toast.error(t('picker.pickToastFail', 'Failed to pick foreground window'), {
         id: 'window-picker-toast',
         description: String(err),
       });
@@ -334,10 +334,10 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
           )}
           <span>
             {countdown !== null
-              ? `请在 ${countdown} 秒内切换至目标窗口...`
+              ? t('picker.countdownTip', 'Please switch to target window in {{count}}s...', { count: countdown })
               : justPicked
-              ? `识别成功：${pickedName || draft.name}`
-              : '不知道进程或窗口名？一键直接拾取'}
+              ? t('picker.pickedTip', 'Recognized: {{name}}', { name: pickedName || draft.name })
+              : t('picker.pickDirectTip', 'Don\'t know the process or class name? Pick it with one click')}
           </span>
         </div>
         <Button
@@ -348,15 +348,15 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
           style={{ zIndex: 1 }}
         >
           <Crosshair size={13} className={countdown !== null ? 'picker-radar-spin' : ''} />
-          <span>{countdown !== null ? `${countdown}s 拾取中...` : justPicked ? '重新拾取' : '拾取前台窗口'}</span>
+          <span>{countdown !== null ? t('picker.pickingBtn', '{{count}}s Picking...', { count: countdown }) : justPicked ? t('picker.rePickBtn', 'Re-pick') : t('picker.pickWindowBtn', 'Pick Foreground Window')}</span>
         </Button>
       </div>
 
       <Tabs
         tabs={[
-          { id: 'running', label: `当前运行应用 (${openWindows.length})`, icon: <AppWindow size={14} /> },
-          { id: 'presets', label: '常用软件预设', icon: <Sparkles size={14} /> },
-          { id: 'manual', label: '手动高级填写', icon: <SlidersHorizontal size={14} /> },
+          { id: 'running', label: t('picker.tabRunning', 'Running Apps ({{count}})', { count: openWindows.length }), icon: <AppWindow size={14} /> },
+          { id: 'presets', label: t('picker.tabPresets', 'App Presets'), icon: <Sparkles size={14} /> },
+          { id: 'manual', label: t('picker.tabManual', 'Manual Advanced'), icon: <SlidersHorizontal size={14} /> },
         ]}
         activeId={pickerTab}
         onChange={(tab) => {
@@ -378,7 +378,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
                   key={`${win.processName}-${idx}`}
                   className={`app-picker-item ${isSelected ? 'selected' : ''}`}
                   onClick={() => handleSelectRunningApp(win)}
-                  title={`标题: ${win.title}\n进程: ${win.processName}\n窗口类: ${win.windowClass}`}
+                  title={t('picker.windowCardTip', 'Title: {{title}}\nProcess: {{proc}}\nClass: {{cls}}', { title: win.title, proc: win.processName, cls: win.windowClass })}
                 >
                   <div className="app-picker-item__icon-wrap">
                     {isSelected ? <Check size={14} /> : renderVectorAppIcon(win.processName)}
@@ -392,13 +392,13 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
             })
           ) : (
             <div className="app-picker-empty">
-              {loadingWindows ? '正在检索运行中窗口...' : '未检测到打开的窗口'}
+              {loadingWindows ? t('picker.loadingWindows', 'Scanning running windows...') : t('picker.noWindowsFound', 'No open windows detected')}
               <button
                 type="button"
                 style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}
                 onClick={loadOpenWindows}
               >
-                <RefreshCw size={12} /> 刷新
+                <RefreshCw size={12} /> {t('common.refresh', 'Refresh')}
               </button>
             </div>
           )}
@@ -409,11 +409,11 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
         <>
           <Tabs
             tabs={[
-              { id: 'all', label: '全部', icon: <LayoutGrid size={12} /> },
-              { id: 'browser', label: '浏览器', icon: <Globe size={12} /> },
-              { id: 'dev', label: '开发', icon: <Code2 size={12} /> },
-              { id: 'office', label: '办公', icon: <FileText size={12} /> },
-              { id: 'system', label: '系统', icon: <SlidersHorizontal size={12} /> },
+              { id: 'all', label: t('picker.catAll', 'All'), icon: <LayoutGrid size={12} /> },
+              { id: 'browser', label: t('picker.catBrowser', 'Browser'), icon: <Globe size={12} /> },
+              { id: 'dev', label: t('picker.catDev', 'Dev'), icon: <Code2 size={12} /> },
+              { id: 'office', label: t('picker.catOffice', 'Office'), icon: <FileText size={12} /> },
+              { id: 'system', label: t('picker.catSystem', 'System'), icon: <SlidersHorizontal size={12} /> },
             ]}
             activeId={selectedCategory}
             onChange={(cat) => setSelectedCategory(cat)}

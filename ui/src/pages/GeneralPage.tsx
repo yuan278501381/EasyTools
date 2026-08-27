@@ -465,7 +465,7 @@ export const GeneralPage: FC = () => {
                 try {
                   const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
                   if (res.cancelled) return;
-                  if (!res.success) throw new Error(res.error || '导出失败');
+                  if (!res.success) throw new Error(res.error || t('general.exportFailed', 'Export failed'));
                   toast.success(t('general.exportLogsSuccess', 'Diagnostic logs exported and highlighted successfully'));
                 } catch (e) {
                   toast.error(t('general.exportLogsFailed', 'Failed to export diagnostic logs'), { description: String(e) });
@@ -486,29 +486,29 @@ export const GeneralPage: FC = () => {
           <div className="general-page__hotkey-health-bar">
             <div className="general-page__hotkey-health-stats">
               <span className="general-page__stat-pill total">
-                <Keyboard size={12} /> 全部 {hotkeys.length} 项
+                <Keyboard size={12} /> {t('general.hotkeysAllCount', 'All {{count}} items', { count: hotkeys.length })}
               </span>
               <span className="general-page__stat-pill ok">
-                <CheckCircle2 size={12} /> 生效 {globalActiveCount} 项
+                <CheckCircle2 size={12} /> {t('general.hotkeysActiveCount', 'Active {{count}} items', { count: globalActiveCount })}
               </span>
               {sessionOnlyCount > 0 && (
                 <span className="general-page__stat-pill session">
-                  <Disc size={12} /> 仅录屏生效 {sessionOnlyCount} 项
+                  <Disc size={12} /> {t('general.hotkeysSessionCount', 'Recording Only {{count}} items', { count: sessionOnlyCount })}
                 </span>
               )}
               {internalConflictsCount > 0 && (
                 <span className="general-page__stat-pill warning">
-                  <AlertTriangle size={12} /> 内部冲突 {internalConflictsCount} 项
+                  <AlertTriangle size={12} /> {t('general.hotkeysInternalConflictsCount', 'Internal Conflicts {{count}} items', { count: internalConflictsCount })}
                 </span>
               )}
               {externalConflictsCount > 0 && (
                 <span className="general-page__stat-pill danger">
-                  <AlertOctagon size={12} /> 外部冲突 {externalConflictsCount} 项
+                  <AlertOctagon size={12} /> {t('general.hotkeysExternalConflictsCount', 'External Conflicts {{count}} items', { count: externalConflictsCount })}
                 </span>
               )}
               {unboundCount > 0 && (
                 <span className="general-page__stat-pill unbound">
-                  <MinusCircle size={12} /> 未绑定 {unboundCount} 项
+                  <MinusCircle size={12} /> {t('general.hotkeysUnboundCount', 'Unbound {{count}} items', { count: unboundCount })}
                 </span>
               )}
             </div>

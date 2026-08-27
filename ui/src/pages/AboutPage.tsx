@@ -156,7 +156,7 @@ export const AboutPage: FC = () => {
     try {
       const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
       if (res.cancelled) return;
-      if (!res.success) throw new Error(res.error || '导出失败');
+      if (!res.success) throw new Error(res.error || t('about.exportFailed', 'Export failed'));
       toast.success(t('about.exportLogsSuccess', 'Diagnostic logs exported and highlighted successfully'));
     } catch (e) {
       toast.error(t('about.exportLogsFailed', 'Failed to export diagnostic logs'), { description: String(e) });
@@ -198,7 +198,7 @@ export const AboutPage: FC = () => {
                   <h2 className="about-hero__title">EasyTools</h2>
                   <Badge text={`v${version}`} variant="primary" />
                   <Badge text="C++20 & Direct2D" variant="success" />
-                  <Badge text={`作者 · Yy1 (@yuan278501381)`} variant="muted" />
+                  <Badge text={t('about.authorBadge', 'Author · Yy1 (@yuan278501381)')} variant="muted" />
                 </div>
                 <p className="about-hero__subtitle">{t('about.subtitle')}</p>
               </div>

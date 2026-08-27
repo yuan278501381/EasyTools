@@ -169,56 +169,56 @@ function pointsToSvgPath(points: Point[]): string {
 }
 
 const RIGHT_PRESET_GESTURES = [
-  { code: 'R', label: '前进' },
-  { code: 'L', label: '后退' },
-  { code: 'D-R', label: '关闭标签' },
-  { code: 'R-D', label: '恢复标签' },
-  { code: 'D-L', label: '关闭窗口' },
-  { code: 'U', label: '最大化' },
-  { code: 'D', label: '最小化' },
-  { code: 'U-R', label: '下一标签' },
-  { code: 'U-L', label: '上一标签' },
-  { code: 'L-U-R', label: '刷新' },
-  { code: 'L-D', label: '显示桌面' },
-  { code: 'D-R-D', label: '截图' },
+  { code: 'R', label: 'Forward' },
+  { code: 'L', label: 'Back' },
+  { code: 'D-R', label: 'Close Tab' },
+  { code: 'R-D', label: 'Reopen Tab' },
+  { code: 'D-L', label: 'Close Window' },
+  { code: 'U', label: 'Maximize' },
+  { code: 'D', label: 'Minimize' },
+  { code: 'U-R', label: 'Next Tab' },
+  { code: 'U-L', label: 'Previous Tab' },
+  { code: 'L-U-R', label: 'Reload' },
+  { code: 'L-D', label: 'Show Desktop' },
+  { code: 'D-R-D', label: 'Screenshot' },
 ];
 
 const MIDDLE_PRESET_GESTURES = [
-  { code: 'Middle+L', label: '上一曲' },
-  { code: 'Middle+R', label: '下一曲' },
-  { code: 'Middle+U', label: '最大化' },
-  { code: 'Middle+D', label: '最小化' },
-  { code: 'Middle+D-R', label: '关闭标签' },
-  { code: 'Middle+R-D', label: '恢复标签' },
-  { code: 'Middle+L-U-R', label: '刷新' },
-  { code: 'Middle+L-D', label: '显示桌面' },
+  { code: 'Middle+L', label: 'Previous Track' },
+  { code: 'Middle+R', label: 'Next Track' },
+  { code: 'Middle+U', label: 'Maximize' },
+  { code: 'Middle+D', label: 'Minimize' },
+  { code: 'Middle+D-R', label: 'Close Tab' },
+  { code: 'Middle+R-D', label: 'Reopen Tab' },
+  { code: 'Middle+L-U-R', label: 'Reload' },
+  { code: 'Middle+L-D', label: 'Show Desktop' },
 ];
 
 const SIDE1_PRESET_GESTURES = [
-  { code: 'X1+L', label: '后退' },
-  { code: 'X1+R', label: '前进' },
-  { code: 'X1+U', label: '下一标签' },
-  { code: 'X1+D', label: '上一标签' },
-  { code: 'X1+D-R', label: '关闭标签' },
-  { code: 'X1+R-D', label: '恢复标签' },
-  { code: 'X1+L-U-R', label: '刷新' },
+  { code: 'X1+L', label: 'Back' },
+  { code: 'X1+R', label: 'Forward' },
+  { code: 'X1+U', label: 'Next Tab' },
+  { code: 'X1+D', label: 'Previous Tab' },
+  { code: 'X1+D-R', label: 'Close Tab' },
+  { code: 'X1+R-D', label: 'Reopen Tab' },
+  { code: 'X1+L-U-R', label: 'Reload' },
 ];
 
 const SIDE2_PRESET_GESTURES = [
-  { code: 'X2+L', label: '上一曲' },
-  { code: 'X2+R', label: '下一曲' },
-  { code: 'X2+U', label: '音量增加' },
-  { code: 'X2+D', label: '音量减少' },
-  { code: 'X2+D-R', label: '关闭窗口' },
-  { code: 'X2+L-D', label: '显示桌面' },
+  { code: 'X2+L', label: 'Previous Track' },
+  { code: 'X2+R', label: 'Next Track' },
+  { code: 'X2+U', label: 'Volume Up' },
+  { code: 'X2+D', label: 'Volume Down' },
+  { code: 'X2+D-R', label: 'Close Window' },
+  { code: 'X2+L-D', label: 'Show Desktop' },
 ];
 
 const TOPEDGE_PRESET_GESTURES = [
-  { code: 'TopEdge+D', label: '任务视图 / 显示桌面' },
-  { code: 'TopEdge+L', label: '左虚拟桌面' },
-  { code: 'TopEdge+R', label: '右虚拟桌面' },
-  { code: 'TopEdge+Left+D', label: '左键下拉关闭' },
-  { code: 'TopEdge+Middle+D', label: '中键下拉最小化' },
+  { code: 'TopEdge+D', label: 'Task View / Desktop' },
+  { code: 'TopEdge+L', label: 'Left Desktop' },
+  { code: 'TopEdge+R', label: 'Right Desktop' },
+  { code: 'TopEdge+Left+D', label: 'Left Pull Down Close' },
+  { code: 'TopEdge+Middle+D', label: 'Middle Pull Down Minimize' },
 ];
 
 interface Props {
@@ -565,10 +565,10 @@ export const GestureDrawCanvas: FC<Props> = ({
               <MousePointer size={20} strokeWidth={2} className="gesture-draw-mouse-icon" />
             </div>
             <div className="gesture-draw-watermark-text">
-              直接在画板划动 · 按键、起笔位置与修饰键全自动识别
+              {t('gesture.canvasDrawTip', 'Draw directly on canvas · Button, start pos & modifiers auto recognized')}
             </div>
             <div className="gesture-draw-watermark-hint">
-              顶部起笔=上边缘 · 底部起笔=底边缘 · 中间起笔=全局 · 按哪个按键自动识别哪个
+              {t('gesture.canvasEdgeTip', 'Start top=Top edge · Start bottom=Bottom edge · Start middle=Global · Auto detect button pressed')}
             </div>
           </div>
         )}
