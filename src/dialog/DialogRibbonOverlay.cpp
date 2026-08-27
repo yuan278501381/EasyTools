@@ -238,14 +238,16 @@ bool DialogRibbonOverlay::doUpdatePosition() {
             return false;
         }
 
-        // 胶囊只属于文件对话框本身。切回同一 EXE 的主窗口也必须隐藏，
-        // 不能把“同进程”误当作“同一个文件对话框”。
+        // 检查前台激活状态：仅在用户切换到完全不相关的其他进程时隐藏，
+        // 对话框内部子控件获取焦点、切换子窗口均稳定保持展示
         const HWND foreground = GetForegroundWindow();
-        const HWND foregroundRoot = foreground ? GetAncestor(foreground, GA_ROOT) : nullptr;
-        if (foreground != m_hwnd && foreground != m_targetDialog &&
-            foregroundRoot != m_targetDialog) {
-            if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
-            return false;
+        if (foreground) {
+            DWORD fgPid = 0;
+            GetWindowThreadProcessId(foreground, &fgPid);
+            if (fgPid != m_targetProcessId && fgPid != GetCurrentProcessId()) {
+                if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
+                return false;
+            }
         }
 
         RECT dlgRect;

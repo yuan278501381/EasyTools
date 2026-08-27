@@ -215,12 +215,16 @@ struct EnumChildContext {
     HWND okButtonHwnd{nullptr};
     bool hasTabControl{false};
     bool hasDefView{false};
+    bool hasDirectUI{false};
+    bool hasBreadcrumb{false};
+    int totalControls{0};
 };
 
 BOOL CALLBACK EnumFileDialogChildren(HWND hwnd, LPARAM lParam) {
     auto* ctx = reinterpret_cast<EnumChildContext*>(lParam);
     if (!ctx) return FALSE;
 
+    ctx->totalControls++;
     wchar_t className[64] = {0};
     GetClassNameW(hwnd, className, 64);
     int ctrlId = GetDlgCtrlID(hwnd);
@@ -228,19 +232,20 @@ BOOL CALLBACK EnumFileDialogChildren(HWND hwnd, LPARAM lParam) {
     if (wcscmp(className, L"SHELLDLL_DefView") == 0) {
         ctx->hasDefView = true;
         if (!ctx->shellViewHwnd) ctx->shellViewHwnd = hwnd;
+    } else if (wcscmp(className, L"DirectUIHWND") == 0 || wcscmp(className, L"DUIViewWndClassName") == 0) {
+        ctx->hasDirectUI = true;
     } else if (wcscmp(className, L"NamespaceTreeControl") == 0) {
         ctx->namespaceTreeHwnd = hwnd;
     } else if (wcscmp(className, L"SysTabControl32") == 0) {
         ctx->hasTabControl = true;
-    }
-    
-    if (wcscmp(className, L"ComboBoxEx32") == 0) {
+    } else if (wcscmp(className, L"ComboBoxEx32") == 0 || wcscmp(className, L"ComboBox") == 0) {
         ctx->comboBoxHwnd = hwnd;
     } else if (wcscmp(className, L"Edit") == 0) {
         if (ctrlId == 0x047C || ctrlId == 0x0442 || ctrlId == 1152 || !ctx->editHwnd) {
             ctx->editHwnd = hwnd;
         }
     } else if (wcscmp(className, L"ToolbarWindow32") == 0 || wcscmp(className, L"Breadcrumb Parent") == 0) {
+        ctx->hasBreadcrumb = true;
         HWND parent = GetParent(hwnd);
         if (parent) {
             wchar_t pClass[64] = {0};
@@ -263,20 +268,21 @@ BOOL CALLBACK EnumFileDialogChildren(HWND hwnd, LPARAM lParam) {
 DialogType DialogNavigator::detectDialogType(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return DialogType::Unknown;
 
-    // 用 CDM_GETFOLDERPATH 探测：Legacy 对话框必定响应且返回 > 0
-    // Modern IFileOpenDialog 的 #32770 宿主不支持 CDM 消息，返回 0
-    wchar_t cdmBuf[MAX_PATH] = {0};
-    LRESULT lr = 0;
-    sendMessageWithTimeout(hwnd, CDM_GETFOLDERPATH, MAX_PATH,
-                           reinterpret_cast<LPARAM>(cdmBuf), lr);
-    if (lr > 0 && cdmBuf[0] != L'\0') {
+    EnumChildContext ctx;
+    EnumChildWindows(hwnd, EnumFileDialogChildren, reinterpret_cast<LPARAM>(&ctx));
+
+    // Modern 对话框拥有 DirectUI、DefView 或 Breadcrumb 架构
+    if (ctx.hasDirectUI || ctx.hasDefView || ctx.hasBreadcrumb || ctx.namespaceTreeHwnd) {
+        return DialogType::Modern;
+    }
+    if (ctx.editHwnd || ctx.comboBoxHwnd) {
         return DialogType::Legacy;
     }
     return DialogType::Modern;
 }
 
 // ============================================================
-// isFileDialog
+// isFileDialog — 纯只读高鲁棒性文件对话框判定
 // ============================================================
 bool DialogNavigator::isFileDialog(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return false;
@@ -295,12 +301,12 @@ bool DialogNavigator::isFileDialog(HWND hwnd) {
     // 1. 属性页对话框（包含 SysTabControl32）绝对不是文件对话框
     if (ctx.hasTabControl) return false;
 
-    // 2. Modern 文件对话框判定：必须有核心文件列表视图 SHELLDLL_DefView，或者包含左侧导航树 NamespaceTreeControl
-    if (ctx.hasDefView) return true;
-    if (ctx.namespaceTreeHwnd && (ctx.addressBandHwnd || ctx.okButtonHwnd)) return true;
-
-    // 3. Legacy 传统文件对话框判定：必须同时具备 Edit/Combo 控件与特定的子结构，绝不主动发送可能关闭普通弹窗的 CDM 消息
-    if (ctx.editHwnd && ctx.comboBoxHwnd) {
+    // 2. 现代与经典文件对话框判定：
+    // 必须具备 DirectUI、DefView、左侧导航树、面包屑地址栏、或标准文件输入框
+    if (ctx.hasDirectUI || ctx.hasDefView || ctx.namespaceTreeHwnd || ctx.hasBreadcrumb) {
+        return true;
+    }
+    if (ctx.editHwnd && (ctx.comboBoxHwnd || ctx.okButtonHwnd)) {
         return true;
     }
 
