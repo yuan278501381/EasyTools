@@ -40,31 +40,31 @@ inline bool isModifierKey(const std::string& token) {
 struct KeycastDynamicMetrics {
     float fontSize;       // 实际生效的字体尺寸 (DPI 缩放后)
     float charWidth;      // 单字符估算宽度
-    float capHeight;      // 键帽高度 = fontSize * 1.28f (紧凑精致)
-    float capRadius;      // 键帽圆角 = capHeight * 0.22f (~4.8px)
-    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.38f (~31px)
-    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.26f (~8px)
-    float paddingX;       // 胶囊左右内边距 = fontSize * 0.38f
-    float winWidth;       // Windows 键宽度 = fontSize * 1.65f (长宽比 1.29:1)
-    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.46f (精致小巧)
-    float plusWidth;      // 加号总占用宽度 = fontSize * 0.45f
-    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.22f
+    float capHeight;      // 键帽高度 = fontSize * 1.32f (~23px)
+    float capRadius;      // 键帽圆角 = capHeight * 0.24f (~5.5px)
+    float capsuleHeight;  // 外层胶囊高度 = capHeight + fontSize * 0.65f (~35px)
+    float capsuleRadius;  // 外层胶囊圆角 = capsuleHeight * 0.28f (~10px)
+    float paddingX;       // 胶囊左右内边距 = fontSize * 0.45f
+    float winWidth;       // Windows 键宽度 = fontSize * 1.85f (~32px, 长宽比 1.4:1)
+    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.48f (~11px)
+    float plusWidth;      // 加号总占用宽度 = fontSize * 0.48f
+    float rowStep;        // 多行垂直步进 = capsuleHeight + fontSize * 0.25f
     float borderWidth;    // 动态微边框 = max(1.0f * dpiScale, fontSize * 0.045f)
 };
 
 inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
     KeycastDynamicMetrics m;
-    m.fontSize = (std::max)(11.0f, static_cast<float>(baseFontSize) * 0.85f) * dpiScale;
-    m.charWidth = m.fontSize * 0.56f;
-    m.capHeight = m.fontSize * 1.28f;
-    m.capRadius = m.capHeight * 0.22f;
-    m.capsuleHeight = m.capHeight + m.fontSize * 0.38f;
-    m.capsuleRadius = m.capsuleHeight * 0.26f;
-    m.paddingX = m.fontSize * 0.38f;
-    m.winWidth = m.fontSize * 1.65f;
-    m.logoSize = m.capHeight * 0.46f;
-    m.plusWidth = m.fontSize * 0.45f;
-    m.rowStep = m.capsuleHeight + m.fontSize * 0.22f;
+    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 0.88f) * dpiScale;
+    m.charWidth = m.fontSize * 0.58f;
+    m.capHeight = m.fontSize * 1.32f;
+    m.capRadius = m.capHeight * 0.24f;
+    m.capsuleHeight = m.capHeight + m.fontSize * 0.65f;
+    m.capsuleRadius = m.capsuleHeight * 0.28f;
+    m.paddingX = m.fontSize * 0.45f;
+    m.winWidth = m.fontSize * 1.85f;
+    m.logoSize = m.capHeight * 0.48f;
+    m.plusWidth = m.fontSize * 0.48f;
+    m.rowStep = m.capsuleHeight + m.fontSize * 0.25f;
     m.borderWidth = (std::max)(1.0f * dpiScale, m.fontSize * 0.045f);
     return m;
 }
@@ -207,13 +207,13 @@ bool KeycastOverlay::autoBypassFullscreen() const {
 D2D1_COLOR_F KeycastOverlay::parseColor(const std::string& hex, float alpha) const {
     if (hex == "auto") {
         std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
-        if (accent == "cyan") return D2D1::ColorF(0.02f, 0.71f, 0.83f, alpha);
-        if (accent == "amber") return D2D1::ColorF(0.96f, 0.62f, 0.04f, alpha);
-        if (accent == "mint") return D2D1::ColorF(0.06f, 0.73f, 0.51f, alpha);
-        if (accent == "coral") return D2D1::ColorF(0.96f, 0.25f, 0.37f, alpha);
-        if (accent == "violet") return D2D1::ColorF(0.55f, 0.36f, 0.96f, alpha);
-        // 默认 auto 采用高雅的紫罗兰微晶色 (#5E4D7D)，与深色暗调胶囊形成世界级视觉层次
-        return D2D1::ColorF(0.37f, 0.30f, 0.49f, alpha);
+        if (accent == "cyan") return D2D1::ColorF(0.20f, 0.75f, 0.85f, alpha);
+        if (accent == "amber") return D2D1::ColorF(0.96f, 0.65f, 0.15f, alpha);
+        if (accent == "mint") return D2D1::ColorF(0.20f, 0.78f, 0.58f, alpha);
+        if (accent == "coral") return D2D1::ColorF(0.96f, 0.38f, 0.48f, alpha);
+        if (accent == "violet") return D2D1::ColorF(0.58f, 0.45f, 0.88f, alpha);
+        // 默认 auto 采用高雅浅紫罗兰微晶色 (#7B6BA3)，完美复刻顶级现代视觉
+        return D2D1::ColorF(0.48f, 0.42f, 0.64f, alpha);
     }
 
     if (hex.length() == 7 && hex[0] == '#') {
@@ -496,18 +496,18 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
         } else if (isModifier(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.58f);
+            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.72f);
             totalW += btnW;
         } else if (isSpecialKey(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float minCapW = (token == "Space") ? (dyn.fontSize * 2.0f) : dyn.winWidth;
-            float btnW = (std::max)(minCapW, textW + dyn.fontSize * 0.55f);
+            float minCapW = (token == "Space") ? (dyn.fontSize * 2.2f) : dyn.winWidth;
+            float btnW = (std::max)(minCapW, textW + dyn.fontSize * 0.65f);
             totalW += btnW;
         } else {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.fontSize * 0.78f, textW + dyn.fontSize * 0.32f);
+            float btnW = (std::max)(dyn.fontSize * 0.85f, textW + dyn.fontSize * 0.40f);
             totalW += btnW;
         }
         if (i + 1 < item.tokens.size()) {
@@ -744,30 +744,53 @@ void KeycastOverlay::pushKey(const std::string& keyStr) {
 }
 
 void KeycastOverlay::drawWindowsLogo(const D2D1_RECT_F& rect, float alpha) {
-    if (!m_renderTarget || !m_brushModifierText) return;
+    if (!m_renderTarget || !m_brushModifierText || !m_d2dFactory) return;
 
-    m_brushModifierText->SetOpacity(0.98f * alpha);
+    m_brushModifierText->SetOpacity(0.95f * alpha);
     float w = rect.right - rect.left;
     float h = rect.bottom - rect.top;
-    float side = (std::min)(w, h);
-    float left = rect.left + (w - side) / 2.0f;
-    float top = rect.top + (h - side) / 2.0f;
 
-    float gap = side * 0.14f;
-    float boxSize = (side - gap) / 2.0f;
-    float radius = boxSize * 0.18f;
+    auto mapX = [&](float x) -> float { return rect.left + (x / 640.0f) * w; };
+    auto mapY = [&](float y) -> float { return rect.top + (y / 640.0f) * h; };
 
-    D2D1_RECT_F boxes[4] = {
-        D2D1::RectF(left, top, left + boxSize, top + boxSize),
-        D2D1::RectF(left + boxSize + gap, top, left + side, top + boxSize),
-        D2D1::RectF(left, top + boxSize + gap, left + boxSize, top + side),
-        D2D1::RectF(left + boxSize + gap, top + boxSize + gap, left + side, top + side)
-    };
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> pathGeo;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeo))) return;
 
-    for (const auto& b : boxes) {
-        D2D1_ROUNDED_RECT rb = D2D1::RoundedRect(b, radius, radius);
-        m_renderTarget->FillRoundedRectangle(&rb, m_brushModifierText.Get());
-    }
+    Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeo->Open(&sink))) return;
+
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+
+    // 窗格 1 [左上]
+    sink->BeginFigure(D2D1::Point2F(mapX(0.0f), mapY(290.0f)), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(mapX(0.0f), mapY(95.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(265.0f), mapY(58.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(265.0f), mapY(290.0f)));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+
+    // 窗格 2 [右上]
+    sink->BeginFigure(D2D1::Point2F(mapX(305.0f), mapY(52.0f)), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(mapX(640.0f), mapY(0.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(640.0f), mapY(290.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(305.0f), mapY(290.0f)));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+
+    // 窗格 3 [右下]
+    sink->BeginFigure(D2D1::Point2F(mapX(640.0f), mapY(350.0f)), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(mapX(640.0f), mapY(640.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(305.0f), mapY(588.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(305.0f), mapY(350.0f)));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+
+    // 窗格 4 [左下]
+    sink->BeginFigure(D2D1::Point2F(mapX(265.0f), mapY(350.0f)), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(mapX(265.0f), mapY(582.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(0.0f), mapY(545.0f)));
+    sink->AddLine(D2D1::Point2F(mapX(0.0f), mapY(350.0f)));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+
+    sink->Close();
+    m_renderTarget->FillGeometry(pathGeo.Get(), m_brushModifierText.Get());
 }
 
 void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, float startY, float alpha, float dpiScale) {
@@ -853,7 +876,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.58f);
+            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.72f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 
