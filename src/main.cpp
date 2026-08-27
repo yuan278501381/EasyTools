@@ -233,7 +233,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     auto dumpDir = easy::core::WinUtils::getAppDataDirectory() / L"crashdumps";
     easy::core::CrashHandler::install(dumpDir);
 
-    // ── 4. 日志系统 ──────────────────────────────────────────────────────
+    // ── 4. 预先探测语言设置以使首行日志即刻生效 ──────────────────────────
+    std::string startupLanguage = "auto";
+    const auto cfgFile = easy::core::WinUtils::getConfigDirectory() / L"config.json";
+    std::error_code ecCfg;
+    if (std::filesystem::exists(cfgFile, ecCfg)) {
+        try {
+            std::ifstream cf(cfgFile);
+            if (cf.is_open()) {
+                nlohmann::json root = nlohmann::json::parse(cf, nullptr, false);
+                if (!root.is_discarded() && root.contains("general") && root["general"].contains("language")) {
+                    startupLanguage = root["general"]["language"].get<std::string>();
+                }
+            }
+        } catch (...) {}
+    }
+    easy::core::Logger::setLanguage(startupLanguage);
+
+    // ── 4b. 日志系统初始化 ──────────────────────────────────────────────
     easy::core::LoggerConfig logConfig;
     logConfig.logDir = easy::core::WinUtils::wstringToUtf8(
         easy::core::WinUtils::getLogDirectory().wstring()

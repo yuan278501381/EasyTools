@@ -77,33 +77,27 @@ public:
 
 #include "core/utils/TraceId.h"
 
-#define LOG_SELECT_FMT(zhFmt, enFmt) \
-    ((easy::core::Logger::getLanguage() == easy::core::LogLanguage::EnUS) ? ("[{}] " enFmt) : ("[{}] " zhFmt))
+#include "core/logger/I18nLogCatalog.h"
 
-// 基础宏
-#define LOG_TRACE(fmt, ...)   \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->trace("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
+#define LOG_DISPATCH_FMT(lvl, rawFmt, ...)                                                  \
+    do {                                                                                    \
+        if (easy::core::Logger::instance()) {                                               \
+            const char* locFmt = easy::core::getLocalizedLogFormatWithTrace(rawFmt, easy::core::Logger::getLanguage()); \
+            if (locFmt) {                                                                   \
+                easy::core::Logger::instance()->lvl(fmt::runtime(locFmt), easy::core::TraceId::current(), ##__VA_ARGS__); \
+            } else {                                                                        \
+                easy::core::Logger::instance()->lvl("[{}] " rawFmt, easy::core::TraceId::current(), ##__VA_ARGS__); \
+            }                                                                               \
+        }                                                                                   \
+    } while (0)
 
-#define LOG_DEBUG(fmt, ...)   \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->debug("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
-
-#define LOG_INFO(fmt, ...)    \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->info("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
-
-#define LOG_WARN(fmt, ...)    \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->warn("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
-
-#define LOG_ERROR(fmt, ...)   \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->error("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
-
-#define LOG_CRITICAL(fmt, ...) \
-    if (easy::core::Logger::instance())  \
-        easy::core::Logger::instance()->critical("[{}] " fmt, easy::core::TraceId::current(), ##__VA_ARGS__)
+// 智能多语言自适应宏 (无锁查表翻译中英文，0 堆内存分配)
+#define LOG_TRACE(fmt, ...)    LOG_DISPATCH_FMT(trace, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...)    LOG_DISPATCH_FMT(debug, fmt, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)     LOG_DISPATCH_FMT(info, fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)     LOG_DISPATCH_FMT(warn, fmt, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...)    LOG_DISPATCH_FMT(error, fmt, ##__VA_ARGS__)
+#define LOG_CRITICAL(fmt, ...) LOG_DISPATCH_FMT(critical, fmt, ##__VA_ARGS__)
 
 // 国际化双语动态跟随宏 (自动随语言设置切换为中文/英文输出，100% 兼容 fmt12 编译期检查与零额外开销)
 #define LOG_TRACE_L(zhFmt, enFmt, ...)                                                      \
