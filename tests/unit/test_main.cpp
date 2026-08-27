@@ -5150,7 +5150,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     // 1. 测试默认配置获取
     easy::keycast::KeycastSettings s = overlay.getSettings();
     EXPECT_TRUE(s.enabled);
-    EXPECT_EQ(s.fontSize, 20);
+    EXPECT_EQ(s.fontSize, 28);
     EXPECT_EQ(s.firstKeyAnim, "slide");
     EXPECT_EQ(s.subsequentKeyAnim, "fade");
     EXPECT_TRUE(s.rowCascadeAnim);

@@ -23,7 +23,8 @@ struct KeycastSettings {
     bool mergeRecentKeys = true;
     int mergeTimeoutMs = 1200; // 同排连击合并间隔 (ms)
     int displayDurationMs = 2500;
-    int fontSize = 20;
+    int fontSize = 28;
+    int opacity = 100;                         // 20~100 按键回显整体不透明度 (默认 100% 纯粹清晰)
     std::string textColor = "#ffffff";
     std::string backgroundColor = "#1c1c22";
     std::string modifierKeycapColor = "auto"; // "auto" (跟随品牌色) 或 HEX 颜色

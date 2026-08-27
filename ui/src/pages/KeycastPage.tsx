@@ -35,6 +35,7 @@ interface KeycastSettings {
   mergeTimeoutMs: number;
   displayDurationMs: number;
   fontSize: number;
+  opacity: number;
   textColor: string;
   backgroundColor: string;
   modifierKeycapColor: string;
@@ -56,7 +57,8 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   mergeRecentKeys: true,
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
-  fontSize: 20,
+  fontSize: 28,
+  opacity: 100,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
@@ -477,6 +479,26 @@ export const KeycastPage: FC = () => {
             </div>
           </div>
 
+          
+          {/* 整体不透明度 */}
+          <div className="keycast-page__prop-card">
+            <div className="keycast-page__prop-header">
+              <span className="keycast-page__prop-title">{t('keycast.opacity', '整体不透明度')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', '按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。')}</span>
+            </div>
+            <div className="keycast-page__prop-body">
+              <input
+                type="number"
+                className="keycast-page__number-input"
+                min={20}
+                max={100}
+                step={5}
+                value={settings.opacity ?? 100}
+                onChange={(e) => saveSetting('opacity', Math.max(20, Math.min(100, Number(e.target.value) || 100)))}
+                aria-label={t('keycast.opacity', '整体不透明度')}
+              />
+            </div>
+          </div>
           {/* 文字大小 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">

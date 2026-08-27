@@ -48,6 +48,7 @@ public:
                 {"onlyShortcuts", s.filterMode == "smart_shortcuts"},
                 {"displayDurationMs", s.displayDurationMs},
                 {"fontSize", s.fontSize},
+                {"opacity", s.opacity},
                 {"textColor", s.textColor},
                 {"backgroundColor", s.backgroundColor},
                 {"modifierKeycapColor", s.modifierKeycapColor},

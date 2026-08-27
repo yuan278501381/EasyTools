@@ -58,7 +58,7 @@ inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiSc
     KeycastDynamicMetrics m;
     m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 0.75f) * dpiScale;
     m.keycapFontSize = m.fontSize * 0.88f;
-    m.plusFontSize = m.fontSize * 0.72f;
+    m.plusFontSize = m.fontSize * 0.88f; // 加大2号，字号饱满挺拔
     m.charWidth = m.fontSize * 0.58f;
     m.capHeight = m.fontSize * 1.50f;
     m.capRadius = 5.5f * dpiScale;
@@ -67,7 +67,7 @@ inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiSc
     m.paddingX = m.fontSize * 0.50f;
     m.winWidth = m.fontSize * 2.25f;
     m.logoSize = m.capHeight * 0.44f;
-    m.plusWidth = m.plusFontSize * 0.70f;
+    m.plusWidth = m.plusFontSize * 0.78f;
     m.rowStep = m.capsuleHeight + 8.0f * dpiScale;
     m.borderWidth = (std::max)(1.0f * dpiScale, 1.0f);
     return m;
@@ -124,7 +124,8 @@ bool KeycastOverlay::init() {
         m_settings.mergeRecentKeys = cfg.get<bool>("/keycast/mergeRecentKeys", true);
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);
         m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 2500);
-        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 20);
+        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 28);
+        m_settings.opacity = cfg.get<int>("/keycast/opacity", 100);
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
@@ -179,6 +180,7 @@ void KeycastOverlay::updateSettings(const KeycastSettings& settings) {
     cfg.set("/keycast/mergeTimeoutMs", settings.mergeTimeoutMs);
     cfg.set("/keycast/displayDurationMs", settings.displayDurationMs);
     cfg.set("/keycast/fontSize", settings.fontSize);
+    cfg.set("/keycast/opacity", settings.opacity);
     cfg.set("/keycast/textColor", settings.textColor);
     cfg.set("/keycast/backgroundColor", settings.backgroundColor);
     cfg.set("/keycast/modifierKeycapColor", settings.modifierKeycapColor);
@@ -209,24 +211,13 @@ bool KeycastOverlay::autoBypassFullscreen() const {
 }
 
 D2D1_COLOR_F KeycastOverlay::parseColor(const std::string& hex, float alpha) const {
-    if (hex == "auto") {
+    if (hex == "auto" || hex.empty()) {
         std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
-        if (accent == "cyan") return D2D1::ColorF(0.25f, 0.75f, 0.85f, alpha);
-        if (accent == "amber") return D2D1::ColorF(0.96f, 0.65f, 0.15f, alpha);
-        if (accent == "mint") return D2D1::ColorF(0.25f, 0.78f, 0.58f, alpha);
-        if (accent == "coral") return D2D1::ColorF(0.96f, 0.40f, 0.48f, alpha);
-        if (accent == "violet") return D2D1::ColorF(0.60f, 0.48f, 0.88f, alpha);
-        // 默认 auto 采用高雅浅紫罗兰微晶色 (#7B6BA3)，通透优雅
-        return D2D1::ColorF(0.48f, 0.42f, 0.64f, alpha);
+        easy::core::AccentColorRGB rgb = easy::core::getAccentColorRGB(accent);
+        return D2D1::ColorF(rgb.r, rgb.g, rgb.b, alpha);
     }
-
-    if (hex.length() == 7 && hex[0] == '#') {
-        int r, g, b;
-        if (sscanf_s(hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
-            return D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, alpha);
-        }
-    }
-    return D2D1::ColorF(0.15f, 0.15f, 0.18f, alpha); // fallback
+    easy::core::AccentColorRGB rgb = easy::core::parseHexColor(hex);
+    return D2D1::ColorF(rgb.r, rgb.g, rgb.b, alpha);
 }
 
 void KeycastOverlay::discardResources() {
@@ -1019,7 +1010,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS pm{};
             if (plusLayout) plusLayout->GetMetrics(&pm);
 
-            m_brushPlusText->SetOpacity(0.65f * alpha);
+            m_brushPlusText->SetOpacity(0.80f * alpha);
             if (plusLayout) {
                 float plusX = curX + (dyn.plusWidth - pm.width) / 2.0f - pm.left;
                 float plusY = capCenterY - pm.height / 2.0f - pm.top;

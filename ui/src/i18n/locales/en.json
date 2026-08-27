@@ -1056,6 +1056,8 @@
     "saveFailed": "Failed to save keycast settings",
     "resetSuccess": "Restored default keycast settings",
     "includeFunctionKeys": "Include Standalone Functional Keys",
-    "includeFunctionKeysDesc": "Show standalone Space, Backspace, Delete, Enter, Tab, Arrow keys, and F1~F12; when disabled, only display them when combined with modifiers."
+    "includeFunctionKeysDesc": "Show standalone Space, Backspace, Delete, Enter, Tab, Arrow keys, and F1~F12; when disabled, only display them when combined with modifiers.",
+    "opacity": "Overall Opacity",
+    "opacityDesc": "Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay."
   }
 }

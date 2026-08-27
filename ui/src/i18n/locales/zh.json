@@ -1056,6 +1056,8 @@
     "saveFailed": "保存按键回显设置失败",
     "resetSuccess": "已恢复默认设置",
     "includeFunctionKeys": "包含独立功能键",
-    "includeFunctionKeysDesc": "包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显"
+    "includeFunctionKeysDesc": "包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显",
+    "opacity": "整体不透明度",
+    "opacityDesc": "按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。"
   }
 }
