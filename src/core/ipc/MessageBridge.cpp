@@ -1267,6 +1267,9 @@ void MessageBridge::registerBuiltinHandlers() {
         static const std::unordered_set<std::string> fontFamilies = {
             "auto", "noto-sans-sc", "harmony-sans", "yahei", "pingfang", "system"
         };
+        static const std::unordered_set<std::string> readOnlyKeys = {
+            "elevated", "isPortableMode", "dataDirectory"
+        };
         static const std::unordered_set<std::string> accents = {
             "violet", "cyan", "amber", "blue", "mint", "coral"
         };
@@ -1276,6 +1279,9 @@ void MessageBridge::registerBuiltinHandlers() {
         auto& config = ConfigManager::instance();
         const bool previousAutoStart = config.get<bool>("/general/autoStart", false);
         for (const auto& [key, value] : params.items()) {
+            if (readOnlyKeys.contains(key)) {
+                continue;
+            }
             if (boolKeys.contains(key) && !value.is_boolean()) {
                 return {{"success", false}, {"error", key + " must be boolean"}};
             }
