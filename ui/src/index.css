@@ -80,19 +80,19 @@
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
 
-  /* 字体栈: 优先命中现代大中宫黑体 (Sarasa UI SC/HarmonyOS Sans/MiSans/PingFang/Noto Sans SC/Segoe UI Variable) */
-  --font-sans: 'Inter', "Sarasa UI SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Noto Sans SC", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Segoe UI Mono', monospace;
+  /* 字体栈: 智能自适应默认 (优先命中内置超清思源黑体 Noto Sans SC + 苹方 + 微软雅黑 UI + Segoe UI) */
+  --font-sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;
 
   /* ── 世界级排版令牌系统 (World-Class Typography Token System) ───────────── */
-  --text-xs: 0.78rem;     /* 11px - 微型徽章、键盘热键角标 */
-  --text-sm: 0.85rem;     /* 12px - 辅助说明、次级描述 */
-  --text-base: 0.94rem;   /* 13.2px - 正文、选项标签、输入控件 */
-  --text-md: 1.02rem;     /* 14.3px - 卡片标题、Tab 标题 */
-  --text-lg: 1.18rem;     /* 16.5px - 模块/分组标题 */
-  --text-xl: 1.42rem;     /* 20px - 页面大标题 */
+  --text-xs: 0.84rem;     /* 11.8px ~ 12px - 微型徽章、微晶类名胶囊、按键角标 (严守字号底线) */
+  --text-sm: 0.88rem;     /* 12.3px ~ 12.5px - 辅助说明、次级描述 */
+  --text-base: 0.95rem;   /* 13.3px - 正文、选项标签、输入控件 */
+  --text-md: 1.05rem;     /* 14.7px - 卡片标题、Tab 标题 */
+  --text-lg: 1.20rem;     /* 16.8px - 模块/分组标题 */
+  --text-xl: 1.45rem;     /* 20.3px - 页面大标题 */
 
-  --font-normal: 400;
+  --font-normal: 450;
   --font-medium: 500;
   --font-semibold: 600;
   --font-bold: 700;

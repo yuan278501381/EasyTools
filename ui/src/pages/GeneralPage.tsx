@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive, ShieldCheck } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -348,6 +348,42 @@ export const GeneralPage: FC = () => {
               ]}
             />
           </SettingRow>
+
+          <SettingRow label={t('general.fontFamily', '界面显示字体')} description={t('general.fontFamilyDesc', '自定义界面字体呈现。所有选项均在应用沙箱内生效，0系统写入，0卸载残留')}>
+            <Select
+              id="fontFamily"
+              value={settings.fontFamily || 'auto'}
+              onChange={(v) => updateSetting('fontFamily', v)}
+              options={[
+                { value: 'auto', label: t('general.fontFamilyAuto', '智能自适应 (推荐 · 优先大中宫超清)') },
+                { value: 'noto-sans-sc', label: t('general.fontFamilyNotoSans', '超清思源黑体 (Noto Sans SC · 饱满清晰)') },
+                { value: 'harmony-sans', label: t('general.fontFamilyHarmony', '鸿蒙 / 小米黑体 (HarmonyOS / MiSans)') },
+                { value: 'yahei', label: t('general.fontFamilyYahei', '微软正黑 / 雅黑 (Microsoft YaHei UI)') },
+                { value: 'pingfang', label: t('general.fontFamilyPingfang', 'Apple 苹方质感 (PingFang SC)') },
+                { value: 'system', label: t('general.fontFamilySystem', '系统原生默认 (System UI)') },
+              ]}
+            />
+          </SettingRow>
+
+          <div style={{
+            margin: '4px 0 14px 0',
+            padding: '12px 14px',
+            background: 'var(--bg-elevated, rgba(255, 255, 255, 0.03))',
+            border: '1px solid var(--border-light, rgba(255, 255, 255, 0.06))',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--text-xs, 0.84rem)',
+            color: 'var(--text-secondary)',
+            lineHeight: 1.55,
+          }}>
+            <div style={{ fontWeight: 650, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <ShieldCheck size={14} style={{ color: 'var(--primary)' }} />
+              <span>{t('general.fontFallbackTitle', '智能多语言级联与降级机制')}</span>
+            </div>
+            <div>
+              {t('general.fontFallbackDesc', '1. 优先调用所选字体族渲染正文；2. 当特定字符、生僻汉字、日韩文或系统未预装所选字体时，DirectWrite 引擎将通过 Glyph-Level 逐字字形回退平滑降级至系统原厂优质黑体（微软雅黑 UI / 苹方 / Segoe UI），100% 杜绝方框豆腐块与乱码；3. 零系统目录写入，升级卸载完全纯净。')}
+            </div>
+          </div>
+
           <SettingRow label={t('general.theme')} description={t('general.themeDesc')}>
             <Select
               id="theme"

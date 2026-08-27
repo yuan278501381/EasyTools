@@ -179,8 +179,8 @@
 }
 
 .general-page__hotkey-name {
-  font-size: 0.92rem;
-  font-weight: 500;
+  font-size: var(--text-base, 0.95rem);
+  font-weight: 550;
   color: var(--text-primary);
   letter-spacing: -0.01em;
 }
