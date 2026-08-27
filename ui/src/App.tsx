@@ -12,23 +12,10 @@
  *   └──────────┴──────────────────────────────┘
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, type NavId } from './components/Sidebar';
-import { GesturePage } from './pages/GesturePage';
-import { CapturePage } from './pages/CapturePage';
-import { OcrPage } from './pages/OcrPage';
-import { GeneralPage } from './pages/GeneralPage';
-import { AboutPage } from './pages/AboutPage';
-import { PluginsPage, type PluginStatus } from './pages/PluginsPage';
-import HistoryPage from './pages/HistoryPage';
-import { KeyStatsPage } from './pages/KeyStatsPage';
-import { HotCornerPage } from './pages/HotCornerPage';
-import { SearchPage } from './pages/SearchPage';
-import { KeycastPage } from './pages/KeycastPage';
-import { SpotlightPage } from './pages/SpotlightPage';
-import { DialogEnhancerPage } from './pages/DialogEnhancerPage';
-import { ExtensionPage } from './pages/ExtensionPage';
+import type { PluginStatus } from './pages/PluginsPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { SavedToast } from './components/SavedToast';
 import { WindowResizeHandles } from './components/WindowResizeHandles';
@@ -38,7 +25,20 @@ import { Toaster } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import './App.css';
 
-// 页面组件导入
+const GesturePage = lazy(() => import('./pages/GesturePage').then((module) => ({ default: module.GesturePage })));
+const CapturePage = lazy(() => import('./pages/CapturePage').then((module) => ({ default: module.CapturePage })));
+const OcrPage = lazy(() => import('./pages/OcrPage').then((module) => ({ default: module.OcrPage })));
+const GeneralPage = lazy(() => import('./pages/GeneralPage').then((module) => ({ default: module.GeneralPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
+const PluginsPage = lazy(() => import('./pages/PluginsPage').then((module) => ({ default: module.PluginsPage })));
+const HistoryPage = lazy(() => import('./pages/HistoryPage'));
+const KeyStatsPage = lazy(() => import('./pages/KeyStatsPage').then((module) => ({ default: module.KeyStatsPage })));
+const HotCornerPage = lazy(() => import('./pages/HotCornerPage').then((module) => ({ default: module.HotCornerPage })));
+const SearchPage = lazy(() => import('./pages/SearchPage').then((module) => ({ default: module.SearchPage })));
+const KeycastPage = lazy(() => import('./pages/KeycastPage').then((module) => ({ default: module.KeycastPage })));
+const SpotlightPage = lazy(() => import('./pages/SpotlightPage').then((module) => ({ default: module.SpotlightPage })));
+const DialogEnhancerPage = lazy(() => import('./pages/DialogEnhancerPage').then((module) => ({ default: module.DialogEnhancerPage })));
+const ExtensionPage = lazy(() => import('./pages/ExtensionPage').then((module) => ({ default: module.ExtensionPage })));
 
 type Theme = 'dark' | 'light';
 type ThemePreference = Theme | 'system';
@@ -270,7 +270,9 @@ function App() {
 
           {/* ── 页面内容 ────────────────────────────────────── */}
           <div className="app__content" key={activeNav}>
-            {renderPage()}
+            <Suspense fallback={<div role="status" aria-live="polite" className="surface-loading">{t('common.loading')}</div>}>
+              {renderPage()}
+            </Suspense>
           </div>
 
           {/* ── 世界级浮动胶囊已保存 Toast ─────────────────── */}

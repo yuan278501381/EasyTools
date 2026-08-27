@@ -32,6 +32,7 @@ export interface PluginStatus {
   abiVersion: number;
   capabilities: string[];
   permissions: string[];
+  executionModel?: 'trusted-native-in-process';
   enabled: boolean;
   active: boolean;
   restartRequired: boolean;
@@ -347,6 +348,9 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                   <details className="plugin-card__permissions">
                     <summary><ShieldCheck size={14} aria-hidden="true" />{t('plugins.permissions')}</summary>
                     <div>
+                      {plugin.executionModel === 'trusted-native-in-process' && (
+                        <span>{t('plugins.fullTrustWarning')}</span>
+                      )}
                       {plugin.permissions.map((permission) => <code key={permission}>{permission}</code>)}
                     </div>
                   </details>

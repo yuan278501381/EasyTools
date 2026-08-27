@@ -324,30 +324,7 @@ bool PlainTextExtractor::canHandle(std::wstring_view extension) const {
         if (c != L'.') lowerExt.push_back(std::towlower(c));
     }
     if (lowerExt.empty()) return false;
-    return m_supportedExts.find(lowerExt) != m_supportedExts.end() ||
-           m_customExts.find(lowerExt) != m_customExts.end();
-}
-
-void PlainTextExtractor::addCustomExtension(std::wstring_view ext) {
-    std::wstring lowerExt;
-    lowerExt.reserve(ext.size());
-    for (wchar_t c : ext) {
-        if (c != L'.') lowerExt.push_back(std::towlower(c));
-    }
-    if (!lowerExt.empty()) {
-        m_customExts.insert(std::move(lowerExt));
-    }
-}
-
-void PlainTextExtractor::removeCustomExtension(std::wstring_view ext) {
-    std::wstring lowerExt;
-    lowerExt.reserve(ext.size());
-    for (wchar_t c : ext) {
-        if (c != L'.') lowerExt.push_back(std::towlower(c));
-    }
-    if (!lowerExt.empty()) {
-        m_customExts.erase(lowerExt);
-    }
+    return m_supportedExts.find(lowerExt) != m_supportedExts.end();
 }
 
 // ── 纳秒级字节预过滤 (1 微秒内过滤 99.99% 无关文件，免去行循环与文本解码开销) ──

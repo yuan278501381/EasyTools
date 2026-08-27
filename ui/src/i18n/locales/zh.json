@@ -71,7 +71,7 @@
     "installedVersion": "已安装版本",
     "author": "开发者",
     "capabilities": "已挂载能力",
-    "permissions": "系统权限与沙箱",
+    "permissions": "系统访问范围（非沙箱）",
     "uninstall": "卸载扩展",
     "uninstallConfirm": "确定要卸载此扩展插件吗？",
     "uninstallSuccess": "插件已成功卸载",
@@ -201,6 +201,7 @@
   "plugins": {
     "capabilities": "模块能力",
     "permissions": "查看系统权限",
+    "fullTrustWarning": "此原生模块在主进程内运行，拥有与 EasyTools 相同的完整权限；权限列表仅用于披露，不是安全沙箱。",
     "abi": "ABI 版本 {{version}}",
     "loadFailed": "无法读取功能模块状态",
     "saveFailed": "无法保存模块开关",

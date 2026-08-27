@@ -139,6 +139,10 @@ PluginManifestResult loadPluginManifest(const std::filesystem::path& path,
     if (manifest.entryPoint != "CreatePlugin") {
         return fail("unsupported plugin entry point");
     }
+    if (!readString(json, "executionModel", manifest.executionModel) ||
+        manifest.executionModel != "trusted-native-in-process") {
+        return fail("plugin must declare the trusted native in-process execution model");
+    }
     if (!readTokenList(json, "capabilities", manifest.capabilities) ||
         !readTokenList(json, "permissions", manifest.permissions)) {
         return fail("plugin manifest contains an invalid capability or permission");

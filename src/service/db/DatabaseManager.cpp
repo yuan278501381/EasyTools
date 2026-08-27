@@ -2,7 +2,10 @@
 #include "../MftParser.h"
 #include <shlobj.h>
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <cwctype>
+#include <limits>
 
 namespace easy::service::db {
 
@@ -16,6 +19,21 @@ std::wstring getDefaultDbPath() {
         return dir + L"\\EasyTools.db";
     }
     return L".\\EasyTools.db";
+}
+
+bool writeAll(HANDLE file, const void* data, std::size_t bytes) {
+    if (file == INVALID_HANDLE_VALUE || (bytes > 0 && data == nullptr)) return false;
+    const auto* cursor = static_cast<const std::byte*>(data);
+    constexpr std::size_t WriteChunkBytes = 16u * 1024u * 1024u;
+    std::size_t remaining = bytes;
+    while (remaining > 0) {
+        const DWORD requested = static_cast<DWORD>((std::min)(remaining, WriteChunkBytes));
+        DWORD written = 0;
+        if (!WriteFile(file, cursor, requested, &written, nullptr) || written == 0) return false;
+        cursor += written;
+        remaining -= written;
+    }
+    return true;
 }
 
 } // namespace
@@ -64,7 +82,9 @@ DbStats DatabaseManager::getStats() const {
             DbHeader header{};
             DWORD bytesRead = 0;
             if (ReadFile(hFile, &header, sizeof(header), &bytesRead, nullptr) && bytesRead == sizeof(header)) {
-                if (header.magic == 0x3230424459534145ULL || header.magic == 0x3130424459534145ULL) {
+                const bool validV2 = header.magic == 0x3230424459534145ULL && header.version == 2;
+                const bool validV1 = header.magic == 0x3130424459534145ULL && header.version == 1;
+                if (validV2 || validV1) {
                     stats.totalRecords = header.totalRecords;
                     stats.volumeCount = header.volumeCount;
                 }
@@ -78,14 +98,15 @@ DbStats DatabaseManager::getStats() const {
 bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
     if (m_dbPath.empty() || parsers.empty()) return false;
 
-    std::wstring tmpPath = m_dbPath + L".tmp";
+    const std::wstring tmpPath = m_dbPath + L"." + std::to_wstring(GetCurrentProcessId()) +
+                                 L"_" + std::to_wstring(GetTickCount64()) + L".tmp";
     HANDLE hFile = CreateFileW(
         tmpPath.c_str(),
         GENERIC_WRITE,
         0,
         nullptr,
         CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
         nullptr
     );
 
@@ -96,7 +117,7 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
     DbHeader header{};
     header.magic = 0x3230424459534145ULL; // 'EASYDB02'
     header.version = 2;
-    header.volumeCount = static_cast<uint32_t>(parsers.size());
+    header.volumeCount = 0;
 
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
@@ -107,8 +128,15 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
     header.totalRecords = 0;
 
     // 先写入占位的 Header
-    DWORD bytesWritten = 0;
-    WriteFile(hFile, &header, sizeof(header), &bytesWritten, nullptr);
+    const auto failSave = [&]() {
+        if (hFile != INVALID_HANDLE_VALUE) {
+            CloseHandle(hFile);
+            hFile = INVALID_HANDLE_VALUE;
+        }
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    };
+    if (!writeAll(hFile, &header, sizeof(header))) return failSave();
 
     uint64_t totalRecordsAll = 0;
 
@@ -119,10 +147,19 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
         // 先物化成 std::vector<FileRecord> 会让保存快照的瞬间内存翻倍。
         std::vector<wchar_t> stringPool;
         std::vector<DbRecordPod> pods;
+        bool serializationFailed = false;
 
         uint64_t lastUsn = 0;
         uint32_t volumeSerial = 0;
         parser->exportSnapshot([&](const FileRecord& r) {
+            if (serializationFailed) return;
+            if (r.fileName.size() > (std::numeric_limits<uint16_t>::max)() ||
+                stringPool.size() > (std::numeric_limits<uint32_t>::max)() ||
+                r.fileName.size() > (std::numeric_limits<uint32_t>::max)() - stringPool.size() ||
+                pods.size() >= (std::numeric_limits<uint32_t>::max)()) {
+                serializationFailed = true;
+                return;
+            }
             DbRecordPod pod{};
             pod.frn = r.fileReferenceNumber;
             pod.parentFrn = r.parentFileReferenceNumber;
@@ -139,6 +176,11 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
             pods.push_back(pod);
         }, lastUsn, volumeSerial);
 
+        if (serializationFailed ||
+            stringPool.size() > (std::numeric_limits<uint32_t>::max)() / sizeof(wchar_t)) {
+            return failSave();
+        }
+
         totalRecordsAll += pods.size();
 
         DbVolumeHeader volHeader{};
@@ -149,28 +191,42 @@ bool DatabaseManager::saveSnapshot(const std::vector<MftParser*>& parsers) {
         volHeader.stringPoolBytes = static_cast<uint32_t>(stringPool.size() * sizeof(wchar_t));
 
         // 写入 VolHeader
-        WriteFile(hFile, &volHeader, sizeof(volHeader), &bytesWritten, nullptr);
+        if (!writeAll(hFile, &volHeader, sizeof(volHeader))) return failSave();
 
         // 写入 String Pool
         if (!stringPool.empty()) {
-            WriteFile(hFile, stringPool.data(), volHeader.stringPoolBytes, &bytesWritten, nullptr);
+            if (!writeAll(hFile, stringPool.data(), volHeader.stringPoolBytes)) return failSave();
         }
 
         // 写入 Pod Array
         if (!pods.empty()) {
-            DWORD podsBytes = static_cast<DWORD>(pods.size() * sizeof(DbRecordPod));
-            WriteFile(hFile, pods.data(), podsBytes, &bytesWritten, nullptr);
+            const size_t podsBytes = pods.size() * sizeof(DbRecordPod);
+            if (!writeAll(hFile, pods.data(), podsBytes)) return failSave();
         }
+        ++header.volumeCount;
     }
 
     // 回填更新 Header.totalRecords
     header.totalRecords = totalRecordsAll;
-    SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
-    WriteFile(hFile, &header, sizeof(header), &bytesWritten, nullptr);
-    CloseHandle(hFile);
+    LARGE_INTEGER start{};
+    if (!SetFilePointerEx(hFile, start, nullptr, FILE_BEGIN) ||
+        !writeAll(hFile, &header, sizeof(header)) ||
+        !FlushFileBuffers(hFile)) {
+        return failSave();
+    }
+    if (!CloseHandle(hFile)) {
+        hFile = INVALID_HANDLE_VALUE;
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
+    hFile = INVALID_HANDLE_VALUE;
 
     // 原子替换
-    MoveFileExW(tmpPath.c_str(), m_dbPath.c_str(), MOVEFILE_REPLACE_EXISTING);
+    if (!MoveFileExW(tmpPath.c_str(), m_dbPath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
     return true;
 }
 
@@ -211,10 +267,13 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
     }
 
     const size_t totalBytes = static_cast<size_t>(fileSize.QuadPart);
-    const auto* pHeader = reinterpret_cast<const DbHeader*>(pData);
+    DbHeader header{};
+    std::memcpy(&header, pData, sizeof(header));
 
     // 校验魔数与版本
-    if (pHeader->magic != 0x3230424459534145ULL && pHeader->magic != 0x3130424459534145ULL) {
+    const bool validV2 = header.magic == 0x3230424459534145ULL && header.version == 2;
+    const bool validV1 = header.magic == 0x3130424459534145ULL && header.version == 1;
+    if (!validV2 && !validV1) {
         UnmapViewOfFile(pData);
         CloseHandle(hMapping);
         CloseHandle(hFile);
@@ -224,25 +283,42 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
     size_t cursor = sizeof(DbHeader);
     bool anyVolumeLoaded = false;
 
-    for (uint32_t v = 0; v < pHeader->volumeCount && cursor + sizeof(DbVolumeHeader) <= totalBytes; ++v) {
-        const auto* pVol = reinterpret_cast<const DbVolumeHeader*>(pData + cursor);
+    for (uint32_t v = 0; v < header.volumeCount; ++v) {
+        if (cursor > totalBytes || sizeof(DbVolumeHeader) > totalBytes - cursor) break;
+        DbVolumeHeader volume{};
+        std::memcpy(&volume, pData + cursor, sizeof(volume));
         cursor += sizeof(DbVolumeHeader);
 
-        const size_t stringPoolBytes = pVol->stringPoolBytes;
-        const size_t podsBytes = pVol->recordCount * sizeof(DbRecordPod);
-
-        if (cursor + stringPoolBytes + podsBytes > totalBytes) {
-            break; // 损坏保护
+        const size_t stringPoolBytes = volume.stringPoolBytes;
+        if (stringPoolBytes % sizeof(wchar_t) != 0 ||
+            cursor > totalBytes || stringPoolBytes > totalBytes - cursor) {
+            break;
         }
+        const size_t afterStrings = cursor + stringPoolBytes;
+        const size_t availableForPods = totalBytes - afterStrings;
+        if (volume.recordCount > availableForPods / sizeof(DbRecordPod)) break;
+        const size_t podsBytes = static_cast<size_t>(volume.recordCount) * sizeof(DbRecordPod);
 
         const wchar_t* pStrings = reinterpret_cast<const wchar_t*>(pData + cursor);
         cursor += stringPoolBytes;
 
-        const auto* pPods = reinterpret_cast<const DbRecordPod*>(pData + cursor);
+        const auto* pPodBytes = pData + cursor;
         cursor += podsBytes;
 
+        const size_t totalWChars = stringPoolBytes / sizeof(wchar_t);
+        bool volumeValid = true;
+        for (uint32_t index = 0; index < volume.recordCount; ++index) {
+            DbRecordPod pod{};
+            std::memcpy(&pod, pPodBytes + static_cast<size_t>(index) * sizeof(DbRecordPod), sizeof(pod));
+            if (pod.nameOffset > totalWChars || pod.nameLen > totalWChars - pod.nameOffset) {
+                volumeValid = false;
+                break;
+            }
+        }
+        if (!volumeValid) continue;
+
         // 查找对应盘符的 MftParser
-        char drive = static_cast<char>(std::toupper(pVol->driveLetter));
+        char drive = static_cast<char>(std::toupper(volume.driveLetter));
         MftParser* targetParser = nullptr;
         for (auto* parser : parsers) {
             if (parser && std::toupper(parser->getDriveLetter()) == drive) {
@@ -255,12 +331,12 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
 
         // 直接把内存映射里的 Pod 逐条喂给索引：一次性解码成 vector<FileRecordInit>
         // 会在恢复瞬间额外占用与整份索引同量级的临时字符串内存。
-        const size_t totalWChars = stringPoolBytes / sizeof(wchar_t);
         uint32_t podCursor = 0;
 
         auto produce = [&](FileRecordInit& r) {
-            if (podCursor >= pVol->recordCount) return false;
-            const auto& pod = pPods[podCursor++];
+            if (podCursor >= volume.recordCount) return false;
+            DbRecordPod pod{};
+            std::memcpy(&pod, pPodBytes + static_cast<size_t>(podCursor++) * sizeof(DbRecordPod), sizeof(pod));
             r.fileReferenceNumber = pod.frn;
             r.parentFileReferenceNumber = pod.parentFrn;
             r.fileAttributes = pod.attributes;
@@ -269,15 +345,13 @@ bool DatabaseManager::loadSnapshot(std::vector<MftParser*>& parsers) {
             r.creationTime = pod.creationTime;
             r.lastWriteTime = pod.lastWriteTime;
 
-            if (pod.nameOffset + pod.nameLen <= totalWChars) {
-                r.fileName.assign(pStrings + pod.nameOffset, pod.nameLen);
-            }
+            r.fileName.assign(pStrings + pod.nameOffset, pod.nameLen);
             return true;
         };
 
         // 导入并触发 USN 增量追赶
-        if (targetParser->importSnapshot(produce, pVol->recordCount, pVol->lastUsn, pVol->volumeSerial)) {
-            targetParser->catchUpUsnJournal(pVol->lastUsn);
+        if (targetParser->importSnapshot(produce, volume.recordCount, volume.lastUsn, volume.volumeSerial)) {
+            targetParser->catchUpUsnJournal(volume.lastUsn);
             anyVolumeLoaded = true;
         }
     }

@@ -1,4 +1,5 @@
 #include "SearchExpression.h"
+#include "SearchRequestLimits.h"
 #include "content/ContentSearchEngine.h"
 #include <algorithm>
 #include <cwctype>
@@ -97,6 +98,11 @@ SearchClause parseSingleToken(std::wstring token) {
     } else if (startsWithNoCase(token, L"regex:") || startsWithNoCase(token, L"r:")) {
         clause.filterType = SearchFilterType::Regex;
         token = token.substr(token[0] == L'r' && token[1] == L':' ? 2 : 6);
+        if (token.size() > easy::service::search_limits::MaxRegexCharacters) {
+            clause.rawPattern = token;
+            clause.regexObj = std::nullopt;
+            return clause;
+        }
         try {
             clause.regexObj = std::wregex(token, std::regex::icase | std::regex::optimize);
         } catch (...) {

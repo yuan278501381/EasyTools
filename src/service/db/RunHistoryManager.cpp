@@ -1,7 +1,8 @@
 #include "RunHistoryManager.h"
+#include "CsvUtils.h"
+#include "../../common/AtomicFile.h"
 #include <shlobj.h>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 #include <cwctype>
 #include <cmath>
@@ -190,14 +191,17 @@ bool RunHistoryManager::load() {
     }
 
     LARGE_INTEGER size{};
-    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0) {
+    constexpr LONGLONG MaxHistoryFileBytes = 16LL * 1024LL * 1024LL;
+    if (!GetFileSizeEx(hFile, &size) || size.QuadPart <= 0 ||
+        size.QuadPart > MaxHistoryFileBytes) {
         CloseHandle(hFile);
         return false;
     }
 
     std::string buffer(static_cast<size_t>(size.QuadPart), '\0');
     DWORD bytesRead = 0;
-    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) ||
+        bytesRead != buffer.size()) {
         CloseHandle(hFile);
         return false;
     }
@@ -210,58 +214,25 @@ bool RunHistoryManager::load() {
         offset = 3;
     }
 
-    std::string_view content(buffer.data() + offset, buffer.size() - offset);
-    std::istringstream stream((std::string(content)));
-    std::string line;
-
-    // 跳过首行表头: Filename,Run Count,Last Run Date
-    if (std::getline(stream, line)) {
-        // header checked
+    std::vector<std::vector<std::string>> rows;
+    if (!detail::parseCsvDocument(
+            std::string_view(buffer.data() + offset, buffer.size() - offset), rows)) {
+        return false;
     }
 
     m_records.clear();
+    for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
+        const auto& row = rows[rowIndex];
+        if (row.size() < 3 || row[0].empty()) continue;
 
-    while (std::getline(stream, line)) {
-        if (line.empty()) continue;
-
-        // 解析 CSV 行: "Filename",Run Count,Last Run Date
-        size_t firstQuote = line.find('"');
-        size_t secondQuote = (firstQuote != std::string::npos) ? line.find('"', firstQuote + 1) : std::string::npos;
-
-        std::string filenameUtf8;
-        std::string rest;
-
-        if (firstQuote != std::string::npos && secondQuote != std::string::npos) {
-            filenameUtf8 = line.substr(firstQuote + 1, secondQuote - firstQuote - 1);
-            if (secondQuote + 1 < line.size()) {
-                rest = line.substr(secondQuote + 1);
-            }
-        } else {
-            size_t comma = line.find(',');
-            if (comma != std::string::npos) {
-                filenameUtf8 = line.substr(0, comma);
-                rest = line.substr(comma);
-            } else {
-                continue;
-            }
-        }
-
+        const std::string& filenameUtf8 = row[0];
         uint32_t runCount = 0;
         uint64_t lastRunDate = 0;
-
-        if (!rest.empty()) {
-            if (rest.front() == ',') rest = rest.substr(1);
-            size_t comma = rest.find(',');
-            if (comma != std::string::npos) {
-                try {
-                    runCount = static_cast<uint32_t>(std::stoul(rest.substr(0, comma)));
-                    lastRunDate = std::stoull(rest.substr(comma + 1));
-                } catch (...) {}
-            } else {
-                try {
-                    runCount = static_cast<uint32_t>(std::stoul(rest));
-                } catch (...) {}
-            }
+        try {
+            runCount = static_cast<uint32_t>(std::stoul(row[1]));
+            lastRunDate = std::stoull(row[2]);
+        } catch (...) {
+            continue;
         }
 
         if (!filenameUtf8.empty()) {
@@ -288,21 +259,6 @@ bool RunHistoryManager::save() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (m_csvPath.empty()) return false;
 
-    std::wstring tmpPath = m_csvPath + L".tmp";
-    HANDLE hFile = CreateFileW(
-        tmpPath.c_str(),
-        GENERIC_WRITE,
-        0,
-        nullptr,
-        CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr
-    );
-
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
     std::string csvData = "Filename,Run Count,Last Run Date\r\n";
 
     // 排序后导出：运行频次高、最近运行的排在前列
@@ -324,15 +280,12 @@ bool RunHistoryManager::save() {
             WideCharToMultiByte(CP_UTF8, 0, item.filename.data(), static_cast<int>(item.filename.size()), filenameUtf8.data(), utf8Len, nullptr, nullptr);
         }
 
-        csvData += "\"" + filenameUtf8 + "\"," + std::to_string(item.runCount) + "," + std::to_string(item.lastRunDate) + "\r\n";
+        csvData += detail::escapeCsvField(filenameUtf8) + "," +
+                   std::to_string(item.runCount) + "," +
+                   std::to_string(item.lastRunDate) + "\r\n";
     }
 
-    DWORD bytesWritten = 0;
-    WriteFile(hFile, csvData.data(), static_cast<DWORD>(csvData.size()), &bytesWritten, nullptr);
-    CloseHandle(hFile);
-
-    // 原子替换
-    MoveFileExW(tmpPath.c_str(), m_csvPath.c_str(), MOVEFILE_REPLACE_EXISTING);
+    if (!easy::common::atomicWriteFileWithFlush(m_csvPath, csvData)) return false;
     m_isDirty = false;
     return true;
 }

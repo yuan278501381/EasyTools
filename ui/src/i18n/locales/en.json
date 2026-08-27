@@ -71,7 +71,7 @@
     "installedVersion": "Installed Version",
     "author": "Author",
     "capabilities": "Mounted Capabilities",
-    "permissions": "System Permissions & Sandbox",
+    "permissions": "System Access (Not Sandboxed)",
     "uninstall": "Uninstall Extension",
     "uninstallConfirm": "Are you sure you want to uninstall this extension?",
     "uninstallSuccess": "Extension uninstalled successfully",
@@ -201,6 +201,7 @@
   "plugins": {
     "capabilities": "Module capabilities",
     "permissions": "View system access",
+    "fullTrustWarning": "This native module runs inside the main process with EasyTools' full privileges. The permission list is disclosure, not a security sandbox.",
     "abi": "ABI Version {{version}}",
     "loadFailed": "Could not load module status",
     "saveFailed": "Could not save the module setting",

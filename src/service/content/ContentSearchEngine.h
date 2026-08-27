@@ -6,7 +6,7 @@
 #include <string_view>
 #include <string>
 #include <unordered_set>
-#include <mutex>
+#include <shared_mutex>
 
 namespace easy::service::content {
 
@@ -32,7 +32,7 @@ private:
     std::vector<std::unique_ptr<IContentExtractor>> m_extractors;
     std::unordered_set<std::wstring> m_customExts;
     std::unordered_set<std::wstring> m_disabledExts;
-    mutable std::mutex m_mutex;
+    mutable std::shared_mutex m_mutex;
 };
 
 } // namespace easy::service::content

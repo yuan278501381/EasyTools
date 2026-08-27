@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 
@@ -18,6 +18,7 @@ param (
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
     [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
     [switch]$Coverage = $false,          # 启用 C++ 代码覆盖率分析与防回退门禁 (OpenCppCoverage)
+    [switch]$StaticAnalysis = $false,    # 对核心、搜索插件和索引服务运行 MSVC /analyze
     [switch]$Install = $false,           # 构建完成后立即通过 CLI 执行静默安装与启动
     [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
@@ -178,6 +179,11 @@ if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
 }
 
 $CMakeExtraArgs = @()
+if ($StaticAnalysis) {
+    $CMakeExtraArgs += "-DEASYTOOLS_ENABLE_MSVC_ANALYSIS=ON"
+} else {
+    $CMakeExtraArgs += "-DEASYTOOLS_ENABLE_MSVC_ANALYSIS=OFF"
+}
 if (Get-Command "sccache" -ErrorAction SilentlyContinue) {
     Write-Log "⚡ 检测到 sccache 编译器缓存，自动启用 C/C++ 极速编译加速..." "SUCCESS"
     $CMakeExtraArgs += "-DCMAKE_C_COMPILER_LAUNCHER=sccache"
@@ -245,10 +251,10 @@ if (-not $SkipTests) {
             if (Test-Path $CoberturaPath) {
                 [xml]$CoverageXml = Get-Content $CoberturaPath
                 $LineRate = [double]$CoverageXml.coverage.'line-rate'
-                if ($LineRate -lt 0.30) {
-                    throw "C++ 行覆盖率 $([math]::Round($LineRate * 100, 2))% 低于 30% 防回退门禁"
+                if ($LineRate -lt 0.32) {
+                    throw "C++ 行覆盖率 $([math]::Round($LineRate * 100, 2))% 低于 32% 防回退门禁"
                 }
-                Write-Log "C++ 行覆盖率: $([math]::Round($LineRate * 100, 2))% (门禁 >= 30%)" "SUCCESS"
+                Write-Log "C++ 行覆盖率: $([math]::Round($LineRate * 100, 2))% (门禁 >= 32%)" "SUCCESS"
             }
             Write-Log "代码覆盖率报告与 GTest JUnit 报表已生成: $CoverageReportDir" "SUCCESS"
         } else {

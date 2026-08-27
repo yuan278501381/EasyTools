@@ -5,6 +5,7 @@
 #include "DxfExtractor.h"
 #include <algorithm>
 #include <cwctype>
+#include <mutex>
 
 namespace easy::service::content {
 
@@ -21,7 +22,7 @@ ContentSearchEngine::ContentSearchEngine() {
 }
 
 void ContentSearchEngine::configureFormats(const std::vector<std::wstring>& customExts, const std::vector<std::wstring>& disabledExts) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::unique_lock lock(m_mutex);
     m_disabledExts.clear();
     for (const auto& ext : disabledExts) {
         std::wstring lower;
@@ -40,13 +41,7 @@ void ContentSearchEngine::configureFormats(const std::vector<std::wstring>& cust
             if (c != L'.') lower.push_back(std::towlower(c));
         }
         if (!lower.empty()) {
-            m_customExts.insert(lower);
-            if (!m_extractors.empty()) {
-                auto* plainText = dynamic_cast<PlainTextExtractor*>(m_extractors[0].get());
-                if (plainText) {
-                    plainText->addCustomExtension(lower);
-                }
-            }
+            m_customExts.insert(std::move(lower));
         }
     }
 }
@@ -59,7 +54,7 @@ bool ContentSearchEngine::canSearchContent(std::wstring_view extension) const {
     }
     if (lowerExt.empty()) return false;
 
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::shared_lock lock(m_mutex);
     if (m_disabledExts.find(lowerExt) != m_disabledExts.end()) {
         return false;
     }
@@ -89,16 +84,30 @@ bool ContentSearchEngine::searchFile(
     size_t dotPos = filePath.rfind(L'.');
     if (dotPos == std::wstring::npos) return false;
 
-    std::wstring ext = filePath.substr(dotPos + 1);
-    if (!canSearchContent(ext)) return false;
+    std::wstring ext;
+    ext.reserve(filePath.size() - dotPos - 1);
+    for (size_t index = dotPos + 1; index < filePath.size(); ++index) {
+        if (filePath[index] != L'.') ext.push_back(std::towlower(filePath[index]));
+    }
+    if (ext.empty()) return false;
 
-    for (const auto& extractor : m_extractors) {
-        if (extractor->canHandle(ext)) {
-            return extractor->searchContent(filePath, queryPattern, caseSensitive, outSnippets, maxSnippetsPerFile);
+    IContentExtractor* selected = nullptr;
+    {
+        std::shared_lock lock(m_mutex);
+        if (m_disabledExts.find(ext) != m_disabledExts.end()) return false;
+        if (m_customExts.find(ext) != m_customExts.end()) {
+            if (!m_extractors.empty()) selected = m_extractors.front().get();
+        } else {
+            for (const auto& extractor : m_extractors) {
+                if (extractor->canHandle(ext)) {
+                    selected = extractor.get();
+                    break;
+                }
+            }
         }
     }
-
-    return false;
+    return selected && selected->searchContent(
+        filePath, queryPattern, caseSensitive, outSnippets, maxSnippetsPerFile);
 }
 
 } // namespace easy::service::content

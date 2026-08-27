@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // test_main.cpp — EasyTools 单元测试套件 (基于 Google Test / GMock 工业级测试架构)
 //
 // 覆盖核心纯业务逻辑、状态机、多格式解析器与高分屏适配:
@@ -75,6 +75,7 @@
 #include "service/PipeProtocol.h"
 #include "service/SearchCancellation.h"
 #include "service/SearchExpression.h"
+#include "service/SearchRequestLimits.h"
 #include "service/content/ContentSearchEngine.h"
 #include "service/content/PlainTextExtractor.h"
 #include "service/content/ZipXmlExtractor.h"
@@ -1520,13 +1521,14 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << R"({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "abiVersion": 1,
             "id": "capture",
             "name": "Capture",
             "version": "1.0.0",
             "minimumHostVersion": "1.0.0",
             "entryPoint": "CreatePlugin",
+            "executionModel": "trusted-native-in-process",
             "capabilities": ["screenshot", "recording"],
             "permissions": ["screen-capture"]
         })";
@@ -1535,6 +1537,7 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     EXPECT_TRUE(static_cast<bool>(valid));
     EXPECT_EQ(valid.manifest.id, "capture");
     EXPECT_EQ(valid.manifest.capabilities.size(), 2u);
+    EXPECT_EQ(valid.manifest.executionModel, "trusted-native-in-process");
 
     const auto wrongId = loadPluginManifest(path, "gesture", "1.2.0");
     EXPECT_FALSE(wrongId);
@@ -1543,6 +1546,20 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     const auto oldHost = loadPluginManifest(path, "capture", "0.9.0");
     EXPECT_FALSE(oldHost);
     EXPECT_EQ(oldHost.error, "plugin requires a newer EasyTools version");
+
+    {
+        std::ifstream input(path, std::ios::binary);
+        nlohmann::json manifestJson;
+        input >> manifestJson;
+        input.close();
+        manifestJson.erase("executionModel");
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << manifestJson.dump(2);
+    }
+    const auto missingTrustModel = loadPluginManifest(path, "capture", "1.2.0");
+    EXPECT_FALSE(missingTrustModel);
+    EXPECT_EQ(missingTrustModel.error,
+              "plugin must declare the trusted native in-process execution model");
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -3272,17 +3289,6 @@ TEST(ContentSearchTest, ExtractorEngines) {
     }
     DeleteFileW(testSqlFile.c_str());
 
-    // 3.2 针对用户真实磁盘文件 019-get_Bom_Lev.txt 进行全文检索断言
-    std::wstring realTargetFile = L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt";
-    if (GetFileAttributesW(realTargetFile.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        snippets.clear();
-        bool realFileFound = engine.searchFile(realTargetFile, L"oitt", false, snippets);
-        EXPECT_TRUE(realFileFound);
-        EXPECT_GE(snippets.size(), 2u);
-        std::cout << "[LiveTest-Success] Extracted " << snippets.size() << " 'oitt' snippets from real file: " 
-                  << easy::core::WinUtils::wstringToUtf8(realTargetFile) << std::endl;
-    }
-
     // 4. DxfExtractor 实际文件扫描测试 (创建临时测试 DXF)
     std::wstring testDxfFile = std::wstring(tempPath) + L"easytools_test_drawing.dxf";
     {
@@ -3374,7 +3380,7 @@ TEST(ContentSearchTest, ExtractorEngines) {
     EXPECT_FALSE(engine.canSearchContent(L"psd"));
     EXPECT_FALSE(engine.canSearchContent(L"dxf"));
 
-    std::wstring testProtoFile = std::wstring(tempPath) + L"easytools_test.proto";
+    std::wstring testProtoFile = std::wstring(tempPath) + L"easytools_test.mycustomext";
     {
         std::ofstream ofs(testProtoFile);
         ofs << "syntax = \"proto3\";\n";
@@ -3392,6 +3398,36 @@ TEST(ContentSearchTest, ExtractorEngines) {
     engine.configureFormats({}, {});
     EXPECT_TRUE(engine.canSearchContent(L"psd"));
     EXPECT_TRUE(engine.canSearchContent(L"dxf"));
+    EXPECT_TRUE(engine.canSearchContent(L"proto"));
+    EXPECT_FALSE(engine.canSearchContent(L"mycustomext"));
+}
+
+TEST(ContentSearchTest, FormatConfigurationIsReversibleUnderConcurrency) {
+    auto& engine = easy::service::content::ContentSearchEngine::instance();
+    std::vector<std::thread> workers;
+    for (int worker = 0; worker < 8; ++worker) {
+        workers.emplace_back([&engine, worker]() {
+            for (int iteration = 0; iteration < 500; ++iteration) {
+                if (worker < 2) {
+                    if ((iteration + worker) % 2 == 0) {
+                        engine.configureFormats({L"temporary"}, {L"psd"});
+                    } else {
+                        engine.configureFormats({}, {});
+                    }
+                } else {
+                    (void)engine.canSearchContent(L"temporary");
+                    (void)engine.canSearchContent(L"psd");
+                    (void)engine.canSearchContent(L"cpp");
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) worker.join();
+
+    engine.configureFormats({}, {});
+    EXPECT_FALSE(engine.canSearchContent(L"temporary"));
+    EXPECT_TRUE(engine.canSearchContent(L"psd"));
+    EXPECT_TRUE(engine.canSearchContent(L"cpp"));
 }
 
 // -----------------------------------------------------------------------------
@@ -3542,26 +3578,31 @@ TEST(SearchHistoryTest, PersistenceAndDeduplication) {
 
     const std::wstring q1 = L"*中源*账号密码*";
     const std::wstring q2 = L"ext:docx 订单";
+    const std::wstring quotedQuery = L"\"exact, phrase\"\n第二行";
 
     searchMgr.recordSearch(q1);
     searchMgr.recordSearch(q2);
+    searchMgr.recordSearch(quotedQuery);
     searchMgr.recordSearch(q1); // 重复记录
 
-    EXPECT_EQ(searchMgr.size(), 2u);
+    EXPECT_EQ(searchMgr.size(), 3u);
     auto recents = searchMgr.getRecentSearches(10);
-    ASSERT_EQ(recents.size(), 2u);
+    ASSERT_EQ(recents.size(), 3u);
     EXPECT_EQ(recents[0].search, q1);
     EXPECT_EQ(recents[0].searchCount, 2u);
 
     // 移除单个搜索项
     EXPECT_TRUE(searchMgr.removeSearch(q2));
-    EXPECT_EQ(searchMgr.size(), 1u);
+    EXPECT_EQ(searchMgr.size(), 2u);
 
     // 存盘与重载
     EXPECT_TRUE(searchMgr.save());
     searchMgr.init(csvFile);
-    EXPECT_EQ(searchMgr.size(), 1u);
-    EXPECT_EQ(searchMgr.getRecentSearches(10)[0].search, q1);
+    EXPECT_EQ(searchMgr.size(), 2u);
+    const auto restoredSearches = searchMgr.getRecentSearches(10);
+    EXPECT_NE(std::find_if(restoredSearches.begin(), restoredSearches.end(), [&](const auto& item) {
+        return item.search == quotedQuery;
+    }), restoredSearches.end());
 
     DeleteFileW(csvFile.c_str());
 }
@@ -3617,6 +3658,19 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
     ASSERT_EQ(searchResults.size(), 1u);
     EXPECT_EQ(searchResults[0].fileName, L"test_document_5.docx");
     EXPECT_EQ(searchResults[0].fileSize, 5120u);
+
+    const auto originalSize = std::filesystem::file_size(dbFile);
+    HANDLE lockedDatabase = CreateFileW(dbFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(lockedDatabase, INVALID_HANDLE_VALUE);
+    EXPECT_FALSE(dbMgr.saveSnapshot(parsers));
+    CloseHandle(lockedDatabase);
+    EXPECT_EQ(std::filesystem::file_size(dbFile), originalSize);
+
+    auto parserAfterFailedSave = std::make_unique<MftParser>();
+    std::vector<MftParser*> parsersAfterFailedSave = {parserAfterFailedSave.get()};
+    EXPECT_TRUE(dbMgr.loadSnapshot(parsersAfterFailedSave));
+    EXPECT_EQ(parserAfterFailedSave->getFileCount(), 50u);
 
     DeleteFileW(dbFile.c_str());
 }
@@ -3876,6 +3930,86 @@ TEST(MessageBridgeAsyncTest, MalformedAndUnknownMessagesStillProduceAResponse) {
     const auto parsed = nlohmann::json::parse(unknown);
     EXPECT_EQ(parsed["id"].get<int>(), 9);
     EXPECT_EQ(parsed["error"]["code"].get<int>(), -32601);
+}
+
+TEST(SearchRequestLimitsTest, OversizedRegexIsNotCompiled) {
+    std::wstring pattern(easy::service::search_limits::MaxRegexCharacters + 1, L'a');
+    const auto expression = SearchExpression::parse(L"regex:" + pattern);
+    ASSERT_EQ(expression.getOrGroups().size(), 1u);
+    ASSERT_EQ(expression.getOrGroups()[0].clauses.size(), 1u);
+    EXPECT_FALSE(expression.getOrGroups()[0].clauses[0].regexObj.has_value());
+}
+
+TEST(MessageBridgeAsyncTest, QueueOverloadRespondsWithTheEvictedRequestId) {
+    auto& bridge = easy::core::MessageBridge::instance();
+    std::mutex gateMutex;
+    std::condition_variable gateCv;
+    int running = 0;
+    bool release = false;
+
+    bridge.registerHandler("test.asyncQueueOverload", [&](const nlohmann::json&) -> nlohmann::json {
+        std::unique_lock lock(gateMutex);
+        ++running;
+        gateCv.notify_all();
+        gateCv.wait(lock, [&release]() { return release; });
+        return {{"done", true}};
+    });
+    bridge.markMethodAsync("test.asyncQueueOverload");
+
+    std::vector<std::shared_ptr<std::promise<std::string>>> promises;
+    std::vector<std::future<std::string>> futures;
+    const auto submit = [&](int id) {
+        auto response = std::make_shared<std::promise<std::string>>();
+        futures.push_back(response->get_future());
+        promises.push_back(response);
+        bridge.handleMessageAsync(
+            nlohmann::json{{"id", id}, {"method", "test.asyncQueueOverload"}, {"params", nlohmann::json::object()}}.dump(),
+            [response](std::string value) { response->set_value(std::move(value)); });
+    };
+
+    for (int id = 1000; id < 1004; ++id) submit(id);
+    bool allWorkersStarted = false;
+    {
+        std::unique_lock lock(gateMutex);
+        allWorkersStarted = gateCv.wait_for(lock, std::chrono::seconds(5), [&running]() {
+            return running == 4;
+        });
+        if (!allWorkersStarted) {
+            release = true;
+        }
+    }
+    if (!allWorkersStarted) {
+        gateCv.notify_all();
+        for (auto& future : futures) future.wait_for(std::chrono::seconds(5));
+        bridge.unregisterHandler("test.asyncQueueOverload");
+        FAIL() << "async worker pool did not start all workers";
+    }
+
+    for (int id = 2000; id < 2065; ++id) submit(id);
+    const bool evictionResponded =
+        futures[4].wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    std::string evictedResponse;
+    if (evictionResponded) evictedResponse = futures[4].get();
+
+    {
+        std::lock_guard lock(gateMutex);
+        release = true;
+    }
+    gateCv.notify_all();
+    bool allResponsesReady = true;
+    for (size_t index = 0; index < futures.size(); ++index) {
+        if (index == 4) continue;
+        if (futures[index].wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+            allResponsesReady = false;
+        }
+    }
+    bridge.unregisterHandler("test.asyncQueueOverload");
+
+    EXPECT_TRUE(allResponsesReady);
+    ASSERT_TRUE(evictionResponded);
+    const auto evicted = nlohmann::json::parse(evictedResponse);
+    EXPECT_EQ(evicted["id"].get<int>(), 2000);
+    EXPECT_EQ(evicted["error"]["code"].get<int>(), -32000);
 }
 
 // -----------------------------------------------------------------------------
@@ -4880,6 +5014,17 @@ TEST(WorldClassArchitectureTest, JobObjectAndAtomicWrite) {
     std::string readContent((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
     EXPECT_EQ(readContent, payload);
 
+    HANDLE lockedTarget = CreateFileW(testFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(lockedTarget, INVALID_HANDLE_VALUE);
+    EXPECT_FALSE(easy::core::WinUtils::atomicWriteFileWithFlush(
+        testFile.wstring(), "replacement must not become visible"));
+    CloseHandle(lockedTarget);
+    std::ifstream preserved(testFile);
+    std::string preservedContent((std::istreambuf_iterator<char>(preserved)),
+                                 std::istreambuf_iterator<char>());
+    EXPECT_EQ(preservedContent, payload);
+
     // 3. 验证低内存资源事件创建
     HANDLE lowMem = easy::core::WinUtils::createLowMemoryNotification();
     if (lowMem) {
@@ -5097,6 +5242,7 @@ TEST(CoreMouseHookTest, InstallAndCallbacks) {
 
     bool callbackInvoked = false;
     mouseHook.setMouseActivityCallback([&](int btn, long x, long y) {
+        (void)btn; (void)x; (void)y;
         callbackInvoked = true;
     });
 

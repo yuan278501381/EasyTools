@@ -19,6 +19,7 @@ project(EasyTools
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+option(EASYTOOLS_ENABLE_MSVC_ANALYSIS "Run MSVC static analysis on security-sensitive targets" OFF)
 
 configure_file(
     "${CMAKE_SOURCE_DIR}/src/core/Version.h.in"
@@ -258,6 +259,12 @@ add_executable(EasyTools_Service ${SERVICE_SOURCES})
 easytools_add_version_resource(EasyTools_Service "EasyTools File Index Service" "EasyTools_Service.exe" VFT_APP)
 target_compile_definitions(EasyTools_Service PRIVATE UNICODE _UNICODE)
 target_link_libraries(EasyTools_Service PRIVATE spdlog::spdlog fmt::fmt nlohmann_json::nlohmann_json ZLIB::ZLIB advapi32 user32 shell32 ole32)
+
+if(MSVC AND EASYTOOLS_ENABLE_MSVC_ANALYSIS)
+    foreach(ANALYSIS_TARGET EasyCore Plugin_Search EasyTools_Service)
+        target_compile_options(${ANALYSIS_TARGET} PRIVATE /analyze /analyze:external-)
+    endforeach()
+endif()
 
 # ── 6. 自动化测试 ────────────────────────────────────────────────────────────
 include(CTest)
