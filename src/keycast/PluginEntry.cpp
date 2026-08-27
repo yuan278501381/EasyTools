@@ -60,7 +60,7 @@ public:
             };
         });
 
-        mb.registerHandler("keycast.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
+                mb.registerHandler("keycast.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
             if (!params.is_object() || params.empty()) {
                 return {{"success", false}, {"error", "no settings supplied"}};
             }
@@ -78,6 +78,9 @@ public:
             }
             if (params.contains("filterMode") && params["filterMode"].is_string()) {
                 s.filterMode = params["filterMode"].get<std::string>();
+            }
+            if (params.contains("includeFunctionKeys") && params["includeFunctionKeys"].is_boolean()) {
+                s.includeFunctionKeys = params["includeFunctionKeys"].get<bool>();
             }
             if (params.contains("position") && params["position"].is_string()) {
                 s.position = params["position"].get<std::string>();
