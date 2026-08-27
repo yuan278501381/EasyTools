@@ -196,7 +196,17 @@
     "shortcutDisabled": "Disabled",
     "recheckShortcuts": "Re-check Conflicts",
     "shortcutsOverview": "Shortcut Health",
-    "allHealthy": "All shortcuts are active and healthy"
+    "allHealthy": "All shortcuts are active and healthy",
+    "fontFamily": "Interface Font Family",
+    "fontFamilyDesc": "Customize UI typography. All fonts are app-scoped with zero system directory pollution and zero uninstaller leftovers.",
+    "fontFamilyAuto": "Smart Adaptive (Recommended · Native High-DPI)",
+    "fontFamilyNotoSans": "Ultra-Clear Noto Sans SC (Crisp & Solid)",
+    "fontFamilyHarmony": "HarmonyOS / MiSans Style",
+    "fontFamilyYahei": "Microsoft YaHei UI (Classic Windows)",
+    "fontFamilyPingfang": "Apple PingFang SC Style",
+    "fontFamilySystem": "System Default (System UI)",
+    "fontFallbackTitle": "Intelligent Polyglot Cascading & Fallback Pipeline",
+    "fontFallbackDesc": "1. Primary glyphs are rendered with the preferred font family; 2. Automatically triggers Glyph-Level Fallback to native flagship fonts (YaHei UI / PingFang / Segoe UI) whenever missing glyphs or unsupported characters occur, completely preventing square tofu (□) and rendering glitches; 3. Zero system directory pollution with 100% clean portability."
   },
   "plugins": {
     "capabilities": "Module capabilities",

@@ -196,7 +196,17 @@
     "shortcutDisabled": "未绑定",
     "recheckShortcuts": "重新检测冲突",
     "shortcutsOverview": "快捷键健康度",
-    "allHealthy": "全部快捷键正常生效"
+    "allHealthy": "全部快捷键正常生效",
+    "fontFamily": "界面显示字体",
+    "fontFamilyDesc": "自定义界面字体呈现。所有选项均在应用沙箱内生效，0系统写入，0卸载残留",
+    "fontFamilyAuto": "智能自适应 (推荐 · 优先大中宫超清)",
+    "fontFamilyNotoSans": "超清思源黑体 (Noto Sans SC · 饱满清晰)",
+    "fontFamilyHarmony": "鸿蒙 / 小米黑体 (HarmonyOS / MiSans)",
+    "fontFamilyYahei": "微软正黑 / 雅黑 (Microsoft YaHei UI)",
+    "fontFamilyPingfang": "Apple 苹方质感 (PingFang SC)",
+    "fontFamilySystem": "系统原生默认 (System UI)",
+    "fontFallbackTitle": "智能多语言级联与降级机制",
+    "fontFallbackDesc": "1. 优先调用所选字体族渲染正文；2. 当特定字符、生僻汉字、日韩文或系统未预装所选字体时，DirectWrite 引擎将通过 Glyph-Level 逐字字形回退平滑降级至系统原厂优质黑体（微软雅黑 UI / 苹方 / Segoe UI），100% 杜绝方框豆腐块与乱码；3. 零系统目录写入，升级卸载完全纯净。"
   },
   "plugins": {
     "capabilities": "模块能力",

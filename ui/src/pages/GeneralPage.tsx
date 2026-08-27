@@ -26,6 +26,7 @@ interface GeneralSettings {
   language: string;
   logLevel: string;
   theme: string;
+  fontFamily?: string;
 }
 
 interface OperationResult {
