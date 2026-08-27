@@ -346,6 +346,15 @@ export const KeycastPage: FC = () => {
             );
           })}
         </div>
+        <Card style={{ marginTop: 12 }}>
+          <Toggle
+            id="keycast-include-func-keys"
+            label={t("keycast.includeFunctionKeys" as any, "包含独立功能键")}
+            description={t("keycast.includeFunctionKeysDesc" as any, "包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显")}
+            checked={settings.includeFunctionKeys}
+            onChange={(v) => saveSetting("includeFunctionKeys", v)}
+          />
+        </Card>
       </SettingGroup>
 
       {/* ── 4. 时序流与物理动效 ─────────────────────────────────────── */}
