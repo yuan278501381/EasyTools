@@ -96,8 +96,41 @@ std::shared_ptr<spdlog::logger>& Logger::instance() {
 void Logger::setLevel(spdlog::level::level_enum level) {
     if (s_logger) {
         s_logger->set_level(level);
-        LOG_INFO("日志级别已切换为: {}", spdlog::level::to_string_view(level));
+        LOG_INFO_L("日志级别已切换为: {}", "Log level switched to: {}", spdlog::level::to_string_view(level));
     }
 }
 
+#include <windows.h>
+#include <atomic>
+
+static std::atomic<uint8_t> s_logLanguage{static_cast<uint8_t>(LogLanguage::ZhCN)};
+
+void Logger::setLanguage(const std::string& langCode) {
+    if (langCode == "en-US" || langCode == "en") {
+        s_logLanguage.store(static_cast<uint8_t>(LogLanguage::EnUS), std::memory_order_relaxed);
+    } else if (langCode == "zh-TW" || langCode == "zh-HK") {
+        s_logLanguage.store(static_cast<uint8_t>(LogLanguage::ZhTW), std::memory_order_relaxed);
+    } else if (langCode == "auto") {
+        LANGID langId = GetUserDefaultUILanguage();
+        if (PRIMARYLANGID(langId) == LANG_ENGLISH) {
+            s_logLanguage.store(static_cast<uint8_t>(LogLanguage::EnUS), std::memory_order_relaxed);
+        } else if (PRIMARYLANGID(langId) == LANG_CHINESE) {
+            if (SUBLANGID(langId) == SUBLANG_CHINESE_TRADITIONAL || SUBLANGID(langId) == SUBLANG_CHINESE_HONGKONG) {
+                s_logLanguage.store(static_cast<uint8_t>(LogLanguage::ZhTW), std::memory_order_relaxed);
+            } else {
+                s_logLanguage.store(static_cast<uint8_t>(LogLanguage::ZhCN), std::memory_order_relaxed);
+            }
+        } else {
+            s_logLanguage.store(static_cast<uint8_t>(LogLanguage::EnUS), std::memory_order_relaxed);
+        }
+    } else {
+        s_logLanguage.store(static_cast<uint8_t>(LogLanguage::ZhCN), std::memory_order_relaxed);
+    }
+}
+
+LogLanguage Logger::getLanguage() {
+    return static_cast<LogLanguage>(s_logLanguage.load(std::memory_order_relaxed));
+}
+
 }  // namespace easy::core
+

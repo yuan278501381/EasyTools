@@ -260,6 +260,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 1;
     }
 
+    // 同步用户语言设置到日志系统 (0 锁动态切换)
+    easy::core::Logger::setLanguage(
+        easy::core::ConfigManager::instance().get<std::string>("/general/language", "auto")
+    );
+
     // ── 5b. 检测并应用安装器生成的初始模块开关 (initial_modules.json) ──
     const auto initialModulesPath = easy::core::WinUtils::getExeDirectory() / L"initial_modules.json";
     std::error_code ecInit;

@@ -1273,6 +1273,9 @@ void MessageBridge::registerBuiltinHandlers() {
         static const std::unordered_set<std::string> accents = {
             "violet", "cyan", "amber", "blue", "mint", "coral"
         };
+        static const std::unordered_set<std::string> languages = {
+            "auto", "zh-CN", "en-US", "zh-TW", "zh-HK", "ja-JP", "ko-KR", "de-DE", "fr-FR", "es-ES"
+        };
         if (!params.is_object() || params.empty()) {
             return {{"success", false}, {"error", "no settings supplied"}};
         }
@@ -1294,7 +1297,6 @@ void MessageBridge::registerBuiltinHandlers() {
             if (key == "logLevel" && (!value.is_string() || !logLevels.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid log level"}};
             }
-            static const std::unordered_set<std::string> languages = {"auto", "zh-CN", "en-US"};
             if (key == "language" && (!value.is_string() ||
                 !languages.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid language"}};
@@ -1318,6 +1320,9 @@ void MessageBridge::registerBuiltinHandlers() {
         if (!saved) {
             if (params.contains("autoStart")) setAutoStart(previousAutoStart);
             return {{"success", false}, {"error", "failed to persist settings"}};
+        }
+        if (params.contains("language")) {
+            Logger::setLanguage(params["language"].get<std::string>());
         }
         if (params.contains("logLevel")) applyLogLevel(params["logLevel"].get<std::string>());
         if (params.contains("theme") || params.contains("accentColor")) {
