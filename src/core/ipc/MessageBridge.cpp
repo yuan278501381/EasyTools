@@ -1414,7 +1414,9 @@ void MessageBridge::registerBuiltinHandlers() {
         const std::string path = params.value("path", params.value("filepath", ""));
         if (path.empty()) return {{"success", false}, {"error", "path is required"}};
         const auto wide = WinUtils::utf8ToWstring(path);
-        const bool started = ShellContextMenuService::instance().showAsync(wide);
+        const int x = params.value("x", -1);
+        const int y = params.value("y", -1);
+        const bool started = ShellContextMenuService::instance().showAsync(wide, x, y);
         return {{"success", started}, {"busy", !started}};
     });
     registerHandler("app.checkForUpdates", [](const json&) -> json {

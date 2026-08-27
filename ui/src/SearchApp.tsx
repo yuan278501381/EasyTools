@@ -2204,12 +2204,16 @@ export default function SearchApp() {
     event.stopPropagation();
     setSelectedIndex(index);
     if (event.shiftKey) {
-      void bridgeRequest('search.showShellContextMenu', {
-        filepath: result.path,
-        path: result.path,
-        x: event.screenX,
-        y: event.screenY,
-      });
+      const sx = event.screenX;
+      const sy = event.screenY;
+      setTimeout(() => {
+        void bridgeRequest('search.showShellContextMenu', {
+          filepath: result.path,
+          path: result.path,
+          x: sx,
+          y: sy,
+        });
+      }, 30);
       return;
     }
     const menuWidth = 240;
@@ -3580,21 +3584,27 @@ export default function SearchApp() {
               <button
                 type="button"
                 className="search-context-menu-item"
-                onClick={() => {
+                onClick={(e) => {
                   const res = contextMenu.result;
+                  const sx = e.screenX;
+                  const sy = e.screenY;
                   setContextMenu({ visible: false, x: 0, y: 0 });
                   if (res) {
-                    void bridgeRequest('search.showShellContextMenu', {
-                      filepath: res.path,
-                      path: res.path,
-                    });
+                    setTimeout(() => {
+                      void bridgeRequest('search.showShellContextMenu', {
+                        filepath: res.path,
+                        path: res.path,
+                        x: sx,
+                        y: sy,
+                      });
+                    }, 50);
                   }
                 }}
                 title={t('search.nativeExplorerTooltip', 'Open native Windows Explorer context menu (Shift+Right Click)')}
               >
                 <AppWindow size={14} className="menu-icon" />
                 <span className="menu-label">{t('search.menuNativeExplorer', 'More Windows Explorer Menu...')}</span>
-                <kbd className="menu-shortcut">Shift+F10</kbd>
+                <kbd className="menu-shortcut">{t('search.menuShortcutShiftRightClick', 'Shift+Right Click')}</kbd>
               </button>
 
               <button

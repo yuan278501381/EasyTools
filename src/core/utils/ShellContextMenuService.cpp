@@ -35,8 +35,13 @@ ShellContextMenuService& ShellContextMenuService::instance() {
     return service;
 }
 
-bool ShellContextMenuService::showAsync(std::wstring path) {
+bool ShellContextMenuService::showAsync(std::wstring path, int screenX, int screenY) {
     if (path.empty() || m_stopping.load(std::memory_order_acquire)) return false;
+
+    const HWND searchWindow = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+    if (searchWindow && IsWindow(searchWindow)) {
+        SetPropW(searchWindow, L"EasyTools_ShellMenuActive", reinterpret_cast<HANDLE>(1));
+    }
 
     // 若旧菜单窗口仍在展示，主动向其投递取消消息，促使其非阻塞平稳退出
     if (const HWND oldHelper = m_helperWindow.load(std::memory_order_acquire); oldHelper && IsWindow(oldHelper)) {
@@ -51,8 +56,8 @@ bool ShellContextMenuService::showAsync(std::wstring path) {
 
     m_busy.store(true, std::memory_order_release);
     m_worker = std::jthread(
-        [this, path = std::move(path)](std::stop_token stop) mutable {
-            run(std::move(path), stop);
+        [this, path = std::move(path), screenX, screenY](std::stop_token stop) mutable {
+            run(std::move(path), screenX, screenY, stop);
             m_busy.store(false, std::memory_order_release);
         });
     return true;
@@ -76,10 +81,12 @@ ShellContextMenuService::~ShellContextMenuService() {
     shutdown();
 }
 
-void ShellContextMenuService::run(std::wstring path, std::stop_token stop) {
+void ShellContextMenuService::run(std::wstring path, int screenX, int screenY, std::stop_token stop) {
     try {
         const HWND searchWindow = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-        if (searchWindow) SetPropW(searchWindow, L"EasyTools_ShellMenuActive", reinterpret_cast<HANDLE>(1));
+        if (searchWindow && IsWindow(searchWindow)) {
+            SetPropW(searchWindow, L"EasyTools_ShellMenuActive", reinterpret_cast<HANDLE>(1));
+        }
         auto clearActive = [&]() {
             if (searchWindow && IsWindow(searchWindow)) {
                 RemovePropW(searchWindow, L"EasyTools_ShellMenuActive");
@@ -137,24 +144,37 @@ void ShellContextMenuService::run(std::wstring path, std::stop_token stop) {
         RegisterClassExW(&windowClass);
 
         POINT cursor{};
-        GetCursorPos(&cursor);
+        if (screenX >= 0 && screenY >= 0) {
+            cursor.x = screenX;
+            cursor.y = screenY;
+        } else {
+            GetCursorPos(&cursor);
+        }
+
         helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, HelperClassName, L"", WS_POPUP,
                                  cursor.x, cursor.y, 1, 1, nullptr, nullptr,
                                  GetModuleHandleW(nullptr), nullptr);
         m_helperWindow.store(helper, std::memory_order_release);
         if (helper) {
-            ShowWindow(helper, SW_SHOWNOACTIVATE);
+            SetWindowPos(helper, HWND_TOPMOST, cursor.x, cursor.y, 1, 1, SWP_SHOWWINDOW);
             SetForegroundWindow(helper);
         }
 
+        // 消费当前线程残留的输入消息，防止 0ms Dismiss
+        MSG msg;
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
         const UINT command = TrackPopupMenuEx(
-            menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+            menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_VERPOSANIMATION,
             cursor.x, cursor.y, helper ? helper : GetForegroundWindow(), nullptr);
         if (command >= 1 && !stop.stop_requested()) {
             CMINVOKECOMMANDINFOEX info{};
             info.cbSize = sizeof(info);
             info.fMask = CMIC_MASK_UNICODE;
-            info.hwnd = helper;
+            info.hwnd = helper ? helper : searchWindow;
             info.lpVerb = reinterpret_cast<LPCSTR>(MAKEINTRESOURCEA(command - 1));
             info.lpVerbW = reinterpret_cast<LPCWSTR>(MAKEINTRESOURCEW(command - 1));
             info.nShow = SW_SHOWNORMAL;

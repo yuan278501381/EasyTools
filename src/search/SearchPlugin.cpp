@@ -752,7 +752,9 @@ public:
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath);
+            const int x = params.value("x", -1);
+            const int y = params.value("y", -1);
+            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath, x, y);
             return {{"success", started}, {"busy", !started}};
         });
 

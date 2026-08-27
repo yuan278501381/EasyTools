@@ -998,6 +998,7 @@
     "menuCopyName": "Copy Filename",
     "menuCopyParent": "Copy Parent Directory",
     "menuNativeExplorer": "More Windows Explorer Menu...",
+    "menuShortcutShiftRightClick": "Shift+Right Click",
     "menuProperties": "Properties",
     "renameTitle": "Rename",
     "renamePlaceholder": "Enter new name...",

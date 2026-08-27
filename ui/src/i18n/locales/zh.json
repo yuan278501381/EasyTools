@@ -998,6 +998,7 @@
     "menuCopyName": "复制文件名",
     "menuCopyParent": "复制所在目录路径",
     "menuNativeExplorer": "更多 Windows 原生菜单...",
+    "menuShortcutShiftRightClick": "Shift+右键",
     "menuProperties": "文件属性",
     "renameTitle": "重命名",
     "renamePlaceholder": "输入新文件名...",
