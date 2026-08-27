@@ -54,17 +54,29 @@
   padding: var(--spacing-md) var(--spacing-lg);
 }
 
-/* ── Toggle Switch ────────────────────────────────────────────────────────── */
+/* ── 世界级统一 3D 拟物胶囊开关 (Unified 3D Capsule Toggle) ───────────────── */
 .uikit-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  user-select: none;
+}
+
+.uikit-toggle--with-text {
   padding: var(--spacing-sm) 0;
   min-height: 42px;
+  gap: var(--spacing-md);
+}
+
+.uikit-toggle--standalone {
+  display: inline-flex;
+  min-height: auto;
+  padding: 0;
 }
 
 .uikit-toggle--disabled {
-  opacity: 0.5;
+  opacity: 0.45;
+  cursor: not-allowed;
   pointer-events: none;
 }
 
@@ -72,6 +84,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
 }
 
 .uikit-toggle__label {
@@ -79,6 +92,7 @@
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: -0.01em;
+  cursor: pointer;
 }
 
 .uikit-toggle__desc {
@@ -87,52 +101,147 @@
   line-height: 1.5;
 }
 
+/* ── 开关外壳与导轨槽 (3D Track Groove) ──────────────────────────────────── */
 .uikit-toggle__switch {
   position: relative;
-  width: 40px;
-  height: 22px;
+  display: inline-block;
   flex-shrink: 0;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .uikit-toggle__switch input {
+  position: absolute;
   opacity: 0;
   width: 0;
   height: 0;
+  margin: 0;
+  pointer-events: none;
 }
 
 .uikit-toggle__slider {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--input-border);
-  border-radius: var(--radius-full);
-  transition: background var(--transition-normal), border-color var(--transition-normal);
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--input-border, #cbd5e1);
+  box-shadow: inset 0 1.5px 3px rgba(0, 0, 0, 0.14), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
-.uikit-toggle__slider::after {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  left: 3px;
-  top: 3px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.32s var(--ease-spring), background var(--transition-fast);
+[data-theme="dark"] .uikit-toggle__slider {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/* 激活态（主题色 3D 渐变与能量辉光） */
 .uikit-toggle__switch input:checked + .uikit-toggle__slider {
-  background: var(--primary);
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-hover) 100%);
+  box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.4),
+              0 0 12px var(--primary-glow),
+              inset 0 -1px 2px rgba(0, 0, 0, 0.15);
 }
 
-.uikit-toggle__switch input:checked + .uikit-toggle__slider::after {
-  transform: translateX(18px);
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 6px var(--primary-glow);
+/* 激活态（语义翡翠绿） */
+.uikit-toggle--success .uikit-toggle__switch input:checked + .uikit-toggle__slider {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.45),
+              0 0 12px rgba(16, 185, 129, 0.45),
+              inset 0 -1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* 全键盘焦点可访问性光环 */
+.uikit-toggle__switch input:focus-visible + .uikit-toggle__slider {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── 3D 悬浮微晶体滑块 (3D Floating Thumb) ────────────────────────────────── */
+.uikit-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.22),
+              0 1px 1.5px rgba(0, 0, 0, 0.14),
+              inset 0 1px 1px #ffffff,
+              inset 0 -1px 1px rgba(0, 0, 0, 0.08);
+  will-change: transform, width;
+  transition: transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
+              width 0.22s ease,
+              background 0.25s ease;
+}
+
+[data-theme="dark"] .uikit-toggle__thumb {
+  background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+  box-shadow: 0 2.5px 5px rgba(0, 0, 0, 0.5),
+              0 1px 1.5px rgba(0, 0, 0, 0.3),
+              inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+
+/* ── 尺寸规格矩阵 (Size Matrix) ────────────────────────────────────────── */
+
+/* 1. 标准中号 (Default / md: 40 × 22px, 滑块 18px) */
+.uikit-toggle--md .uikit-toggle__switch {
+  width: 40px;
+  height: 22px;
+}
+.uikit-toggle--md .uikit-toggle__thumb {
+  width: 18px;
+  height: 18px;
+}
+.uikit-toggle--md .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(18px, 0, 0);
+}
+.uikit-toggle--md .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 22px;
+}
+.uikit-toggle--md .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(14px, 0, 0);
+  width: 22px;
+}
+
+/* 2. 紧凑微型小号 (Micro / sm: 28 × 16px, 滑块 12px) - 专为高密度表格/列表定制 */
+.uikit-toggle--sm .uikit-toggle__switch {
+  width: 28px;
+  height: 16px;
+}
+.uikit-toggle--sm .uikit-toggle__thumb {
+  width: 12px;
+  height: 12px;
+}
+.uikit-toggle--sm .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(12px, 0, 0);
+}
+.uikit-toggle--sm .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 15px;
+}
+.uikit-toggle--sm .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(9px, 0, 0);
+  width: 15px;
+}
+
+/* 3. 全局大号 (Large / lg: 48 × 26px, 滑块 22px) - 专为核心大主控定制 */
+.uikit-toggle--lg .uikit-toggle__switch {
+  width: 48px;
+  height: 26px;
+}
+.uikit-toggle--lg .uikit-toggle__thumb {
+  width: 22px;
+  height: 22px;
+}
+.uikit-toggle--lg .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(22px, 0, 0);
+}
+.uikit-toggle--lg .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 27px;
+}
+.uikit-toggle--lg .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(17px, 0, 0);
+  width: 27px;
 }
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */

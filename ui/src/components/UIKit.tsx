@@ -35,35 +35,57 @@ export const Card: FC<CardProps> = ({ title, subtitle, headerAction, children, c
 
 /* ── Toggle Switch ────────────────────────────────────────────────────────── */
 
-interface ToggleProps {
+export interface ToggleProps {
   id: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-  label?: string;
-  description?: string;
+  label?: ReactNode;
+  description?: ReactNode;
   disabled?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+  variant?: 'primary' | 'success';
+  className?: string;
 }
 
-export const Toggle: FC<ToggleProps> = ({ id, checked, onChange, label, description, disabled = false }) => (
-  <div className={`uikit-toggle ${disabled ? 'uikit-toggle--disabled' : ''}`}>
-    <div className="uikit-toggle__text">
-      {label && <label id={`${id}-label`} htmlFor={id} className="uikit-toggle__label">{label}</label>}
-      {description && <span id={`${id}-description`} className="uikit-toggle__desc">{description}</span>}
+export const Toggle: FC<ToggleProps> = ({
+  id,
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+  size = 'md',
+  variant = 'primary',
+  className = '',
+}) => {
+  const hasText = Boolean(label || description);
+  return (
+    <div
+      className={`uikit-toggle uikit-toggle--${size} uikit-toggle--${variant} ${hasText ? 'uikit-toggle--with-text' : 'uikit-toggle--standalone'} ${disabled ? 'uikit-toggle--disabled' : ''} ${className}`.trim()}
+    >
+      {hasText && (
+        <div className="uikit-toggle__text">
+          {label && <label id={`${id}-label`} htmlFor={id} className="uikit-toggle__label">{label}</label>}
+          {description && <span id={`${id}-description`} className="uikit-toggle__desc">{description}</span>}
+        </div>
+      )}
+      <label className="uikit-toggle__switch" htmlFor={id}>
+        <input
+          type="checkbox"
+          id={id}
+          checked={checked}
+          aria-labelledby={label ? `${id}-label` : undefined}
+          aria-describedby={description ? `${id}-description` : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={disabled}
+        />
+        <span className="uikit-toggle__slider">
+          <span className="uikit-toggle__thumb" />
+        </span>
+      </label>
     </div>
-    <label className="uikit-toggle__switch" htmlFor={id}>
-      <input
-        type="checkbox"
-        id={id}
-        checked={checked}
-        aria-labelledby={label ? `${id}-label` : undefined}
-        aria-describedby={description ? `${id}-description` : undefined}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-      />
-      <span className="uikit-toggle__slider" />
-    </label>
-  </div>
-);
+  );
+};
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
 
