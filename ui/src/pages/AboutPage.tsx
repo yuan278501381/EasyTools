@@ -157,9 +157,9 @@ export const AboutPage: FC = () => {
       const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
       if (res.cancelled) return;
       if (!res.success) throw new Error(res.error || '导出失败');
-      toast.success(t('about.exportLogsSuccess', '诊断日志已成功导出并定位'));
+      toast.success(t('about.exportLogsSuccess', 'Diagnostic logs exported and highlighted successfully'));
     } catch (e) {
-      toast.error(t('about.exportLogsFailed', '日志导出失败'), { description: String(e) });
+      toast.error(t('about.exportLogsFailed', 'Failed to export diagnostic logs'), { description: String(e) });
     }
   };
 
@@ -211,7 +211,7 @@ export const AboutPage: FC = () => {
               </Button>
               <Button variant="secondary" onClick={() => void handleExportLogs()} title="导出系统诊断日志与环境报告">
                 <Download size={14} />
-                <span>{t('about.exportLogs', '导出日志')}</span>
+                <span>{t('about.exportLogs', 'Export Logs')}</span>
               </Button>
               {updateResult?.status === 'available' && updateResult.releaseUrl && (
                 <Button variant="primary" onClick={() => void openReleasePage()}>

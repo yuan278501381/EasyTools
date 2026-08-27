@@ -267,8 +267,8 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
     }
   };
 
-  const nameError = name.trim() ? '' : t('scope.nameRequired', '请填写规则名称');
-  const targetError = targetValue.trim() ? '' : t('scope.targetRequired', '请选择或填写匹配目标');
+  const nameError = name.trim() ? '' : t('scope.nameRequired', 'Enter a rule name');
+  const targetError = targetValue.trim() ? '' : t('scope.targetRequired', 'Enter a process or window class to match');
   const canSave = !nameError && !targetError;
 
   const filteredPresets = selectedCategory === 'all'
@@ -292,7 +292,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel', '取消')}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel', 'Cancel')}</Button>
           <Button variant="primary" onClick={handleSave} disabled={!canSave}>添加并配置</Button>
         </>
       }
@@ -419,7 +419,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
       )}
 
       <div className={`app-picker-form ${justPicked ? 'just-picked-glow' : ''}`}>
-        <Field label={t('scope.ruleName', '应用/规则名称')} error={nameError}>
+        <Field label={t('scope.ruleName', 'Rule Name')} error={nameError}>
           <TextInput
             value={name}
             onChange={setName}
@@ -427,7 +427,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
           />
         </Field>
 
-        <Field label={t('scope.matchTarget', '匹配目标')}>
+        <Field label={t('scope.matchTarget', 'Match Target')}>
           <Tabs
             tabs={[
               { id: 'process', label: '按进程名 (推荐，如 chrome.exe)', icon: <Cpu size={14} /> },

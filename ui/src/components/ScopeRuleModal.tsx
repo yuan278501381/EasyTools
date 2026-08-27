@@ -288,8 +288,8 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
     }
   };
 
-  const nameError = draft.name.trim() ? '' : t('scope.nameRequired', '请填写规则名称');
-  const targetError = targetValue.trim() ? '' : t('scope.targetRequired', '请选择或填写匹配目标');
+  const nameError = draft.name.trim() ? '' : t('scope.nameRequired', 'Enter a rule name');
+  const targetError = targetValue.trim() ? '' : t('scope.targetRequired', 'Enter a process or window class to match');
   const canSave = !nameError && !targetError;
 
   const filteredPresets = selectedCategory === 'all'
@@ -311,12 +311,12 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
   return (
     <Modal
       open
-      title={isEdit ? t('scope.editRule', '编辑作用域规则') : t('scope.newRule', '新增作用域规则')}
+      title={isEdit ? t('scope.editRule', 'Edit Scope Rule') : t('scope.newRule', 'New Scope Rule')}
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel', '取消')}</Button>
-          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('common.save', '保存')}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel', 'Cancel')}</Button>
+          <Button variant="primary" onClick={handleSave} disabled={!canSave}>{t('common.save', 'Save')}</Button>
         </>
       }
     >
@@ -446,15 +446,15 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
       )}
 
       <div className={`app-picker-form ${justPicked ? 'just-picked-glow' : ''}`}>
-        <Field label={t('scope.ruleName', '规则名称')} error={nameError}>
+        <Field label={t('scope.ruleName', 'Rule Name')} error={nameError}>
           <TextInput
             value={draft.name}
             onChange={(v) => set({ name: v })}
-            placeholder={t('scope.ruleNamePlaceholder', '例如 Google Chrome / VS Code / Dota 2')}
+            placeholder={t('scope.ruleNamePlaceholder', 'e.g. Chrome browser')}
           />
         </Field>
 
-        <Field label={t('scope.matchTarget', '匹配目标')}>
+        <Field label={t('scope.matchTarget', 'Match Target')}>
           <div className="app-picker-kind-tabs">
             <button
               type="button"
@@ -462,7 +462,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
               onClick={() => setTargetKind('process')}
             >
               <Cpu size={14} />
-              <span>{t('scope.byProcess', '按进程名 (推荐，如 chrome.exe)')}</span>
+              <span>{t('scope.byProcess', 'Process name')}</span>
             </button>
             <button
               type="button"
@@ -470,15 +470,15 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
               onClick={() => setTargetKind('class')}
             >
               <Layers size={14} />
-              <span>{t('scope.byClass', '按窗口类名 (如 Chrome_WidgetWin_1)')}</span>
+              <span>{t('scope.byClass', 'Window class')}</span>
             </button>
           </div>
         </Field>
 
         <Field
-          label={targetKind === 'process' ? t('scope.processName', '进程名') : t('scope.windowClass', '窗口类名')}
+          label={targetKind === 'process' ? t('scope.processName', 'Process Name') : t('scope.windowClass', 'Window Class')}
           error={targetError}
-          hint={targetKind === 'process' ? t('scope.processHint', '可从上方列表一键点击，或手动填写 (如 chrome.exe)') : t('scope.classHint', '窗口的 Windows ClassName')}
+          hint={targetKind === 'process' ? t('scope.processHint', 'For example chrome.exe; wildcards such as *.exe are supported') : t('scope.classHint', 'For example Chrome_WidgetWin_1')}
         >
           <TextInput
             value={targetValue}
@@ -488,7 +488,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
         </Field>
       </div>
 
-      <Field label={t('scope.matchMode', '匹配规则算法')}>
+      <Field label={t('scope.matchMode', 'Match Mode')}>
         <Select
           value={String(draft.matchMode)}
           options={MATCH_MODE_KEYS.map((key, index) => ({ value: String(index), label: t(key) }))}
@@ -497,7 +497,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
       </Field>
 
       <div className="uikit-field">
-        <label className="uikit-field__label">{t('scope.effect', '作用效果')}</label>
+        <label className="uikit-field__label">{t('scope.effect', 'Effect')}</label>
         <div className="picker-strategy-cards">
           <div
             className={`picker-strategy-card ${draft.effect === 2 ? 'active' : ''}`}
@@ -507,8 +507,8 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
               <Sparkles size={16} />
             </div>
             <div className="picker-strategy-card__content">
-              <div className="picker-strategy-card__title">{t('scope.effectProfile', '使用配置集')}</div>
-              <div className="picker-strategy-card__desc">{t('scope.profileHint', '在此窗口下应用独立手势动作')}</div>
+              <div className="picker-strategy-card__title">{t('scope.effectProfile', 'Use profile')}</div>
+              <div className="picker-strategy-card__desc">{t('scope.profileHint', 'Switch to this profile when the window matches')}</div>
             </div>
             {draft.effect === 2 && (
               <div className="picker-strategy-card__check">
@@ -525,7 +525,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
               <Ban size={16} />
             </div>
             <div className="picker-strategy-card__content">
-              <div className="picker-strategy-card__title">{t('scope.effectDisable', '禁用手势 (免打扰)')}</div>
+              <div className="picker-strategy-card__title">{t('scope.effectDisable', 'Disable gestures')}</div>
               <div className="picker-strategy-card__desc">在此窗口下完全关闭鼠标手势</div>
             </div>
             {draft.effect === 1 && (
@@ -538,7 +538,7 @@ export const ScopeRuleModal: FC<Props> = ({ initial, profileNames, onSave, onClo
       </div>
 
       {draft.effect === 2 && (
-        <Field label={t('scope.profile', '切换手势配置集')} hint={t('scope.profileHint', '在此窗口下自动应用指定的手势映射配置')}>
+        <Field label={t('scope.profile', 'Gesture Profile')} hint={t('scope.profileHint', 'Switch to this profile when the window matches')}>
           <Select
             value={draft.profileName || (profileNames[0] ?? '')}
             options={profileNames.map((n) => ({ value: n, label: n }))}

@@ -284,7 +284,8 @@
         "name": "鼠标演示与特效",
         "description": "提供光标快速聚焦、鼠标左/中/右键点击波纹动效与移动轨迹流光，专为会议演示与教学录屏打造。"
       }
-    }
+    },
+    "title": "功能模块与扩展插件"
   },
   "capture": {
     "title": "截屏工具设置",
@@ -802,7 +803,10 @@
     "maxResults200": "200 条",
     "initialIndexingTitle": "正在极速构建并固化全盘文件索引...",
     "initialIndexingDesc": "首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。",
-    "indexReadyToast": "全盘文件索引固化完成，已就绪！"
+    "indexReadyToast": "全盘文件索引固化完成，已就绪！",
+    "openFolderFailed": "定位目录失败",
+    "copyFailed": "复制路径失败",
+    "noContentResults": "未在文档或代码内容中找到匹配文本"
   },
   "searchPage": {
     "tabSettings": "基础与热键",
@@ -1006,7 +1010,9 @@
     "testSpotlight": "立即体验聚光灯",
     "saved": "聚光灯设置已保存",
     "saveFailed": "保存聚光灯设置失败",
-    "resetSuccess": "已恢复默认设置"
+    "resetSuccess": "已恢复默认设置",
+    "clickColorsSection": "独立按键色彩体系",
+    "clickColorsSectionDesc": "分别为鼠标左键、右键与中键设置专属点击色彩"
   },
   "window": {
     "minimize": "最小化",
@@ -1068,6 +1074,15 @@
     "includeFunctionKeys": "包含独立功能键",
     "includeFunctionKeysDesc": "包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显",
     "opacity": "整体不透明度",
-    "opacityDesc": "按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。"
+    "opacityDesc": "按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。",
+    "subsequentKeyAnimDesc": "连续击键时后续按键的过渡动画动效",
+    "resetDefaults": "恢复默认设置",
+    "rowCascadeAnim": "行瀑布级联进场动画",
+    "rowCascadeAnimDesc": "新按键行创建时的平滑级联上浮动效",
+    "exitDriftAnim": "离场渐隐飘逸动效",
+    "exitDriftAnimDesc": "按键胶囊消退时的微悬浮轻柔渐隐动效",
+    "firstKeyAnim": "首键敲击入场动效",
+    "firstKeyAnimDesc": "组合键首个按键按下时的微弹簧缩放入场动效",
+    "subsequentKeyAnim": "后续连击过渡动效"
   }
 }

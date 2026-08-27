@@ -899,7 +899,7 @@ export default function SearchApp() {
             isInitialIndexingRef.current = false;
             setIsInitialIndexing(false);
             setServiceAvailable(true);
-            toast.success(t('search.indexReadyToast', '全盘文件索引固化完成，已就绪！'));
+            toast.success(t('search.indexReadyToast', 'Full disk index built and ready!'));
           } else {
             setIsInitialIndexing(false);
           }
@@ -1736,7 +1736,7 @@ export default function SearchApp() {
         await bridgeRequest('system.openFile', { path: result.path, filepath: result.path });
         hide();
       } catch {
-        setActionError(t('search.openFailed', '打开文件失败'));
+        setActionError(t('search.openFailed', 'Could not open this result'));
       }
     }
   }, [hide, t]);
@@ -1753,7 +1753,7 @@ export default function SearchApp() {
         await bridgeRequest('system.openFolder', { path: result.path, filepath: result.path });
         hide();
       } catch {
-        setActionError(t('search.openFolderFailed', '定位目录失败'));
+        setActionError(t('search.openFolderFailed'));
       }
     }
   }, [hide, t]);
@@ -1764,7 +1764,7 @@ export default function SearchApp() {
     const doNativeCopy = async () => {
       try {
         await bridgeRequest('system.copyText', { text: result.path });
-        toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+        toast.success(t('search.copiedPath', 'File path copied to clipboard'));
       } catch {
         try {
           const textarea = document.createElement('textarea');
@@ -1775,16 +1775,16 @@ export default function SearchApp() {
           textarea.select();
           document.execCommand('copy');
           document.body.removeChild(textarea);
-          toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+          toast.success(t('search.copiedPath', 'File path copied to clipboard'));
         } catch {
-          setActionError(t('search.copyFailed', '复制路径失败'));
+          setActionError(t('search.copyFailed'));
         }
       }
     };
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(result.path).then(() => {
-        toast.success(t('search.copiedPath', '已复制完整路径到剪贴板'));
+        toast.success(t('search.copiedPath', 'File path copied to clipboard'));
       }).catch(() => {
         void doNativeCopy();
       });
@@ -2205,7 +2205,7 @@ export default function SearchApp() {
 
   return (
     <main className={`search-app ${showViewSettings ? 'search-app--view-settings-open' : ''}`}>
-      <section className="search-container" aria-label={t('search.title', '快速文件搜索')}>
+      <section className="search-container" aria-label={t('search.title', 'Quick file search')}>
         <div 
           className="search-input-wrapper"
           onMouseDown={(e) => {
@@ -2242,7 +2242,7 @@ export default function SearchApp() {
             aria-activedescendant={sortedResults[selectedIndex] ? `search-result-${selectedIndex}` : undefined}
             spellCheck={false}
           />
-          {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', '正在构建索引/搜索...')} />}
+          {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', 'Loading...')} />}
           
           <button
             className="search-help-btn search-drag-btn"
@@ -3147,13 +3147,13 @@ export default function SearchApp() {
             </div>
             <div className="search-empty-title">
               {isInitialIndexing
-                ? t('search.initialIndexingTitle', '正在极速构建并固化全盘文件索引...')
-                : t('search.serviceStartingTitle', '正在极速连接文件索引服务...')}
+                ? t('search.initialIndexingTitle', 'Building and persisting full disk index...')
+                : t('search.serviceStartingTitle', 'Connecting to File Indexing Engine...')}
             </div>
             <div className="search-empty-desc">
               {isInitialIndexing
-                ? t('search.initialIndexingDesc', '首次唤起正在全量扫描本地磁盘 MFT 并固化索引文件，完成后即可享受 0 毫秒极速检索。')
-                : t('search.serviceStartingDesc', '正在按需唤醒文件索引引擎并加载磁盘缓存，完成后将自动呈现搜索结果，请稍候...')}
+                ? t('search.initialIndexingDesc', 'First run is scanning all local MFT tables and persisting index. Instant search will be ready in seconds.')
+                : t('search.serviceStartingDesc', 'Waking up the indexing engine on demand and loading disk cache. Results will appear automatically, please wait...')}
             </div>
             <div className="search-indexing-progress-bar-wrap">
               <div className="search-indexing-progress-bar-indeterminate" />
@@ -3164,7 +3164,7 @@ export default function SearchApp() {
         {!isInitialIndexing && !isServiceStarting && !serviceAvailable && (
           <div className="search-status" role="status">
             <ServerOff size={18} aria-hidden="true" />
-            <span>{t('search.serviceUnavailable', '文件索引服务暂不可用，正在尝试自动连接或静默拉起。')}</span>
+            <span>{t('search.serviceUnavailable', 'The file index service is unavailable. Repair or reinstall EasyTools to restore instant search.')}</span>
           </div>
         )}
 
@@ -3177,7 +3177,7 @@ export default function SearchApp() {
             </div>
             <div className="search-empty-title">
               {query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')
-                ? t('search.noContentResults', '未在文档或代码内容中找到匹配文本')
+                ? t('search.noContentResults')
                 : (activeCategory !== 'all' && activeCategory !== 'content')
                 ? `未在当前分类中找到符合条件的 ${CATEGORIES.find(c => c.id === activeCategory)?.label || ''} 文件`
                 : (query.trim().startsWith('ext:') || query.trim().startsWith('path:') || query.trim().startsWith('folder:') || query.trim().startsWith('dir:') || query.trim().startsWith('file:'))
@@ -3254,9 +3254,9 @@ export default function SearchApp() {
             <div className="search-footer-stat-item search-footer-stat-item--interactive" title="当前匹配到的文件与文件夹对象总数 · 点击右侧图标刷新 (F5)">
               <span>
                 {isServiceStarting ? (
-                  <><strong>{t('search.serviceConnectingStatus', '正在连接索引服务...')}</strong></>
+                  <><strong>{t('search.serviceConnectingStatus', 'Connecting to Index Service...')}</strong></>
                 ) : isInitialIndexing ? (
-                  <><strong>{t('search.initialIndexingTitle', '正在构建索引...')}</strong></>
+                  <><strong>{t('search.initialIndexingTitle', 'Building and persisting full disk index...')}</strong></>
                 ) : sortedResults.length > 0 ? (
                   <><strong>{sortedResults.length.toLocaleString()}</strong> 个对象</>
                 ) : (
@@ -3325,7 +3325,7 @@ export default function SearchApp() {
                   title="打开当前选中的文件 (Enter)"
                 >
                   <kbd>Enter</kbd>
-                  <span>{t('search.open', '打开')}</span>
+                  <span>{t('search.open', 'Open')}</span>
                 </button>
                 <button
                   type="button"
@@ -3334,7 +3334,7 @@ export default function SearchApp() {
                   title="在资源管理器中定位并选中该文件 (Ctrl+Enter)"
                 >
                   <kbd>Ctrl+Enter</kbd>
-                  <span>{t('search.openFolder', '定位')}</span>
+                  <span>{t('search.openFolder', 'Open Folder')}</span>
                 </button>
                 <button
                   type="button"
@@ -3385,7 +3385,7 @@ export default function SearchApp() {
               title="关闭搜索浮窗 (Esc)"
             >
               <kbd>Esc</kbd>
-              <span>{t('search.close', '关闭')}</span>
+              <span>{t('search.close', 'Close')}</span>
             </button>
           </div>
         </footer>

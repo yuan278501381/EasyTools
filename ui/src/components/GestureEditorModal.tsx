@@ -111,9 +111,9 @@ export const GestureEditorModal: FC<Props> = ({
   // 校验与智能冲突识别
   let codeError = '';
   if (!code) {
-    codeError = t('gestureEditor.gestureCodeRequired', '请在上方画板绘制手势或选择预设');
+    codeError = t('gestureEditor.gestureCodeRequired', 'Please draw or select a gesture on the canvas');
   } else if (!GESTURE_CODE_PATTERN.test(code)) {
-    codeError = t('gestureEditor.gestureCodeInvalid', '手势轨迹无效，请在画板上重新滑动绘制');
+    codeError = t('gestureEditor.gestureCodeInvalid', 'Invalid gesture track, please redraw on canvas');
   }
 
   // 检测是否与其它已有手势存在编码冲突
@@ -151,7 +151,7 @@ export const GestureEditorModal: FC<Props> = ({
       ? allOtherCodes.filter((c) => (c.startsWith(code) || code.startsWith(c)) && c !== code)
       : [];
 
-  const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired', '请填写动作名称');
+  const nameError = draft.action.name.trim() ? '' : t('gestureEditor.actionNameRequired', 'Action name is required');
   const canSave = !codeError && !nameError;
 
   const setAction = (patch: Partial<GestureMapping['action']>) =>
@@ -402,10 +402,10 @@ export const GestureEditorModal: FC<Props> = ({
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReplaceSimilarTracks(e.target.checked)}
           />
           <span className="gesture-replace-tracks-title">
-            {t('gestureEditor.replaceSimilarTracks', '替换所有相似手势轨迹')}
+            {t('gestureEditor.replaceSimilarTracks', 'Replace all similar gesture tracks')}
           </span>
           <span className="gesture-replace-tracks-subtitle">
-            ({t('gestureEditor.replaceSimilarHintAuto', '若存在相同轨迹将自动覆盖，保持操作唯一性')})
+            ({t('gestureEditor.replaceSimilarHintAuto', 'Automatically overwrites duplicate tracks to maintain unique mappings')})
           </span>
         </label>
       </div>

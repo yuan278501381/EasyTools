@@ -115,7 +115,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           onClick={() => onChange('auto')}
         >
           <Sparkles size={13} />
-          <span>{t('keycast.followBrandAccent', '跟随主题色')}</span>
+          <span>{t('keycast.followBrandAccent', 'Follow Theme Accent')}</span>
           <span className="keycast-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
         </button>
 
@@ -129,7 +129,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           }}
         >
           <Palette size={13} />
-          <span>{t('keycast.customColor', '自定义颜色')}</span>
+          <span>{t('keycast.customColor', 'Custom Color')}</span>
         </button>
       </div>
 
@@ -143,10 +143,10 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
                 type="button"
                 className="keycast-page__restore-capsule"
                 onClick={() => onChange('auto')}
-                title={t('keycast.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 主题色')}
+                title={t('keycast.restoreFollowBrandDesc', 'Switch back and link dynamically to EasyTools theme accent color')}
               >
                 <RotateCcw size={11} />
-                <span>{t('keycast.restoreFollowBrand', '恢复跟随主题色')}</span>
+                <span>{t('keycast.restoreFollowBrand', 'Follow Theme Accent')}</span>
               </button>
             )}
           </div>
@@ -215,7 +215,7 @@ export const KeycastPage: FC = () => {
       await bridgeRequest('keycast.updateSettings', { [key]: value });
     } catch (e) {
       setSettings((prev) => ({ ...prev, [key]: previous }));
-      toast.error(t('keycast.saveFailed', '保存设置失败'), { description: String(e) });
+      toast.error(t('keycast.saveFailed', 'Failed to save keycast settings'), { description: String(e) });
     }
   };
 
@@ -223,9 +223,9 @@ export const KeycastPage: FC = () => {
     try {
       await bridgeRequest('keycast.resetDefaults', {});
       setSettings(DEFAULT_SETTINGS);
-      toast.success(t('keycast.resetSuccess', '已恢复默认设置'));
+      toast.success(t('keycast.resetSuccess', 'Restored default keycast settings'));
     } catch (e) {
-      toast.error(t('keycast.saveFailed', '恢复默认失败'), { description: String(e) });
+      toast.error(t('keycast.saveFailed', 'Failed to save keycast settings'), { description: String(e) });
     }
   };
 
@@ -240,7 +240,7 @@ export const KeycastPage: FC = () => {
   const currentBrandAccentHex = ACCENT_COLOR_MAP[accent] || '#3b82f6';
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', '加载中...')}</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', 'Loading...')}</div>;
   }
 
   const POSITIONS: Array<{ id: KeycastSettings['position']; labelKey: string; icon: typeof ArrowDownLeft }> = [
@@ -274,11 +274,11 @@ export const KeycastPage: FC = () => {
       {/* ── 顶部操作栏 ──────────────────────────────────────────────── */}
       <div className="keycast-page__header">
         <div className="keycast-page__title-wrap">
-          <h2 className="keycast-page__title">{t('keycast.title', '按键回显')}</h2>
+          <h2 className="keycast-page__title">{t('keycast.title', 'Keycast')}</h2>
         </div>
-        <Button variant="ghost" onClick={handleResetDefaults} title={t('keycast.resetDefaults', '恢复默认')}>
+        <Button variant="ghost" onClick={handleResetDefaults} title={t('keycast.resetDefaults')}>
           <RotateCcw size={14} style={{ marginRight: 6 }} />
-          <span>{t('keycast.resetDefaults', '恢复默认')}</span>
+          <span>{t('keycast.resetDefaults')}</span>
         </Button>
       </div>
 
@@ -286,22 +286,22 @@ export const KeycastPage: FC = () => {
       <Card>
         <Toggle
           id="keycast-main-enabled"
-          label={t('keycast.mainToggle', '按键回显')}
-          description={t('keycast.mainToggleDesc', '在屏幕上呈现高质感晶体按键胶囊回显。')}
+          label={t('keycast.mainToggle', 'Keycast')}
+          description={t('keycast.mainToggleDesc', 'Render crystal keycap capsules on screen in real time.')}
           checked={settings.enabled}
           onChange={(v) => saveSetting('enabled', v)}
         />
         <Toggle
           id="keycast-auto-bypass"
-          label={t('keycast.autoBypassFullscreen', '全屏游戏/视频免打扰')}
-          description={t('keycast.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰暂停按键回显，防止 3D 游戏或观影时被干扰')}
+          label={t('keycast.autoBypassFullscreen', 'Auto Bypass on Fullscreen')}
+          description={t('keycast.autoBypassFullscreenDesc', 'Automatically suppress keycast overlay when exclusive fullscreen apps (e.g. 3D games or videos) are active')}
           checked={settings.autoBypassFullscreen}
           onChange={(v) => saveSetting('autoBypassFullscreen', v)}
         />
       </Card>
 
       {/* ── 2. 屏幕显示位置 ─────────────────────────────────────────── */}
-      <SettingGroup title={t('keycast.positionSection', '屏幕出现位置')} icon={<LayoutGrid size={18} />}>
+      <SettingGroup title={t('keycast.positionSection', 'Screen Position')} icon={<LayoutGrid size={18} />}>
         <div className="keycast-page__position-grid">
           {POSITIONS.map((pos) => {
             const isSelected = settings.position === pos.id;
@@ -325,7 +325,7 @@ export const KeycastPage: FC = () => {
       </SettingGroup>
 
       {/* ── 3. 按键过滤与回显策略 ────────────────────────────────────── */}
-      <SettingGroup title={t('keycast.filterSection', '按键过滤与回显策略')} icon={<Filter size={18} />}>
+      <SettingGroup title={t('keycast.filterSection', 'Filtering & Keystroke Policy')} icon={<Filter size={18} />}>
         <div className="keycast-page__filter-grid">
           {FILTER_MODES.map((mode) => {
             const isSelected = settings.filterMode === mode.id;
@@ -351,8 +351,8 @@ export const KeycastPage: FC = () => {
         <Card>
           <Toggle
             id="keycast-include-func-keys"
-            label={t('keycast.includeFunctionKeys', '包含独立功能键')}
-            description={t('keycast.includeFunctionKeysDesc', '包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显')}
+            label={t('keycast.includeFunctionKeys', 'Include Standalone Functional Keys')}
+            description={t('keycast.includeFunctionKeysDesc', 'Show standalone Space, Backspace, Delete, Enter, Tab, Arrow keys, and F1~F12; when disabled, only display them when combined with modifiers.')}
             checked={settings.includeFunctionKeys}
             onChange={(v) => saveSetting('includeFunctionKeys', v)}
           />
@@ -360,26 +360,26 @@ export const KeycastPage: FC = () => {
       </SettingGroup>
 
       {/* ── 4. 时序流与物理动效 ─────────────────────────────────────── */}
-      <SettingGroup title={t('keycast.motionSection', '时序流与物理动效')} icon={<Layers size={18} />}>
+      <SettingGroup title={t('keycast.motionSection', 'Timeline Flow & Physics Easing')} icon={<Layers size={18} />}>
         <Card>
           <Toggle
             id="keycast-merge-recent"
-            label={t('keycast.mergeRecentKeys', '连续按键同排横向追加')}
-            description={t('keycast.mergeRecentKeysDesc', '短时间内连续按键在同一排依次推入/冒出；达到屏幕中线或停顿后自动换行。')}
+            label={t('keycast.mergeRecentKeys', 'Horizontal In-Line Push')}
+            description={t('keycast.mergeRecentKeysDesc', 'Push recent keystrokes in the same row from right to left with spring damping; push row upward on timeout')}
             checked={settings.mergeRecentKeys}
             onChange={(v) => saveSetting('mergeRecentKeys', v)}
           />
           <Toggle
             id="keycast-row-cascade"
-            label={t('keycast.rowCascadeAnim', '新行换行时旧行级联上推')}
-            description={t('keycast.rowCascadeAnimDesc', '开启后新行从下方跃入，上方旧行伴随物理推力优雅上浮，呈现层级机械质感')}
+            label={t('keycast.rowCascadeAnim')}
+            description={t('keycast.rowCascadeAnimDesc')}
             checked={settings.rowCascadeAnim}
             onChange={(v) => saveSetting('rowCascadeAnim', v)}
           />
           <Toggle
             id="keycast-exit-drift"
-            label={t('keycast.exitDriftAnim', '按键消融时轻盈飘升')}
-            description={t('keycast.exitDriftAnimDesc', '停留寿命结束时伴随微幅轻盈向上飘升消融，消除生硬的瞬间闪退')}
+            label={t('keycast.exitDriftAnim')}
+            description={t('keycast.exitDriftAnimDesc')}
             checked={settings.exitDriftAnim}
             onChange={(v) => saveSetting('exitDriftAnim', v)}
           />
@@ -390,8 +390,8 @@ export const KeycastPage: FC = () => {
           {/* 首键进场动效 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.firstKeyAnim', '每排首键进场')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.firstKeyAnimDesc', '新排首个按键的物理进场方式')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.firstKeyAnim')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.firstKeyAnimDesc')}</span>
             </div>
             <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
               {([
@@ -415,8 +415,8 @@ export const KeycastPage: FC = () => {
           {/* 同排后续按键动效 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.subsequentKeyAnim', '同排后续按键')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.subsequentKeyAnimDesc', '同行连续输入的按键出现方式')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.subsequentKeyAnim')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.subsequentKeyAnimDesc')}</span>
             </div>
             <div className="keycast-page__capsule-wrap" style={{ marginTop: 8 }}>
               {([
@@ -441,8 +441,8 @@ export const KeycastPage: FC = () => {
           {settings.mergeRecentKeys && (
             <div className="keycast-page__prop-card">
               <div className="keycast-page__prop-header">
-                <span className="keycast-page__prop-title">{t('keycast.mergeTimeout', '同排合并间隔')}</span>
-                <span className="keycast-page__prop-desc">{t('keycast.mergeTimeoutDesc', '判定连续击键在同一排推入的时间窗口 (ms)。')}</span>
+                <span className="keycast-page__prop-title">{t('keycast.mergeTimeout', 'In-Line Push Timeout')}</span>
+                <span className="keycast-page__prop-desc">{t('keycast.mergeTimeoutDesc', 'Time window (ms) to merge consecutive keystrokes into the same horizontal line.')}</span>
               </div>
               <div className="keycast-page__prop-body">
                 <input
@@ -453,7 +453,7 @@ export const KeycastPage: FC = () => {
                   step={100}
                   value={settings.mergeTimeoutMs || 1200}
                   onChange={(e) => saveSetting('mergeTimeoutMs', Number(e.target.value) || 1200)}
-                  aria-label={t('keycast.mergeTimeout', '同排合并间隔')}
+                  aria-label={t('keycast.mergeTimeout', 'In-Line Push Timeout')}
                 />
               </div>
             </div>
@@ -462,8 +462,8 @@ export const KeycastPage: FC = () => {
           {/* 显示时长 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.displayDuration', '停留时长')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.displayDurationDesc', '按键胶囊在屏幕上的停留时间 (ms)。')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.displayDuration', 'Hold Duration')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.displayDurationDesc', 'Duration each keystroke capsule stays on screen (ms).')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <input
@@ -474,7 +474,7 @@ export const KeycastPage: FC = () => {
                 step={500}
                 value={settings.displayDurationMs}
                 onChange={(e) => saveSetting('displayDurationMs', Number(e.target.value) || 2500)}
-                aria-label={t('keycast.displayDuration', '停留时长')}
+                aria-label={t('keycast.displayDuration', 'Hold Duration')}
               />
             </div>
           </div>
@@ -483,8 +483,8 @@ export const KeycastPage: FC = () => {
           {/* 整体不透明度 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.opacity', '整体不透明度')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', '按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.opacity', 'Overall Opacity')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', 'Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay.')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <input
@@ -495,15 +495,15 @@ export const KeycastPage: FC = () => {
                 step={5}
                 value={settings.opacity ?? 100}
                 onChange={(e) => saveSetting('opacity', Math.max(20, Math.min(100, Number(e.target.value) || 100)))}
-                aria-label={t('keycast.opacity', '整体不透明度')}
+                aria-label={t('keycast.opacity', 'Overall Opacity')}
               />
             </div>
           </div>
           {/* 文字大小 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.fontSize', '键帽字号')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.fontSizeDesc', '回显按键的字体大小 (px)。')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.fontSize', 'Keycap Font Size')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.fontSizeDesc', 'Base font size for keycast (px). Capsule trays, modifier keycaps, Windows logo and paddings scale dynamically in golden ratio.')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <input
@@ -514,15 +514,15 @@ export const KeycastPage: FC = () => {
                 step={2}
                 value={settings.fontSize}
                 onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 20)}
-                aria-label={t('keycast.fontSize', '键帽字号')}
+                aria-label={t('keycast.fontSize', 'Keycap Font Size')}
               />
             </div>
           </div>
 
           {/* 文字颜色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('keycast.textColor', '文字颜色')}
-            desc={t('keycast.textColorDesc', '按键文字的颜色。')}
+            label={t('keycast.textColor', 'Text Color')}
+            desc={t('keycast.textColorDesc', 'Color of the key text.')}
             value={settings.textColor}
             defaultCustomFallback="#000000"
             brandAccentHex={currentBrandAccentHex}
@@ -531,8 +531,8 @@ export const KeycastPage: FC = () => {
 
           {/* 背景颜色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('keycast.backgroundColor', '胶囊背景色')}
-            desc={t('keycast.backgroundColorDesc', '按键胶囊底座的颜色。')}
+            label={t('keycast.backgroundColor', 'Capsule Background')}
+            desc={t('keycast.backgroundColorDesc', 'Color of the keycap capsule background.')}
             value={settings.backgroundColor}
             defaultCustomFallback="#1c1c22"
             brandAccentHex={currentBrandAccentHex}
@@ -541,8 +541,8 @@ export const KeycastPage: FC = () => {
 
           {/* 修饰键底色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('keycast.modifierKeycapColor', '修饰键底色')}
-            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随主题色）。')}
+            label={t('keycast.modifierKeycapColor', 'Modifier Key Background')}
+            desc={t('keycast.modifierKeycapColorDesc', 'Base background color for Ctrl / Alt / Win keys (follows theme accent by default).')}
             value={settings.modifierKeycapColor || 'auto'}
             defaultCustomFallback="#3b82f6"
             brandAccentHex={currentBrandAccentHex}
@@ -552,8 +552,8 @@ export const KeycastPage: FC = () => {
           {/* 修饰键底色不透明度 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.modifierKeycapOpacityDesc', '按键底色不透明度 (0%~100%，仅影响底色，按键文字始终清晰显示)。')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.modifierKeycapOpacity', 'Modifier Base Opacity')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.modifierKeycapOpacityDesc', 'Background base opacity (0%~100%, only affects background, text remains crisp and clear).')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <input
@@ -564,15 +564,15 @@ export const KeycastPage: FC = () => {
                 step={2}
                 value={settings.modifierKeycapOpacity ?? 65}
                 onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 65)))}
-                aria-label={t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}
+                aria-label={t('keycast.modifierKeycapOpacity', 'Modifier Base Opacity')}
               />
             </div>
           </div>
 
           {/* 修饰键文字颜色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('keycast.modifierTextColor', '修饰键文字颜色')}
-            desc={t('keycast.modifierTextColorDesc', 'Ctrl / Alt / Win 等按键文字与徽标颜色（默认智能自适应底色明暗，暗底纯白、亮底深黑）。')}
+            label={t('keycast.modifierTextColor', 'Modifier Key Text Color')}
+            desc={t('keycast.modifierTextColorDesc', 'Text and icon color for Ctrl / Alt / Win keys (smart adaptive contrast by default, white on dark, black on light).')}
             value={settings.modifierTextColor || 'auto'}
             defaultCustomFallback="#ffffff"
             brandAccentHex={currentBrandAccentHex}
@@ -585,7 +585,7 @@ export const KeycastPage: FC = () => {
       <div className="keycast-page__action-footer">
         <Button variant="primary" onClick={handleTestKeycast}>
           <Play size={14} style={{ marginRight: 6 }} />
-          <span>{t('keycast.testKeycast', '立即体验按键回显')}</span>
+          <span>{t('keycast.testKeycast', 'Try Keycast Now')}</span>
         </Button>
       </div>
     </div>

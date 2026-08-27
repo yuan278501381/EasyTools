@@ -284,7 +284,8 @@
         "name": "Mouse Presentation & FX",
         "description": "Spotlight cursor focus, click ripple effects, and motion trails for demos and screencasts."
       }
-    }
+    },
+    "title": "Plugins & Extensions"
   },
   "capture": {
     "title": "Screen Capture Settings",
@@ -802,7 +803,10 @@
     "maxResults200": "200 items",
     "initialIndexingTitle": "Building and persisting full disk index...",
     "initialIndexingDesc": "First run is scanning all local MFT tables and persisting index. Instant search will be ready in seconds.",
-    "indexReadyToast": "Full disk index built and ready!"
+    "indexReadyToast": "Full disk index built and ready!",
+    "openFolderFailed": "Failed to open folder",
+    "copyFailed": "Failed to copy path",
+    "noContentResults": "No matching text found in document or code contents"
   },
   "searchPage": {
     "tabSettings": "Settings & Hotkey",
@@ -1006,7 +1010,9 @@
     "testSpotlight": "Try Spotlight Now",
     "saved": "Spotlight settings saved",
     "saveFailed": "Failed to save spotlight settings",
-    "resetSuccess": "Restored default spotlight settings"
+    "resetSuccess": "Restored default spotlight settings",
+    "clickColorsSection": "Independent Click Colors",
+    "clickColorsSectionDesc": "Set custom distinct colors for Left, Right, and Middle clicks"
   },
   "window": {
     "minimize": "Minimize",
@@ -1068,6 +1074,15 @@
     "includeFunctionKeys": "Include Standalone Functional Keys",
     "includeFunctionKeysDesc": "Show standalone Space, Backspace, Delete, Enter, Tab, Arrow keys, and F1~F12; when disabled, only display them when combined with modifiers.",
     "opacity": "Overall Opacity",
-    "opacityDesc": "Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay."
+    "opacityDesc": "Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay.",
+    "subsequentKeyAnimDesc": "Animation effect when subsequent keys are pressed in sequence",
+    "resetDefaults": "Reset Defaults",
+    "rowCascadeAnim": "Row Cascade Animation",
+    "rowCascadeAnimDesc": "Smooth sliding cascade animation when new text rows are created",
+    "exitDriftAnim": "Exit Drift Animation",
+    "exitDriftAnimDesc": "Subtle floating and fading drift when key capsules disappear",
+    "firstKeyAnim": "First Key Entry Animation",
+    "firstKeyAnimDesc": "Scale and bounce spring animation when the first key in a combo is pressed",
+    "subsequentKeyAnim": "Subsequent Key Animation"
   }
 }

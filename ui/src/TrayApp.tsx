@@ -257,13 +257,13 @@ export default function TrayApp() {
   return (
     <div ref={menuRef} className="tray-menu" role="menu">
       {/* 顶部 Mini Control Center 快捷胶囊栏 (基于数据驱动注册表自适应网格) */}
-      <div className="tray-control-center" role="group" aria-label={t('tray.quickControls', '快捷功能开关')}>
+      <div className="tray-control-center" role="group" aria-label={t('tray.quickControls', 'Quick Controls')}>
         {TRAY_CONTROL_REGISTRY.map((item) => {
           const active = isItemActive(item);
           const IconComponent = item.icon;
           const label = t(item.labelKey as never, item.fallbackLabel);
           const desc = t(item.descKey as never, item.fallbackDesc);
-          const statusText = active ? t('tray.enabled', '已启用') : t('tray.disabled', '已停用');
+          const statusText = active ? t('tray.enabled', 'Enabled') : t('tray.disabled', 'Disabled');
 
           return (
             <button
@@ -288,14 +288,14 @@ export default function TrayApp() {
           type="button"
           className="tray-restart-banner"
           onClick={() => void applyPendingRestart()}
-          title={t('tray.restartToApply', '插件状态已更新 (点击立即重启)')}
+          title={t('tray.restartToApply', 'Plugin settings updated')}
         >
           <span className="tray-restart-banner__info">
             <RotateCw size={12} className="tray-menu__icon--spinning" />
-            <span>{t('tray.restartToApply', '设置已更新')}</span>
+            <span>{t('tray.restartToApply', 'Plugin settings updated')}</span>
           </span>
           <span className="tray-restart-banner__btn">
-            {t('tray.restartNow', '重启')}
+            {t('tray.restartNow', 'Restart')}
           </span>
         </button>
       )}
@@ -305,18 +305,18 @@ export default function TrayApp() {
       {/* 核心操作项 */}
       <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('openSettings')}>
         <Settings size={15} className="tray-menu__icon" />
-        <span className="tray-menu__label">{t('tray.settings', '设置')}</span>
+        <span className="tray-menu__label">{t('tray.settings', 'Settings')}</span>
       </button>
 
       {captureActive && (
         <>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('screenshot')}>
             <Camera size={15} className="tray-menu__icon" />
-            <span className="tray-menu__label">{t('tray.capture', '截图')}</span>
+            <span className="tray-menu__label">{t('tray.capture', 'Capture')}</span>
           </button>
           <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('recording')}>
             <Video size={15} className="tray-menu__icon" />
-            <span className="tray-menu__label">{t('tray.recording', '录屏')}</span>
+            <span className="tray-menu__label">{t('tray.recording', 'Recording')}</span>
           </button>
         </>
       )}
@@ -324,7 +324,7 @@ export default function TrayApp() {
       {searchActive && (
         <button type="button" className="tray-menu__item" disabled={busy} onClick={() => void handleAction('search')}>
           <Search size={15} className="tray-menu__icon" />
-          <span className="tray-menu__label">{t('tray.search', '文件搜索')}</span>
+          <span className="tray-menu__label">{t('tray.search', 'File Search')}</span>
         </button>
       )}
 
@@ -335,14 +335,14 @@ export default function TrayApp() {
         className={`tray-menu__item tray-menu__item--admin ${elevated ? 'tray-menu__item--admin-active' : ''} ${elevating ? 'tray-menu__item--elevating' : ''}`}
         disabled={busy || elevating}
         onClick={() => void handleToggleElevated()}
-        title={elevated ? t('tray.adminActiveDesc', '当前已具备最高特权 (点击降权重启)') : t('tray.restartElevated', '以管理员身份运行')}
+        title={elevated ? t('tray.adminActiveDesc', 'Running with highest privileges') : t('tray.restartElevated', 'Run as Administrator')}
       >
         {elevated ? (
           <ShieldCheck size={15} className="tray-menu__icon tray-menu__icon--admin" />
         ) : (
           <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
         )}
-        <span className="tray-menu__label">{t('tray.restartElevated', '以管理员身份运行')}</span>
+        <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
         <span className={`tray-menu__dot ${elevated ? 'tray-menu__dot--active' : ''}`} />
       </button>
 
@@ -350,7 +350,7 @@ export default function TrayApp() {
 
       <button type="button" className="tray-menu__item tray-menu__item--danger" disabled={busy} onClick={() => void handleAction('exit')}>
         <LogOut size={15} className="tray-menu__icon" />
-        <span className="tray-menu__label">{t('tray.exit', '退出')}</span>
+        <span className="tray-menu__label">{t('tray.exit', 'Exit')}</span>
       </button>
     </div>
   );

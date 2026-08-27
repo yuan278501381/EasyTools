@@ -112,12 +112,12 @@ export const SearchPage: FC = () => {
       const res = await bridgeRequest<ServiceStatus>('search.getServiceStatus');
       setServiceStatus(res);
       if (res.available) {
-        toast.success(t('searchPage.serviceOk', '文件索引管道连接正常，服务运行中'));
+        toast.success(t('searchPage.serviceOk', 'Index daemon connected via local named pipe'));
       } else {
-        toast.error(t('searchPage.serviceDown', '索引服务未响应，请检查管理员权限'));
+        toast.error(t('searchPage.serviceDown', 'Index service not responding, check administrator privileges'));
       }
     } catch {
-      toast.error(t('searchPage.serviceDown', '连接索引服务超时'));
+      toast.error(t('searchPage.serviceDown', 'Index service not responding, check administrator privileges'));
     } finally {
       setChecking(false);
     }
@@ -128,10 +128,10 @@ export const SearchPage: FC = () => {
   };
 
   const tabs: TabItem<'settings' | 'syntax' | 'regex' | 'status'>[] = [
-    { id: 'settings', label: t('searchPage.tabSettings', '基础与热键'), icon: <Search size={16} /> },
-    { id: 'syntax', label: t('searchPage.tabSyntax', '搜索语法手册'), icon: <BookOpen size={16} /> },
-    { id: 'regex', label: t('searchPage.tabRegex', '正则表达式语法'), icon: <Code2 size={16} /> },
-    { id: 'status', label: t('searchPage.tabStatus', '服务与索引'), icon: <HardDrive size={16} /> },
+    { id: 'settings', label: t('searchPage.tabSettings', 'Settings & Hotkey'), icon: <Search size={16} /> },
+    { id: 'syntax', label: t('searchPage.tabSyntax', 'Search Syntax Manual'), icon: <BookOpen size={16} /> },
+    { id: 'regex', label: t('searchPage.tabRegex', 'Regular Expressions'), icon: <Code2 size={16} /> },
+    { id: 'status', label: t('searchPage.tabStatus', 'Service & Index'), icon: <HardDrive size={16} /> },
   ];
 
   return (
@@ -141,22 +141,22 @@ export const SearchPage: FC = () => {
         tabs={tabs}
         activeId={activeTab}
         onChange={(id) => setActiveTab(id as typeof activeTab)}
-        ariaLabel={t('search.title', '文件搜索')}
+        ariaLabel={t('search.title', 'Quick file search')}
       />
 
       {/* ── 1. 基础设置 ────────────────────────────────────────────── */}
       {activeTab === 'settings' && (
         <div className="search-page__content">
-          <SettingGroup title={t('searchPage.hotkeyConfig', '快捷键与触发')} icon={<Sparkles size={18} />}>
+          <SettingGroup title={t('searchPage.hotkeyConfig', 'Hotkey & Trigger')} icon={<Sparkles size={18} />}>
             <Card>
               <SettingRow
                 label={
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>{t('searchPage.toggleHotkey', '呼出/隐藏搜索框快捷键')}</span>
+                    <span>{t('searchPage.toggleHotkey', 'Toggle Search Bar Shortcut')}</span>
                     <HotkeyStatusBadge entry={getHotkey('Toggle Search')} />
                   </div>
                 }
-                description={t('searchPage.toggleHotkeyDesc', '默认 Alt + Space，全局即刻唤起 Fluent 浮空搜索条')}
+                description={t('searchPage.toggleHotkeyDesc', 'Default Alt + Space, instantly summons the Fluent search overlay')}
               >
                 <HotkeyRecorder
                   id="search-toggle-hotkey"
@@ -167,8 +167,8 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
-                label={t('searchPage.autoBypassFullscreen', '全屏游戏/视频免打扰')}
-                description={t('searchPage.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰忽略快捷键，防止 3D 游戏或全屏观影时误唤出搜索框')}
+                label={t('searchPage.autoBypassFullscreen', 'Fullscreen Game/Video Bypass')}
+                description={t('searchPage.autoBypassFullscreenDesc', 'Automatically suppress search hotkey when foreground window is in exclusive fullscreen mode to prevent disrupting gaming or video playback')}
               >
                 <Toggle
                   id="search-auto-bypass-toggle"
@@ -178,22 +178,22 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
-                label={t('searchPage.quickTest', '立即体验搜索')}
-                description={t('searchPage.quickTestDesc', '测试浮动搜索条的动画弹出与响应速度')}
+                label={t('searchPage.quickTest', 'Test Search Bar')}
+                description={t('searchPage.quickTestDesc', 'Test the floating search overlay animation and latency')}
               >
                 <Button variant="primary" onClick={launchSearch}>
                   <Play size={14} style={{ marginRight: 6 }} />
-                  {t('searchPage.openNow', '唤起搜索框')}
+                  {t('searchPage.openNow', 'Summon Search Bar')}
                 </Button>
               </SettingRow>
             </Card>
           </SettingGroup>
 
-          <SettingGroup title={t('searchPage.searchBehavior', '搜索偏好与行为')} icon={<FolderSearch size={18} />}>
+          <SettingGroup title={t('searchPage.searchBehavior', 'Preferences & Behavior')} icon={<FolderSearch size={18} />}>
             <Card>
               <SettingRow
-                label={t('searchPage.pinyinTitle', '智能拼音搜索')}
-                description={t('searchPage.pinyinDesc', '支持中文拼音首字母（如 wx 搜微信）和全拼检索')}
+                label={t('searchPage.pinyinTitle', 'Smart Pinyin Search')}
+                description={t('searchPage.pinyinDesc', 'Supports Chinese Pinyin initials (e.g. wx for WeChat) and full pinyin')}
               >
                 <Toggle
                   id="search-pinyin-toggle"
@@ -203,8 +203,8 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
-                label={t('searchPage.matchPathTitle', '默认匹配完整路径')}
-                description={t('searchPage.matchPathDesc', '开启后搜索词将在文件绝对路径中检索，而非仅文件名')}
+                label={t('searchPage.matchPathTitle', 'Match Full Path by Default')}
+                description={t('searchPage.matchPathDesc', 'Search within file paths in addition to file names')}
               >
                 <Toggle
                   id="search-matchpath-toggle"
@@ -214,8 +214,8 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
-                label={t('searchPage.caseTitle', '区分大小写')}
-                description={t('searchPage.caseDesc', '默认不区分大小写；可随时在搜索词中使用 case: 前缀临时开启')}
+                label={t('searchPage.caseTitle', 'Case Sensitive')}
+                description={t('searchPage.caseDesc', 'Match exact case; can also be toggled with case: prefix in query')}
               >
                 <Toggle
                   id="search-case-toggle"
@@ -225,8 +225,8 @@ export const SearchPage: FC = () => {
               </SettingRow>
 
               <SettingRow
-                label={t('searchPage.keepServiceTitle', '退出后保持索引常驻')}
-                description={t('searchPage.keepServiceDesc', '索引常驻约占数百 MB 内存。默认随主程序一起退出并释放，代价是下次首搜需等待几秒重建；开启后始终秒开')}
+                label={t('searchPage.keepServiceTitle', 'Keep Index Resident After Exit')}
+                description={t('searchPage.keepServiceDesc', 'The index holds several hundred MB. By default it exits with the app and frees that memory, at the cost of a few seconds before the first search; keep it resident for instant search')}
               >
                 <Toggle
                   id="search-keep-service-toggle"
@@ -242,7 +242,7 @@ export const SearchPage: FC = () => {
       {/* ── 2. 搜索语法手册 ────────────────────────────────────────── */}
       {activeTab === 'syntax' && (
         <div className="search-page__content">
-          <Card title={t('searchPage.operatorsTitle', '操作符与组合')}>
+          <Card title={t('searchPage.operatorsTitle', 'Operators & Combination')}>
             <div className="syntax-table-wrapper">
               <table className="syntax-table">
                 <thead>
@@ -288,7 +288,7 @@ export const SearchPage: FC = () => {
             </div>
           </Card>
 
-          <Card title={t('searchPage.modifiersTitle', '过滤器与修饰符')}>
+          <Card title={t('searchPage.modifiersTitle', 'Filters & Modifiers')}>
             <div className="syntax-table-wrapper">
               <table className="syntax-table">
                 <thead>
@@ -364,7 +364,7 @@ export const SearchPage: FC = () => {
       {/* ── 3. 正则表达式手册 ──────────────────────────────────────── */}
       {activeTab === 'regex' && (
         <div className="search-page__content">
-          <Card title={t('searchPage.regexTitle', '正则表达式检索 (regex: 或 r:)')}>
+          <Card title={t('searchPage.regexTitle', 'Regular Expression Query (regex: or r:)')}>
             <p className="syntax-hint-p">
               使用 <code>regex:&lt;表达式&gt;</code> 或 <code>r:&lt;表达式&gt;</code> 前缀即可无缝启用标准 C++ ECMAScript 正则表达式检索。
             </p>
@@ -438,7 +438,7 @@ export const SearchPage: FC = () => {
       {/* ── 4. 磁盘与服务状态 ──────────────────────────────────────── */}
       {activeTab === 'status' && (
         <div className="search-page__content">
-          <Card title={t('searchPage.serviceMonitor', '全盘 MFT 索引引擎状态')}>
+          <Card title={t('searchPage.serviceMonitor', 'NTFS MFT Engine Monitor')}>
             <div className="service-status-card">
               <div className="service-status-header">
                 <div className={`status-indicator ${serviceStatus.available ? 'status-indicator--online' : 'status-indicator--offline'}`}>
@@ -446,35 +446,35 @@ export const SearchPage: FC = () => {
                 </div>
                 <div className="status-info">
                   <h3 className="status-title">
-                    {serviceStatus.available ? t('searchPage.serviceRunning', '索引引擎运行正常 (Local Named Pipe)') : t('searchPage.serviceStopped', '索引引擎未连接')}
+                    {serviceStatus.available ? t('searchPage.serviceRunning', 'Indexing Engine Running (Local Named Pipe)') : t('searchPage.serviceStopped', 'Indexing Engine Disconnected')}
                   </h3>
                   <p className="status-desc">
                     {serviceStatus.available
-                      ? t('searchPage.serviceRunningDesc', 'NTFS 主文件表 (MFT) 与 USN 日志监听已挂载，毫秒级检索已就绪')
-                      : t('searchPage.serviceStoppedDesc', '正在尝试后台自动静默拉起；亦可点击下方按钮重新检测')}
+                      ? t('searchPage.serviceRunningDesc', 'NTFS MFT tree and USN journal monitoring are mounted and ready')
+                      : t('searchPage.serviceStoppedDesc', 'Attempting background auto-start; or click below to retry')}
                   </p>
                 </div>
                 <Button variant="ghost" onClick={checkService} disabled={checking}>
                   <RotateCw size={14} className={checking ? 'animate-spin' : ''} style={{ marginRight: 6 }} />
-                  {t('searchPage.checkNow', '重新检测')}
+                  {t('searchPage.checkNow', 'Check Now')}
                 </Button>
               </div>
 
               <div className="service-details-grid">
                 <div className="detail-item">
-                  <span className="detail-label">{t('searchPage.pipeAddr', '跨进程通信管道')}</span>
+                  <span className="detail-label">{t('searchPage.pipeAddr', 'IPC Pipe Address')}</span>
                   <span className="detail-value"><code>{serviceStatus.pipeName}</code></span>
                 </div>
                 <div className="detail-item">
-                  <span className="detail-label">{t('searchPage.indexTech', '索引技术架构')}</span>
+                  <span className="detail-label">{t('searchPage.indexTech', 'Indexing Architecture')}</span>
                   <span className="detail-value">NTFS MFT 内存树 + USN Journal 增量监听</span>
                 </div>
                 <div className="detail-item">
-                  <span className="detail-label">{t('searchPage.pinyinTech', '拼音检索引擎')}</span>
+                  <span className="detail-label">{t('searchPage.pinyinTech', 'Pinyin Engine')}</span>
                   <span className="detail-value">零堆分配 GBK/Unicode 双向全拼与首字母表</span>
                 </div>
                 <div className="detail-item">
-                  <span className="detail-label">{t('searchPage.daemonMode', '运行架构模式')}</span>
+                  <span className="detail-label">{t('searchPage.daemonMode', 'Daemon Mode')}</span>
                   <span className="detail-value">双模自适应（Windows 系统服务 / 独立无窗后台守护）</span>
                 </div>
               </div>

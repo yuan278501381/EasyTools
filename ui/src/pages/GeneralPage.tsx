@@ -119,8 +119,14 @@ export const GeneralPage: FC = () => {
     const applyLocalValue = (localValue: GeneralSettings[K]) => {
       if (key === 'language') {
         const langValue = String(localValue);
-        if (langValue === 'auto') void i18n.changeLanguage(navigator.language);
-        else void i18n.changeLanguage(langValue);
+        try {
+          localStorage.setItem('easytools:language', langValue);
+        } catch (e) {
+          void e;
+        }
+        if (langValue === 'auto') void i18n.changeLanguage(navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');
+        else void i18n.changeLanguage(langValue.startsWith('zh') ? 'zh' : 'en');
+        window.dispatchEvent(new CustomEvent('easytools:language-changed', { detail: langValue }));
       } else if (key === 'theme') {
         window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: localValue }));
       }
@@ -349,18 +355,18 @@ export const GeneralPage: FC = () => {
             />
           </SettingRow>
 
-          <SettingRow label={t('general.fontFamily', '界面显示字体')} description={t('general.fontFamilyDesc', '自定义界面字体呈现。所有选项均在应用沙箱内生效，0系统写入，0卸载残留')}>
+          <SettingRow label={t('general.fontFamily', 'Interface Font Family')} description={t('general.fontFamilyDesc', 'Customize UI typography. All fonts are app-scoped with zero system directory pollution and zero uninstaller leftovers.')}>
             <Select
               id="fontFamily"
               value={settings.fontFamily || 'auto'}
               onChange={(v) => updateSetting('fontFamily', v)}
               options={[
-                { value: 'auto', label: t('general.fontFamilyAuto', '智能自适应 (推荐 · 优先大中宫超清)') },
-                { value: 'noto-sans-sc', label: t('general.fontFamilyNotoSans', '超清思源黑体 (Noto Sans SC · 饱满清晰)') },
-                { value: 'harmony-sans', label: t('general.fontFamilyHarmony', '鸿蒙 / 小米黑体 (HarmonyOS / MiSans)') },
-                { value: 'yahei', label: t('general.fontFamilyYahei', '微软正黑 / 雅黑 (Microsoft YaHei UI)') },
-                { value: 'pingfang', label: t('general.fontFamilyPingfang', 'Apple 苹方质感 (PingFang SC)') },
-                { value: 'system', label: t('general.fontFamilySystem', '系统原生默认 (System UI)') },
+                { value: 'auto', label: t('general.fontFamilyAuto', 'Smart Adaptive (Recommended · Native High-DPI)') },
+                { value: 'noto-sans-sc', label: t('general.fontFamilyNotoSans', 'Ultra-Clear Noto Sans SC (Crisp & Solid)') },
+                { value: 'harmony-sans', label: t('general.fontFamilyHarmony', 'HarmonyOS / MiSans Style') },
+                { value: 'yahei', label: t('general.fontFamilyYahei', 'Microsoft YaHei UI (Classic Windows)') },
+                { value: 'pingfang', label: t('general.fontFamilyPingfang', 'Apple PingFang SC Style') },
+                { value: 'system', label: t('general.fontFamilySystem', 'System Default (System UI)') },
               ]}
             />
           </SettingRow>
@@ -377,10 +383,10 @@ export const GeneralPage: FC = () => {
           }}>
             <div style={{ fontWeight: 650, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <ShieldCheck size={14} style={{ color: 'var(--primary)' }} />
-              <span>{t('general.fontFallbackTitle', '智能多语言级联与降级机制')}</span>
+              <span>{t('general.fontFallbackTitle', 'Intelligent Polyglot Cascading & Fallback Pipeline')}</span>
             </div>
             <div>
-              {t('general.fontFallbackDesc', '1. 优先调用所选字体族渲染正文；2. 当特定字符、生僻汉字、日韩文或系统未预装所选字体时，DirectWrite 引擎将通过 Glyph-Level 逐字字形回退平滑降级至系统原厂优质黑体（微软雅黑 UI / 苹方 / Segoe UI），100% 杜绝方框豆腐块与乱码；3. 零系统目录写入，升级卸载完全纯净。')}
+              {t('general.fontFallbackDesc', '1. Primary glyphs are rendered with the preferred font family; 2. Automatically triggers Glyph-Level Fallback to native flagship fonts (YaHei UI / PingFang / Segoe UI) whenever missing glyphs or unsupported characters occur, completely preventing square tofu (□) and rendering glitches; 3. Zero system directory pollution with 100% clean portability.')}
             </div>
           </div>
 
@@ -440,7 +446,7 @@ export const GeneralPage: FC = () => {
             />
           </SettingRow>
 
-          <SettingRow label={t('general.openLogDir', '日志目录')} description={t('general.openLogDirDesc', '打开系统诊断日志与故障排查记录所在文件夹')}>
+          <SettingRow label={t('general.openLogDir', 'Log Directory')} description={t('general.openLogDirDesc', 'Open the folder containing diagnostic and troubleshooting logs')}>
             <Button
               variant="secondary"
               onClick={() => {
@@ -448,11 +454,11 @@ export const GeneralPage: FC = () => {
               }}
             >
               <FolderOpen size={15} style={{ marginRight: 6 }} />
-              {t('general.openLogDirBtn', '打开日志目录')}
+              {t('general.openLogDirBtn', 'Open Log Directory')}
             </Button>
           </SettingRow>
 
-          <SettingRow label={t('general.exportLogs', '导出诊断日志')} description={t('general.exportLogsDesc', '将所有运行诊断日志与系统环境报告导出为文件，便于排查反馈')}>
+          <SettingRow label={t('general.exportLogs', 'Export Diagnostic Logs')} description={t('general.exportLogsDesc', 'Export all diagnostic logs and system environment reports as a file')}>
             <Button
               variant="secondary"
               onClick={async () => {
@@ -460,14 +466,14 @@ export const GeneralPage: FC = () => {
                   const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
                   if (res.cancelled) return;
                   if (!res.success) throw new Error(res.error || '导出失败');
-                  toast.success(t('general.exportLogsSuccess', '诊断日志已成功导出并定位'));
+                  toast.success(t('general.exportLogsSuccess', 'Diagnostic logs exported and highlighted successfully'));
                 } catch (e) {
-                  toast.error(t('general.exportLogsFailed', '日志导出失败'), { description: String(e) });
+                  toast.error(t('general.exportLogsFailed', 'Failed to export diagnostic logs'), { description: String(e) });
                 }
               }}
             >
               <Download size={15} style={{ marginRight: 6 }} />
-              {t('general.exportLogsBtn', '导出日志')}
+              {t('general.exportLogsBtn', 'Export Logs')}
             </Button>
           </SettingRow>
         </Card>

@@ -519,11 +519,11 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
       {/* 底部专业热力能谱图例栏 & 常驻今日最高频指标 */}
       <div className="keyboard-heatmap__footer">
         <div className="keyboard-heatmap__legend">
-          <span className="legend-label">{t('stats.lowHeat', '闲置 / 0')}</span>
+          <span className="legend-label">{t('stats.lowHeat', 'Idle / 0')}</span>
           <div className="legend-spectrum">
             <div className="spectrum-bar" />
           </div>
-          <span className="legend-label">{t('stats.highHeat', '极高频 (Peak)')}</span>
+          <span className="legend-label">{t('stats.highHeat', 'Peak')}</span>
         </div>
 
         {topKey.count > 0 ? (
@@ -532,11 +532,11 @@ export const KeyboardHeatmap: FC<KeyboardHeatmapProps> = ({ keyMap }) => {
               <Flame size={12} strokeWidth={2.5} className="top-badge-flame-icon" />
             </div>
             <div className="top-badge-content">
-              <span className="top-badge-label">{t('stats.topKey', '今日最高频')}:</span>
+              <span className="top-badge-label">{t('stats.topKey', 'Top Key Today')}:</span>
               <span className="top-badge-key-name">{topKey.fullName || topKey.label}</span>
               <span className="top-badge-stat">
                 <span className="top-badge-count">{topKey.count.toLocaleString()}</span>
-                <span className="top-badge-unit">{t('stats.times', '次')}</span>
+                <span className="top-badge-unit">{t('stats.times', 'times')}</span>
                 <span className="top-badge-divider">·</span>
                 <span className="top-badge-pct">{((topKey.count / (totalKeystrokes || 1)) * 100).toFixed(1)}%</span>
               </span>
