@@ -73,7 +73,7 @@ html[data-surface="search"] #root {
     align-items: stretch;
     padding: 8px;
     background: transparent !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: var(--font-sans);
     box-sizing: border-box;
 }
 
@@ -269,8 +269,8 @@ html[data-surface="search"] #root {
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     color: var(--search-text-sub);
-    font-size: 11px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12px;
+    font-family: var(--font-sans);
     user-select: none;
     flex-shrink: 0;
     transition: all 0.15s ease;
@@ -535,7 +535,7 @@ html[data-surface="search"] #root {
     border: none;
     background: transparent;
     color: var(--search-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.15s ease;
     user-select: none;
@@ -714,7 +714,7 @@ html[data-surface="search"] #root {
 }
 
 .syntax-code {
-    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     color: var(--primary);
     font-weight: 650;
@@ -887,9 +887,9 @@ html[data-surface="search"] #root {
     display: inline-block;
     padding: 1px 5px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-family: var(--font-mono);
     letter-spacing: 0.02em;
     margin-left: 6px;
     vertical-align: middle;
@@ -943,7 +943,7 @@ html[data-surface="search"] #root {
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
     text-overflow: ellipsis;
 }
@@ -953,25 +953,25 @@ html[data-surface="search"] #root {
 }
 
 .meta-size-badge {
-    font-size: 11px;
+    font-size: 12px;
     padding: 1px 6px;
     border-radius: 4px;
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     color: var(--search-text-sub);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
 }
 
 .meta-date-mod {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
 }
 
 .meta-date-create {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     flex-shrink: 0;
 }
 
@@ -1296,7 +1296,7 @@ html[data-surface="search"] #root {
 
 .search-footer-stat-sub {
     color: var(--search-text-muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .search-footer-stat-divider {
@@ -1325,7 +1325,7 @@ html[data-surface="search"] #root {
     border-radius: 4px;
     background: transparent;
     border: 1px solid transparent;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-sub);
     cursor: pointer;
     user-select: none;
@@ -1356,7 +1356,7 @@ html[data-surface="search"] #root {
     border-radius: 3.5px;
     padding: 1px 4px;
     font-family: inherit;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--search-kbd-text);
     box-shadow: 0 1px 1px rgba(0,0,0,0.06);
@@ -1392,7 +1392,7 @@ html[data-surface="search"] #root {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     line-height: 1.4;
     overflow: hidden;
@@ -1507,7 +1507,7 @@ html[data-surface="search"] #root {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1515,13 +1515,13 @@ html[data-surface="search"] #root {
 }
 
 .popover-badge-curr {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--primary);
     background: var(--primary-dim);
     padding: 1px 5px;
     border-radius: 3px;
-    font-family: 'Consolas', monospace;
+    font-family: var(--font-mono);
 }
 
 .popover-segmented-control {
@@ -1541,7 +1541,7 @@ html[data-surface="search"] #root {
     border: none;
     background: transparent;
     color: var(--search-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.12s ease;
     text-align: center;
@@ -1650,7 +1650,7 @@ html[data-surface="search"] #root {
     border: 1px solid var(--search-surface-pill-border);
     border-radius: 6px;
     color: var(--search-text-main);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.12s ease;
     text-align: center;
@@ -1725,7 +1725,7 @@ html[data-surface="search"] #root {
     background: transparent;
     border: none;
     padding: 0 2px;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--primary);
     cursor: pointer;
     text-transform: none;
@@ -1739,7 +1739,7 @@ html[data-surface="search"] #root {
 }
 
 .popover-action-divider {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 
@@ -1816,12 +1816,12 @@ html[data-surface="search"] #root {
     border-radius: 3px;
     background: var(--search-surface-pill);
     color: var(--search-text-muted);
-    font-family: 'Consolas', monospace;
+    font-family: var(--font-mono);
     flex-shrink: 0;
 }
 
 .drive-card-meta {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--search-text-muted);
 }
 
@@ -1893,7 +1893,7 @@ html[data-surface="search"] #root {
 }
 
 .popover-top-rebuild-desc {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
     line-height: 1.4;
 }
@@ -1909,7 +1909,7 @@ html[data-surface="search"] #root {
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     color: var(--search-text-main);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -2001,7 +2001,7 @@ html[data-surface="search"] #root {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     padding: 4px 6px;
     border-radius: 4px;
@@ -2047,7 +2047,7 @@ html[data-surface="search"] #root {
 .popover-title-badge {
     display: inline-flex;
     align-items: center;
-    font-size: 10px;
+    font-size: 12px;
     font-family: var(--font-mono, monospace);
     padding: 1px 5px;
     border-radius: 4px;
@@ -2133,7 +2133,7 @@ html[data-surface="search"] #root {
 }
 
 .popover-format-badge-count {
-    font-size: 10px;
+    font-size: 12px;
     font-family: var(--font-mono, monospace);
     font-weight: 500;
     color: var(--search-text-muted);
@@ -2147,7 +2147,7 @@ html[data-surface="search"] #root {
     background: transparent;
     border: none;
     color: var(--primary);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     padding: 2px 6px;
@@ -2168,7 +2168,7 @@ html[data-surface="search"] #root {
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     color: var(--search-text-sub);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2198,7 +2198,7 @@ html[data-surface="search"] #root {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 12px;
     font-family: var(--font-mono, monospace);
     border-radius: 5px;
     cursor: pointer;
@@ -2271,7 +2271,7 @@ html[data-surface="search"] #root {
     flex: 1;
     height: 26px;
     padding: 0 8px;
-    font-size: 11px;
+    font-size: 12px;
     background: var(--search-surface-pill);
     border: 1px solid var(--search-border);
     border-radius: 6px;
@@ -2290,7 +2290,7 @@ html[data-surface="search"] #root {
     gap: 4px;
     height: 26px;
     padding: 0 10px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     background: var(--primary-dim);
     color: var(--primary);
@@ -2307,7 +2307,7 @@ html[data-surface="search"] #root {
 
 .popover-format-add-tip {
     margin-top: 7px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
     line-height: 1.5;
     user-select: none;
@@ -2323,8 +2323,8 @@ html[data-surface="search"] #root {
 }
 
 .popover-format-add-tip code {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
     background: var(--search-surface-pill);
     border: 1px solid var(--search-surface-pill-border);
     padding: 0.5px 3.5px;
@@ -2362,7 +2362,7 @@ html[data-surface="search"] #root {
     gap: 4px;
     background: transparent;
     border: none;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
     cursor: pointer;
     padding: 2px 6px;
@@ -2410,7 +2410,7 @@ html[data-surface="search"] #root {
 }
 
 .search-history-chip-count {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     background: rgba(0, 0, 0, 0.12);
     padding: 0 4px;
@@ -2505,7 +2505,7 @@ html[data-surface="search"] #root {
     justify-content: center;
     gap: 5px;
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     background: var(--primary-dim);
     border: 1px solid var(--primary);
@@ -2630,7 +2630,7 @@ html[data-surface="search"] #root {
 
 .search-context-menu-item .menu-shortcut {
     font-family: inherit;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--search-text-muted);
     background: var(--search-kbd-bg);
     border: 1px solid var(--search-kbd-border);
@@ -2720,7 +2720,7 @@ html[data-surface="search"] #root {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--search-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;

@@ -30,12 +30,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px;
-  font-size: 0.74rem;
-  font-weight: 700;
+  padding: 6px 6px 4px 6px;
+  font-size: var(--text-sm, 0.85rem);
+  font-weight: 650;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .scope-target-section__add-btn {
@@ -111,23 +110,38 @@
 }
 
 .scope-target-item__title {
-  font-size: 0.8rem;
+  font-size: 0.90rem;
+  font-weight: 550;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.35;
 }
 
 .scope-target-item__subtitle {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  font-family: ui-monospace, monospace;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.3;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 3px;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .scope-target-item__badge {
-  font-size: 0.65rem;
+  font-size: var(--text-xs, 0.84rem);
   padding: 1px 5px;
   border-radius: 10px;
   background: rgba(239, 68, 68, 0.12);
@@ -223,9 +237,19 @@
 }
 
 .target-header-sub {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-family: ui-monospace, monospace;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-sm, 0.86rem);
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 5px;
+  margin-top: 4px;
+  width: fit-content;
 }
 
 .target-strategy-segmented {
@@ -238,7 +262,7 @@
 }
 
 .target-strategy-btn {
-  font-size: 0.76rem;
+  font-size: var(--text-sm, 0.86rem);
   padding: 4px 10px;
   border-radius: 5px;
   border: none;
@@ -294,7 +318,7 @@
 }
 
 .target-disabled-desc {
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   color: var(--text-muted);
   max-width: 400px;
   line-height: 1.5;
@@ -314,7 +338,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -328,7 +352,7 @@
 }
 
 .scope-sidebar-footer__tip {
-  font-size: 0.70rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
   line-height: 1.35;
 }

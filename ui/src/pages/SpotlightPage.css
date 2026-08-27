@@ -141,7 +141,7 @@
   border: 1px solid var(--primary-dim);
   background: var(--primary-dim);
   color: var(--primary);
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -182,7 +182,7 @@
 }
 
 .spotlight-page__color-hex {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.88rem;
   font-weight: 600;
   color: var(--text-primary);

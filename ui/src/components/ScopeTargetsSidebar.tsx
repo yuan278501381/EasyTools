@@ -23,6 +23,7 @@ import {
   Activity,
   AppWindow,
 } from 'lucide-react';
+import { CodeBadge } from './UIKit';
 import './ScopeTargetsSidebar.css';
 
 export interface ScopeTargetItem {
@@ -175,7 +176,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
               </div>
               <div className="scope-target-item__content">
                 <span className="scope-target-item__title">{rule.name || rule.processName}</span>
-                <span className="scope-target-item__subtitle">{rule.processName || rule.windowClass}</span>
+                <CodeBadge className="scope-target-item__subtitle">{rule.processName || rule.windowClass}</CodeBadge>
               </div>
               <span className="scope-target-item__badge">禁用</span>
               <button
@@ -193,7 +194,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
           );
         })}
         {disabledRules.length === 0 && (
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', padding: '2px 8px' }}>
+          <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', padding: '2px 8px' }}>
             暂无免打扰应用
           </div>
         )}
@@ -234,7 +235,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
               </div>
               <div className="scope-target-item__content">
                 <span className="scope-target-item__title">{rule.name || rule.processName}</span>
-                <span className="scope-target-item__subtitle">{rule.processName || rule.windowClass}</span>
+                <CodeBadge className="scope-target-item__subtitle">{rule.processName || rule.windowClass}</CodeBadge>
               </div>
               <button
                 type="button"
@@ -251,7 +252,7 @@ export const ScopeTargetsSidebar: FC<Props> = ({
           );
         })}
         {appRules.length === 0 && (
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', padding: '2px 8px' }}>
+          <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', padding: '2px 8px' }}>
             点击右上角加号添加自定义应用
           </div>
         )}

@@ -49,7 +49,7 @@
 }
 
 .gesture-editor-advanced-badge {
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 12px;
@@ -151,7 +151,7 @@
 }
 
 .gesture-scenario-card__desc {
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   color: var(--text-secondary);
   line-height: 1.45;
 }
@@ -165,7 +165,7 @@
   border-radius: var(--radius-sm);
   background: var(--input-bg);
   border: 1px dashed var(--card-border);
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
   line-height: 1.4;
   margin-left: 44px;
@@ -257,6 +257,6 @@
 }
 
 .gesture-replace-tracks-subtitle {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
 }

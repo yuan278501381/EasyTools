@@ -448,3 +448,29 @@ export function Tabs<T extends string = string>({ tabs, activeId, onChange, clas
     </div>
   );
 }
+
+/* ── CodeBadge (世界级微晶代码/类名胶囊组件) ─────────────────────────────────── */
+
+export interface CodeBadgeProps {
+  children: ReactNode;
+  variant?: 'default' | 'primary' | 'muted';
+  className?: string;
+  style?: CSSProperties;
+  title?: string;
+}
+
+export const CodeBadge: FC<CodeBadgeProps> = ({
+  children,
+  variant = 'default',
+  className = '',
+  style,
+  title,
+}) => (
+  <code
+    className={`uikit-code-badge uikit-code-badge--${variant} ${className}`}
+    style={style}
+    title={title}
+  >
+    {children}
+  </code>
+);

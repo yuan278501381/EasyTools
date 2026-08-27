@@ -29,7 +29,7 @@
 }
 
 .gesture-cockpit-label {
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -47,7 +47,7 @@
   border: 1px solid var(--card-border);
   background: var(--bg-primary);
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 500;
   cursor: default;
   user-select: none;
@@ -77,8 +77,8 @@
   border: 1px solid var(--card-border);
   background: var(--bg-primary);
   color: var(--text-muted);
-  font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   cursor: default;
   user-select: none;
@@ -112,7 +112,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--card-border);
   color: var(--text-secondary);
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -206,7 +206,7 @@
 }
 
 .gesture-draw-watermark-hint {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
 }
 
@@ -273,8 +273,8 @@
 }
 
 .gesture-draw-badge-code {
-  font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -289,7 +289,7 @@
 }
 
 .gesture-preset-label {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -309,7 +309,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -361,7 +361,7 @@
 }
 
 .gesture-edge-sensor-tag {
-  font-size: 0.68rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   color: var(--text-muted);
   letter-spacing: 0.04em;

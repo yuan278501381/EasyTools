@@ -298,7 +298,7 @@ body {
   font-synthesis: weight style;
   letter-spacing: -0.015em;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
-  -webkit-text-stroke: 0.12px rgba(0, 0, 0, 0.18);
+  /* ClearType 硬件加速次像素渲染优化 */
   background-color: var(--bg-base);
   background-image: 
     radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.08) 0px, transparent 50%),

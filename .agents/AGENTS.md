@@ -20,10 +20,12 @@
 
 ## Frontend (React/TypeScript) Development
 1. **i18next Dynamic Keys**: The project's `react-i18next` `t()` function uses strict TypeScript union types for keys. When passing dynamic variables as translation keys (e.g., from an array or config), cast the key `as any` (e.g., `t(item.key as any)`) to bypass `TS2345` type errors.
-2. **Typography & Font Rendering Standards (方案 B & C 黄金准则)**:
+2. **Typography & Font Rendering Standards (方案 B & C 黄金准则 & 排版单一事实源)**:
    - **Zero System Font Pollution**: 严禁在安装包中向 Windows `C:\Windows\Fonts` 写入字体或修改系统注册表，杜绝管理员权限受限、DirectWrite 进程锁定导致的卸载残留以及字体分发版权合规风险。
-   - **App-Embedded WebFont & DirectWrite Fallback**: 采用“应用级内嵌 WebFont + 系统 DirectWrite 梯队回退”体系。全局字体栈统一为：`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;` 并标配 `-webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;`。
-   - **Legibility & Font Size Floor**: 界面中所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，行高不得低于 `1.4`，保障 ClearType 次像素渲染字字锐利。
+   - **Single Source of Truth Font Stack**: 界面无衬线统一引用 `--font-sans`（`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;`）；现代等宽/类名/代码/快捷键统一引用 `--font-mono`（`"Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;`）。严禁在任何新组件中裸写 `ui-monospace` 或硬编码 `font-family`。
+   - **Legibility & Font Size Floor**: 界面中所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，次级文本字重不得低于 500（正文 550，标题 650~700），行高不得低于 `1.4`，保障 ClearType 次像素渲染字字饱满锐利。
+   - **Inline Glass Code Badge Standard**: 所有窗口类名、进程名、文件路径等技术标识符必须统一使用 `<CodeBadge />` 微晶代码胶囊封装，严禁粗糙裸露细文本。
+   - **Automated Typography CI Gate**: CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明或低于 11.8px 的微小字号直接阻断构建。
 3. **Zero Emoji & Vector Iconography Standard**:
    - **Strict Red Lines**: Strictly prohibit hardcoded Unicode color emojis (e.g., `📦`, `💻`, `🟢`) in UI badges, state indicators, and descriptions.
    - **Vector SVG Consistency**: Uniformly use crisp Lucide vector SVG icons paired with semi-transparent glass capsule badges and ClearType subpixel rendering.

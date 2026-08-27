@@ -966,7 +966,7 @@ export const GesturePage: FC = () => {
                   { value: 'middle', label: tr('gesture.btnMiddle') },
                 ]}
               />
-              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+              <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                 {tr('gesture.triggerAdaptiveHint')}
               </div>
             </div>

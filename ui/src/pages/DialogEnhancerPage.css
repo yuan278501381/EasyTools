@@ -35,7 +35,7 @@
 .dialog-ribbon-options__title {
   padding: 0.65rem 0.1rem 0.1rem;
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -127,7 +127,7 @@
   display: inline-block;
   padding: 0.2rem 0.55rem;
   font-size: 0.80rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   color: var(--primary);
   background: var(--primary-dim);
@@ -186,7 +186,7 @@
   display: inline-block;
   margin-left: 0.35rem;
   padding: 0.15rem 0.45rem;
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   color: var(--success);
   background: rgba(52, 211, 153, 0.12);
