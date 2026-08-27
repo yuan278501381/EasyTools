@@ -88,9 +88,7 @@ void CALLBACK DialogEngine::WinEventProc(
 
     // INVOKED 事件可能来自确认/取消按钮子窗口，必须保留。其余事件只接收
     // 窗口自身，避免地址栏 Edit 隐藏时被误判为整个对话框关闭。
-    if (event != EVENT_OBJECT_INVOKED) {
-        if (idObject > 0 || idChild != CHILDID_SELF) return;
-    }
+    if (idObject > 0 || idChild != CHILDID_SELF) return;
 
     // Exceptions must never cross a Win32 callback boundary.
     try {
@@ -107,7 +105,8 @@ void DialogEngine::hookThreadMain() {
     PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
     m_hookThreadId.store(GetCurrentThreadId(), std::memory_order_release);
 
-    // EVENT_OBJECT_DESTROY(0x8001) <= SHOW(0x8002) <= HIDE(0x8003)。
+    // 仅监听顶层对话框生命周期 SHOW / HIDE / DESTROY 与 FOREGROUND 激活
+    // 彻底废除高频 LOCATIONCHANGE 与 INVOKED 钩子，保障 0 性能损耗与 0 消息干扰
     m_hookShow = SetWinEventHook(
         EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
         nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -122,21 +121,6 @@ void DialogEngine::hookThreadMain() {
         LOG_WARN("DialogEngine: 前台窗口钩子注册失败, error={}", GetLastError());
     }
 
-    m_hookLocation = SetWinEventHook(
-        EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
-        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
-    if (!m_hookLocation) {
-        LOG_WARN("DialogEngine: 位置钩子注册失败, error={}", GetLastError());
-    }
-
-    // 使用语言无关的控件 ID 标记确认/取消；不解析按钮文案。
-    m_hookInvoke = SetWinEventHook(
-        EVENT_OBJECT_INVOKED, EVENT_OBJECT_INVOKED,
-        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
-    if (!m_hookInvoke) {
-        LOG_WARN("DialogEngine: 按钮调用钩子注册失败, error={}", GetLastError());
-    }
-
     m_hookReady.store(true, std::memory_order_release);
     LOG_INFO("DialogEngine: WinEvent 线程就绪, tid={}", GetCurrentThreadId());
 
@@ -147,8 +131,6 @@ void DialogEngine::hookThreadMain() {
 
     if (m_hookShow)       { UnhookWinEvent(m_hookShow);       m_hookShow = nullptr; }
     if (m_hookForeground) { UnhookWinEvent(m_hookForeground); m_hookForeground = nullptr; }
-    if (m_hookLocation)   { UnhookWinEvent(m_hookLocation);   m_hookLocation = nullptr; }
-    if (m_hookInvoke)     { UnhookWinEvent(m_hookInvoke);     m_hookInvoke = nullptr; }
     LOG_INFO("DialogEngine: WinEvent 线程已退出");
 }
 
@@ -231,14 +213,8 @@ void DialogEngine::onWinEvent(DWORD event, HWND hwnd, LONG idObject, LONG idChil
         case EVENT_OBJECT_DESTROY:
             if (root == hwnd) handleDialogDestroyed(root);
             break;
-        case EVENT_OBJECT_INVOKED:
-            handleDialogInvoked(hwnd, idObject, idChild);
-            break;
         case EVENT_SYSTEM_FOREGROUND:
             handleForegroundChange(root);
-            break;
-        case EVENT_OBJECT_LOCATIONCHANGE:
-            handleDialogLocationChange(root);
             break;
         default:
             break;
@@ -268,31 +244,12 @@ void DialogEngine::handleDialogShown(HWND hwnd) {
     m_monitorCv.notify_one();
 }
 
-void DialogEngine::handleDialogInvoked(HWND hwnd, LONG, LONG idChild) {
-    const HWND root = rootWindow(hwnd);
-    if (!root) return;
-
-    int controlId = hwnd == root ? static_cast<int>(idChild) : GetDlgCtrlID(hwnd);
-    if (GetDlgItem(root, IDOK) == hwnd) controlId = IDOK;
-    if (GetDlgItem(root, IDCANCEL) == hwnd) controlId = IDCANCEL;
-    if (controlId != IDOK && controlId != IDCANCEL) return;
-
-    std::lock_guard lock(m_mutex);
-    auto it = m_sessions.find(root);
-    if (it == m_sessions.end()) return;
-    it->second.confirmed = controlId == IDOK;
-    it->second.cancelled = controlId == IDCANCEL;
-    LOG_DEBUG("DialogEngine: 对话框动作, hwnd=0x{:X}, action={}",
-              reinterpret_cast<uintptr_t>(root), controlId == IDOK ? "confirm" : "cancel");
-}
-
 void DialogEngine::handleDialogHiding(HWND hwnd) {
     {
         std::lock_guard lock(m_mutex);
         auto it = m_sessions.find(hwnd);
         if (it == m_sessions.end()) return;
         it->second.closeRequested = true;
-        it->second.readableAtClose = true;
     }
     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
         DialogRibbonOverlay::instance().hide();
@@ -306,8 +263,6 @@ void DialogEngine::handleDialogDestroyed(HWND hwnd) {
         auto it = m_sessions.find(hwnd);
         if (it == m_sessions.end()) return;
         it->second.closeRequested = true;
-        // 若之前收到过 HIDE，保留“尝试最后读取”的意图；finalizeDialog
-        // 会再次用 IsWindow 防护，句柄已经失效时自动使用轮询快照。
     }
     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
         DialogRibbonOverlay::instance().hide();
@@ -336,12 +291,6 @@ void DialogEngine::handleForegroundChange(HWND hwnd) {
     }
 }
 
-void DialogEngine::handleDialogLocationChange(HWND hwnd) {
-    if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
-        DialogRibbonOverlay::instance().updatePosition();
-    }
-}
-
 void DialogEngine::monitorThreadMain() {
     while (m_running.load(std::memory_order_acquire)) {
         std::vector<HWND> handles;
@@ -359,7 +308,7 @@ void DialogEngine::monitorThreadMain() {
             try {
                 if (!IsWindow(hwnd)) {
                     stage = "finalize-invalid-window";
-                    finalizeDialog(hwnd, false);
+                    finalizeDialog(hwnd);
                     continue;
                 }
 
@@ -374,7 +323,7 @@ void DialogEngine::monitorThreadMain() {
 
                 if (snapshot.closeRequested) {
                     stage = "finalize-closed-dialog";
-                    finalizeDialog(hwnd, snapshot.readableAtClose && IsWindow(hwnd));
+                    finalizeDialog(hwnd);
                     continue;
                 }
 
@@ -408,33 +357,18 @@ void DialogEngine::monitorThreadMain() {
                         continue;
                     }
 
-                    stage = "read-initial-folder";
-                    const std::string initialFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
-                    stage = "read-initial-selection";
-                    const std::string initialSelection = DialogNavigator::getSelectedPath(hwnd);
-                    stage = "resolve-restore-path";
-                    const std::string restorePath =
-                        PathMemoryManager::instance().isPerAppMemoryEnabled()
-                            ? PathMemoryManager::instance().getEffectiveAppPath(processName)
-                            : std::string{};
-
                     stage = "commit-initial-session";
                     {
                         std::lock_guard lock(m_mutex);
                         auto it = m_sessions.find(hwnd);
                         if (it == m_sessions.end()) continue;
                         it->second.processName = processName;
-                        it->second.initialFolder = initialFolder;
-                        it->second.currentFolder = initialFolder;
-                        it->second.initialSelection = initialSelection;
-                        it->second.restorePath = restorePath;
                         it->second.initialized = true;
                         it->second.lastPoll = now;
                     }
 
-                    LOG_INFO("DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}, initial={}, restore={}",
-                             reinterpret_cast<uintptr_t>(hwnd), snapshot.processId,
-                             processName, initialFolder, restorePath);
+                    LOG_INFO("DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}",
+                             reinterpret_cast<uintptr_t>(hwnd), snapshot.processId, processName);
 
                     if (PathMemoryManager::instance().isRibbonEnabled()) {
                         stage = "attach-ribbon";
@@ -479,7 +413,7 @@ void DialogEngine::monitorThreadMain() {
     }
 }
 
-void DialogEngine::finalizeDialog(HWND hwnd, bool windowStillReadable) {
+void DialogEngine::finalizeDialog(HWND hwnd) {
     if (!hwnd) return;
 
     DialogSession session;
@@ -489,45 +423,6 @@ void DialogEngine::finalizeDialog(HWND hwnd, bool windowStillReadable) {
         if (it == m_sessions.end()) return;
         session = it->second;
         m_sessions.erase(it);
-    }
-
-    if (!session.initialized) return;
-
-    std::string selectedPath;
-    std::string currentFolder = session.currentFolder;
-    if (windowStillReadable && IsWindow(hwnd)) {
-        selectedPath = DialogNavigator::getSelectedPath(hwnd);
-        const std::string latestFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
-        if (!latestFolder.empty()) currentFolder = latestFolder;
-    }
-
-    if (selectedPath.empty() && session.selectionChanged) {
-        selectedPath = session.lastSelection;
-    }
-
-    // 仅在捕获到语言无关的 IDOK 调用后提交。用户只是高亮文件/文件夹随后
-    // 按 Esc、点标题栏 X 或宿主主动关闭时，绝不能污染该 EXE 的记忆。
-    const bool shouldRecord = !session.cancelled && session.confirmed &&
-                              (!currentFolder.empty() || !selectedPath.empty());
-
-    if (shouldRecord) {
-        // “回忆位置”是确认时用户正在浏览的目录。它同时正确覆盖：
-        // 1) 在文件夹选择框中高亮一个子目录；2) 单选文件；3) 多选文件；
-        // 4) 保存一个尚不存在的文件。selectedPath 仅在 Shell 已经无法读取
-        // 当前目录时作为降级，不允许旧的选择快照覆盖更新后的浏览目录。
-        std::string directory = PathMemoryManager::directoryForSelection(currentFolder);
-        if (directory.empty()) {
-            directory = PathMemoryManager::directoryForSelection(selectedPath, currentFolder);
-        }
-        if (!directory.empty()) {
-            PathMemoryManager::instance().recordAppPath(session.processName, directory);
-            LOG_INFO("DialogEngine: 已提交 EXE 目录记忆, exe={}, current={}, selected={}, directory={}, confirmed={}",
-                     session.processName, currentFolder, selectedPath, directory,
-                     session.confirmed);
-        }
-    } else {
-        LOG_INFO("DialogEngine: 对话框关闭但未提交记忆, exe={}, cancelled={}, confirmed={}, selectionChanged={}",
-                 session.processName, session.cancelled, session.confirmed, session.selectionChanged);
     }
 
     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {

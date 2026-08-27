@@ -1265,6 +1265,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] DialogEngine: 候选窗口不是文件对话框, hwnd=0x{:X}",
             "[{}] DialogEngine: operationwindow operationfile operation, hwnd=0x{:X}"
         }},
+        {"DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}", {
+            "[{}] DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}",
+            "[{}] DialogEngine: File dialog session established, hwnd=0x{:X}, pid={}, exe={}"
+        }},
         {"DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}, initial={}, restore={}", {
             "[{}] DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}, initial={}, restore={}",
             "[{}] DialogEngine: file operation, hwnd=0x{:X}, pid={}, exe={}, initial={}, restore={}"

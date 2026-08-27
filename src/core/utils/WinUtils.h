@@ -428,16 +428,6 @@ public:
         bool isExplorer = (cls == L"CabinetWClass" || cls == L"ExploreWClass");
         bool isDesktop = (cls == L"Progman" || cls == L"WorkerW");
 
-        // 检查是否为通用文件选择窗口
-        if (!isExplorer && !isDesktop) {
-            DWORD pid = 0;
-            GetWindowThreadProcessId(foregroundWnd, &pid);
-            std::wstring proc = processNameFromPid(pid);
-            if (toLower(wstringToUtf8(proc)) == "explorer.exe") {
-                isExplorer = true;
-            }
-        }
-
         if (!isExplorer && !isDesktop) {
             return std::nullopt;
         }

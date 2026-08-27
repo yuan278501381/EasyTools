@@ -174,7 +174,11 @@ void DialogRibbonOverlay::hide() {
 void DialogRibbonOverlay::doAttachToDialog() {
     // doUpdatePosition is the single authority that may show the overlay.
     // A queued stale ATTACH must never re-show it after validation failed.
-    doUpdatePosition();
+    if (doUpdatePosition()) {
+        if (m_hwnd && IsWindow(m_hwnd)) {
+            SetTimer(m_hwnd, 1001, 80, nullptr);
+        }
+    }
 }
 
 void DialogRibbonOverlay::doHide() {
@@ -184,6 +188,7 @@ void DialogRibbonOverlay::doHide() {
 
 void DialogRibbonOverlay::doHideLocked() {
     if (m_hwnd && IsWindow(m_hwnd)) {
+        KillTimer(m_hwnd, 1001);
         ShowWindow(m_hwnd, SW_HIDE);
     }
     m_targetDialog = nullptr;
@@ -583,6 +588,7 @@ LRESULT CALLBACK DialogRibbonOverlay::WndProc(HWND hwnd, UINT msg, WPARAM wParam
     if (self) {
         switch (msg) {
             case WM_RIBBON_UPDATE_POS:
+            case WM_TIMER:
                 self->doUpdatePosition();
                 return 0;
             case WM_RIBBON_ATTACH:

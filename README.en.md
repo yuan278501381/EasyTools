@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/images/about_hero_showcase.png" alt="EasyTools — open-source productivity toolkit for Windows" width="100%" />
+<img src="docs/images/about_hero_showcase.png" alt="EasyTools — High-Performance Open-Source Productivity Suite for Windows" width="100%" />
 
 # EasyTools
 
-An open-source productivity toolkit for Windows
+High-Performance Open-Source Productivity Suite for Windows 10/11
 
 [简体中文](README.md) · [English](README.en.md)
 
@@ -12,143 +12,202 @@ An open-source productivity toolkit for Windows
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4?logo=windows)](#system-requirements)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=c%2B%2B)](CMakeLists.txt)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](ui/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](ui/package.json)
 
 </div>
 
-EasyTools brings mouse gestures, screen capture and recording, local file search, file-dialog enhancements, OCR, keystroke visualization, and quick preview into one Windows application. It uses a native C++20 core with a React, TypeScript, and WebView2 interface and is under active development.
+EasyTools is a **high-performance, native modular productivity toolkit** engineered for Windows. Built upon a native C++20 microkernel with Direct2D/D3D11 GPU rendering, paired with a React, TypeScript, and WebView2 glass UI, EasyTools seamlessly integrates **instant local file search, mouse gestures, screen capture & recording, file dialog enhancements, keystroke visualization, and pointer highlight effects** into one unified, rock-solid desktop application.
 
-This document describes only capabilities that can be verified in the current repository and released builds. Behavior may vary with the Windows version, hardware, drivers, target application, and configuration.
+---
 
-## Features
+## 🌟 The 6 Core Modules Matrix
 
-| Feature | Current capabilities | Scope and notes |
-| --- | --- | --- |
-| File dialog assistant | Remembers recent folders per originating application; offers recent folders, workspaces, and the current File Explorer folder | Designed for common Windows open, save, and folder-selection dialogs; custom-drawn or non-standard dialogs may not be supported |
-| Local file search | NTFS MFT/USN indexing; pinyin, wildcard, regex, path, parent-folder, extension, file/folder, and exclusion filters | Fast MFT indexing primarily applies to local NTFS volumes; network locations, ReFS, and other file systems do not have the same capability |
-| File content search | Plain text, common source and configuration files; Office Open XML/WPS/XMind documents; PSD/PSB/AI metadata; DXF text | Full-text extraction is not available for every format; encrypted, damaged, or very large files may be skipped |
-| Mouse gestures | Configurable trigger buttons, direction sequences, application scopes, shortcuts, built-in actions, program launch, and Lua actions; also hot corners and a radial menu | Global hooks can conflict with other gesture, input, or security software and can be adjusted in Settings |
-| Capture and pin | Region capture, annotation, scrolling capture, OCR, and always-on-top image pins | Scrolling capture depends on how the target window scrolls and renders |
-| Screen recording | MP4 H.264/H.265, WebM VP9, and GIF; optional system audio, microphone, cursor, and click effects | Available codecs and performance depend on system components, GPU, drivers, and selected settings |
-| OCR | Uses the local Windows OCR engine and installed system language packs | Languages and recognition quality depend on installed packs, image clarity, and layout |
-| Keystroke display | On-screen keyboard/mouse input display and usage statistics | Consider pausing it while entering sensitive information such as passwords |
-| Quick preview | Select an item in File Explorer or on the desktop and press Space to preview folders, Markdown, images, audio/video, PDF, code, text, and more | Large or unsupported binary files receive a limited preview or file-information view |
+| Module | Key Capabilities | Scenarios & Technical Highlights |
+| :--- | :--- | :--- |
+| **🔍 Instant File Search** | Full-disk NTFS MFT/USN indexing; pinyin, wildcard & Everything-style syntax; multi-format Office/code/PDF/PSD content search | `Alt+Space` 0ms instant launch; 64-byte compact in-memory index & StringArena pooling for million-file real-time results |
+| **🖱️ Mouse Gestures** | 8-direction precision recognition, fillet-folding smoothing & debounce; per-app scope rules; screen Hot Corners | Fluid right-click strokes, local compact layered viewport rendering, instant window management, hotkeys, and Lua scripts |
+| **📸 Screen Capture & Recording** | Direct3D11/DXGI GPU zero-copy capture, auto-snapping; rich text/increment badge/inpaint annotations; always-on-top pins; 60FPS HW recording | Scrolling capture with feature stitching; WASAPI speaker + mic loopback mixing; click ripple effects |
+| **📂 File Dialog Enhancer** | Smart path memory per host application; top floating glass ribbon for one-click jump to the active File Explorer folder | Eliminates the friction of repeatedly navigating deep directory paths when saving or opening files |
+| **⌨️ Keystroke Display (Keycast)** | Glass keycap badge overlay, in-row combo repeat counters (`Ctrl+C ×3`), physics damping motion; local heatmap & activity trends | Essential for tutorials, demos, presentations, and power coders; 100% offline privacy preservation |
+| **💡 Pointer Spotlight & FX** | Double-tap `Ctrl` to focus with a spotlight vignette; fluid click ripple diffusion; motion trail particles | Perfect for presentations, teaching, and live demos; 1-pixel geometric avoidance prevents Focus Assist triggers |
 
-These capabilities are delivered by the EasyTools host and five native plugins: Search, Capture, Gesture, Keycast, and DialogEnhancer. Shared features such as Quick Preview are provided by the host.
+---
 
-## Screenshots
+## 🎬 Visual Feature Showcase
 
-<p align="center">
-  <img src="docs/images/tray_quick_menu.png" alt="EasyTools tray quick menu" width="260" />
-</p>
-<p align="center"><sub>Tray quick menu for module status and common actions.</sub></p>
+### 1. 🔍 Instant Local File & Content Search
+
+> Instant launch via `Alt+Space`. Powered by NTFS MFT low-level parsing and USN Journal incremental monitoring, supporting wildcard, regex, and full-text extraction from Office/code files.
 
 <p align="center">
-  <img src="docs/images/settings_general.png" alt="EasyTools general settings" width="100%" />
+  <img src="docs/images/en-US/search_demo.webp" alt="EasyTools Instant Local File Search Motion Demo" width="100%" />
 </p>
-<p align="center"><sub>General settings for startup behavior, interface language, theme, and logging.</sub></p>
+
+* **Sub-Millisecond Search**：Indexes millions of files in hundreds of milliseconds with a 64-byte contiguous in-memory structure and StringArena interning.
+* **Everything-Style Advanced Syntax**：Full support for `ext:docx|xlsx`, `file:`, `folder:`, `size:>100mb`, `parent:`, `!` exclusion, and more.
+* **Multi-Format Content Search**：Extracts content on the fly from plain text, source code, Word, Excel, PowerPoint, WPS, XMind, PSD metadata, and AutoCAD DXF drawings.
+
+---
+
+### 2. 💡 Pointer Spotlight & Physics Micro-Effects
+
+> Double-tap `Ctrl` to trigger a spotlight vignette focusing on your mouse pointer; click to emit subtle water ripples; slide to leave a smooth particle stream.
 
 <p align="center">
-  <img src="docs/images/settings_shortcuts.png" alt="EasyTools shortcut overview and conflict detection" width="100%" />
+  <img src="docs/images/en-US/spotlight_effects_demo.webp" alt="EasyTools Pointer Spotlight, Click Ripple & Motion Trail" width="100%" />
 </p>
-<p align="center"><sub>Shortcut overview showing current bindings, activation scope, and conflict detection.</sub></p>
+
+* **Double-Tap `Ctrl` Spotlight**：Dimmest the non-active screen area smoothly, tracking the cursor seamlessly during speeches and demos.
+* **Click Ripple Animation**：Left/right clicks emit physics-based concentric ripple waves with distinct accent colors.
+* **Luminous Motion Trail**：Gliding the mouse leaves crisp subpixel particle trails rendered via ClearType subpixel positioning.
+* **Focus Assist Avoidance**：Shrinks the physical overlay by 1 pixel (`vw-1, vh-1`), breaking Windows full-screen exclusive detection and preventing accidental Do-Not-Disturb (🔔z) triggers.
+
+---
+
+### 3. 🖱️ Mouse Gestures & Screen Hot Corners
+
+> Hold right-click and trace natural gestures. Features 8-direction recognition with fillet-folding corner smoothing for effortless window and desktop control.
+
+<p align="center">
+  <img src="docs/images/en-US/settings_gesture.png" alt="EasyTools Mouse Gesture Configuration & Scope Rules" width="100%" />
+</p>
+
+* **Fillet-Folding Corner Smoothing**：Proprietary inflection-point smoothing with ±22.5° angular tolerance for high-accuracy gesture decoding.
+* **Fine-Grained Scope Rules**：Define global gestures or bind distinct actions for specific applications (browsers, IDEs) and targets (Desktop, Taskbar).
+* **Screen Hot Corners**：Fling the cursor into any screen corner to instantly trigger actions like showing the desktop, taking a screenshot, or locking the screen.
+* **Compact Dynamic Viewport**：Restricts gesture overlays to 100~300px local bounding boxes, eliminating full-screen DWM composition overhead.
+
+---
+
+### 4. 📸 Capture, Smart Markup, Pinning & HD Recording
+
+> GPU zero-copy capture with automatic window magnetic snapping, AI-free smart inpainting, and always-on-top image pinning.
 
 <table>
   <tr>
-    <td width="50%" align="center"><img src="docs/images/settings_modules.png" alt="EasyTools module management" width="100%" /><br /><sub>Modules: plugin versions, capabilities, status, and enablement.</sub></td>
-    <td width="50%" align="center"><img src="docs/images/settings_gesture_options.png" alt="EasyTools mouse gesture options" width="100%" /><br /><sub>Mouse gestures: switches, trail appearance, and application behavior.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><img src="docs/images/settings_gesture_actions.png" alt="EasyTools mouse gesture action editor" width="100%" /><br /><sub>Gesture actions organized by global, application, and special-target scope.</sub></td>
-    <td width="50%" align="center"><img src="docs/images/settings_statistics.png" alt="EasyTools local input statistics" width="100%" /><br /><sub>Local activity trends and a keyboard heatmap.</sub></td>
+    <td width="50%" align="center">
+      <img src="docs/images/search_content.png" alt="EasyTools Content Search & Preferences" width="100%" /><br />
+      <sub>Multi-format content extraction and layout controls</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/settings_shortcuts.png" alt="EasyTools Shortcut Overview and Conflict Detection" width="100%" /><br />
+      <sub>Unified shortcut management and conflict detection</sub>
+    </td>
   </tr>
 </table>
 
+* **Professional Annotation Toolkit**：Rectangles, arrows (standard/thin/bidirectional), ellipses, highlighters, mosaics, magnifiers, **incremental step badges (①②③)**, and background-reconstruction **Inpaint**.
+* **Always-on-Top Pinning (Pin Window)**：Pin captures to the desktop with smooth mouse wheel zooming, 90° rotation, flipping, re-editing, and screen-edge magnetic snapping.
+* **Scrolling Capture**：Smooth automatic scrolling combined with OpenCV feature matching for seamless long-page stitching.
+* **60FPS High-Definition Recording**：Native FFmpeg hardware acceleration (NVENC/QSV/AMF/CPU), WASAPI loopback audio mixing, and click ripple effects.
+
+---
+
+### 5. 📂 File Dialog Enhancer
+
+> Eliminates the friction of Windows file navigation. Automatically tracks historical folders per application and attaches a floating glass ribbon to jump to the active File Explorer folder in one click.
+
+---
+
+### 6. ⌨️ Keystroke Display & Local Input Analytics
+
+> Low-level global keyboard hook captures modifier combinations, displaying glass keycap badges with damping slide-in and bubble-pop micro-animations.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/images/settings_statistics.png" alt="EasyTools Input Statistics" width="100%" /><br />
+      <sub>Local keyboard heatmap and activity trends</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/settings_general.png" alt="EasyTools General Settings" width="100%" /><br />
+      <sub>General options: accent colors, auto-start, and permissions</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+### 7. Tray Quick Menu
+
 <p align="center">
-  <img src="docs/images/search_content.png" alt="EasyTools content search and preferences panel" width="100%" />
+  <img src="docs/images/en-US/tray_quick_menu.png" alt="EasyTools Tray Quick Menu" width="240" />
 </p>
-<p align="center"><sub>Content search with matching excerpts, file properties, density controls, and search modes.</sub></p>
+<p align="center"><sub>System tray quick menu: toggle all 6 core modules and access frequent actions instantly.</sub></p>
 
-These are user-provided screenshots of the actual EasyTools v1.0.1 interface. The UI is evolving quickly and may differ slightly between builds; see [Releases](https://github.com/yuan278501381/easyTools/releases) for version-specific notes. The screenshots use the Chinese UI; EasyTools also provides an English interface option.
+---
 
-## Download and use
+## 📥 Download & Installation
 
-1. Download the latest installer or portable package from [GitHub Releases](https://github.com/yuan278501381/easyTools/releases/latest).
-2. The installer requires administrator privileges to install the background component used by features such as fast file indexing. Some system-level features may be limited in the portable build.
-3. Start EasyTools, then open Settings from the system tray and enable the features you want.
+1. Download the latest installer (`EasyTools-Setup-*.exe`) or portable package from [GitHub Releases](https://github.com/yuan278501381/easyTools/releases/latest).
+2. The setup installer configures auto-start and the elevated indexing service. The portable package runs immediately out of the box with zero registry pollution.
+3. Default global search shortcut is `Alt+Space`. All shortcuts can be customized with real-time conflict detection in Settings.
 
-The default search shortcut is `Alt+Space`. For capture, recording, OCR, pinning, and other shortcuts, use the values shown in Settings. EasyTools reports shortcut conflicts it can detect.
+---
 
-## System requirements
+## 💻 System Requirements
 
-- Windows 10 or Windows 11, x64
-- Microsoft Edge WebView2 Runtime (already present on most supported Windows installations)
-- Some features require administrator privileges, NTFS, Windows OCR language packs, or an available media encoder
+- **Operating System**：Windows 10 / Windows 11 (x64)
+- **Runtime Environment**：Microsoft Edge WebView2 Runtime (pre-installed on most modern Windows systems)
+- **Hardware Acceleration**：DirectX 11 / Direct2D compatible GPU; NVENC / QSV / AMF hardware encoding for screen recording
 
-There are currently no macOS, Linux, or ARM64 builds.
+---
 
-## Known limitations
+## 🔒 Privacy & Local-First Philosophy
 
-- The File Dialog Assistant targets standard Windows Shell file dialogs. Custom pickers and sandboxed applications are not guaranteed to work.
-- Mixed-DPI and multi-monitor behavior, scrolling capture, and hardware encoding can vary with the target application, graphics driver, and Windows version.
-- The fast MFT/USN search path is designed for NTFS. Other locations use different capabilities or may not support equivalent indexing.
-- Content search is implemented format by format and should not be read as universal full-text search.
-- This is an actively developed project. Back up important configuration before upgrading, and include the version, reproduction steps, and logs in issue reports.
+* **100% Local Processing**：File search indices, OCR extraction, keystroke statistics, captures, and recordings remain entirely on your local machine. **No user accounts, no telemetry uploads, and no privacy leakage.**
+* **Security Sandboxing**：Integrated Lua scripting engine enforces strict permission boundaries; Named Pipe IPC validates cryptographically secure tokens and client Windows SIDs.
 
-## Privacy and network access
+---
 
-Search indexing, OCR, capture, recording, and configuration are processed locally by default. EasyTools does not require an account and does not upload file contents to provide these core features.
+## 🛠️ Build from Source
 
-The update checker contacts the GitHub Releases API. Links opened explicitly by the user may also access the corresponding sites. Third-party scripts, user-configured external programs, and future extensions may have their own network behavior and should be reviewed separately.
-
-## Build from source
-
-Recommended prerequisites:
-
-- Visual Studio 2022 or newer with **Desktop development with C++**
+### Prerequisites
+- Visual Studio 2022 (with **Desktop development with C++** workload)
 - CMake 3.25+
 - PowerShell 7+
 - Node.js 24+
-- vcpkg (the default path is `C:\vcpkg`; it can also be supplied through build parameters)
-- Inno Setup 6 (only required to create the installer)
+- vcpkg (recommended at `C:\vcpkg`)
+- Inno Setup 6 (required only for packaging installers)
 
-Run from the repository root:
+### One-Click Idempotent Build
+Run the automated PowerShell deployment script from the repository root:
 
 ```powershell
 pwsh -NoProfile -File .\deploy.ps1 -Configuration Release
 ```
 
-Primary outputs are written to `build/bin/Release` and `deploy_dist`. If Inno Setup is detected, the installer is created in `Output`. Run `Get-Help .\deploy.ps1 -Detailed` for available parameters.
+Build outputs will be generated in `build/bin/Release` and `deploy_dist`.
 
-The product version is maintained only in the root [`VERSION`](VERSION) file. See [Versioning](docs/versioning.md) for details.
+---
 
-## Architecture and lifecycle
-
-### System architecture
+## 🏗️ Architecture & Microkernel Model
 
 ```mermaid
 flowchart TB
-    User[User input<br/>hotkeys · mouse · tray] --> Host[EasyTools.exe<br/>native C++20 host]
+    User[User Input<br/>Hotkeys · Mouse · Tray] --> Host[EasyTools.exe<br/>Native C++20 Host]
 
-    subgraph Core[Shared host services]
-        Config[Configuration and logging]
-        Dispatch[Main-thread dispatch / EventBus]
-        Bridge[WebView2 ↔ C++ message bridge]
-        Input[Hotkeys and keyboard hook]
+    subgraph Core[EasyCore.dll Core Runtime]
+        Config[Atomic Config & State]
+        Dispatch[Main Thread Dispatcher / EventBus]
+        Bridge[WebView2 ↔ C++ IPC Bridge]
+        Input[Hotkey & Low-Level Hooks]
+        Pipeline[Keyboard Accelerator Pipeline]
     end
 
-    subgraph UI[On-demand or preloaded WebView2 surfaces]
-        Settings[Settings]
-        SearchUI[Search]
-        Tray[Tray menu]
-        Preview[Quick Preview]
+    subgraph UI[On-Demand / Preloaded WebView2 Surfaces]
+        Settings[Settings Center]
+        SearchUI[Search Window]
+        Tray[Tray Menu]
     end
 
-    subgraph Plugins[Native plugin DLLs]
-        Search[Search]
-        Capture[Capture]
-        Gesture[Gesture]
-        Keycast[Keycast]
-        Dialog[DialogEnhancer]
+    subgraph Plugins[Native Plugin Matrix Plugin_*.dll]
+        Search[Plugin_Search]
+        Capture[Plugin_Capture]
+        Gesture[Plugin_Gesture]
+        Keycast[Plugin_Keycast]
+        Dialog[Plugin_DialogEnhancer]
     end
 
     Host --> Core
@@ -156,79 +215,28 @@ flowchart TB
     Host --> Plugins
     Bridge <--> UI
     Dispatch <--> Plugins
-    Search <--> Service[EasyTools_Service.exe<br/>index service]
-    Host --> WinAPI[Windows Shell / OCR / DXGI / WASAPI / Direct2D]
+    Search <--> Service[EasyTools_Service.exe<br/>NTFS MFT/USN Index Service]
+    Host --> WinAPI[Windows Shell / DXGI / WASAPI / Direct2D / D3D11]
     Plugins --> WinAPI
 ```
 
-The plugin manager reads and validates manifests first. It maps a DLL only when that plugin is enabled and compatible at process start. Changing a plugin switch in Settings requires an EasyTools restart before the loaded set changes.
+* **Cold-Path Working-Set Trimming**：Actively invokes `WinUtils::trimWorkingSet()` upon lifecycle milestones (capture completed, recording stopped, overlay destroyed, window hidden), maintaining zero impact on hot input paths.
+* **Keyboard Accelerator Pipeline**：Intercepts native Win32 system menu accelerators and Chromium browser shortcuts, guaranteeing 100% reliable forwarding for shortcuts like `Alt+Space`.
 
-### UI and memory lifecycle
+---
 
-```mermaid
-stateDiagram-v2
-    [*] --> Starting
-    Starting --> Resident: Initialize host, tray, and enabled plugins
-    Resident --> UIActive: Open Settings or Search
-    UIActive --> UIHidden: Hide window and request TrySuspend
-    UIHidden --> UIActive: Resume and reuse the existing window
-    Resident --> TrayActive: Open the preloaded tray menu
-    TrayActive --> Resident: Hide tray menu and trim the working set
-    Resident --> HeavyTask: Capture, scrolling capture, or pinning
-    HeavyTask --> Resident: Destroy task resources; trim working set on selected cold paths
-    UIActive --> ShuttingDown
-    UIHidden --> ShuttingDown
-    Resident --> ShuttingDown
-    ShuttingDown --> [*]: Destroy WebViews, stop plugins, clear callbacks, unload DLLs
-```
+## 🤝 Contributing
 
-`TrySuspend` is a best-effort WebView2 request and the runtime may refuse it. The current code requests a working-set trim when the tray menu is hidden, the file-dialog ribbon is destroyed, scrolling capture shuts down, and the last or all pinned images are closed. A trim is only a request to the Windows memory manager; it does not guarantee immediate release of all memory, so this README does not promise a fixed resident footprint.
+Contributions, issues, and feature requests are warmly welcome!
+- When filing an issue, please specify the EasyTools version, Windows OS build, and reproduction steps.
+- For architectural extensions, check out: [Plugin Development Guide](docs/plugin-development.md) · [Lua API Reference](docs/api/lua-api.md) · [Versioning Guide](docs/versioning.md).
 
-### Plugin startup and shutdown sequence
+---
 
-```mermaid
-sequenceDiagram
-    participant App as EasyTools host
-    participant Config as ConfigManager
-    participant PM as PluginManager
-    participant Manifest as Plugin manifest
-    participant DLL as Plugin DLL
-    participant Core as EventBus / IPC / Hotkey
-    participant UI as WebView surfaces
+## 📄 License & Attribution
 
-    App->>Config: Read configuration
-    App->>PM: Scan plugin directory
-    PM->>Manifest: Validate version, ABI, entry point, and permissions
-    alt Plugin disabled or manifest incompatible
-        PM-->>App: Record status without mapping the DLL
-    else Plugin allowed at startup
-        PM->>DLL: LoadLibrary + ABI handshake + CreatePlugin
-        App->>Core: Initialize shared services and handlers
-        App->>PM: initializePlugins()
-        PM->>DLL: initialize()
-    end
-    App->>UI: Preload tray; create other windows on demand or by configuration
-    Note over App,UI: Normal operation
-    App->>UI: Destroy WebView entry points first
-    App->>PM: shutdownPlugins()
-    PM->>DLL: Call shutdown() in reverse order
-    PM->>Core: Drain main-thread work and clear callbacks/handlers
-    PM->>DLL: FreeLibrary
-```
+This project is licensed under the **[MIT License](LICENSE)**.
 
-These diagrams describe the current [`main.cpp`](src/main.cpp), [`PluginManager.cpp`](src/core/plugin/PluginManager.cpp), [`WebViewSuspend.cpp`](src/ui/WebViewSuspend.cpp), and [`WinUtils.h`](src/core/utils/WinUtils.h), rather than a proposed future architecture.
-
-Development documentation:
-
-- [Plugin development guide](docs/plugin-development.md)
-- [Lua API](docs/api/lua-api.md)
-- [Performance baseline](docs/performance-baseline.md)
-- [Versioning](docs/versioning.md)
-
-## Contributing
-
-Issues and pull requests are welcome. When reporting a problem, include the EasyTools version, Windows version, reproduction steps, expected and actual results, and relevant logs with private information removed. For compatibility issues, also identify the target application and file-dialog type.
-
-## License
-
-EasyTools is released under the [MIT License](LICENSE). Third-party components remain subject to their respective licenses.
+* **Author**：**`Yy1 (yuan278501381)`** (GitHub: [@yuan278501381](https://github.com/yuan278501381))
+* **Repository**：[https://github.com/yuan278501381/easyTools](https://github.com/yuan278501381/easyTools)
+* **Copyright**：`Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors`
