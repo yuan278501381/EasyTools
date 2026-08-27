@@ -129,7 +129,7 @@ bool KeycastOverlay::init() {
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
         m_settings.modifierKeycapOpacity = cfg.get<int>("/keycast/modifierKeycapOpacity", 65);
-        m_settings.modifierTextColor = cfg.get<std::string>("/keycast/modifierTextColor", "auto");
+        m_settings.modifierTextColor = cfg.get<std::string>("/keycast/modifierTextColor", "#000000");
         m_settings.firstKeyAnim = cfg.get<std::string>("/keycast/firstKeyAnim", "slide");
         m_settings.subsequentKeyAnim = cfg.get<std::string>("/keycast/subsequentKeyAnim", "fade");
         m_settings.rowCascadeAnim = cfg.get<bool>("/keycast/rowCascadeAnim", true);

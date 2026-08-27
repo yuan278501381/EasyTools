@@ -61,7 +61,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
   modifierKeycapOpacity: 65,
-  modifierTextColor: 'auto',
+  modifierTextColor: '#000000',
   firstKeyAnim: 'slide',
   subsequentKeyAnim: 'fade',
   rowCascadeAnim: true,
@@ -502,7 +502,7 @@ export const KeycastPage: FC = () => {
             label={t('keycast.textColor', '文字颜色')}
             desc={t('keycast.textColorDesc', '按键文字的颜色。')}
             value={settings.textColor}
-            defaultCustomFallback="#ffffff"
+            defaultCustomFallback="#000000"
             brandAccentHex={currentBrandAccentHex}
             onChange={(val) => saveSetting('textColor', val)}
           />
