@@ -24,7 +24,11 @@
     "saveFailed": "Save failed",
     "saveFailedDetail": "Save failed: {{detail}}",
     "moveUp": "Move up",
-    "moveDown": "Move down"
+    "moveDown": "Move down",
+    "refresh": "Refresh",
+    "enable": "Enable",
+    "disable": "Disable",
+    "all": "All"
   },
   "nav": {
     "capture": "Screen Capture",
@@ -903,6 +907,10 @@
     "openFolderFailed": "Failed to open folder",
     "copyFailed": "Failed to copy path",
     "noContentResults": "No matching text found in document or code contents",
+    "noMatchInCat": "No matching {{cat}} files found",
+    "noMatchForFilter": "No files matching filter \"{{query}}\"",
+    "noMatchForName": "No files containing \"{{query}}\"",
+    "rename": "Rename",
     "catAll": "All",
     "catContent": "Content",
     "catDocs": "Documents",

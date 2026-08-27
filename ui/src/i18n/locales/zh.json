@@ -24,7 +24,11 @@
     "saveFailed": "保存失败",
     "saveFailedDetail": "保存失败: {{detail}}",
     "moveUp": "上移",
-    "moveDown": "下移"
+    "moveDown": "下移",
+    "refresh": "刷新",
+    "enable": "启用",
+    "disable": "禁用",
+    "all": "全部"
   },
   "nav": {
     "capture": "截图与录屏",
@@ -903,6 +907,10 @@
     "openFolderFailed": "定位目录失败",
     "copyFailed": "复制路径失败",
     "noContentResults": "未在文档或代码内容中找到匹配文本",
+    "noMatchInCat": "未找到匹配的「{{cat}}」文件",
+    "noMatchForFilter": "未找到符合过滤条件 \"{{query}}\" 的文件",
+    "noMatchForName": "未找到包含 \"{{query}}\" 的文件",
+    "rename": "重命名",
     "catAll": "全部",
     "catContent": "文档内容",
     "catDocs": "文档",

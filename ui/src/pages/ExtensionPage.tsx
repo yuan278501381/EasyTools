@@ -584,7 +584,7 @@ const engine = createEngine({
   renderSpeedMs: 0.2,
   enableKaTeX: true
 });
-console.log("${t('extGuide.mdReadyLog', 'Markdown preview engine is ready!')}");`}</code>
+console.log("${t('extension.mdReadyLog', 'Markdown preview engine is ready!')}");`}</code>
                       </pre>
                     </div>
                     <div className="playground-math-box">
