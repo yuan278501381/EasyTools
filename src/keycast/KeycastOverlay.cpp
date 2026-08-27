@@ -38,33 +38,37 @@ inline bool isModifierKey(const std::string& token) {
 }
 
 struct KeycastDynamicMetrics {
-    float fontSize;       // 实际生效的字体基准尺寸
+    float fontSize;       // 主键基准字号 (baseFontSize 20 -> 15.0px @ 1x DPI)
+    float keycapFontSize; // 修饰键字号 (fontSize * 0.88f -> 13.2px, 绝不溢出)
+    float plusFontSize;   // 加号字号 (fontSize * 0.58f -> 8.7px)
     float charWidth;      // 单字符估算宽度
-    float capHeight;      // 键帽底座高度 = fontSize * 1.40f (~20.5px)
-    float capRadius;      // 键帽圆角 = 5.2f * dpiScale (~5.2px)
-    float capsuleHeight;  // 外层胶囊高度 = capHeight + 8.8f * dpiScale (~29px~32px)
+    float capHeight;      // 键帽底座高度 = fontSize * 1.50f (~22.5px)
+    float capRadius;      // 键帽圆角 = 5.5f * dpiScale (~5.5px)
+    float capsuleHeight;  // 外层胶囊高度 = capHeight + 10.0f * dpiScale (~32.5px)
     float capsuleRadius;  // 外层胶囊圆角 = 8.5f * dpiScale (~8.5px)
-    float paddingX;       // 胶囊左右内边距 = fontSize * 0.42f (~6.0px)
-    float winWidth;       // Windows 键宽度 = fontSize * 2.10f (~30.5px, 宽高比 1.48:1)
-    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.46f (~9.5px, 充足呼吸留白)
-    float plusWidth;      // 加号总占用宽度 = fontSize * 0.42f
-    float rowStep;        // 多行垂直步进 = capsuleHeight + 6.0f * dpiScale
+    float paddingX;       // 胶囊左右内边距 = fontSize * 0.50f (~7.5px)
+    float winWidth;       // Windows 键宽度 = fontSize * 2.25f (~33.8px, 长宽比 1.5:1)
+    float logoSize;       // Windows 徽标尺寸 = capHeight * 0.44f (~10px, 充裕呼吸感)
+    float plusWidth;      // 加号总占用宽度 = fontSize * 0.55f
+    float rowStep;        // 多行垂直步进 = capsuleHeight + 8.0f * dpiScale
     float borderWidth;    // 动态微边框 = 1.0f * dpiScale
 };
 
 inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
     KeycastDynamicMetrics m;
-    m.fontSize = (std::max)(11.0f, static_cast<float>(baseFontSize) * 0.72f) * dpiScale;
+    m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 0.75f) * dpiScale;
+    m.keycapFontSize = m.fontSize * 0.88f;
+    m.plusFontSize = m.fontSize * 0.58f;
     m.charWidth = m.fontSize * 0.58f;
-    m.capHeight = m.fontSize * 1.40f;
-    m.capRadius = 5.2f * dpiScale;
-    m.capsuleHeight = m.capHeight + 8.8f * dpiScale;
+    m.capHeight = m.fontSize * 1.50f;
+    m.capRadius = 5.5f * dpiScale;
+    m.capsuleHeight = m.capHeight + 10.0f * dpiScale;
     m.capsuleRadius = 8.5f * dpiScale;
-    m.paddingX = m.fontSize * 0.42f;
-    m.winWidth = m.fontSize * 2.10f;
-    m.logoSize = m.capHeight * 0.46f;
-    m.plusWidth = m.fontSize * 0.42f;
-    m.rowStep = m.capsuleHeight + 6.0f * dpiScale;
+    m.paddingX = m.fontSize * 0.50f;
+    m.winWidth = m.fontSize * 2.25f;
+    m.logoSize = m.capHeight * 0.44f;
+    m.plusWidth = m.fontSize * 0.55f;
+    m.rowStep = m.capsuleHeight + 8.0f * dpiScale;
     m.borderWidth = (std::max)(1.0f * dpiScale, 1.0f);
     return m;
 }
@@ -207,12 +211,12 @@ bool KeycastOverlay::autoBypassFullscreen() const {
 D2D1_COLOR_F KeycastOverlay::parseColor(const std::string& hex, float alpha) const {
     if (hex == "auto") {
         std::string accent = easy::core::ConfigManager::instance().get<std::string>("/general/accentColor", "blue");
-        if (accent == "cyan") return D2D1::ColorF(0.20f, 0.75f, 0.85f, alpha);
+        if (accent == "cyan") return D2D1::ColorF(0.25f, 0.75f, 0.85f, alpha);
         if (accent == "amber") return D2D1::ColorF(0.96f, 0.65f, 0.15f, alpha);
-        if (accent == "mint") return D2D1::ColorF(0.20f, 0.78f, 0.58f, alpha);
-        if (accent == "coral") return D2D1::ColorF(0.96f, 0.38f, 0.48f, alpha);
-        if (accent == "violet") return D2D1::ColorF(0.58f, 0.45f, 0.88f, alpha);
-        // 默认 auto 采用高雅浅紫罗兰微晶色 (#7B6BA3)，完美复刻顶级现代视觉
+        if (accent == "mint") return D2D1::ColorF(0.25f, 0.78f, 0.58f, alpha);
+        if (accent == "coral") return D2D1::ColorF(0.96f, 0.40f, 0.48f, alpha);
+        if (accent == "violet") return D2D1::ColorF(0.60f, 0.48f, 0.88f, alpha);
+        // 默认 auto 采用高雅浅紫罗兰微晶色 (#7B6BA3)，通透优雅
         return D2D1::ColorF(0.48f, 0.42f, 0.64f, alpha);
     }
 
@@ -222,7 +226,7 @@ D2D1_COLOR_F KeycastOverlay::parseColor(const std::string& hex, float alpha) con
             return D2D1::ColorF(r / 255.0f, g / 255.0f, b / 255.0f, alpha);
         }
     }
-    return D2D1::ColorF(0.11f, 0.11f, 0.13f, alpha); // fallback
+    return D2D1::ColorF(0.15f, 0.15f, 0.18f, alpha); // fallback
 }
 
 void KeycastOverlay::discardResources() {
@@ -312,81 +316,100 @@ bool KeycastOverlay::createResources() {
 
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> dcTarget;
     if (FAILED(m_d2dFactory->CreateDCRenderTarget(&props, &dcTarget))) return false;
+
+    RECT rc = { 0, 0, m_width, m_height };
+    if (FAILED(dcTarget->BindDC(m_memoryDC, &rc))) return false;
     m_renderTarget = dcTarget;
 
-    RECT rc = {0, 0, m_width, m_height};
-    if (FAILED(dcTarget->BindDC(m_memoryDC, &rc))) return false;
-
     KeycastSettings settings = getSettings();
-    float targetFontSize = (std::max)(12.0f, static_cast<float>(settings.fontSize) * 1.08f) * m_dpiScale;
+    const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, m_dpiScale);
 
-    // 主按键与普通字符字体
+    // 1. 主按键与普通字符字体: SemiBold (清秀典雅)
     if (FAILED(m_dwriteFactory->CreateTextFormat(
         L"Segoe UI Variable Text",
         nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
-        targetFontSize,
+        dyn.fontSize,
         L"zh-cn",
         &m_textFormat
     ))) {
         m_dwriteFactory->CreateTextFormat(
             L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            targetFontSize, L"zh-cn", &m_textFormat);
+            dyn.fontSize, L"zh-cn", &m_textFormat);
     }
     if (m_textFormat) {
         m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
-    // 内部修饰键微凸晶体键帽字体
+    // 2. 内部修饰键键帽字体: SemiBold, 字号紧凑适中 (绝不溢出)
     if (FAILED(m_dwriteFactory->CreateTextFormat(
         L"Segoe UI Variable Text",
         nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
-        targetFontSize,
+        dyn.keycapFontSize,
         L"zh-cn",
         &m_keycapTextFormat
     ))) {
         m_dwriteFactory->CreateTextFormat(
-            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            targetFontSize, L"zh-cn", &m_keycapTextFormat);
+            dyn.keycapFontSize, L"zh-cn", &m_keycapTextFormat);
     }
     if (m_keycapTextFormat) {
         m_keycapTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         m_keycapTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
-    // 连击角标专属轻量字体 (更紧凑轻盈，纯悬浮无底色)
+    // 3. 连击角标专属轻量字体
     if (FAILED(m_dwriteFactory->CreateTextFormat(
         L"Segoe UI Variable Text",
         nullptr,
         DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
-        targetFontSize * 0.78f,
+        dyn.fontSize * 0.75f,
         L"zh-cn",
         &m_repeatTextFormat
     ))) {
         m_dwriteFactory->CreateTextFormat(
             L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            targetFontSize * 0.78f, L"zh-cn", &m_repeatTextFormat);
+            dyn.fontSize * 0.75f, L"zh-cn", &m_repeatTextFormat);
     }
     if (m_repeatTextFormat) {
         m_repeatTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         m_repeatTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
+    // 4. 连接符 '+' 专属微型字体: Medium, 字号小巧谦逊
+    if (FAILED(m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI Variable Text",
+        nullptr,
+        DWRITE_FONT_WEIGHT_MEDIUM,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        dyn.plusFontSize,
+        L"zh-cn",
+        &m_plusTextFormat
+    ))) {
+        m_dwriteFactory->CreateTextFormat(
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_MEDIUM,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+            dyn.plusFontSize, L"zh-cn", &m_plusTextFormat);
+    }
+    if (m_plusTextFormat) {
+        m_plusTextFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        m_plusTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    }
+
     // 动态画刷体系 (智能双层微透与反差保护)
-    auto bgColor = parseColor(settings.backgroundColor, 0.98f);
-    
-    // 计算背景色的感知亮度 (Perceived Luminance)
+    auto bgColor = parseColor(settings.backgroundColor, 0.90f);
     float luminance = 0.299f * bgColor.r + 0.587f * bgColor.g + 0.114f * bgColor.b;
     bool isDarkBg = (luminance < 0.55f);
 
@@ -396,54 +419,40 @@ bool KeycastOverlay::createResources() {
     D2D1_COLOR_F keycapBg;
     D2D1_COLOR_F keycapBorder;
     D2D1_COLOR_F borderColor;
-
-    // 修饰键底座颜色与微晶透明度计算
-    float keycapAlpha = (std::max)(0.0f, (std::min)(1.0f, static_cast<float>(settings.modifierKeycapOpacity) / 100.0f));
-    D2D1_COLOR_F baseKeycapColor = parseColor(settings.modifierKeycapColor, 1.0f);
-
     D2D1_COLOR_F funcKeyBg;
     D2D1_COLOR_F funcKeyBorder;
     D2D1_COLOR_F badgeBg;
     D2D1_COLOR_F badgeBorder;
 
-    if (settings.modifierTextColor == "auto") {
-        // WCAG 2.2 AAA 智能自适应反差引擎:
-        // 计算修饰键底座的真实复合显色 = keycapAlpha * baseKeycapColor + (1 - keycapAlpha) * bgColor
-        float effR = keycapAlpha * baseKeycapColor.r + (1.0f - keycapAlpha) * bgColor.r;
-        float effG = keycapAlpha * baseKeycapColor.g + (1.0f - keycapAlpha) * bgColor.g;
-        float effB = keycapAlpha * baseKeycapColor.b + (1.0f - keycapAlpha) * bgColor.b;
-        float effLum = 0.2126f * effR + 0.7152f * effG + 0.0722f * effB;
-        if (effLum >= 0.52f) {
-            // 实体高亮键帽态：使用刀刻高对比深黑文字，清晰度满分
-            modifierTextColor = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.98f);
-        } else {
-            // 暗底/微晶半透态：使用 100% 极纯白高亮文字，字字锐利显眼！
-            modifierTextColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f);
-        }
-    } else {
-        modifierTextColor = parseColor(settings.modifierTextColor, 0.98f);
-    }
+    D2D1_COLOR_F baseKeycapColor = parseColor(settings.modifierKeycapColor, 1.0f);
 
     if (isDarkBg) {
-        textColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f);         // 纯白高亮文字
-        plusText = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.70f);          // 纯白半透加号
+        textColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f);         // 主键: 纯白高亮悬浮
+        // 修饰键内部文字/图标: 优雅深暗色 (高对比键帽反差)
+        modifierTextColor = (settings.modifierTextColor == "auto") ? 
+            D2D1::ColorF(0.08f, 0.08f, 0.12f, 0.95f) : 
+            parseColor(settings.modifierTextColor, 0.98f);
+        plusText = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.40f);          // 加号: 浅灰半透
         keycapBg = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
-        keycapBorder = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
-        funcKeyBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f);         // Space/Tab 等特殊实体功能键精致半透底
-        funcKeyBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f);     // 功能键精致微边框
-        badgeBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);           // 连击角标中性纯白半透底
-        badgeBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f);       // 连击角标中性边框
-        borderColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.16f);       // 胶囊外托盘细腻边框
+        keycapBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f);       // 修饰键框: 细腻微亮边
+        funcKeyBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f);
+        funcKeyBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f);
+        badgeBg = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+        badgeBorder = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f);
+        borderColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f);       // 外壳胶囊暗调微边框
     } else {
-        textColor = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.98f);      // 纯黑高亮文字
-        plusText = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.65f);       // 纯黑半透加号
+        textColor = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.98f);
+        modifierTextColor = (settings.modifierTextColor == "auto") ?
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.98f) :
+            parseColor(settings.modifierTextColor, 0.98f);
+        plusText = D2D1::ColorF(0.08f, 0.09f, 0.12f, 0.45f);
         keycapBg = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
-        keycapBorder = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 1.0f);
-        funcKeyBg = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f);         // 浅色功能键底座
-        funcKeyBorder = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.18f);     // 浅色功能键边框
-        badgeBg = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f);           // 浅色连击角标底座
-        badgeBorder = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.16f);       // 浅色连击角标边框
-        borderColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.12f);       // 胶囊外托盘细腻边框
+        keycapBorder = D2D1::ColorF(baseKeycapColor.r, baseKeycapColor.g, baseKeycapColor.b, 0.35f);
+        funcKeyBg = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
+        funcKeyBorder = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.14f);
+        badgeBg = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
+        badgeBorder = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.14f);
+        borderColor = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.10f);
     }
 
     m_renderTarget->CreateSolidColorBrush(textColor, &m_brushText);
@@ -495,19 +504,19 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
             totalW += dyn.winWidth;
         } else if (isModifier(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
-            float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.82f);
+            float textW = static_cast<float>(wtoken.length()) * (dyn.keycapFontSize * 0.58f);
+            float btnW = (std::max)(dyn.winWidth, textW + dyn.fontSize * 0.85f);
             totalW += btnW;
         } else if (isSpecialKey(token)) {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
             float minCapW = (token == "Space") ? (dyn.fontSize * 2.2f) : dyn.winWidth;
-            float btnW = (std::max)(minCapW, textW + dyn.fontSize * 0.65f);
+            float btnW = (std::max)(minCapW, textW + dyn.fontSize * 0.70f);
             totalW += btnW;
         } else {
             std::wstring wtoken = easy::core::WinUtils::utf8ToWstring(token);
             float textW = static_cast<float>(wtoken.length()) * dyn.charWidth;
-            float btnW = (std::max)(dyn.fontSize * 0.85f, textW + dyn.fontSize * 0.38f);
+            float btnW = (std::max)(dyn.fontSize * 0.85f, textW + dyn.fontSize * 0.40f);
             totalW += btnW;
         }
         if (i + 1 < item.tokens.size()) {
@@ -522,7 +531,7 @@ float KeycastOverlay::calculateItemWidth(const KeycastItem& item, float dpiScale
         totalW += fullBadgeW * (std::max)(0.0f, (std::min)(1.0f, progress));
     }
     totalW += dyn.paddingX;
-    return totalW + 2.0f * dpiScale;
+    return totalW + 4.0f * dpiScale;
 }
 
 bool KeycastOverlay::updatePlacement() {
@@ -817,24 +826,10 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
     KeycastSettings settings = getSettings();
     const KeycastDynamicMetrics dyn = computeKeycastMetrics(settings.fontSize, dpiScale);
 
-    float itemW = calculateItemWidth(item, dpiScale);
     float itemH = dyn.capsuleHeight;
     float capHeight = dyn.capHeight;
     float capCenterY = startY + itemH / 2.0f;
 
-    // 1. 绘制外部暗调半透明亚克力胶囊托盘
-    D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(
-        D2D1::RectF(startX, startY, startX + itemW, startY + itemH),
-        dyn.capsuleRadius, dyn.capsuleRadius
-    );
-
-    m_brushBg->SetOpacity(alpha);
-    m_renderTarget->FillRoundedRectangle(&capsuleRect, m_brushBg.Get());
-
-    m_brushBorder->SetOpacity(alpha);
-    m_renderTarget->DrawRoundedRectangle(&capsuleRect, m_brushBorder.Get(), dyn.borderWidth);
-
-    // 2. 依次绘制胶囊内部按键
     float curX = startX + dyn.paddingX;
     float keycapAlpha = (std::max)(0.0f, (std::min)(1.0f, static_cast<float>(settings.modifierKeycapOpacity) / 100.0f));
 
@@ -876,7 +871,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.82f);
+            float btnW = (std::max)(dyn.winWidth, m.width + dyn.fontSize * 0.85f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 
@@ -892,7 +887,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
                 m_renderTarget->DrawRoundedRectangle(&rrect, m_brushKeycapBorder.Get(), dyn.borderWidth);
             }
 
-            m_brushModifierText->SetOpacity(0.98f * alpha);
+            m_brushModifierText->SetOpacity(0.95f * alpha);
             if (layout) {
                 float textDrawX = curX + (btnW - m.width) / 2.0f - m.left;
                 float textDrawY = capCenterY - m.height / 2.0f - m.top;
@@ -911,8 +906,8 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float minCapW = (token == "Space") ? (dyn.fontSize * 2.0f) : dyn.winWidth;
-            float btnW = (std::max)(minCapW, m.width + dyn.fontSize * 0.55f);
+            float minCapW = (token == "Space") ? (dyn.fontSize * 2.2f) : dyn.winWidth;
+            float btnW = (std::max)(minCapW, m.width + dyn.fontSize * 0.70f);
             float btnH = capHeight;
             float topY = capCenterY - btnH / 2.0f;
 
@@ -946,7 +941,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             DWRITE_TEXT_METRICS m{};
             if (layout) layout->GetMetrics(&m);
 
-            float btnW = (std::max)(dyn.fontSize * 0.78f, m.width + dyn.fontSize * 0.32f);
+            float btnW = (std::max)(dyn.fontSize * 0.85f, m.width + dyn.fontSize * 0.40f);
 
             m_brushText->SetOpacity(alpha);
             if (layout) {
@@ -959,9 +954,9 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
             curX += btnW;
         }
 
-        // 绘制键间连接符号 '+' (小巧弱化微型字体)
+        // 绘制键间连接符号 '+' (小巧弱化微型字体，绝对水平居中)
         if (i + 1 < item.tokens.size()) {
-            curX += dyn.fontSize * 0.06f;
+            curX += dyn.fontSize * 0.08f;
             std::wstring plusStr = L"+";
             Microsoft::WRL::ComPtr<IDWriteTextLayout> plusLayout;
             m_dwriteFactory->CreateTextLayout(
@@ -979,7 +974,7 @@ void KeycastOverlay::drawKeycapCapsule(const KeycastItem& item, float startX, fl
                     D2D1::Point2F(plusX, plusY),
                     plusLayout.Get(), m_brushPlusText.Get());
             }
-            curX += pm.width + dyn.fontSize * 0.06f;
+            curX += pm.width + dyn.fontSize * 0.08f;
         }
     }
 
