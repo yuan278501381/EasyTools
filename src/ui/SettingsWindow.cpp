@@ -672,11 +672,35 @@ void SettingsWindow::close() {
 
 void SettingsWindow::dragMove() {
     if (!m_hwnd || !IsWindow(m_hwnd)) return;
-    if (IsZoomed(m_hwnd)) {
-        ShowWindow(m_hwnd, SW_RESTORE);
-    }
     ReleaseCapture();
     SendMessageW(m_hwnd, WM_SYSCOMMAND, 0xF012, 0);
+}
+
+void SettingsWindow::showSystemMenu(int screenX, int screenY) {
+    if (!m_hwnd || !IsWindow(m_hwnd)) return;
+    HMENU hMenu = GetSystemMenu(m_hwnd, FALSE);
+    if (!hMenu) return;
+
+    const bool zoomed = IsZoomed(m_hwnd) != FALSE;
+    EnableMenuItem(hMenu, SC_RESTORE, MF_BYCOMMAND | (zoomed ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, SC_MOVE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
+    EnableMenuItem(hMenu, SC_SIZE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
+    EnableMenuItem(hMenu, SC_MINIMIZE, MF_BYCOMMAND | MF_ENABLED);
+    EnableMenuItem(hMenu, SC_MAXIMIZE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
+    EnableMenuItem(hMenu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+
+    if (screenX == -1 || screenY == -1) {
+        RECT rc{};
+        GetWindowRect(m_hwnd, &rc);
+        screenX = rc.left + 24;
+        screenY = rc.top + 32;
+    }
+
+    int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_TOPALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON,
+                             screenX, screenY, 0, m_hwnd, nullptr);
+    if (cmd > 0) {
+        PostMessageW(m_hwnd, WM_SYSCOMMAND, cmd, 0);
+    }
 }
 
 void SettingsWindow::startResize(const std::string& edge) {
@@ -743,11 +767,16 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
 
         case WM_SIZE: {
-            if (self && self->m_controller) {
-                syncWebViewDpi(self->m_controller.Get(), hwnd);
-                hookWebViewChildWindows(hwnd);
-                if (IsWindowVisible(hwnd)) {
-                    self->m_controller->put_IsVisible(TRUE);
+            if (self) {
+                const bool maxState = (wParam == SIZE_MAXIMIZED || IsZoomed(hwnd));
+                nlohmann::json data = {{"isMaximized", maxState}};
+                self->pushEventToFrontend("window:maximizedChanged", data.dump());
+                if (self->m_controller) {
+                    syncWebViewDpi(self->m_controller.Get(), hwnd);
+                    hookWebViewChildWindows(hwnd);
+                    if (IsWindowVisible(hwnd)) {
+                        self->m_controller->put_IsVisible(TRUE);
+                    }
                 }
             }
             return 0;

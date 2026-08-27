@@ -869,6 +869,13 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    easy::core::MessageBridge::instance().registerHandler("window.showSystemMenu", [](const nlohmann::json& params) -> nlohmann::json {
+        int screenX = params.value("screenX", -1);
+        int screenY = params.value("screenY", -1);
+        easy::ui::SettingsWindow::instance().showSystemMenu(screenX, screenY);
+        return {{"success", true}};
+    });
+
     // 注册托盘菜单 IPC 处理函数
     easy::core::MessageBridge::instance().registerHandler("tray.action", [hwnd](const nlohmann::json& params) -> nlohmann::json {
         std::string action = params.value("action", "");
