@@ -1252,6 +1252,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"isPortableMode", WinUtils::isPortableMode()},
             {"dataDirectory", WinUtils::wstringToUtf8(WinUtils::getAppDataDirectory().wstring())},
             {"language", config.get<std::string>("/general/language", "auto")},
+            {"fontFamily", config.get<std::string>("/general/fontFamily", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
             {"accentColor", config.get<std::string>("/general/accentColor", "blue")},
@@ -1263,6 +1264,9 @@ void MessageBridge::registerBuiltinHandlers() {
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};
+        static const std::unordered_set<std::string> fontFamilies = {
+            "auto", "noto-sans-sc", "harmony-sans", "yahei", "pingfang", "system"
+        };
         static const std::unordered_set<std::string> accents = {
             "violet", "cyan", "amber", "blue", "mint", "coral"
         };
@@ -1289,7 +1293,11 @@ void MessageBridge::registerBuiltinHandlers() {
                 !languages.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid language"}};
             }
-            if (!boolKeys.contains(key) && key != "theme" && key != "accentColor" && key != "logLevel" && key != "language") {
+            if (key == "fontFamily" && (!value.is_string() ||
+                !fontFamilies.contains(value.get<std::string>()))) {
+                return {{"success", false}, {"error", "invalid font family"}};
+            }
+            if (!boolKeys.contains(key) && key != "theme" && key != "accentColor" && key != "logLevel" && key != "language" && key != "fontFamily") {
                 return {{"success", false}, {"error", "unsupported setting: " + key}};
             }
         }
