@@ -60,7 +60,13 @@ for (const file of cssFiles) {
   });
 }
 
-// 2. 检查低于 11.8px / 0.83rem 的小字号
+// 2. 检查全局与 App 级 CSS 中是否对 code / kbd 进行了显式 font-mono 重置 (防宋体回退)
+const rootCss = fs.readFileSync(path.join(srcDir, 'index.css'), 'utf8');
+if (!rootCss.includes('code') || !rootCss.includes('var(--font-mono)')) {
+  errors.push(`[index.css] 必须在全局基础样式中声明 "code, kbd, samp, pre { font-family: var(--font-mono); }" 以防止 Chromium 宋体回退.`);
+}
+
+// 3. 检查低于 11.8px / 0.83rem 的小字号
 const allFiles = [...cssFiles, ...tsxFiles];
 for (const file of allFiles) {
   if (file.endsWith('check-typography.js') || file.endsWith('.test.ts') || file.endsWith('.test.tsx')) continue;
@@ -80,6 +86,6 @@ if (errors.length > 0) {
   errors.forEach(e => console.error('  - ' + e));
   process.exit(1);
 } else {
-  console.log(`✅ 排版门禁审查全部通过！全库 100% 遵循单一事实源字体栈与字号清晰度底线。`);
+  console.log(`✅ 排版门禁审查全部通过！全库 100% 遵循单一事实源字体栈与字号清晰度底线，0 宋体回退。`);
   process.exit(0);
 }

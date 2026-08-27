@@ -156,10 +156,10 @@ export const AboutPage: FC = () => {
     try {
       const res = await bridgeRequest<{ success: boolean; cancelled?: boolean; error?: string }>('app.exportLogs');
       if (res.cancelled) return;
-      if (!res.success) throw new Error(res.error || '导出失败');
-      toast.success(t('about.exportLogsSuccess', '诊断日志已成功导出并定位'));
+      if (!res.success) throw new Error(res.error || t('about.exportFailed', 'Export failed'));
+      toast.success(t('about.exportLogsSuccess', 'Diagnostic logs exported and highlighted successfully'));
     } catch (e) {
-      toast.error(t('about.exportLogsFailed', '日志导出失败'), { description: String(e) });
+      toast.error(t('about.exportLogsFailed', 'Failed to export diagnostic logs'), { description: String(e) });
     }
   };
 
@@ -198,7 +198,7 @@ export const AboutPage: FC = () => {
                   <h2 className="about-hero__title">EasyTools</h2>
                   <Badge text={`v${version}`} variant="primary" />
                   <Badge text="C++20 & Direct2D" variant="success" />
-                  <Badge text={`作者 · Yy1 (@yuan278501381)`} variant="muted" />
+                  <Badge text={t('about.authorBadge', 'Author · Yy1 (@yuan278501381)')} variant="muted" />
                 </div>
                 <p className="about-hero__subtitle">{t('about.subtitle')}</p>
               </div>
@@ -209,9 +209,9 @@ export const AboutPage: FC = () => {
                 <RefreshCw size={14} className={checkingUpdate ? 'about-update-spin' : undefined} />
                 <span>{checkingUpdate ? t('about.checkingUpdate') : t('about.checkUpdate')}</span>
               </Button>
-              <Button variant="secondary" onClick={() => void handleExportLogs()} title="导出系统诊断日志与环境报告">
+              <Button variant="secondary" onClick={() => void handleExportLogs()} title={t('about.exportLogsTip', 'Export system diagnostic logs and environment report')}>
                 <Download size={14} />
-                <span>{t('about.exportLogs', '导出日志')}</span>
+                <span>{t('about.exportLogs', 'Export Logs')}</span>
               </Button>
               {updateResult?.status === 'available' && updateResult.releaseUrl && (
                 <Button variant="primary" onClick={() => void openReleasePage()}>
@@ -239,7 +239,7 @@ export const AboutPage: FC = () => {
                   e.preventDefault();
                   void bridgeRequest('system.openFile', { path: 'https://github.com/yuan278501381' });
                 }}
-                title="访问原作者 GitHub 主页"
+                title={t('about.authorGithubTip', 'Visit original author GitHub profile')}
               >
                 <strong className="about-meta-val">Yy1</strong>
                 <span className="about-meta-handle">(@yuan278501381)</span>

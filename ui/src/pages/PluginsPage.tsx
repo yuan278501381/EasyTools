@@ -272,7 +272,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
           tabs={tabs}
           activeId={activeTab}
           onChange={(id) => setActiveTab(id as typeof activeTab)}
-          ariaLabel={t('plugins.title', '插件管理')}
+          ariaLabel={t('plugins.title')}
         />
 
         {activeTab === 'marketplace' && (

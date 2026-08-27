@@ -6,10 +6,19 @@ import { type FC, type MouseEvent, useCallback, useEffect, useState } from 'reac
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import './WindowResizeHandles.css';
 
-export const WindowResizeHandles: FC = () => {
+export interface WindowResizeHandlesProps {
+  method?: string;
+  showMaximizedCheck?: boolean;
+}
+
+export const WindowResizeHandles: FC<WindowResizeHandlesProps> = ({
+  method = 'window.startResize',
+  showMaximizedCheck = true,
+}) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   const checkMaximized = useCallback(() => {
+    if (!showMaximizedCheck) return;
     bridgeRequest<{ isMaximized: boolean }>('window.isMaximized')
       .then((res) => {
         if (res && typeof res.isMaximized === 'boolean') {
@@ -17,16 +26,17 @@ export const WindowResizeHandles: FC = () => {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [showMaximizedCheck]);
 
   useEffect(() => {
+    if (!showMaximizedCheck) return;
     checkMaximized();
     window.addEventListener('resize', checkMaximized);
     return () => window.removeEventListener('resize', checkMaximized);
-  }, [checkMaximized]);
+  }, [checkMaximized, showMaximizedCheck]);
 
   useBridgeEvent('window:maximizedChanged', (data: unknown) => {
-    if (data && typeof data === 'object' && 'isMaximized' in data) {
+    if (showMaximizedCheck && data && typeof data === 'object' && 'isMaximized' in data) {
       setIsMaximized(Boolean((data as { isMaximized: boolean }).isMaximized));
     }
   });
@@ -36,9 +46,9 @@ export const WindowResizeHandles: FC = () => {
       if (e.button !== 0 || isMaximized) return;
       e.preventDefault();
       e.stopPropagation();
-      bridgeRequest('window.startResize', { edge }).catch(console.error);
+      bridgeRequest(method, { edge, direction: edge }).catch(console.error);
     },
-    [isMaximized]
+    [isMaximized, method]
   );
 
   if (isMaximized) return null;

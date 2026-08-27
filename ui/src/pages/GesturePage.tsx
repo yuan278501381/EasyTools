@@ -33,6 +33,7 @@ import {
   type GestureProfileData,
   type TriggerState,
 } from '../components/gestureModel';
+import { getLocalizedGestureName, getLocalizedGestureDesc } from '../utils/gestureI18n';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -85,12 +86,12 @@ interface GestureState {
 }
 
 const TRAIL_COLOR_PRESETS = [
-  { name: '魅紫', hex: '#8B5CF6' },
-  { name: '极光青', hex: '#06B6D4' },
-  { name: '曜石金', hex: '#F59E0B' },
-  { name: '深海蓝', hex: '#3B82F6' },
-  { name: '薄荷绿', hex: '#10B981' },
-  { name: '暮霞珊瑚', hex: '#F43F5E' },
+  { name: 'Purple', hex: '#8B5CF6' },
+  { name: 'Cyan', hex: '#06B6D4' },
+  { name: 'Gold', hex: '#F59E0B' },
+  { name: 'Blue', hex: '#3B82F6' },
+  { name: 'Green', hex: '#10B981' },
+  { name: 'Sunset Coral', nameKey: 'gesture.colorSunsetCoral', hex: '#F43F5E' },
 ];
 
 interface OperationResult {
@@ -127,8 +128,8 @@ export const GesturePage: FC = () => {
   const [rules, setRules] = useState<ScopeRule[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<ScopeTargetItem>({
     id: 'global',
-    title: '全局',
-    subtitle: '所有未特别定制的窗口',
+    title: t('components.globalTitle', 'Global'),
+    subtitle: t('components.defaultGestureSubtitle', 'Default Gesture Config'),
     kind: 'global',
   });
 
@@ -152,7 +153,7 @@ export const GesturePage: FC = () => {
   const actionDetail = (action: GestureMapping['action']): string => {
     switch (action.type) {
       case 0: return action.keyStroke ?? '';
-      case 1: return action.luaScript ? 'Lua 脚本' : '';
+      case 1: return action.luaScript ? t('gesture.luaScript', 'Lua Script') : '';
       case 2: {
         const key = BUILTIN_COMMAND_KEYS[action.builtinCmd ?? 0];
         return key ? tr(key) : '';
@@ -288,7 +289,7 @@ export const GesturePage: FC = () => {
       if (!result.success) throw new Error(result.error || 'Failed to update trigger state');
     } catch (err) {
       console.error('Failed to set trigger state:', err);
-      toast.error('修改触发方式失败', { description: String(err) });
+      toast.error(t('gesture.toastChangeTriggerFailed', 'Failed to update trigger mode'), { description: String(err) });
     }
   };
 
@@ -324,9 +325,9 @@ export const GesturePage: FC = () => {
     } catch (err) {
       console.error('Failed to save scope rules:', err);
       setRules(prevRules);
-      toast.error('保存作用域规则失败', { description: String(err) });
+      toast.error(t('gesture.toastSaveRuleFailed', 'Failed to save scope rule'), { description: String(err) });
     }
-  }, [rules]);
+  }, [rules, t]);
 
   // ── 添加 Target (通过 AppPickerModal) ───────────────────────────────────────
   const handleAddTarget = (res: AddedTargetResult) => {
@@ -360,14 +361,14 @@ export const GesturePage: FC = () => {
       kind: res.effect === 1 ? 'disabled' : 'app',
       rule: newRule,
     });
-    toast.success(`已添加目标: ${res.name}`);
+    toast.success(t('gesture.toastTargetAdded', 'Added target: {{name}}', { name: res.name }));
   };
 
   // ── 删除 Target ─────────────────────────────────────────────────────────────
   const handleDeleteTarget = (ruleId: string) => {
     const r = rules.find((x) => x.id === ruleId);
     if (!r) return;
-    if (!window.confirm(`确定要移除目标「${r.name || r.processName}」的专属配置吗？`)) return;
+    if (!window.confirm(t('gesture.confirmRemoveTarget', 'Are you sure you want to remove the custom configuration for target 「{{name}}」?', { name: r.name || r.processName }))) return;
 
     const nextRules = rules.filter((x) => x.id !== ruleId);
     void persistRules(nextRules);
@@ -375,12 +376,12 @@ export const GesturePage: FC = () => {
     if (selectedTarget.id === `rule:${ruleId}`) {
       setSelectedTarget({
         id: 'global',
-        title: '全局',
-        subtitle: '所有未特别定制的窗口',
+        title: t('components.globalTitle', 'Global'),
+        subtitle: t('components.defaultGestureSubtitle', 'Default Gesture Config'),
         kind: 'global',
       });
     }
-    toast.success('已移除目标配置');
+    toast.success(t('gesture.toastTargetRemoved', 'Target configuration removed'));
   };
 
   // ── 切换当前 Target 的作用策略 (自定义手势 <-> 禁用手势) ────────────────────
@@ -438,7 +439,7 @@ export const GesturePage: FC = () => {
   const handleDeleteMapping = (index: number) => {
     const m = currentMappings[index];
     if (!m) return;
-    if (!window.confirm(tr('gesture.deleteConfirm', { name: m.action.name, code: m.gestureCode }))) return;
+    if (!window.confirm(tr('gesture.deleteConfirm', { name: getLocalizedGestureName(m.action.name, t), code: m.gestureCode }))) return;
     void persistMappings(currentMappings.filter((_, i) => i !== index));
   };
 
@@ -674,14 +675,18 @@ export const GesturePage: FC = () => {
 
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
+      const locName = getLocalizedGestureName(m.action.name, t).toLowerCase();
+      const locDesc = (getLocalizedGestureDesc(m.action.description, t) || '').toLowerCase();
       return (
         m.gestureCode.toLowerCase().includes(q) ||
         m.action.name.toLowerCase().includes(q) ||
+        locName.includes(q) ||
         (m.action.keyStroke || '').toLowerCase().includes(q) ||
-        (m.action.description || '').toLowerCase().includes(q)
+        (m.action.description || '').toLowerCase().includes(q) ||
+        locDesc.includes(q)
       );
     });
-  }, [currentMappings, triggerFilter, searchQuery]);
+  }, [currentMappings, triggerFilter, searchQuery, t]);
 
   if (loading) {
     return (
@@ -831,7 +836,7 @@ export const GesturePage: FC = () => {
 
               {/* 实时平滑霓虹流光轨迹预览条 */}
               <div className="gesture-trail-preview-card">
-                <div className="gesture-trail-preview-label">轨迹流光渲染预览</div>
+                <div className="gesture-trail-preview-label">{t('gesture.trailPreview', 'Gesture Trail Glow Rendering Preview')}</div>
                 <svg className="gesture-trail-preview-svg" viewBox="0 0 400 50" preserveAspectRatio="none">
                   {trailOutlineWidth > 0 && (
                     <path
@@ -907,7 +912,7 @@ export const GesturePage: FC = () => {
                 { value: '1200', label: tr('gesture.initialTimeoutGenerous') },
                 { value: '2000', label: tr('gesture.initialTimeoutLong') },
                 ...(![300, 500, 800, 1200, 2000].includes(initialTimeoutMs)
-                  ? [{ value: String(initialTimeoutMs), label: `${initialTimeoutMs} 毫秒 (自定义)` }]
+                  ? [{ value: String(initialTimeoutMs), label: t('gesture.customMsUnit', '{{ms}} ms (Custom)', { ms: initialTimeoutMs }) }]
                   : []),
               ]}
             />
@@ -924,7 +929,7 @@ export const GesturePage: FC = () => {
                 { value: '32', label: tr('gesture.minSegmentDistanceAntiShake') },
                 { value: '48', label: tr('gesture.minSegmentDistanceLarge') },
                 ...(![12, 18, 24, 32, 48].includes(minSegmentDistance)
-                  ? [{ value: String(minSegmentDistance), label: `${minSegmentDistance} 像素 (自定义)` }]
+                  ? [{ value: String(minSegmentDistance), label: t('gesture.customPxUnit', '{{px}} px (Custom)', { px: minSegmentDistance }) }]
                   : []),
               ]}
             />
@@ -977,7 +982,7 @@ export const GesturePage: FC = () => {
       </SettingGroup>
 
       {/* ── WGestures 2 风格作用目标与手势管理 (Master-Detail) ─────── */}
-      <SettingGroup title="作用目标与手势配置" icon={<Hand size={20} strokeWidth={2.5} />}>
+      <SettingGroup title={t('gesture.targetConfigTitle', 'Scope Targets & Gesture Configuration')} icon={<Hand size={20} strokeWidth={2.5} />}>
         <div className="gesture-master-detail-layout">
           {/* 左侧目标导航树 */}
           <ScopeTargetsSidebar
@@ -1000,7 +1005,7 @@ export const GesturePage: FC = () => {
                 <div className="target-header-texts">
                   <span className="target-header-title">{selectedTarget.title}</span>
                   <span className="target-header-sub">
-                    {selectedTarget.kind === 'global' ? '全局通用手势与触发方式' : (selectedTarget.subtitle || '专属手势规则')}
+                    {selectedTarget.kind === 'global' ? t('gesture.globalScopeSubtitle', 'Global gestures and trigger methods') : (selectedTarget.subtitle || t('gesture.customScopeSubtitle', 'App-specific gesture rules'))}
                   </span>
                 </div>
               </div>
@@ -1014,7 +1019,7 @@ export const GesturePage: FC = () => {
                     onClick={() => handleToggleStrategy(2)}
                   >
                     <SlidersHorizontal size={13} />
-                    <span>自定义手势</span>
+                    <span>{t('gesture.customGestures', 'Custom Gestures')}</span>
                   </button>
                   <button
                     type="button"
@@ -1022,7 +1027,7 @@ export const GesturePage: FC = () => {
                     onClick={() => handleToggleStrategy(1)}
                   >
                     <ShieldAlert size={13} />
-                    <span>禁用手势 (免打扰)</span>
+                    <span>{t('gesture.disabledTarget', 'Disable Gestures (Do Not Disturb)')}</span>
                   </button>
                 </div>
               )}
@@ -1034,12 +1039,12 @@ export const GesturePage: FC = () => {
                 <div className="target-disabled-icon">
                   <ShieldAlert size={28} />
                 </div>
-                <span className="target-disabled-title">已在此目标中停用手势响应</span>
+                <span className="target-disabled-title">{t('gesture.targetDisabledNotice', 'Gestures are disabled for this target')}</span>
                 <p className="target-disabled-desc">
-                  当该程序处于前台时，EasyTools 将自动放行全部鼠标操作，绝不拦截任何右键或中键事件，保障游戏与绘图无干扰。
+                  {t('gesture.targetDisabledDesc', 'When this app is in the foreground, mouse events will pass through untouched without triggering gestures.')}
                 </p>
                 <Button size="sm" variant="secondary" onClick={() => handleToggleStrategy(2)}>
-                  恢复自定义手势
+                  {t('gesture.restoreCustomGestures', 'Restore Custom Gestures')}
                 </Button>
               </div>
             ) : (
@@ -1047,9 +1052,9 @@ export const GesturePage: FC = () => {
                 {/* ── 允许的触发方式 (极简单行药丸横向条) ── */}
                 <div className="trigger-strip-container">
                   <div className="trigger-strip-label">
-                    <span className="trigger-strip-title">触发方式</span>
+                    <span className="trigger-strip-title">{t('gesture.triggerModeStrip', 'Trigger Method')}</span>
                     <span className="trigger-strip-hint">
-                      {selectedTarget.kind === 'global' ? '点击按键药丸快速启/禁' : '(覆盖目标)'}
+                      {selectedTarget.kind === 'global' ? t('gesture.quickTogglePill', 'Click pill to toggle') : t('gesture.overrideTarget', '(Override Target)')}
                     </span>
                   </div>
 
@@ -1064,7 +1069,7 @@ export const GesturePage: FC = () => {
                           key={item.key}
                           type="button"
                           className={`trigger-pill-btn trigger-pill-btn--${isEffectiveEnabled ? 'active' : 'inactive'}`}
-                          title={`${item.name} (${item.category === 'mouse' ? '按键轨迹' : '屏幕边缘'}) - 点击切换为${isEffectiveEnabled ? '禁用' : '启用'}`}
+                          title={t('gesture.triggerPillTip', '{{name}} ({{cat}}) - Click to {{action}}', { name: item.name, cat: item.category === 'mouse' ? t('gesture.catTrack', 'Mouse Track') : t('gesture.catEdge', 'Screen Edge'), action: isEffectiveEnabled ? t('common.disable', 'Disable') : t('common.enable', 'Enable') })}
                           onClick={() => void handleSetTriggerState(item.key, isEffectiveEnabled ? 'disabled' : 'enabled')}
                         >
                           {isEffectiveEnabled ? <CheckCircle2 size={12} className="trigger-pill-icon" /> : null}
@@ -1080,7 +1085,7 @@ export const GesturePage: FC = () => {
                   <div className="gesture-toolbar">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
                       <span className="gesture-toolbar__count">
-                        {selectedTarget.kind === 'global' ? '全局手势表' : `「${selectedTarget.title}」专属手势`}
+                        {selectedTarget.kind === 'global' ? t('gesture.globalTableTitle', 'Global Gesture Map') : t('gesture.appTableTitle', '「{{title}}」Gestures', { title: selectedTarget.title })}
                         {' '}({filteredMappings.length}/{currentMappings.length})
                       </span>
 
@@ -1091,21 +1096,21 @@ export const GesturePage: FC = () => {
                           className={`gesture-trigger-filter-tab ${triggerFilter === 'all' ? 'active' : ''}`}
                           onClick={() => setTriggerFilter('all')}
                         >
-                          全部 ({currentMappings.length})
+                          {t('common.all', 'All')} ({currentMappings.length})
                         </button>
                         <button
                           type="button"
                           className={`gesture-trigger-filter-tab ${triggerFilter === 'right' ? 'active' : ''}`}
                           onClick={() => setTriggerFilter('right')}
                         >
-                          ◐ 右键手势 ({rightCount})
+                          ◐ {t('gesture.rightGestures', 'Right Click')} ({rightCount})
                         </button>
                         <button
                           type="button"
                           className={`gesture-trigger-filter-tab ${triggerFilter === 'middle' ? 'active' : ''}`}
                           onClick={() => setTriggerFilter('middle')}
                         >
-                          ◓ 中键手势 ({middleCount})
+                          ◓ {t('gesture.middleGestures', 'Middle Click')} ({middleCount})
                         </button>
                       </div>
 
@@ -1114,7 +1119,7 @@ export const GesturePage: FC = () => {
                         <input
                           type="text"
                           className="gesture-search-input"
-                          placeholder="过滤手势或动作名称..."
+                          placeholder={t('gesture.filterPlaceholder', 'Filter gesture or action name...')}
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -1134,13 +1139,13 @@ export const GesturePage: FC = () => {
                         <span className="gesture-table__col gesture-table__col--action">{tr('gesture.colAction')}</span>
                         <span className="gesture-table__col gesture-table__col--type">{tr('gesture.colType')}</span>
                         <span className="gesture-table__col gesture-table__col--key">{tr('gesture.colDetail')}</span>
-                        <span className="gesture-table__col gesture-table__col--switch">启用</span>
+                        <span className="gesture-table__col gesture-table__col--switch">{t('gesture.colEnable', 'Enable')}</span>
                         <span className="gesture-table__col gesture-table__col--actions" />
                       </div>
 
                       {filteredMappings.length === 0 && (
                         <div className="gesture-empty">
-                          {searchQuery ? '未找到符合条件的手势' : tr('gesture.emptyMapping')}
+                          {searchQuery ? t('gesture.noMatchesFound', 'No matching gestures found') : tr('gesture.emptyMapping')}
                         </div>
                       )}
 
@@ -1169,14 +1174,14 @@ export const GesturePage: FC = () => {
                             onDoubleClick={() => openEditMapping(m)}
                             className={`gesture-table__row ${!isEnabled ? 'gesture-table__row--disabled' : ''} ${isDragging ? 'gesture-table__row--dragging' : ''}`}
                             style={{ animationDelay: `${i * 20}ms` }}
-                            title="双击进入编辑界面"
+                            title={t('gesture.editTip', 'Double-click to open editor')}
                           >
                             {/* 1. 拖拽抓手 + 动态手势画板 + 触发按键徽章 */}
                             <span className="gesture-table__col gesture-table__col--gesture">
                               <div className="gesture-handle-box">
                                 <div
                                   className="gesture-drag-handle"
-                                  title="按住拖拽调整手势顺序"
+                                  title={t('gesture.dragOrderTip', 'Hold and drag to reorder gestures')}
                                   onDoubleClick={(e) => e.stopPropagation()}
                                 >
                                   <GripVertical size={14} className="gesture-grip-icon" />
@@ -1190,7 +1195,7 @@ export const GesturePage: FC = () => {
                                         : 'gesture-trigger-mini-badge--right'
                                     }`}
                                   >
-                                    {m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+') ? '◓ 中键' : '◐ 右键'}
+                                    {m.gestureCode.trim().toUpperCase().startsWith('MIDDLE+') ? `◓ ${t('gesture.middleClickShort', 'Middle')}` : `◐ ${t('gesture.rightClickShort', 'Right')}`}
                                   </span>
                                 </div>
                               </div>
@@ -1199,12 +1204,12 @@ export const GesturePage: FC = () => {
                             {/* 2. 动作名称与特性徽章 */}
                             <span className="gesture-table__col gesture-table__col--action">
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span className="gesture-action-name">{m.action.name}</span>
+                                <span className="gesture-action-name">{getLocalizedGestureName(m.action.name, t)}</span>
                                 {m.instantExecute && (
                                   <button
                                     type="button"
                                     className="gesture-flag-badge gesture-flag-badge--instant gesture-flag-badge--clickable"
-                                    title="即时执行 (点击直接定位配置)"
+                                    title={t('gesture.instantTip', 'Instant Execution (click to locate config)')}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'instant');
@@ -1212,14 +1217,14 @@ export const GesturePage: FC = () => {
                                     onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <Zap size={10} />
-                                    <span>即时</span>
+                                    <span>{t('gesture.instantBadge', 'Instant')}</span>
                                   </button>
                                 )}
                                 {m.silentToast && (
                                   <button
                                     type="button"
                                     className="gesture-flag-badge gesture-flag-badge--silent gesture-flag-badge--clickable"
-                                    title="静默模式 (点击直接定位配置)"
+                                    title={t('gesture.silentTip', 'Silent Mode (click to locate config)')}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'silent');
@@ -1227,12 +1232,12 @@ export const GesturePage: FC = () => {
                                     onDoubleClick={(e) => e.stopPropagation()}
                                   >
                                     <VolumeX size={10} />
-                                    <span>静默</span>
+                                    <span>{t('gesture.silentBadge', 'Silent')}</span>
                                   </button>
                                 )}
                               </div>
                               {m.action.description && (
-                                <span className="gesture-action-desc">{m.action.description}</span>
+                                <span className="gesture-action-desc">{getLocalizedGestureDesc(m.action.description, t)}</span>
                               )}
                             </span>
 
@@ -1241,7 +1246,7 @@ export const GesturePage: FC = () => {
                               <button
                                 type="button"
                                 className="gesture-type-badge-btn"
-                                title="点击直接配置此动作类型与参数"
+                                title={t('gesture.actionParamTip', 'Click to configure action type and parameters')}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openEditMapping(m, 'action_type');
@@ -1265,7 +1270,7 @@ export const GesturePage: FC = () => {
                                   <button
                                     type="button"
                                     className="gesture-detail-badge-btn"
-                                    title={`点击直接修改此参数: ${detailText}`}
+                                    title={t('gesture.editParamTip', 'Click to edit parameter: {{detail}}', { detail: detailText })}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openEditMapping(m, 'action_detail');

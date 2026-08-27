@@ -752,7 +752,9 @@ public:
             const std::string filepath = params.value("filepath", params.value("path", ""));
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath);
+            const int x = params.value("x", -1);
+            const int y = params.value("y", -1);
+            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath, x, y);
             return {{"success", started}, {"busy", !started}};
         });
 
@@ -766,15 +768,19 @@ public:
         });
 
         mb.registerHandler("search.startResize", [](const nlohmann::json& params) -> nlohmann::json {
-            std::string dir = params.value("direction", "se");
+            std::string edge = params.value("edge", params.value("direction", "bottom_right"));
             HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
             if (hwnd && IsWindow(hwnd)) {
                 WPARAM hitTest = HTBOTTOMRIGHT;
-                if (dir == "se") hitTest = HTBOTTOMRIGHT;
-                else if (dir == "e") hitTest = HTRIGHT;
-                else if (dir == "s") hitTest = HTBOTTOM;
-                else if (dir == "w") hitTest = HTLEFT;
-                else if (dir == "sw") hitTest = HTBOTTOMLEFT;
+                if (edge == "top" || edge == "n") hitTest = HTTOP;
+                else if (edge == "bottom" || edge == "s") hitTest = HTBOTTOM;
+                else if (edge == "left" || edge == "w") hitTest = HTLEFT;
+                else if (edge == "right" || edge == "e") hitTest = HTRIGHT;
+                else if (edge == "top_left" || edge == "nw") hitTest = HTTOPLEFT;
+                else if (edge == "top_right" || edge == "ne") hitTest = HTTOPRIGHT;
+                else if (edge == "bottom_left" || edge == "sw") hitTest = HTBOTTOMLEFT;
+                else if (edge == "bottom_right" || edge == "se") hitTest = HTBOTTOMRIGHT;
+
                 ReleaseCapture();
                 SendMessageW(hwnd, WM_NCLBUTTONDOWN, hitTest, 0);
             }
@@ -966,6 +972,13 @@ public:
                  "search.getDbStats",
                  "search.saveSnapshot",
                  "search.warmup",
+                 "search.openFolder",
+                 "search.openFile",
+                 "search.openFileAsAdmin",
+                 "search.openWithNotepad",
+                 "search.showFileProperties",
+                 "search.showShellContextMenu",
+                 "search.renamePath",
              }) {
             mb.markMethodAsync(method);
         }

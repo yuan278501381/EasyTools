@@ -9,6 +9,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useMemo, useState, useRef, useEffect, type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { codeToArrows } from './gestureModel';
 import './GestureStrokePreview.css';
 
@@ -39,24 +40,21 @@ function parseSegments(rawCode: string): string[] {
   if (clean.includes('-')) {
     return clean.split('-').filter(Boolean);
   }
-  if (DIR_VECTORS[clean]) {
-    return [clean];
-  }
-  return clean.split('').filter((c) => DIR_VECTORS[c]);
+  return clean.split('').filter(Boolean);
 }
 
-interface Props {
+export interface GestureStrokePreviewProps {
   code: string;
   width?: number;
   height?: number;
-  triggerButton?: 'right' | 'left' | 'middle';
+  triggerButton?: 'right' | 'middle' | 'left' | 'x1' | 'x2';
   interactive?: boolean;
   autoAnimate?: boolean;
   className?: string;
   title?: string;
 }
 
-export const GestureStrokePreview: FC<Props> = ({
+export const GestureStrokePreview: FC<GestureStrokePreviewProps> = ({
   code,
   width = 54,
   height = 36,
@@ -66,6 +64,7 @@ export const GestureStrokePreview: FC<Props> = ({
   className = '',
   title,
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const pathRef = useRef<SVGPathElement>(null);
   const [pathLength, setPathLength] = useState(100);
@@ -151,7 +150,7 @@ export const GestureStrokePreview: FC<Props> = ({
   }, [geometry]);
 
   const fallbackArrows = useMemo(() => codeToArrows(code) || code, [code]);
-  const tooltipText = title ?? `手势: ${fallbackArrows} (编码: ${code})`;
+  const tooltipText = title ?? t('gesture.previewTooltip', 'Gesture: {{arrows}} (Code: {{code}})', { arrows: fallbackArrows, code });
 
   if (!geometry) {
     return (

@@ -6,6 +6,7 @@
 #include "ui/WebViewDpi.h"
 #include "ui/WebViewWindowStyle.h"
 #include "ui/WebViewSecurity.h"
+#include "ui/KeyboardPipeline.h"
 #include <wrl/event.h>
 #include <filesystem>
 #include <fstream>
@@ -352,6 +353,7 @@ void TrayWindow::initializeWebView2() {
                                     }
                                 ).Get(), nullptr);
 
+                            KeyboardPipeline::applyWebKeyboardPolicy(m_controller.Get(), false);
                             m_webViewReady = true;
                             return S_OK;
                         }
@@ -364,6 +366,9 @@ void TrayWindow::initializeWebView2() {
 }
 
 LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (KeyboardPipeline::filterWindowMessage(hwnd, uMsg, wParam, lParam)) {
+        return 0;
+    }
     auto& inst = TrayWindow::instance();
     switch (uMsg) {
         case WM_SIZE:

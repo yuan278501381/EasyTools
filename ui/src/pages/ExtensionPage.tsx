@@ -35,23 +35,29 @@ const EXTENSION_ICONS = {
 interface ExtensionGuideInfo {
   triggerKey: string;
   triggerKeyArray: string[];
-  conditionZh: string;
+  conditionZh?: string;
+  conditionKey?: string;
   conditionEn: string;
   steps: {
     step: number;
-    titleZh: string;
+    titleZh?: string;
+    titleKey?: string;
     titleEn: string;
-    descZh: string;
+    descZh?: string;
+    descKey?: string;
     descEn: string;
     kbd?: string[];
   }[];
   proTips: {
-    titleZh: string;
+    titleZh?: string;
+    titleKey?: string;
     titleEn: string;
-    descZh: string;
+    descZh?: string;
+    descKey?: string;
     descEn: string;
   }[];
   supportedFormats?: string[];
+  supportedFormatKeys?: string[];
 }
 
 const EXTENSION_GUIDES: Record<string, ExtensionGuideInfo> = {
@@ -63,14 +69,14 @@ const EXTENSION_GUIDES: Record<string, ExtensionGuideInfo> = {
     steps: [
       {
         step: 1,
-        titleZh: '单选目标文件',
+        titleKey: 'extGuide.stepQuickLook1Title',
         titleEn: 'Select Target File',
         descZh: '在 Windows 文件资源管理器中鼠标单击选中任意 Markdown 或代码文件。',
         descEn: 'Click once to highlight any Markdown or source code file in Explorer.',
       },
       {
         step: 2,
-        titleZh: '轻按空格键',
+        titleKey: 'extGuide.stepQuickLook2Title',
         titleEn: 'Press Spacebar',
         descZh: '轻按键盘空格键 Space，无需双击打开笨重编辑器。',
         descEn: 'Press Spacebar once without double clicking heavy editors.',
@@ -212,35 +218,35 @@ const EXTENSION_GUIDES: Record<string, ExtensionGuideInfo> = {
       },
       {
         step: 2,
-        titleZh: '唤起灵感剪贴面板',
+        titleKey: 'extGuide.stepClip1Title',
         titleEn: 'Open Clipboard Hub',
-        descZh: '在需要粘贴的位置按下 Alt + V 快捷键。',
+        descKey: 'extGuide.stepClip1Desc',
         descEn: 'Press Alt + V at the destination input box.',
         kbd: ['Alt', 'V'],
       },
       {
         step: 3,
-        titleZh: '秒级搜索与直出',
+        titleKey: 'extGuide.stepClip2Title',
         titleEn: 'Search & Paste',
-        descZh: '支持键入拼音/关键字快速过滤，按数字 1~9 或 Enter 键直接自动粘贴上屏。',
+        descKey: 'extGuide.stepClip2Desc',
         descEn: 'Filter history by typing pinyin/keywords; press 1-9 or Enter to paste.',
       },
     ],
     proTips: [
       {
-        titleZh: '收藏常用常驻语',
+        titleKey: 'extGuide.stepClip3Title',
         titleEn: 'Pin Snippets',
-        descZh: '点击条目右侧星标可将重要凭证、代码模板或常用语永久置顶。',
+        descKey: 'extGuide.stepClip3Desc',
         descEn: 'Click star icon on any entry to pin favorite snippets permanently.',
       },
       {
-        titleZh: '纯文本清洗粘贴',
+        titleKey: 'extGuide.stepClip4Title',
         titleEn: 'Plain Text Paste',
-        descZh: '按 Shift + Enter 可自动剥离网页富文本格式，直接粘贴纯文本。',
+        descKey: 'extGuide.stepClip4Desc',
         descEn: 'Press Shift + Enter to strip formatting and paste clean plain text.',
       },
     ],
-    supportedFormats: ['富文本', '纯文本', '位图图像', '文件列表', '代码片段'],
+    supportedFormatKeys: ['extGuide.formatRichText', 'extGuide.formatPlainText', 'extGuide.formatImage', 'extGuide.formatFileList', 'extGuide.formatCodeSnippet'],
   },
 };
 
@@ -268,41 +274,41 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
     return EXTENSION_GUIDES[pluginId] || {
       triggerKey: 'Alt + Space',
       triggerKeyArray: ['Alt', 'Space'],
-      conditionZh: '在系统任意窗口或桌面环境下生效',
+      conditionKey: 'extGuide.conditionGlobal',
       conditionEn: 'Works across all active windows or desktop environment',
       steps: [
         {
           step: 1,
-          titleZh: '准备环境与目标',
+          titleKey: 'extGuide.stepGeneral1Title',
           titleEn: 'Prepare Target',
-          descZh: '确认当前扩展处于已启用状态。',
+          descKey: 'extGuide.stepGeneral1Desc',
           descEn: 'Ensure the extension is currently enabled in settings.',
         },
         {
           step: 2,
-          titleZh: '按下快捷键',
+          titleKey: 'extGuide.stepGeneral2Title',
           titleEn: 'Trigger Hotkey',
-          descZh: '使用绑定的全局热键快速唤起功能。',
+          descKey: 'extGuide.stepGeneral2Desc',
           descEn: 'Use the bound global hotkey to trigger capabilities.',
           kbd: ['Alt', 'Space'],
         },
         {
           step: 3,
-          titleZh: '开始高效使用',
+          titleKey: 'extGuide.stepGeneral3Title',
           titleEn: 'Enjoy Efficiency',
-          descZh: '获得即时交互响应与高效生产力提速。',
+          descKey: 'extGuide.stepGeneral3Desc',
           descEn: 'Experience instant response and enhanced productivity.',
         },
       ],
       proTips: [
         {
-          titleZh: '后台常驻',
+          titleKey: 'extGuide.stepGeneral4Title',
           titleEn: 'Daemon Ready',
-          descZh: '开启常驻后随主程序后台秒级响应，无需手动重复启动。',
+          descKey: 'extGuide.stepGeneral4Desc',
           descEn: 'Keep alive in background for sub-millisecond response.',
         },
       ],
-      supportedFormats: ['全局系统交互'],
+      supportedFormatKeys: ['extGuide.formatGlobalInteraction'],
     };
   }, [pluginId]);
 
@@ -498,7 +504,7 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
           <div>
             <div className="extension-setting-label">{t('extension.autoStart')}</div>
             <div className="extension-setting-desc">
-              {isZh ? '随主程序后台常驻与极速唤醒，内存占用 < 1 MB' : 'Auto launch and keep memory footprint < 1 MB'}
+              {t('extGuide.residentDesc', 'Auto launch and keep memory footprint < 1 MB')}
             </div>
           </div>
           <Toggle id="ext-autostart-toggle" checked={enabled} onChange={handleToggle} disabled={saving} />
@@ -554,42 +560,40 @@ export const ExtensionPage: FC<ExtensionPageProps> = ({ pluginId, plugin, onUnin
                     <span className="playground-md-dot dot-red" />
                     <span className="playground-md-dot dot-yellow" />
                     <span className="playground-md-dot dot-green" />
-                    <span className="playground-md-title">README.md - {isZh ? '按空格键极速预览示例' : 'Spacebar QuickLook Demo'}</span>
+                    <span className="playground-md-title">{t('extGuide.mdDemoTitle', 'README.md - Spacebar QuickLook Demo')}</span>
                     <button
                       type="button"
                       className="playground-copy-btn"
                       onClick={handleCopyDemoCode}
                     >
                       <Copy size={13} />
-                      {demoCopied ? (isZh ? '已复制!' : 'Copied!') : (isZh ? '复制代码' : 'Copy Code')}
+                      {demoCopied ? t('extGuide.copied', 'Copied!') : t('extGuide.copyCode', 'Copy Code')}
                     </button>
                   </div>
                   <div className="playground-md-content">
-                    <h1>EasyTools 效率工具箱</h1>
+                    <h1>{t('extension.suiteTitle', 'EasyTools Productivity Suite')}</h1>
                     <p>
-                      {isZh
-                        ? '这是一个通过「空格键」唤起 Markdown 极速速览的真实渲染示例。支持语法高亮与数学公式：'
-                        : 'This is a live preview triggered by pressing Spacebar. It supports syntax highlighting & formulas:'}
+                      {t('extGuide.mdDemoDesc', 'This is a live preview triggered by pressing Spacebar. It supports syntax highlighting & formulas:')}
                     </p>
                     <div className="playground-code-block">
                       <pre>
-                        <code>{`// TypeScript 示例代码高亮
+                        <code>{`// TypeScript code highlight
 import { createEngine } from "@easytools/core";
 
 const engine = createEngine({
-  renderSpeedMs: 0.2, // 毫秒级原生直出
+  renderSpeedMs: 0.2,
   enableKaTeX: true
 });
-console.log("Markdown 预览引擎已就绪!");`}</code>
+console.log("${t('extension.mdReadyLog', 'Markdown preview engine is ready!')}");`}</code>
                       </pre>
                     </div>
                     <div className="playground-math-box">
-                      <span><strong>{isZh ? 'LaTeX 公式渲染：' : 'LaTeX Formula:'}</strong></span>
+                      <span><strong>{t('extension.latexFormula', 'LaTeX Formula:')}</strong></span>
                       <code>{'$$ E = mc^2 \\quad \\& \\quad f(x) = \\int_{-\\infty}^\\infty \\hat f(\\xi)\\,e^{2 \\pi i \\xi x}\\,d\\xi $$'}</code>
                     </div>
                     <div className="playground-tips-callout">
                       <HelpCircle size={15} />
-                      <span>{isZh ? '在资源管理器中单选任意 .md 文件并按下 Space 即可触发此效果！' : 'Select any .md file in Explorer and press Space to trigger this!'}</span>
+                      <span>{t('extension.mdTriggerHint', 'Select any .md file in Explorer and press Space to trigger this!')}</span>
                     </div>
                   </div>
                 </div>
@@ -598,7 +602,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
               {pluginId === 'color_picker' && (
                 <div className="playground-color-box">
                   <div className="playground-color-picker-header">
-                    <h4>{isZh ? '屏幕拾色器模拟盘 (按下 Alt+C 唤出)' : 'Color Picker Simulation (Press Alt+C)'}</h4>
+                    <h4>{t('extension.colorPickerTitle', 'Color Picker Simulation (Press Alt+C)')}</h4>
                   </div>
                   <div className="playground-color-preview-row">
                     <div className="playground-color-swatch" style={{ background: '#7c3aed' }} />
@@ -621,7 +625,7 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
                       toast.success(t('extension.copySuccess'));
                     }}
                   >
-                    <Copy size={14} /> {isZh ? '复制当前色值' : 'Copy Color'}
+                    <Copy size={14} /> {t('extension.copyColor', 'Copy Color')}
                   </Button>
                 </div>
               )}
@@ -629,23 +633,23 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
               {pluginId === 'clipboard_manager' && (
                 <div className="playground-clip-box">
                   <div className="playground-clip-header">
-                    <h4>{isZh ? '剪贴板历史流转 (按下 Alt+V 唤出)' : 'Clipboard History (Press Alt+V)'}</h4>
+                    <h4>{t('extension.clipboardHistoryTitle', 'Clipboard History (Press Alt+V)')}</h4>
                   </div>
                   <div className="playground-clip-list">
                     <div className="playground-clip-item">
                       <span className="playground-clip-index">1</span>
                       <span className="playground-clip-text">https://github.com/yuan278501381/easyTools</span>
-                      <Badge text={isZh ? '链接' : 'URL'} variant="primary" />
+                      <Badge text={t('extension.urlBadge', 'URL')} variant="primary" />
                     </div>
                     <div className="playground-clip-item">
                       <span className="playground-clip-index">2</span>
                       <span className="playground-clip-text">git clone https://github.com/yuan278501381/easyTools.git</span>
-                      <Badge text={isZh ? '代码' : 'Code'} variant="muted" />
+                      <Badge text={t('extension.codeBadge', 'Code')} variant="muted" />
                     </div>
                     <div className="playground-clip-item">
                       <span className="playground-clip-index">3</span>
-                      <span className="playground-clip-text">EasyTools: 现代化 Windows 桌面效率全家桶</span>
-                      <Badge text={isZh ? '文本' : 'Text'} variant="success" />
+                      <span className="playground-clip-text">{t('extension.suiteDesc', 'EasyTools: Modern Windows Desktop Productivity Toolbox')}</span>
+                      <Badge text={t('extension.textBadge', 'Text')} variant="success" />
                     </div>
                   </div>
                 </div>
@@ -655,16 +659,16 @@ console.log("Markdown 预览引擎已就绪!");`}</code>
                 <div className="playground-ai-box">
                   <div className="playground-ai-header">
                     <Bot size={18} className="text-primary" />
-                    <h4>{isZh ? 'AI 悬浮助手 (按下 Alt+X 唤出)' : 'AI Assistant (Press Alt+X)'}</h4>
+                    <h4>{t('extension.aiAssistantTitle', 'AI Assistant (Press Alt+X)')}</h4>
                   </div>
                   <div className="playground-ai-chat">
                     <div className="playground-ai-msg user">
-                      <span>{isZh ? '请帮我优化这段 C++ 内存修剪逻辑' : 'Optimize this C++ memory trim logic'}</span>
+                      <span>{t('extension.aiPromptExample', 'Optimize this C++ memory trim logic')}</span>
                     </div>
                     <div className="playground-ai-msg bot">
                       <span>
                         {isZh
-                          ? '建议在生命周期终点（冷路径）统一触发 WinUtils::trimWorkingSet()，并对重型资源采取惰性加载。'
+                          ? t('extGuide.aiResponse', 'Recommend calling WinUtils::trimWorkingSet() uniformly at lifecycle endpoints (cold paths) with lazy resource re-initialization.')
                           : 'Recommended to trigger WinUtils::trimWorkingSet() strictly on lifecycle cold paths.'}
                       </span>
                     </div>

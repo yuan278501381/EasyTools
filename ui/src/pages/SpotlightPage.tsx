@@ -119,7 +119,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           onClick={() => onChange('auto')}
         >
           <Sparkles size={13} />
-          <span>{t('spotlight.followBrandAccent', '跟随主题色')}</span>
+          <span>{t('spotlight.followBrandAccent', 'Follow Theme Accent')}</span>
           <span className="spotlight-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
         </button>
 
@@ -133,7 +133,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           }}
         >
           <Palette size={13} />
-          <span>{t('spotlight.customColor', '自定义颜色')}</span>
+          <span>{t('spotlight.customColor', 'Custom Color')}</span>
         </button>
       </div>
 
@@ -147,10 +147,10 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
                 type="button"
                 className="spotlight-page__restore-capsule"
                 onClick={() => onChange('auto')}
-                title={t('spotlight.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 主题色')}
+                title={t('spotlight.restoreFollowBrandDesc', 'Switch back and link dynamically to EasyTools theme accent color')}
               >
                 <RotateCcw size={11} />
-                <span>{t('spotlight.restoreFollowBrand', '恢复跟随主题色')}</span>
+                <span>{t('spotlight.restoreFollowBrand', 'Follow Theme Accent')}</span>
               </button>
             )}
           </div>
@@ -219,7 +219,7 @@ export const SpotlightPage: FC = () => {
       await bridgeRequest('spotlight.updateSettings', { [key]: value });
     } catch (e) {
       setSettings((prev) => ({ ...prev, [key]: previous }));
-      toast.error(t('spotlight.saveFailed', '保存设置失败'), { description: String(e) });
+      toast.error(t('spotlight.saveFailed', 'Failed to save spotlight settings'), { description: String(e) });
     }
   };
 
@@ -227,9 +227,9 @@ export const SpotlightPage: FC = () => {
     try {
       await bridgeRequest('spotlight.resetDefaults', {});
       setSettings(DEFAULT_SETTINGS);
-      toast.success(t('spotlight.resetSuccess', '已恢复默认设置'));
+      toast.success(t('spotlight.resetSuccess', 'Restored default spotlight settings'));
     } catch (e) {
-      toast.error(t('spotlight.saveFailed', '恢复默认失败'), { description: String(e) });
+      toast.error(t('spotlight.saveFailed', 'Failed to save spotlight settings'), { description: String(e) });
     }
   };
 
@@ -244,7 +244,7 @@ export const SpotlightPage: FC = () => {
   const currentBrandAccentHex = ACCENT_COLOR_MAP[accent] || '#3b82f6';
 
   if (loading) {
-    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', '加载中...')}</div>;
+    return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', 'Loading...')}</div>;
   }
 
   return (
@@ -252,11 +252,11 @@ export const SpotlightPage: FC = () => {
       {/* ── 顶部操作栏 ──────────────────────────────────────────────── */}
       <div className="spotlight-page__header">
         <div className="spotlight-page__title-wrap">
-          <h2 className="spotlight-page__title">{t('spotlight.title', '鼠标演示与特效')}</h2>
+          <h2 className="spotlight-page__title">{t('spotlight.title', 'Mouse Presentation & FX')}</h2>
         </div>
-        <Button variant="ghost" onClick={handleResetDefaults} title={t('spotlight.resetDefaults', '恢复默认')}>
+        <Button variant="ghost" onClick={handleResetDefaults} title={t('spotlight.resetDefaults', 'Reset to Defaults')}>
           <RotateCcw size={14} style={{ marginRight: 6 }} />
-          <span>{t('spotlight.resetDefaults', '恢复默认')}</span>
+          <span>{t('spotlight.resetDefaults', 'Reset to Defaults')}</span>
         </Button>
       </div>
 
@@ -264,34 +264,34 @@ export const SpotlightPage: FC = () => {
       <Card>
         <Toggle
           id="spotlight-main-enabled"
-          label={t('spotlight.mainToggle', '启用鼠标演示与特效')}
-          description={t('spotlight.mainToggleDesc', '开启后可使用光标聚光灯、点击水波纹动画及移动轨迹特效。')}
+          label={t('spotlight.mainToggle', 'Enable Mouse Presentation & FX')}
+          description={t('spotlight.mainToggleDesc', 'Enable spotlight cursor focus, click ripples, and motion trail effects.')}
           checked={settings.enabled}
           onChange={(v) => saveSetting('enabled', v)}
         />
         <Toggle
           id="spotlight-auto-bypass"
-          label={t('spotlight.autoBypassFullscreen', '全屏游戏/视频免打扰')}
-          description={t('spotlight.autoBypassFullscreenDesc', '前台处于全屏独占应用时自动免打扰忽略触发，防止 3D 游戏或观影时被干扰')}
+          label={t('spotlight.autoBypassFullscreen', 'Fullscreen Game/Video Bypass')}
+          description={t('spotlight.autoBypassFullscreenDesc', 'Automatically suppress spotlight when foreground window is in exclusive fullscreen mode to prevent disrupting gaming or video playback')}
           checked={settings.autoBypassFullscreen}
           onChange={(v) => saveSetting('autoBypassFullscreen', v)}
         />
       </Card>
 
       {/* ── 2. 触发方式 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('spotlight.triggerSection', '触发方式')} icon={<Activity size={18} />}>
+      <SettingGroup title={t('spotlight.triggerSection', 'Trigger Methods')} icon={<Activity size={18} />}>
         <Card>
           <Toggle
             id="spotlight-double-ctrl"
-            label={t('spotlight.doubleCtrl', '双击 Ctrl')}
-            description={t('spotlight.doubleCtrlDesc', '双击 Control键时触发。')}
+            label={t('spotlight.doubleCtrl', 'Double-press Ctrl')}
+            description={t('spotlight.doubleCtrlDesc', 'Trigger by pressing Control key twice.')}
             checked={settings.triggerDoubleCtrl}
             onChange={(v) => saveSetting('triggerDoubleCtrl', v)}
           />
           <Toggle
             id="spotlight-shake-mouse"
-            label={t('spotlight.shakeMouse', '摇晃鼠标')}
-            description={t('spotlight.shakeMouseDesc', '快速摇晃光标时触发。')}
+            label={t('spotlight.shakeMouse', 'Shake Mouse')}
+            description={t('spotlight.shakeMouseDesc', 'Trigger by shaking cursor quickly.')}
             checked={settings.triggerShakeMouse}
             onChange={(v) => saveSetting('triggerShakeMouse', v)}
           />
@@ -299,15 +299,15 @@ export const SpotlightPage: FC = () => {
       </SettingGroup>
 
       {/* ── 3. 外观样式 ────────────────────────────────────────────── */}
-      <SettingGroup title={t('spotlight.appearanceSection', '外观样式')} icon={<Sparkles size={18} />}>
+      <SettingGroup title={t('spotlight.appearanceSection', 'Appearance & Style')} icon={<Sparkles size={18} />}>
         {/* 聚光灯全屏聚焦动效选择器 */}
         <Card>
           <div className="spotlight-page__section-label" style={{ marginBottom: '12px' }}>
             <span className="spotlight-page__section-title">
               <Sparkles size={15} />
-              <span>{t('spotlight.animStyle', '全屏聚焦动效')}</span>
+              <span>{t('spotlight.animStyle', 'Full-Screen Focus Animation')}</span>
             </span>
-            <span className="spotlight-page__section-desc">{t('spotlight.animStyleDesc', '聚光灯触发时的全屏视觉过渡与向心视线导引微动画')}</span>
+            <span className="spotlight-page__section-desc">{t('spotlight.animStyleDesc', 'Full-screen visual transition and inward visual guiding animation on spotlight trigger')}</span>
           </div>
           <div className="spotlight-page__style-grid">
             {/* 1. 向心引力折叠 (默认推荐) */}
@@ -320,9 +320,9 @@ export const SpotlightPage: FC = () => {
             >
               <div className="spotlight-page__style-card-header">
                 <Sparkles size={16} />
-                <span>{t('spotlight.styleInwardGravity', '向心引力折叠 (推荐)')}</span>
+                <span>{t('spotlight.styleInwardGravity', 'Inward Gravity (Recommended)')}</span>
               </div>
-              <span className="spotlight-page__style-card-desc">{t('spotlight.styleInwardGravityDesc', '全屏双环高速向心收拢至鼠标圆心，伴随物理弹性回弹与电影级深邃暗角，抓眼力满分')}</span>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleInwardGravityDesc', 'Dual high-speed inward rings collapse to mouse center with spring pulse & cinematic vignette')}</span>
             </div>
 
             {/* 2. 科技声纳雷达 */}
@@ -335,9 +335,9 @@ export const SpotlightPage: FC = () => {
             >
               <div className="spotlight-page__style-card-header">
                 <Crosshair size={16} />
-                <span>{t('spotlight.styleTacticalSonar', '科技声纳雷达')}</span>
+                <span>{t('spotlight.styleTacticalSonar', 'Tactical Sonar Radar')}</span>
               </div>
-              <span className="spotlight-page__style-card-desc">{t('spotlight.styleTacticalSonarDesc', '鼠标原点向外激荡 3 道声纳脉冲波，4 段战术 HUD 弧线刻度微旋磁吸锁定，极客硬核')}</span>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleTacticalSonarDesc', '3 outward sonar shockwaves with 4 rotating CAD tactical HUD arc reticles, geek tech style')}</span>
             </div>
 
             {/* 3. 极简极光涟漪 */}
@@ -350,9 +350,9 @@ export const SpotlightPage: FC = () => {
             >
               <div className="spotlight-page__style-card-header">
                 <Waves size={16} />
-                <span>{t('spotlight.styleAuroraRipple', '极简极光涟漪')}</span>
+                <span>{t('spotlight.styleAuroraRipple', 'Minimalist Aurora Ripple')}</span>
               </div>
-              <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRippleDesc', '高阶贝塞尔柔化暗角平滑浸润，光圈外缘溢出单道温和极光涟漪，舒适不刺眼')}</span>
+              <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRippleDesc', 'Smooth Bezier dark vignette unfolding with gentle outer aurora ripples, soft and comfortable')}</span>
             </div>
           </div>
         </Card>
@@ -360,8 +360,8 @@ export const SpotlightPage: FC = () => {
         <div className="spotlight-page__grid">
           {/* 聚光灯发光颜色 (双态胶囊) */}
           <ColorSegmentControl
-            label={t('spotlight.spotlightColor', '聚光灯颜色')}
-            desc={t('spotlight.spotlightColorDesc', '外部发光颜色。')}
+            label={t('spotlight.spotlightColor', 'Spotlight Color')}
+            desc={t('spotlight.spotlightColorDesc', 'Outer glow color.')}
             value={settings.spotlightColor}
             defaultCustomFallback="#3b82f6"
             brandAccentHex={currentBrandAccentHex}
@@ -371,8 +371,8 @@ export const SpotlightPage: FC = () => {
           {/* 聚光灯大小 */}
           <div className="spotlight-page__prop-card">
             <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.spotlightSize', '聚光灯大小')}</span>
-              <span className="spotlight-page__prop-desc">{t('spotlight.spotlightSizeDesc', '圆圈直径（像素）。')}</span>
+              <span className="spotlight-page__prop-title">{t('spotlight.spotlightSize', 'Spotlight Size')}</span>
+              <span className="spotlight-page__prop-desc">{t('spotlight.spotlightSizeDesc', 'Circle diameter (pixels).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
               <input
@@ -383,7 +383,7 @@ export const SpotlightPage: FC = () => {
                 step={20}
                 value={settings.spotlightSize}
                 onChange={(e) => saveSetting('spotlightSize', Number(e.target.value) || 200)}
-                aria-label={t('spotlight.spotlightSize', '聚光灯大小')}
+                aria-label={t('spotlight.spotlightSize', 'Spotlight Size')}
               />
             </div>
           </div>
@@ -391,8 +391,8 @@ export const SpotlightPage: FC = () => {
           {/* 动画时长 */}
           <div className="spotlight-page__prop-card">
             <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.animDuration', '动画时长')}</span>
-              <span className="spotlight-page__prop-desc">{t('spotlight.animDurationDesc', '渐变显示/隐藏速度（ms）。')}</span>
+              <span className="spotlight-page__prop-title">{t('spotlight.animDuration', 'Animation Duration')}</span>
+              <span className="spotlight-page__prop-desc">{t('spotlight.animDurationDesc', 'Fade in/out speed (ms).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
               <input
@@ -403,7 +403,7 @@ export const SpotlightPage: FC = () => {
                 step={100}
                 value={settings.animationDurationMs}
                 onChange={(e) => saveSetting('animationDurationMs', Number(e.target.value) || 1000)}
-                aria-label={t('spotlight.animDuration', '动画时长')}
+                aria-label={t('spotlight.animDuration', 'Animation Duration')}
               />
             </div>
           </div>
@@ -411,8 +411,8 @@ export const SpotlightPage: FC = () => {
           {/* 停留时长 */}
           <div className="spotlight-page__prop-card">
             <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.holdDuration', '停留时长')}</span>
-              <span className="spotlight-page__prop-desc">{t('spotlight.holdDurationDesc', '光圈完整显示后保留的时间（毫秒）。')}</span>
+              <span className="spotlight-page__prop-title">{t('spotlight.holdDuration', 'Hold Duration')}</span>
+              <span className="spotlight-page__prop-desc">{t('spotlight.holdDurationDesc', 'Duration spotlight stays fully visible (ms).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
               <input
@@ -423,7 +423,7 @@ export const SpotlightPage: FC = () => {
                 step={100}
                 value={settings.holdDurationMs}
                 onChange={(e) => saveSetting('holdDurationMs', Number(e.target.value) || 800)}
-                aria-label={t('spotlight.holdDuration', '停留时长')}
+                aria-label={t('spotlight.holdDuration', 'Hold Duration')}
               />
             </div>
           </div>
@@ -431,8 +431,8 @@ export const SpotlightPage: FC = () => {
           {/* 摇晃阈值 */}
           <div className="spotlight-page__prop-card">
             <div className="spotlight-page__prop-header">
-              <span className="spotlight-page__prop-title">{t('spotlight.shakeThreshold', '摇晃阈值')}</span>
-              <span className="spotlight-page__prop-desc">{t('spotlight.shakeThresholdDesc', '摇晃检测灵敏度（默认 7）。')}</span>
+              <span className="spotlight-page__prop-title">{t('spotlight.shakeThreshold', 'Shake Threshold')}</span>
+              <span className="spotlight-page__prop-desc">{t('spotlight.shakeThresholdDesc', 'Shake detection sensitivity (default 7).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
               <input
@@ -443,7 +443,7 @@ export const SpotlightPage: FC = () => {
                 step={1}
                 value={settings.shakeThreshold}
                 onChange={(e) => saveSetting('shakeThreshold', Number(e.target.value) || 7)}
-                aria-label={t('spotlight.shakeThreshold', '摇晃阈值')}
+                aria-label={t('spotlight.shakeThreshold', 'Shake Threshold')}
               />
             </div>
           </div>
@@ -451,13 +451,13 @@ export const SpotlightPage: FC = () => {
       </SettingGroup>
 
       {/* ── 4. 鼠标点击与轨迹特效 (演示辅助 - 独立功能卡片与内嵌从属面板) ── */}
-      <SettingGroup title={t('spotlight.mouseFxSection', '鼠标点击与轨迹特效')} icon={<MousePointerClick size={18} />}>
+      <SettingGroup title={t('spotlight.mouseFxSection', 'Click & Motion Effects')} icon={<MousePointerClick size={18} />}>
         {/* 4.1 鼠标点击特效独立卡片 */}
         <Card>
           <Toggle
             id="spotlight-click-ripple"
-            label={t('spotlight.clickRipple', '显示点击光圈')}
-            description={t('spotlight.clickRippleDesc', '在鼠标点击位置呈现灵动视觉反馈与微粒动效。')}
+            label={t('spotlight.clickRipple', 'Show Click Ripples')}
+            description={t('spotlight.clickRippleDesc', 'Display temporary ripple circles at mouse click positions.')}
             checked={settings.clickRippleEnabled}
             onChange={(v) => saveSetting('clickRippleEnabled', v)}
           />
@@ -469,9 +469,9 @@ export const SpotlightPage: FC = () => {
                 <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
                   <span className="spotlight-page__section-title">
                     <Sparkles size={15} />
-                    <span>{t('spotlight.clickStyle', '点击动效风格')}</span>
+                    <span>{t('spotlight.clickStyle', 'Click Effect Style')}</span>
                   </span>
-                  <span className="spotlight-page__section-desc">{t('spotlight.clickStyleDesc', '选择鼠标点击时的视觉波纹与微粒反馈形态')}</span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.clickStyleDesc', 'Choose visual ripple and feedback style for mouse clicks')}</span>
                 </div>
                 <div className="spotlight-page__style-grid">
                   {/* 1. 星芒微粒迸发 (默认) */}
@@ -481,9 +481,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Sparkles size={16} />
-                      <span>{t('spotlight.styleSparkleBurst', '星芒微粒迸发')}</span>
+                      <span>{t('spotlight.styleSparkleBurst', 'Sparkle Burst')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSparkleBurstDesc', '点击瞬间向四周迸发数颗微型星芒光粒，灵动活泼')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSparkleBurstDesc', 'Bursts of tiny glowing stardust sparks floating outward on click, lively and dynamic')}</span>
                   </div>
 
                   {/* 2. 流体光圈冲击波 */}
@@ -493,9 +493,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Waves size={16} />
-                      <span>{t('spotlight.styleRippleRing', '流体光圈冲击波')}</span>
+                      <span>{t('spotlight.styleRippleRing', 'Fluid Ripple Shockwave')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', '双层半透明流体冲击波光环平滑向外扩散，经典直观')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleRippleRingDesc', 'Dual-layer fluid shockwave rings smoothly expanding outward, classic and intuitive')}</span>
                   </div>
 
                   {/* 3. 精密雷达靶心 */}
@@ -505,9 +505,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Crosshair size={16} />
-                      <span>{t('spotlight.styleTargetPulse', '精密雷达靶心')}</span>
+                      <span>{t('spotlight.styleTargetPulse', 'Precision Target Pulse')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTargetPulseDesc', '极细科技感准星与向中心收缩的聚焦环，精准指引视线')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTargetPulseDesc', 'Ultra-thin precision crosshair with converging focus ring, ideal for detailed code/UI demo')}</span>
                   </div>
 
                   {/* 4. 柔光微晕气泡 */}
@@ -517,9 +517,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <CircleDot size={16} />
-                      <span>{t('spotlight.styleSoftGlow', '柔光微晕气泡')}</span>
+                      <span>{t('spotlight.styleSoftGlow', 'Ambient Soft Glow')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSoftGlowDesc', '极简羽化径向微光晕，温润轻柔，零干扰不刺眼')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSoftGlowDesc', 'Minimalist soft radial vignette glow, calm, gentle and distraction-free')}</span>
                   </div>
 
                   {/* 5. 超新星微爆发 */}
@@ -529,9 +529,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Flame size={16} />
-                      <span>{t('spotlight.styleSupernova', '超新星微爆发')}</span>
+                      <span>{t('spotlight.styleSupernova', 'Supernova Microburst')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSupernovaDesc', '高能微核心瞬间坍缩并喷射环形光子激波，视觉张力充沛')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSupernovaDesc', 'Core collapse with outward vibrant photon shockwave rings, deep and cosmic')}</span>
                   </div>
 
                   {/* 6. 电磁脉冲放电 */}
@@ -541,9 +541,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Zap size={16} />
-                      <span>{t('spotlight.styleEmpDischarge', '电磁脉冲放电')}</span>
+                      <span>{t('spotlight.styleEmpDischarge', 'EMP Arc Discharge')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleEmpDischargeDesc', '微型高频折线电弧向四周瞬间放电，极具极客科技感')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleEmpDischargeDesc', 'Branching electrical sparks discharging outward from click position, energetic and intense')}</span>
                   </div>
 
                   {/* 7. 宣纸墨滴晕染 */}
@@ -553,9 +553,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Droplets size={16} />
-                      <span>{t('spotlight.styleInkDroplet', '宣纸墨滴晕染')}</span>
+                      <span>{t('spotlight.styleInkDroplet', 'Zen Ink Dispersion')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleInkDropletDesc', '水墨在宣纸上缓缓化开的温润质感，极简东方美学')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleInkDropletDesc', 'Translucent Chinese calligraphy ink expanding softly and evaporating, poetic and graceful')}</span>
                   </div>
 
                   {/* 8. 六边形蜂巢锁定 */}
@@ -565,9 +565,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Shield size={16} />
-                      <span>{t('spotlight.styleHexagonLock', '六边形蜂巢锁定')}</span>
+                      <span>{t('spotlight.styleHexagonLock', 'Hexagon Grid Lock')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleHexagonLockDesc', '正六边形几何线框旋转收缩锁定，精准硬核')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleHexagonLockDesc', 'Ultra-thin precision hexagonal reticle rotating and locking inward, professional and high-tech')}</span>
                   </div>
 
                   {/* 9. 微气泡轻破 */}
@@ -577,9 +577,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Circle size={16} />
-                      <span>{t('spotlight.styleBubblePop', '微气泡轻破')}</span>
+                      <span>{t('spotlight.styleBubblePop', 'Micro Bubble Pop')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBubblePopDesc', '晶莹透明微气泡瞬间破裂飞散出极细水雾微粒')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBubblePopDesc', 'Crystal clear bubble expanding and popping into gentle mist droplets, airy and delightful')}</span>
                   </div>
                 </div>
               </div>
@@ -589,14 +589,14 @@ export const SpotlightPage: FC = () => {
                 <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
                   <span className="spotlight-page__section-title">
                     <Palette size={15} />
-                    <span>{t('spotlight.clickColorsSection', '独立按键色彩体系')}</span>
+                    <span>{t('spotlight.clickColorsSection')}</span>
                   </span>
-                  <span className="spotlight-page__section-desc">{t('spotlight.clickColorsSectionDesc', '分别为鼠标左键、右键与中键设置专属点击色彩')}</span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.clickColorsSectionDesc')}</span>
                 </div>
                 <div className="spotlight-page__grid">
                   {/* 左键颜色 */}
                   <ColorSegmentControl
-                    label={t('spotlight.leftClickColor', '左键点击颜色')}
+                    label={t('spotlight.leftClickColor', 'Left Click Color')}
                     value={settings.leftClickColor}
                     defaultCustomFallback="#3b82f6"
                     brandAccentHex={currentBrandAccentHex}
@@ -605,7 +605,7 @@ export const SpotlightPage: FC = () => {
 
                   {/* 右键颜色 */}
                   <ColorSegmentControl
-                    label={t('spotlight.rightClickColor', '右键点击颜色')}
+                    label={t('spotlight.rightClickColor', 'Right Click Color')}
                     value={settings.rightClickColor}
                     defaultCustomFallback="#fb7185"
                     brandAccentHex={currentBrandAccentHex}
@@ -614,7 +614,7 @@ export const SpotlightPage: FC = () => {
 
                   {/* 中键颜色 */}
                   <ColorSegmentControl
-                    label={t('spotlight.middleClickColor', '中键点击颜色')}
+                    label={t('spotlight.middleClickColor', 'Middle Click Color')}
                     value={settings.middleClickColor}
                     defaultCustomFallback="#fbbf24"
                     brandAccentHex={currentBrandAccentHex}
@@ -630,8 +630,8 @@ export const SpotlightPage: FC = () => {
         <Card>
           <Toggle
             id="spotlight-mouse-trail"
-            label={t('spotlight.mouseTrail', '显示鼠标轨迹')}
-            description={t('spotlight.mouseTrailDesc', '在鼠标移动路径上呈现渐隐流动光效与微粒子。')}
+            label={t('spotlight.mouseTrail', 'Show Mouse Trail')}
+            description={t('spotlight.mouseTrailDesc', 'Display a fading colored trail along cursor movement.')}
             checked={settings.mouseTrailEnabled}
             onChange={(v) => saveSetting('mouseTrailEnabled', v)}
           />
@@ -643,9 +643,9 @@ export const SpotlightPage: FC = () => {
                 <div className="spotlight-page__section-label" style={{ marginBottom: '10px' }}>
                   <span className="spotlight-page__section-title">
                     <Waves size={15} />
-                    <span>{t('spotlight.trailStyle', '轨迹动效风格')}</span>
+                    <span>{t('spotlight.trailStyle', 'Trail Effect Style')}</span>
                   </span>
-                  <span className="spotlight-page__section-desc">{t('spotlight.trailStyleDesc', '选择适合您演示或日常工作习惯的鼠标轨迹形态')}</span>
+                  <span className="spotlight-page__section-desc">{t('spotlight.trailStyleDesc', 'Choose the mouse motion trail animation style that fits your workflow')}</span>
                 </div>
                 <div className="spotlight-page__style-grid">
                   {/* 1. 彩色声纳微环 (默认) */}
@@ -655,9 +655,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <CircleDot size={16} />
-                      <span>{t('spotlight.styleSonarPulses', '彩色声纳微环')}</span>
+                      <span>{t('spotlight.styleSonarPulses', 'Sonar Pulse Rings')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSonarPulsesDesc', '大间距彩色微光足迹环，95% 空间通透')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleSonarPulsesDesc', 'Sparse expanding colorful pulse footsteps, 95% screen transparency')}</span>
                   </div>
 
                   {/* 2. 七彩星尘光球 */}
@@ -667,9 +667,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Sparkles size={16} />
-                      <span>{t('spotlight.styleStardustOrbs', '七彩星尘光球')}</span>
+                      <span>{t('spotlight.styleStardustOrbs', 'Prism Stardust Orbs')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', '大中小错落的七彩微型浮动光球，轻盈通透不遮挡文字，守护专注心流')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleStardustOrbsDesc', 'Sparse floating colorful orbs of various sizes, zero text distraction, preserves focus flow')}</span>
                   </div>
 
                   {/* 3. 量子引力微子 */}
@@ -679,9 +679,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Atom size={16} />
-                      <span>{t('spotlight.styleQuantumLens', '量子引力微子')}</span>
+                      <span>{t('spotlight.styleQuantumLens', 'Quantum Graviton Orbits')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleQuantumLensDesc', '微光子沿轨道自旋公转，模拟微观量子引力透镜场')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleQuantumLensDesc', 'Spinning quantum photons orbiting the cursor motion axis, futuristic and subtle')}</span>
                   </div>
 
                   {/* 4. 特斯拉电弧微流 */}
@@ -691,9 +691,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Zap size={16} />
-                      <span>{t('spotlight.styleTeslaArc', '特斯拉电弧微流')}</span>
+                      <span>{t('spotlight.styleTeslaArc', 'Tesla Lightning Arc')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTeslaArcDesc', '前后节点间生成高能微电浆跳跃折线，赛博朋克质感')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleTeslaArcDesc', 'Electric plasma sparks hopping between movement inflection nodes, dynamic and sharp')}</span>
                   </div>
 
                   {/* 5. 宣纸水墨烟云 */}
@@ -703,9 +703,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <PenTool size={16} />
-                      <span>{t('spotlight.styleZenInk', '宣纸水墨烟云')}</span>
+                      <span>{t('spotlight.styleZenInk', 'Zen Ink Stream')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleZenInkDesc', '随移动速度动态改变粗细的宣纸水墨笔触与渐隐烟流')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleZenInkDesc', 'Velocity-sensitive calligraphy ink stroke smoke trail, organic and relaxing')}</span>
                   </div>
 
                   {/* 6. CAD 矢量标尺 */}
@@ -715,9 +715,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Compass size={16} />
-                      <span>{t('spotlight.styleBlueprintGrid', 'CAD 矢量标尺')}</span>
+                      <span>{t('spotlight.styleBlueprintGrid', 'CAD Blueprint Ruler')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBlueprintGridDesc', '节点呈现极细十字瞄准线与直角网格，精准工业制图感')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleBlueprintGridDesc', 'Ultra-fine coordinate axis reticles and 90-degree corner ticks, engineering-grade clarity')}</span>
                   </div>
 
                   {/* 7. 晨露微气泡 */}
@@ -727,9 +727,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Droplets size={16} />
-                      <span>{t('spotlight.styleMorningDew', '晨露微气泡')}</span>
+                      <span>{t('spotlight.styleMorningDew', 'Morning Dew Bubbles')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleMorningDewDesc', '晶莹剔透向上微漂浮的小露珠，自然灵动')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleMorningDewDesc', 'Translucent floating micro bubbles gently ascending and popping, zero fatigue')}</span>
                   </div>
 
                   {/* 8. 极光流体丝带 */}
@@ -739,9 +739,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Waves size={16} />
-                      <span>{t('spotlight.styleAuroraRibbon', '极光流体丝带')}</span>
+                      <span>{t('spotlight.styleAuroraRibbon', 'Aurora Ribbon Stream')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRibbonDesc', '极细半透明流体渐变丝带，优雅锐利')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleAuroraRibbonDesc', 'Ultra-thin translucent ribbon stream with vibrant gradients')}</span>
                   </div>
 
                   {/* 9. 经典彗星流光 */}
@@ -751,9 +751,9 @@ export const SpotlightPage: FC = () => {
                   >
                     <div className="spotlight-page__style-card-header">
                       <Flame size={16} />
-                      <span>{t('spotlight.styleClassicComet', '经典彗星流光')}</span>
+                      <span>{t('spotlight.styleClassicComet', 'Classic Comet')}</span>
                     </div>
-                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleClassicCometDesc', '连贯高亮彗尾拖光效果')}</span>
+                    <span className="spotlight-page__style-card-desc">{t('spotlight.styleClassicCometDesc', 'Continuous glowing comet tail')}</span>
                   </div>
                 </div>
               </div>
@@ -762,8 +762,8 @@ export const SpotlightPage: FC = () => {
               <div style={{ paddingTop: '12px', borderTop: '1px solid var(--input-border)' }}>
                 <div className="spotlight-page__prop-card" style={{ background: 'var(--card-bg)' }}>
                   <div className="spotlight-page__prop-header">
-                    <span className="spotlight-page__prop-title">{t('spotlight.trailColorMode', '轨迹色彩模式')}</span>
-                    <span className="spotlight-page__prop-desc">{t('spotlight.trailColorModeDesc', '设置轨迹颜色流转规则')}</span>
+                    <span className="spotlight-page__prop-title">{t('spotlight.trailColorMode', 'Trail Color Mode')}</span>
+                    <span className="spotlight-page__prop-desc">{t('spotlight.trailColorModeDesc', 'Configure trail color animation scheme')}</span>
                   </div>
                   <div className="spotlight-page__capsule-wrap" style={{ maxWidth: '380px' }}>
                     <button
@@ -772,7 +772,7 @@ export const SpotlightPage: FC = () => {
                       onClick={() => saveSetting('mouseTrailColorMode', 'rainbow')}
                     >
                       <Rainbow size={14} />
-                      <span>{t('spotlight.trailColorModeRainbow', '七彩流光谱系')}</span>
+                      <span>{t('spotlight.trailColorModeRainbow', 'Rainbow Spectrum Flow')}</span>
                     </button>
                     <button
                       type="button"
@@ -780,7 +780,7 @@ export const SpotlightPage: FC = () => {
                       onClick={() => saveSetting('mouseTrailColorMode', 'accent')}
                     >
                       <Palette size={14} />
-                      <span>{t('spotlight.trailColorModeAccent', '跟随强调色 / 自定义')}</span>
+                      <span>{t('spotlight.trailColorModeAccent', 'Follow Accent / Custom')}</span>
                     </button>
                   </div>
                 </div>
@@ -794,7 +794,7 @@ export const SpotlightPage: FC = () => {
       <div className="spotlight-page__action-footer">
         <Button variant="primary" onClick={handleTestSpotlight}>
           <Play size={14} style={{ marginRight: 6 }} />
-          <span>{t('spotlight.testSpotlight', '立即体验聚光灯')}</span>
+          <span>{t('spotlight.testSpotlight', 'Try Spotlight Now')}</span>
         </Button>
       </div>
     </div>

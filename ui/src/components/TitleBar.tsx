@@ -112,10 +112,10 @@ export const TitleBar: FC<TitleBarProps> = ({ isElevated = false }) => {
         <span className="titlebar__logo">
           <EasyToolsBolt size={18} fill="var(--primary)" />
         </span>
-        <span className="titlebar__title">{t('app.title', 'EasyTools 设置中心')}</span>
+        <span className="titlebar__title">{t('app.title', 'EasyTools')}</span>
         {isElevated && (
-          <span className="titlebar__admin-badge" title={t('sidebar.adminTitle', '以系统管理员身份运行')}>
-            {t('sidebar.adminBadge', '管理员')}
+          <span className="titlebar__admin-badge" title={t('sidebar.adminTitle', 'Running as Administrator')}>
+            {t('sidebar.adminBadge', 'Admin')}
           </span>
         )}
       </div>
@@ -129,8 +129,8 @@ export const TitleBar: FC<TitleBarProps> = ({ isElevated = false }) => {
           type="button"
           className="titlebar__btn titlebar__btn--minimize"
           onClick={handleMinimize}
-          title={t('window.minimize', '最小化')}
-          aria-label={t('window.minimize', '最小化')}
+          title={t('window.minimize', 'Minimize')}
+          aria-label={t('window.minimize', 'Minimize')}
         >
           <Minus size={13} strokeWidth={2.2} />
         </button>
@@ -139,8 +139,8 @@ export const TitleBar: FC<TitleBarProps> = ({ isElevated = false }) => {
           type="button"
           className="titlebar__btn titlebar__btn--maximize"
           onClick={handleToggleMaximize}
-          title={isMaximized ? t('window.restore', '向下还原') : t('window.maximize', '最大化')}
-          aria-label={isMaximized ? t('window.restore', '向下还原') : t('window.maximize', '最大化')}
+          title={isMaximized ? t('window.restore', 'Restore') : t('window.maximize', 'Maximize')}
+          aria-label={isMaximized ? t('window.restore', 'Restore') : t('window.maximize', 'Maximize')}
         >
           {isMaximized ? (
             <Copy size={11} strokeWidth={2.2} style={{ transform: 'rotate(90deg)' }} />
@@ -153,8 +153,8 @@ export const TitleBar: FC<TitleBarProps> = ({ isElevated = false }) => {
           type="button"
           className="titlebar__btn titlebar__btn--close"
           onClick={handleClose}
-          title={t('window.close', '关闭')}
-          aria-label={t('window.close', '关闭')}
+          title={t('window.close', 'Close')}
+          aria-label={t('window.close', 'Close')}
         >
           <X size={13} strokeWidth={2.2} />
         </button>
