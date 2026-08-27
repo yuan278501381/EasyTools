@@ -585,7 +585,121 @@
     "canvasDrawTip": "Draw directly on canvas · Button, start pos & modifiers auto recognized",
     "canvasEdgeTip": "Start top=Top edge · Start bottom=Bottom edge · Start middle=Global · Auto detect button pressed",
     "conflictReplaceWithAction": "Gesture 「{{arrows}}」 is already bound to 「{{action}}」. Saving will replace it.",
-    "conflictReplaceSimple": "Gesture 「{{arrows}}」 already exists. Saving will replace it."
+    "conflictReplaceSimple": "Gesture 「{{arrows}}」 already exists. Saving will replace it.",
+    "actions": {
+      "prevTrack": {
+        "name": "Previous Track",
+        "desc": "Previous media track (Middle drag left)"
+      },
+      "nextTrack": {
+        "name": "Next Track",
+        "desc": "Next media track (Middle drag right)"
+      },
+      "maxRestore": {
+        "name": "Maximize / Restore",
+        "desc": "Maximize or restore current window"
+      },
+      "minimize": {
+        "name": "Minimize",
+        "desc": "Minimize current window"
+      },
+      "closeTab": {
+        "name": "Close Tab",
+        "desc": "Close current tab or document"
+      },
+      "reopenTab": {
+        "name": "Reopen Closed Tab",
+        "desc": "Reopen recently closed tab (Chrome/Edge)"
+      },
+      "reopenTabBrowser": {
+        "name": "Reopen Closed Tab",
+        "desc": "Reopen recently closed tab (Browser profile)"
+      },
+      "paste": {
+        "name": "Paste",
+        "desc": "Paste content (Browser profile drag down-right)"
+      },
+      "closeWindow": {
+        "name": "Close Window",
+        "desc": "Close active window or application"
+      },
+      "nextTab": {
+        "name": "Next Tab",
+        "desc": "Switch to next tab"
+      },
+      "prevTab": {
+        "name": "Previous Tab",
+        "desc": "Switch to previous tab"
+      },
+      "refresh": {
+        "name": "Refresh",
+        "desc": "Refresh page"
+      },
+      "newTab": {
+        "name": "New Tab",
+        "desc": "Open new tab"
+      },
+      "showDesktop": {
+        "name": "Show Desktop",
+        "desc": "Show / hide desktop"
+      },
+      "taskView": {
+        "name": "Task View",
+        "desc": "Open Windows Task View"
+      },
+      "screenshot": {
+        "name": "Screenshot",
+        "desc": "Trigger screenshot tool"
+      },
+      "cut": {
+        "name": "Cut",
+        "desc": "Cut selected content"
+      },
+      "selectAll": {
+        "name": "Select All",
+        "desc": "Select all content"
+      },
+      "undo": {
+        "name": "Undo",
+        "desc": "Undo last action"
+      },
+      "forceRefresh": {
+        "name": "Force Refresh",
+        "desc": "Force refresh bypassing cache"
+      },
+      "taskManager": {
+        "name": "Task Manager",
+        "desc": "Open Windows Task Manager"
+      },
+      "refreshDesktop": {
+        "name": "Refresh Desktop",
+        "desc": "Refresh desktop icons and layout"
+      },
+      "openExplorer": {
+        "name": "Open This PC",
+        "desc": "Quickly open Windows File Explorer"
+      },
+      "toggleSearch": {
+        "name": "Toggle Search",
+        "desc": "Toggle EasyTools search window"
+      },
+      "prevVirtualDesktop": {
+        "name": "Previous Virtual Desktop",
+        "desc": "Switch to previous virtual desktop"
+      },
+      "nextVirtualDesktop": {
+        "name": "Next Virtual Desktop",
+        "desc": "Switch to next virtual desktop"
+      },
+      "back": {
+        "name": "Back",
+        "desc": "Navigate back in browser or File Explorer"
+      },
+      "forward": {
+        "name": "Forward",
+        "desc": "Navigate forward in browser or File Explorer"
+      }
+    }
   },
   "hotcorner": {
     "title": "Hot Corners",
@@ -913,12 +1027,10 @@
     "rename": "Rename",
     "catAll": "All",
     "catContent": "Content",
-    "catDocs": "Documents",
     "catImages": "Images",
     "catVideos": "Videos",
     "catAudio": "Audio",
     "catArchives": "Archives",
-    "catCode": "Code",
     "catFolders": "Folders",
     "readyTitle": "Instant Full-Disk Index Ready",
     "readyDesc": "Type keywords, wildcards (*.pdf), or extensions (ext:docx) to search instantly",

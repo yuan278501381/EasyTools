@@ -585,7 +585,121 @@
     "canvasDrawTip": "直接在画板划动 · 按键、起笔位置与修饰键全自动识别",
     "canvasEdgeTip": "顶部起笔=上边缘 · 底部起笔=底边缘 · 中间起笔=全局 · 按哪个按键自动识别哪个",
     "conflictReplaceWithAction": "手势「{{arrows}}」当前已绑定到「{{action}}」，保存将自动替换原手势。",
-    "conflictReplaceSimple": "手势「{{arrows}}」已存在，保存将自动替换原手势。"
+    "conflictReplaceSimple": "手势「{{arrows}}」已存在，保存将自动替换原手势。",
+    "actions": {
+      "prevTrack": {
+        "name": "上一曲",
+        "desc": "全局多媒体上一曲 (鼠标中键向左滑动)"
+      },
+      "nextTrack": {
+        "name": "下一曲",
+        "desc": "全局多媒体下一曲 (鼠标中键向右滑动)"
+      },
+      "maxRestore": {
+        "name": "最大化/还原",
+        "desc": "最大化或还原当前窗口"
+      },
+      "minimize": {
+        "name": "最小化",
+        "desc": "最小化当前窗口"
+      },
+      "closeTab": {
+        "name": "关闭标签页",
+        "desc": "关闭当前标签页或文档"
+      },
+      "reopenTab": {
+        "name": "恢复关闭的标签页",
+        "desc": "重新打开最近关闭的标签页 (如 Chrome/Edge 恢复标签)"
+      },
+      "reopenTabBrowser": {
+        "name": "恢复关闭的标签页",
+        "desc": "恢复最近关闭的标签页 (浏览器专用)"
+      },
+      "paste": {
+        "name": "粘贴",
+        "desc": "粘贴 (浏览器 Profile 中下右映射为粘贴)"
+      },
+      "closeWindow": {
+        "name": "关闭窗口",
+        "desc": "关闭当前活动窗口或应用程序"
+      },
+      "nextTab": {
+        "name": "下一个标签页",
+        "desc": "切换到下一个标签页"
+      },
+      "prevTab": {
+        "name": "上一个标签页",
+        "desc": "切换到上一个标签页"
+      },
+      "refresh": {
+        "name": "刷新",
+        "desc": "刷新页面"
+      },
+      "newTab": {
+        "name": "新建标签页",
+        "desc": "新建标签页"
+      },
+      "showDesktop": {
+        "name": "显示桌面",
+        "desc": "一键显示/隐藏桌面"
+      },
+      "taskView": {
+        "name": "任务视图",
+        "desc": "打开 Windows 任务视图"
+      },
+      "screenshot": {
+        "name": "屏幕截图",
+        "desc": "唤起屏幕截图工具"
+      },
+      "cut": {
+        "name": "剪切",
+        "desc": "剪切选中内容"
+      },
+      "selectAll": {
+        "name": "全选",
+        "desc": "全选当前内容"
+      },
+      "undo": {
+        "name": "撤销",
+        "desc": "撤销上一步操作"
+      },
+      "forceRefresh": {
+        "name": "强制刷新",
+        "desc": "强制刷新忽略缓存"
+      },
+      "taskManager": {
+        "name": "任务管理器",
+        "desc": "打开 Windows 任务管理器"
+      },
+      "refreshDesktop": {
+        "name": "刷新桌面",
+        "desc": "刷新桌面图标与排列"
+      },
+      "openExplorer": {
+        "name": "打开此电脑",
+        "desc": "快速打开 Windows 资源管理器"
+      },
+      "toggleSearch": {
+        "name": "全局秒搜",
+        "desc": "呼出 EasyTools 文件与内容搜索"
+      },
+      "prevVirtualDesktop": {
+        "name": "上一个虚拟桌面",
+        "desc": "切换到左侧虚拟桌面"
+      },
+      "nextVirtualDesktop": {
+        "name": "下一个虚拟桌面",
+        "desc": "切换到右侧虚拟桌面"
+      },
+      "back": {
+        "name": "后退",
+        "desc": "网页/浏览器/文件管理器后退"
+      },
+      "forward": {
+        "name": "前进",
+        "desc": "网页/浏览器/文件管理器前进"
+      }
+    }
   },
   "hotcorner": {
     "title": "屏幕触发角",
@@ -913,12 +1027,10 @@
     "rename": "重命名",
     "catAll": "全部",
     "catContent": "文档内容",
-    "catDocs": "文档",
     "catImages": "图片",
     "catVideos": "视频",
     "catAudio": "音频",
     "catArchives": "压缩包",
-    "catCode": "代码",
     "catFolders": "文件夹",
     "readyTitle": "毫秒级极速全盘索引已就绪",
     "readyDesc": "输入关键词、拼音首字母或扩展名 (如 *.pdf, ext:docx) 开启极速检索",

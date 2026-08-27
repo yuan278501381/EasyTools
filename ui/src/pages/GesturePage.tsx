@@ -33,6 +33,7 @@ import {
   type GestureProfileData,
   type TriggerState,
 } from '../components/gestureModel';
+import { getLocalizedGestureName, getLocalizedGestureDesc } from '../utils/gestureI18n';
 import { bridgeRequest, useBridgeEvent } from '../hooks/useBridge';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -438,7 +439,7 @@ export const GesturePage: FC = () => {
   const handleDeleteMapping = (index: number) => {
     const m = currentMappings[index];
     if (!m) return;
-    if (!window.confirm(tr('gesture.deleteConfirm', { name: m.action.name, code: m.gestureCode }))) return;
+    if (!window.confirm(tr('gesture.deleteConfirm', { name: getLocalizedGestureName(m.action.name, t), code: m.gestureCode }))) return;
     void persistMappings(currentMappings.filter((_, i) => i !== index));
   };
 
@@ -674,14 +675,18 @@ export const GesturePage: FC = () => {
 
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
+      const locName = getLocalizedGestureName(m.action.name, t).toLowerCase();
+      const locDesc = (getLocalizedGestureDesc(m.action.description, t) || '').toLowerCase();
       return (
         m.gestureCode.toLowerCase().includes(q) ||
         m.action.name.toLowerCase().includes(q) ||
+        locName.includes(q) ||
         (m.action.keyStroke || '').toLowerCase().includes(q) ||
-        (m.action.description || '').toLowerCase().includes(q)
+        (m.action.description || '').toLowerCase().includes(q) ||
+        locDesc.includes(q)
       );
     });
-  }, [currentMappings, triggerFilter, searchQuery]);
+  }, [currentMappings, triggerFilter, searchQuery, t]);
 
   if (loading) {
     return (
@@ -1199,7 +1204,7 @@ export const GesturePage: FC = () => {
                             {/* 2. 动作名称与特性徽章 */}
                             <span className="gesture-table__col gesture-table__col--action">
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span className="gesture-action-name">{m.action.name}</span>
+                                <span className="gesture-action-name">{getLocalizedGestureName(m.action.name, t)}</span>
                                 {m.instantExecute && (
                                   <button
                                     type="button"
@@ -1232,7 +1237,7 @@ export const GesturePage: FC = () => {
                                 )}
                               </div>
                               {m.action.description && (
-                                <span className="gesture-action-desc">{m.action.description}</span>
+                                <span className="gesture-action-desc">{getLocalizedGestureDesc(m.action.description, t)}</span>
                               )}
                             </span>
 

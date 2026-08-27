@@ -32,6 +32,7 @@ import {
   parseGestureCode,
   assembleGestureCode,
 } from './gestureModel';
+import { getLocalizedGestureName } from '../utils/gestureI18n';
 import { bridgeRequest } from '../hooks/useBridge';
 import './GestureEditorModal.css';
 
@@ -132,9 +133,9 @@ export const GestureEditorModal: FC<Props> = ({
     isDuplicateOfOther && !codeError
       ? conflictingMapping?.action?.name
         ? t('gestureEditor.gestureConflictOverwriteNamed', {
-            name: conflictingMapping.action.name,
+            name: getLocalizedGestureName(conflictingMapping.action.name, t),
             code: `「${codeToArrows(code)}」`,
-            defaultValue: t('gesture.conflictReplaceWithAction', 'Gesture 「{{arrows}}」 is already bound to 「{{action}}」. Saving will replace it.', { arrows: codeToArrows(code), action: conflictingMapping.action.name }),
+            defaultValue: t('gesture.conflictReplaceWithAction', 'Gesture 「{{arrows}}」 is already bound to 「{{action}}」. Saving will replace it.', { arrows: codeToArrows(code), action: getLocalizedGestureName(conflictingMapping.action.name, t) }),
           })
         : t('gestureEditor.gestureConflictOverwrite', {
             code: `「${codeToArrows(code)}」`,

@@ -11,37 +11,18 @@ namespace easy::gesture {
 
 GestureProfile::GestureProfile(const std::string& name) : m_name(name) {}
 
-static std::string localizeActionName(const std::string& name) {
-    if (easy::core::Logger::getLanguage() != easy::core::LogLanguage::EnUS) {
-        return name;
-    }
-    static const std::unordered_map<std::string, std::string> s_actMap = {
-        {"后退", "Back"}, {"前进", "Forward"}, {"刷新", "Refresh"}, {"强制刷新", "Force Refresh"},
-        {"新建标签页", "New Tab"}, {"关闭标签页", "Close Tab"}, {"恢复关闭的标签页", "Reopen Closed Tab"},
-        {"上一个标签页", "Previous Tab"}, {"下一个标签页", "Next Tab"}, {"关闭窗口", "Close Window"},
-        {"最大化/还原", "Maximize/Restore"}, {"最小化", "Minimize"}, {"显示桌面", "Show Desktop"},
-        {"任务视图", "Task View"}, {"任务管理器", "Task Manager"}, {"屏幕截图", "Screenshot"},
-        {"剪切", "Cut"}, {"复制", "Copy"}, {"粘贴", "Paste"}, {"全选", "Select All"}, {"撤销", "Undo"},
-        {"上一曲", "Previous Track"}, {"下一曲", "Next Track"},
-        {"刷新桌面", "Refresh Desktop"}, {"打开此电脑", "Open This PC"}, {"全局秒搜", "Toggle Search"},
-        {"上一个虚拟桌面", "Previous Virtual Desktop"}, {"下一个虚拟桌面", "Next Virtual Desktop"}
-    };
-    auto it = s_actMap.find(name);
-    return (it != s_actMap.end()) ? it->second : name;
-}
-
 void GestureProfile::addMapping(const GestureMapping& mapping) {
     // 如果已存在，覆盖
     auto it = m_codeIndex.find(mapping.gestureCode);
     if (it != m_codeIndex.end()) {
         m_mappings[it->second] = mapping;
         LOG_DEBUG("覆盖手势映射: profile={}, code={}, action={}",
-                  m_name, mapping.gestureCode, localizeActionName(mapping.action.name));
+                  m_name, mapping.gestureCode, mapping.action.name);
     } else {
         m_codeIndex[mapping.gestureCode] = m_mappings.size();
         m_mappings.push_back(mapping);
         LOG_DEBUG("添加手势映射: profile={}, code={}, action={}",
-                  m_name, mapping.gestureCode, localizeActionName(mapping.action.name));
+                  m_name, mapping.gestureCode, mapping.action.name);
     }
 }
 
