@@ -48,6 +48,7 @@ import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import { DynamicRowLayout, isSelectedOutsideVirtualRange } from './searchVirtualization';
 import { nextQueryId, resolveDebounceMs } from './searchScheduling';
+import { WindowResizeHandles } from './components/WindowResizeHandles';
 import './SearchApp.css';
 
 export interface DriveInfo {
@@ -1292,44 +1293,10 @@ export default function SearchApp() {
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-
-    const startScreenX = e.screenX;
-    const startScreenY = e.screenY;
-    const startW = windowSize.width;
-    const startH = windowSize.height;
-
-    let currentW = startW;
-    let currentH = startH;
-    let rafId = 0;
-
-    const onMouseMove = (moveEvt: MouseEvent) => {
-      const deltaX = moveEvt.screenX - startScreenX;
-      const deltaY = moveEvt.screenY - startScreenY;
-      const newW = Math.max(500, Math.min(2200, Math.round(startW + deltaX)));
-      const newH = Math.max(400, Math.min(1400, Math.round(startH + deltaY)));
-
-      if (newW !== currentW || newH !== currentH) {
-        currentW = newW;
-        currentH = newH;
-        setWindowSize({ width: newW, height: newH });
-        cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(() => {
-          void bridgeRequest('search.setWindowSize', { width: currentW, height: currentH, center: false }).catch(() => undefined);
-        });
-      }
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      cancelAnimationFrame(rafId);
-      void bridgeRequest('search.setWindowSize', { width: currentW, height: currentH, center: false }).catch(() => undefined);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    void bridgeRequest('search.startResize', { edge: 'bottom_right', direction: 'bottom_right' }).catch(() => undefined);
   };
 
   const toggleColumnVisibility = (id: ColumnId) => {
@@ -3713,6 +3680,8 @@ export default function SearchApp() {
             <line x1="8" y1="5.5" x2="5.5" y2="8" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </div>
+
+        <WindowResizeHandles method="search.startResize" showMaximizedCheck={false} />
       </section>
     </main>
   );

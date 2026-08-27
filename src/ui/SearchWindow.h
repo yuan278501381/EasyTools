@@ -33,6 +33,7 @@ public:
         }
     }
     bool isMenuActive() const {
+        if (m_inSizeMove.load()) return true;
         if (m_menuActive.load()) return true;
         if (m_hwnd && GetPropW(m_hwnd, L"EasyTools_ShellMenuActive")) return true;
         const uint64_t now = GetTickCount64();
@@ -64,6 +65,7 @@ private:
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
     std::atomic<bool> m_menuActive{false};
+    std::atomic<bool> m_inSizeMove{false};
     std::atomic<uint64_t> m_lastMenuCloseTick{0};
     bool m_updatingPlacement = false;
     uint64_t m_showTimeTick{0};

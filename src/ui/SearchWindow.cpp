@@ -451,7 +451,20 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 }
             }
             break;
+        case WM_GETMINMAXINFO: {
+            LPMINMAXINFO mmi = reinterpret_cast<LPMINMAXINFO>(lParam);
+            const HMONITOR monitor = easy::core::dpi::activeMonitor();
+            const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
+            const float scale = easy::core::dpi::scaleForDpi(dpi);
+            mmi->ptMinTrackSize.x = static_cast<LONG>(480 * scale);
+            mmi->ptMinTrackSize.y = static_cast<LONG>(320 * scale);
+            return 0;
+        }
+        case WM_ENTERSIZEMOVE:
+            inst.m_inSizeMove.store(true);
+            break;
         case WM_EXITSIZEMOVE: {
+            inst.m_inSizeMove.store(false);
             RECT rc;
             if (GetWindowRect(hwnd, &rc)) {
                 const HMONITOR monitor = easy::core::dpi::activeMonitor();
@@ -465,6 +478,9 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                     easy::core::ConfigManager::instance().set<int>("/search/windowX", rc.left);
                     easy::core::ConfigManager::instance().set<int>("/search/windowY", rc.top);
                 }
+            }
+            if (inst.m_controller) {
+                syncWebViewDpi(inst.m_controller.Get(), hwnd);
             }
             break;
         }
