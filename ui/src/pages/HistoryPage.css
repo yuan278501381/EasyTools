@@ -97,11 +97,11 @@
   font-size: 0.8rem;
   color: var(--text-primary);
   font-weight: 500;
-  font-family: 'Consolas', 'Menlo', monospace;
+  font-family: var(--font-mono);
 }
 
 .history-card-info .dimensions {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
 }
 

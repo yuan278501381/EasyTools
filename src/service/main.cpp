@@ -1,4 +1,4 @@
-#include <windows.h>
+﻿#include <windows.h>
 #include <iostream>
 #include <algorithm>
 #include <array>
@@ -6,6 +6,7 @@
 #include <iterator>
 #include <memory>
 #include <chrono>
+#include <cctype>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -25,6 +26,7 @@
 #include "PipeProtocol.h"
 #include "PipeEndpoint.h"
 #include "SearchCancellation.h"
+#include "SearchRequestLimits.h"
 #include "content/ContentSearchEngine.h"
 #include "db/RunHistoryManager.h"
 #include "db/SearchHistoryManager.h"
@@ -274,6 +276,9 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     if (!utf8Input.empty() && utf8Input.front() == '{') {
         try {
             auto reqJson = nlohmann::json::parse(utf8Input);
+            if (!reqJson.is_object()) {
+                return {{"results", nlohmann::json::array()}, {"error", "request must be a JSON object"}};
+            }
             if (reqJson.contains("action") && reqJson["action"].is_string()) {
                 std::string act = reqJson["action"].get<std::string>();
                 if (act == "rebuild" || act == "reindex") {
@@ -293,7 +298,11 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 if (act == "recordRun") {
                     if (reqJson.contains("path") && reqJson["path"].is_string()) {
-                        std::wstring path = StringToWString(reqJson["path"].get<std::string>());
+                        const auto& pathUtf8 = reqJson["path"].get_ref<const std::string&>();
+                        if (pathUtf8.size() > easy::service::search_limits::MaxPathUtf8Bytes) {
+                            return {{"success", false}, {"error", "path exceeds limit"}};
+                        }
+                        std::wstring path = StringToWString(pathUtf8);
                         easy::service::db::RunHistoryManager::instance().recordRun(path);
                         return {{"success", true}};
                     }
@@ -301,14 +310,31 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 if (act == "recordSearch") {
                     if (reqJson.contains("query") && reqJson["query"].is_string()) {
-                        std::wstring q = StringToWString(reqJson["query"].get<std::string>());
+                        const auto& queryUtf8 = reqJson["query"].get_ref<const std::string&>();
+                        if (queryUtf8.size() > easy::service::search_limits::MaxQueryUtf8Bytes) {
+                            return {{"success", false}, {"error", "query exceeds limit"}};
+                        }
+                        std::wstring q = StringToWString(queryUtf8);
                         easy::service::db::SearchHistoryManager::instance().recordSearch(q);
                         return {{"success", true}};
                     }
                     return {{"success", false}};
                 }
                 if (act == "getSearchHistory") {
-                    size_t limit = reqJson.value("limit", 30);
+                    size_t limit = 30;
+                    if (const auto it = reqJson.find("limit"); it != reqJson.end()) {
+                        if (!it->is_number_integer() && !it->is_number_unsigned()) {
+                            return {{"success", false}, {"error", "limit must be an integer"}};
+                        }
+                        if (it->is_number_unsigned()) {
+                            limit = static_cast<size_t>((std::min<std::uint64_t>)(
+                                it->get<std::uint64_t>(), easy::service::search_limits::MaxHistoryResults));
+                        } else {
+                            const auto value = it->get<std::int64_t>();
+                            limit = value <= 0 ? 0 : static_cast<size_t>((std::min<std::int64_t>)(
+                                value, easy::service::search_limits::MaxHistoryResults));
+                        }
+                    }
                     auto list = easy::service::db::SearchHistoryManager::instance().getRecentSearches(limit);
                     nlohmann::json arr = nlohmann::json::array();
                     for (const auto& item : list) {
@@ -322,7 +348,11 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 if (act == "removeSearchHistory") {
                     if (reqJson.contains("search") && reqJson["search"].is_string()) {
-                        std::wstring q = StringToWString(reqJson["search"].get<std::string>());
+                        const auto& searchUtf8 = reqJson["search"].get_ref<const std::string&>();
+                        if (searchUtf8.size() > easy::service::search_limits::MaxQueryUtf8Bytes) {
+                            return {{"success", false}, {"error", "search exceeds limit"}};
+                        }
+                        std::wstring q = StringToWString(searchUtf8);
                         bool ok = easy::service::db::SearchHistoryManager::instance().removeSearch(q);
                         return {{"success", ok}};
                     }
@@ -369,30 +399,57 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
             }
 
-            if (reqJson.contains("query") && reqJson["query"].is_string()) {
-                wQuery = StringToWString(reqJson["query"].get<std::string>());
+            if (reqJson.contains("query")) {
+                if (!reqJson["query"].is_string()) {
+                    return {{"results", nlohmann::json::array()}, {"error", "query must be a string"}};
+                }
+                const auto& queryUtf8 = reqJson["query"].get_ref<const std::string&>();
+                if (queryUtf8.size() > easy::service::search_limits::MaxQueryUtf8Bytes) {
+                    return {{"results", nlohmann::json::array()}, {"error", "query exceeds 1024-byte limit"}};
+                }
+                wQuery = StringToWString(queryUtf8);
             }
             if (reqJson.contains("queryId") && reqJson["queryId"].is_number_unsigned()) {
                 queryId = reqJson["queryId"].get<uint64_t>();
             }
             if (reqJson.contains("searchMode") && reqJson["searchMode"].is_string()) {
                 searchMode = reqJson["searchMode"].get<std::string>();
+                if (searchMode != "name" && searchMode != "both" && searchMode != "content") {
+                    return {{"results", nlohmann::json::array()}, {"error", "invalid search mode"}};
+                }
             }
             if (reqJson.contains("drives") && reqJson["drives"].is_array()) {
+                if (reqJson["drives"].size() > easy::service::search_limits::MaxDriveItems) {
+                    return {{"results", nlohmann::json::array()}, {"error", "too many drives"}};
+                }
                 for (const auto& d : reqJson["drives"]) {
                     if (d.is_string()) {
                         std::string s = d.get<std::string>();
-                        if (!s.empty()) enabledDrives.push_back(static_cast<char>(std::toupper(s[0])));
+                        if (s.empty() || s.size() > 3 || !std::isalpha(static_cast<unsigned char>(s[0]))) {
+                            return {{"results", nlohmann::json::array()}, {"error", "invalid drive"}};
+                        }
+                        enabledDrives.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(s[0]))));
+                    } else {
+                        return {{"results", nlohmann::json::array()}, {"error", "invalid drive"}};
                     }
                 }
+            } else if (reqJson.contains("drives") && !reqJson["drives"].is_null()) {
+                return {{"results", nlohmann::json::array()}, {"error", "drives must be an array"}};
             }
             if (reqJson.contains("excludes") && reqJson["excludes"].is_array()) {
-                for (const auto& ex : reqJson["excludes"]) {
-                    if (ex.is_string()) {
-                        std::string s = ex.get<std::string>();
-                        if (!s.empty()) excludeOpts.patterns.push_back(StringToWString(s));
-                    }
+                if (reqJson["excludes"].size() > easy::service::search_limits::MaxExcludeItems) {
+                    return {{"results", nlohmann::json::array()}, {"error", "too many exclude patterns"}};
                 }
+                for (const auto& ex : reqJson["excludes"]) {
+                    if (!ex.is_string()) return {{"results", nlohmann::json::array()}, {"error", "invalid exclude pattern"}};
+                    const auto& s = ex.get_ref<const std::string&>();
+                    if (s.size() > easy::service::search_limits::MaxExcludeUtf8Bytes) {
+                        return {{"results", nlohmann::json::array()}, {"error", "exclude pattern exceeds limit"}};
+                    }
+                    if (!s.empty()) excludeOpts.patterns.push_back(StringToWString(s));
+                }
+            } else if (reqJson.contains("excludes") && !reqJson["excludes"].is_null()) {
+                return {{"results", nlohmann::json::array()}, {"error", "excludes must be an array"}};
             }
             if (reqJson.contains("excludeHidden") && reqJson["excludeHidden"].is_boolean()) {
                 excludeOpts.excludeHidden = reqJson["excludeHidden"].get<bool>();
@@ -400,39 +457,57 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             if (reqJson.contains("excludeSystem") && reqJson["excludeSystem"].is_boolean()) {
                 excludeOpts.excludeSystem = reqJson["excludeSystem"].get<bool>();
             }
-            if (reqJson.contains("limit") && reqJson["limit"].is_number_integer()) {
-                int l = reqJson["limit"].get<int>();
-                if (l <= 0) requestedLimit = 10000; // 全部返回 (安全上限 10000)
-                else requestedLimit = static_cast<size_t>(l);
+            if (reqJson.contains("limit")) {
+                const auto& limit = reqJson["limit"];
+                if (!limit.is_number_integer() && !limit.is_number_unsigned()) {
+                    return {{"results", nlohmann::json::array()}, {"error", "limit must be an integer"}};
+                }
+                if (limit.is_number_unsigned()) {
+                    const auto value = limit.get<std::uint64_t>();
+                    requestedLimit = value == 0 ? easy::service::search_limits::MaxResults
+                                                : static_cast<size_t>((std::min<std::uint64_t>)(
+                                                    value, easy::service::search_limits::MaxResults));
+                } else {
+                    const auto value = limit.get<std::int64_t>();
+                    requestedLimit = value <= 0 ? easy::service::search_limits::MaxResults
+                                                : static_cast<size_t>((std::min<std::int64_t>)(
+                                                    value, easy::service::search_limits::MaxResults));
+                }
             }
             if (reqJson.contains("contentCustomExts") || reqJson.contains("contentDisabledExts")) {
                 std::vector<std::wstring> customExts;
                 std::vector<std::wstring> disabledExts;
-                if (reqJson.contains("contentCustomExts") && reqJson["contentCustomExts"].is_array()) {
-                    for (const auto& item : reqJson["contentCustomExts"]) {
-                        if (item.is_string()) customExts.push_back(StringToWString(item.get<std::string>()));
+                const auto readFormats = [&](const char* key, std::vector<std::wstring>& output) {
+                    const auto it = reqJson.find(key);
+                    if (it == reqJson.end() || it->is_null()) return true;
+                    if (!it->is_array() || it->size() > easy::service::search_limits::MaxFormatItems) return false;
+                    for (const auto& item : *it) {
+                        if (!item.is_string()) return false;
+                        const auto& value = item.get_ref<const std::string&>();
+                        if (value.empty() || value.size() > easy::service::search_limits::MaxFormatUtf8Bytes) return false;
+                        output.push_back(StringToWString(value));
                     }
-                }
-                if (reqJson.contains("contentDisabledExts") && reqJson["contentDisabledExts"].is_array()) {
-                    for (const auto& item : reqJson["contentDisabledExts"]) {
-                        if (item.is_string()) disabledExts.push_back(StringToWString(item.get<std::string>()));
-                    }
+                    return true;
+                };
+                if (!readFormats("contentCustomExts", customExts) ||
+                    !readFormats("contentDisabledExts", disabledExts)) {
+                    return {{"results", nlohmann::json::array()}, {"error", "invalid content format list"}};
                 }
                 easy::service::content::ContentSearchEngine::instance().configureFormats(customExts, disabledExts);
             }
-        } catch (...) {
-            wQuery = rawInput;
+        } catch (const std::exception& error) {
+            return {{"results", nlohmann::json::array()}, {"error", std::string("invalid request: ") + error.what()}};
         }
     } else {
+        if (utf8Input.size() > easy::service::search_limits::MaxQueryUtf8Bytes) {
+            return {{"results", nlohmann::json::array()}, {"error", "query exceeds 1024-byte limit"}};
+        }
         wQuery = rawInput;
     }
     const auto overallStartTime = std::chrono::steady_clock::now();
 
     auto& epochTracker = easy::service::query::sharedEpochTracker();
-    if (!epochTracker.observe(queryId)) {
-        // 更新的查询已经先行到达，本次结果不会再被采用。
-        return {{"results", nlohmann::json::array()}, {"cancelled", true}, {"queryId", queryId}};
-    }
+    epochTracker.observe(queryId);
     const auto isCancelled = [&epochTracker, queryId]() { return epochTracker.isStale(queryId); };
 
     auto isDriveEnabled = [&](char driveLetter) {

@@ -290,7 +290,7 @@ export const Sidebar: FC<SidebarProps> = ({
 
             <div className="appearance-flyout__divider" />
 
-            {/* 品牌强调色色卡矩阵 (Accent Color Matrix) */}
+            {/* 主题强调色色卡矩阵 (Accent Color Matrix) */}
             <div className="appearance-flyout__accents-label">
               <span>{t('general.accentColor')}</span>
             </div>

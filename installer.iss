@@ -70,13 +70,44 @@ chinesesimplified.ContinueUninstall=继续卸载
 english.ContinueUninstall=Continue Uninstall
 chinesesimplified.AutoStartProgram=开机自动启动 EasyTools
 english.AutoStartProgram=Start EasyTools automatically on Windows startup
+chinesesimplified.TypeFull=完整体验安装 (推荐 · 默认启用全部 6 大模块)
+english.TypeFull=Full Installation (Recommended - All 6 Modules Enabled)
+chinesesimplified.TypeCompact=极简轻量安装
+english.TypeCompact=Compact Installation
+chinesesimplified.TypeCustom=自定义模块选择
+english.TypeCustom=Custom Module Selection
+chinesesimplified.CompSearch=超级文件检索 (Search) — 全盘秒级索引与极速文件启动
+english.CompSearch=Fast File Search (Search) — Instant disk indexing & launcher
+chinesesimplified.CompCapture=截图贴图与录屏 (Capture) — 智能贴图、长截图、拾色器与高清录屏
+english.CompCapture=Screenshot, Pin & Recording (Capture) — Smart pin, OCR & HD recording
+chinesesimplified.CompGesture=鼠标手势与触发角 (Gesture) — 右键手势轨迹、屏幕四角触发与轮盘菜单
+english.CompGesture=Mouse Gestures & Hot Corners (Gesture) — Trailing gestures, hot corners & radial menu
+chinesesimplified.CompKeycast=按键回显 (Keycast) — 屏幕实时按键显示、机械键帽动效
+english.CompKeycast=Keycast Overlay (Keycast) — Real-time keystroke visualization
+chinesesimplified.CompDialog=文件对话框增强 (Dialog Enhancer) — 常用目录快速跳转、历史路径记忆
+english.CompDialog=File Dialog Enhancer (Dialog) — Quick folders & path memory
+chinesesimplified.CompSpotlight=演示专用特效 (Spotlight) — 屏幕聚光灯聚焦、点击水波纹与流光轨迹
+english.CompSpotlight=Presentation FX (Spotlight) — Screen spotlight focus, click ripple & mouse trails
+
+[Types]
+Name: "full"; Description: "{cm:TypeFull}"
+Name: "compact"; Description: "{cm:TypeCompact}"
+Name: "custom"; Description: "{cm:TypeCustom}"; Flags: iscustom
+
+[Components]
+Name: "search"; Description: "{cm:CompSearch}"; Types: full
+Name: "capture"; Description: "{cm:CompCapture}"; Types: full
+Name: "gesture"; Description: "{cm:CompGesture}"; Types: full
+Name: "keycast"; Description: "{cm:CompKeycast}"; Types: full
+Name: "dialogenhancer"; Description: "{cm:CompDialog}"; Types: full
+Name: "spotlight"; Description: "{cm:CompSpotlight}"; Types: full
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "autostart"; Description: "{cm:AutoStartProgram}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "deploy_dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "deploy_dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,EasyToolsTests.*,*Preview.*,*Integration.*"
 
 [Icons]
 Name: "{group}\EasyTools"; Filename: "{app}\EasyTools.exe"
@@ -84,10 +115,10 @@ Name: "{group}\{cm:UninstallProgram,EasyTools}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\EasyTools"; Filename: "{app}\EasyTools.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: not ServiceExists
-Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: ServiceExists
-Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"
+Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: IsSearchServiceInstallNeeded
+Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: IsSearchServiceConfigNeeded
+Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated; Check: IsSearchComponentSelected
+Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"; Check: IsSearchComponentSelected
 Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -134,12 +165,25 @@ begin
     DetailsButton.Caption := CustomMessage('ShowDetails');
 end;
 
+procedure ApplyComponentsListStyles();
+begin
+  { 世界级组件列表高分屏与呼吸感重构：行高38px + 左内边距16px，彻底杜绝复选框裁剪 }
+  WizardForm.ComponentsList.MinItemHeight := ScaleY(38);
+  WizardForm.ComponentsList.Offset := ScaleX(16);
+  WizardForm.ComponentsList.ShowLines := False;
+    WizardForm.ComponentsList.Font.Name := 'Microsoft YaHei UI';
+  WizardForm.ComponentsList.Font.Size := 9;
+
+  WizardForm.TasksList.MinItemHeight := ScaleY(34);
+  WizardForm.TasksList.Offset := ScaleX(16);
+  WizardForm.TasksList.ShowLines := False;
+    WizardForm.TasksList.Font.Name := 'Microsoft YaHei UI';
+  WizardForm.TasksList.Font.Size := 9;
+end;
+
 procedure InitializeWizard();
 begin
-  { Give native task checkboxes a full touch target. The stock minimum can clip
-    the glyph or caption after a per-monitor DPI/font change. }
-  WizardForm.TasksList.MinItemHeight := ScaleY(30);
-  WizardForm.TasksList.Offset := ScaleX(10);
+  ApplyComponentsListStyles();
   WizardForm.TasksList.ShowLines := False;
 
   // 创建详细信息展开/收起按钮
@@ -170,6 +214,10 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if (CurPageID = wpSelectComponents) or (CurPageID = wpSelectTasks) then
+  begin
+    ApplyComponentsListStyles();
+  end;
   if CurPageID = wpInstalling then
   begin
     if (ExtractTimerId = 0) and (TimerCallbackAddr <> 0) then
@@ -199,6 +247,20 @@ begin
   Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\EasyTools_SearchService');
 end;
 
+function IsSearchComponentSelected(): Boolean;
+begin
+  Result := WizardIsComponentSelected('search');
+end;
+
+function IsSearchServiceInstallNeeded(): Boolean;
+begin
+  Result := IsSearchComponentSelected() and (not ServiceExists());
+end;
+
+function IsSearchServiceConfigNeeded(): Boolean;
+begin
+  Result := IsSearchComponentSelected() and ServiceExists();
+end;
 function AutoStartTaskExists(): Boolean;
 var
   ResultCode: Integer;
@@ -234,10 +296,57 @@ begin
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "EasyTools_Autostart" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+procedure SyncInitialModuleConfig();
+var
+  AppDir, InitialModulesPath: String;
+  SearchSel, CaptureSel, GestureSel, KeycastSel, DialogSel, SpotlightSel: Boolean;
+  SearchStr, CaptureStr, GestureStr, KeycastStr, DialogStr, SpotlightStr: String;
+  JsonContent: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  InitialModulesPath := AppDir + '\initial_modules.json';
+
+  SearchSel := WizardIsComponentSelected('search');
+  CaptureSel := WizardIsComponentSelected('capture');
+  GestureSel := WizardIsComponentSelected('gesture');
+  KeycastSel := WizardIsComponentSelected('keycast');
+  DialogSel := WizardIsComponentSelected('dialogenhancer');
+  SpotlightSel := WizardIsComponentSelected('spotlight');
+
+  if SearchSel then SearchStr := 'true' else SearchStr := 'false';
+  if CaptureSel then CaptureStr := 'true' else CaptureStr := 'false';
+  if GestureSel then GestureStr := 'true' else GestureStr := 'false';
+  if KeycastSel then KeycastStr := 'true' else KeycastStr := 'false';
+  if DialogSel then DialogStr := 'true' else DialogStr := 'false';
+  if SpotlightSel then SpotlightStr := 'true' else SpotlightStr := 'false';
+
+  JsonContent :=
+    '{' + #13#10 +
+    '  "plugins": {' + #13#10 +
+    '    "search": { "enabled": ' + SearchStr + ' },' + #13#10 +
+    '    "capture": { "enabled": ' + CaptureStr + ' },' + #13#10 +
+    '    "gesture": { "enabled": ' + GestureStr + ' },' + #13#10 +
+    '    "keycast": { "enabled": ' + KeycastStr + ' },' + #13#10 +
+    '    "dialogenhancer": { "enabled": ' + DialogStr + ' }' + #13#10 +
+    '  },' + #13#10 +
+    '  "search": { "enabled": ' + SearchStr + ' },' + #13#10 +
+    '  "gesture": { "enabled": ' + GestureStr + ' },' + #13#10 +
+    '  "dialog": { "enabled": ' + DialogStr + ' },' + #13#10 +
+    '  "spotlight": { "enabled": ' + SpotlightStr + ' },' + #13#10 +
+    '  "general": {' + #13#10 +
+    '    "keycastEnabled": ' + KeycastStr + '' + #13#10 +
+    '  }' + #13#10 +
+    '}';
+
+  SaveStringToFile(InitialModulesPath, JsonContent, False);
+  Log('SyncInitialModuleConfig: Wrote initial_modules.json -> ' + InitialModulesPath);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    SyncInitialModuleConfig();
     if WizardIsTaskSelected('autostart') then
       CreateAutoStartTask()
     else

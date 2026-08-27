@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefCallback } from 'react';
+﻿import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefCallback } from 'react';
 import { 
   File, 
   Folder, 
@@ -1449,13 +1449,11 @@ export default function SearchApp() {
           drives: enabledDrives.length > 0 ? enabledDrives : undefined,
           excludes: excludesList.length > 0 ? excludesList : undefined,
           excludeHidden: excludeHidden,
-          contentCustomExts: customContentFormats.length > 0 ? customContentFormats : undefined,
-          contentDisabledExts: disabledContentFormats.length > 0 ? disabledContentFormats : undefined
+          contentCustomExts: customContentFormats,
+          contentDisabledExts: disabledContentFormats
         });
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
-        // 服务端已判定本次查询过期，保留当前结果等待更新的那次返回。
-        if (response.cancelled) return;
 
         // 如果服务正在启动/就绪中，展示优雅等待并自动触发自愈重试
         if (response.status === 'starting' || (!response.available && response.status !== 'unavailable')) {

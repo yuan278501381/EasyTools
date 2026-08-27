@@ -12,9 +12,6 @@ public:
     ~PlainTextExtractor() override = default;
 
     bool canHandle(std::wstring_view extension) const override;
-    void addCustomExtension(std::wstring_view ext);
-    void removeCustomExtension(std::wstring_view ext);
-
     bool searchContent(
         const std::wstring& filePath,
         std::wstring_view queryPattern,
@@ -25,7 +22,6 @@ public:
 
 private:
     std::unordered_set<std::wstring> m_supportedExts;
-    std::unordered_set<std::wstring> m_customExts;
 };
 
 } // namespace easy::service::content

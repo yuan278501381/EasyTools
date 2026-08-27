@@ -7,6 +7,7 @@
 #define EASYTOOLS_CORE_UTILS_WINUTILS_H
 
 #include "core/utils/Export.h"
+#include "../../common/AtomicFile.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -519,14 +520,14 @@ public:
 
                 if (pidlFull) {
                     wchar_t path[MAX_PATH] = {0};
-                    if (SHGetPathFromIDListW(pidlFull, path)) {
-                        CoTaskMemFree(pidlFull);
+                    const bool hasPath = SHGetPathFromIDListW(pidlFull, path) != FALSE;
+                    CoTaskMemFree(pidlFull);
+                    if (hasPath) {
                         std::error_code ec;
                         if (std::filesystem::exists(path, ec)) {
                             return std::wstring(path);
                         }
                     }
-                    CoTaskMemFree(pidlFull);
                 }
             } else {
                 CoTaskMemFree(pidlFolder);
@@ -761,38 +762,7 @@ public:
 
     /// 原子级写入文件 (写临时文件 + 物理硬件落盘 + ReplaceFile/MoveFileEx 原子替换)
     static bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::string& data) {
-        if (targetPath.empty()) return false;
-        std::wstring tempPath = targetPath + L"." + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(GetTickCount64()) + L".tmp";
-        
-        HANDLE hFile = CreateFileW(
-            tempPath.c_str(),
-            GENERIC_WRITE,
-            0,
-            nullptr,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
-            nullptr
-        );
-        if (hFile == INVALID_HANDLE_VALUE) {
-            return false;
-        }
-
-        DWORD bytesWritten = 0;
-        BOOL writeOk = WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), &bytesWritten, nullptr);
-        if (writeOk && bytesWritten == data.size()) {
-            FlushFileBuffers(hFile);
-        } else {
-            CloseHandle(hFile);
-            DeleteFileW(tempPath.c_str());
-            return false;
-        }
-        CloseHandle(hFile);
-
-        if (!MoveFileExW(tempPath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            DeleteFileW(tempPath.c_str());
-            return false;
-        }
-        return true;
+        return easy::common::atomicWriteFileWithFlush(targetPath, data);
     }
 
     /// 创建系统低物理内存状态事件通知句柄

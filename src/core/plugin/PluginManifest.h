@@ -12,7 +12,7 @@
 
 namespace easy::core {
 
-inline constexpr std::uint32_t CurrentPluginManifestSchema = 1;
+inline constexpr std::uint32_t CurrentPluginManifestSchema = 2;
 inline constexpr std::uint32_t CurrentPluginAbiVersion = 1;
 
 struct PluginManifest {
@@ -23,6 +23,7 @@ struct PluginManifest {
     std::string version;
     std::string minimumHostVersion;
     std::string entryPoint;
+    std::string executionModel;
     std::vector<std::string> capabilities;
     std::vector<std::string> permissions;
 };

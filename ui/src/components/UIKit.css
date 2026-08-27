@@ -54,17 +54,29 @@
   padding: var(--spacing-md) var(--spacing-lg);
 }
 
-/* ── Toggle Switch ────────────────────────────────────────────────────────── */
+/* ── 世界级统一 3D 拟物胶囊开关 (Unified 3D Capsule Toggle) ───────────────── */
 .uikit-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  user-select: none;
+}
+
+.uikit-toggle--with-text {
   padding: var(--spacing-sm) 0;
   min-height: 42px;
+  gap: var(--spacing-md);
+}
+
+.uikit-toggle--standalone {
+  display: inline-flex;
+  min-height: auto;
+  padding: 0;
 }
 
 .uikit-toggle--disabled {
-  opacity: 0.5;
+  opacity: 0.45;
+  cursor: not-allowed;
   pointer-events: none;
 }
 
@@ -72,6 +84,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
 }
 
 .uikit-toggle__label {
@@ -79,6 +92,7 @@
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: -0.01em;
+  cursor: pointer;
 }
 
 .uikit-toggle__desc {
@@ -87,52 +101,147 @@
   line-height: 1.5;
 }
 
+/* ── 开关外壳与导轨槽 (3D Track Groove) ──────────────────────────────────── */
 .uikit-toggle__switch {
   position: relative;
-  width: 40px;
-  height: 22px;
+  display: inline-block;
   flex-shrink: 0;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .uikit-toggle__switch input {
+  position: absolute;
   opacity: 0;
   width: 0;
   height: 0;
+  margin: 0;
+  pointer-events: none;
 }
 
 .uikit-toggle__slider {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--input-border);
-  border-radius: var(--radius-full);
-  transition: background var(--transition-normal), border-color var(--transition-normal);
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--input-border, #cbd5e1);
+  box-shadow: inset 0 1.5px 3px rgba(0, 0, 0, 0.14), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
-.uikit-toggle__slider::after {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  left: 3px;
-  top: 3px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.32s var(--ease-spring), background var(--transition-fast);
+[data-theme="dark"] .uikit-toggle__slider {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/* 激活态（主题色 3D 渐变与能量辉光） */
 .uikit-toggle__switch input:checked + .uikit-toggle__slider {
-  background: var(--primary);
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-hover) 100%);
+  box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.4),
+              0 0 12px var(--primary-glow),
+              inset 0 -1px 2px rgba(0, 0, 0, 0.15);
 }
 
-.uikit-toggle__switch input:checked + .uikit-toggle__slider::after {
-  transform: translateX(18px);
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 6px var(--primary-glow);
+/* 激活态（语义翡翠绿） */
+.uikit-toggle--success .uikit-toggle__switch input:checked + .uikit-toggle__slider {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.45),
+              0 0 12px rgba(16, 185, 129, 0.45),
+              inset 0 -1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* 全键盘焦点可访问性光环 */
+.uikit-toggle__switch input:focus-visible + .uikit-toggle__slider {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── 3D 悬浮微晶体滑块 (3D Floating Thumb) ────────────────────────────────── */
+.uikit-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.22),
+              0 1px 1.5px rgba(0, 0, 0, 0.14),
+              inset 0 1px 1px #ffffff,
+              inset 0 -1px 1px rgba(0, 0, 0, 0.08);
+  will-change: transform, width;
+  transition: transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
+              width 0.22s ease,
+              background 0.25s ease;
+}
+
+[data-theme="dark"] .uikit-toggle__thumb {
+  background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+  box-shadow: 0 2.5px 5px rgba(0, 0, 0, 0.5),
+              0 1px 1.5px rgba(0, 0, 0, 0.3),
+              inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+
+/* ── 尺寸规格矩阵 (Size Matrix) ────────────────────────────────────────── */
+
+/* 1. 标准中号 (Default / md: 40 × 22px, 滑块 18px) */
+.uikit-toggle--md .uikit-toggle__switch {
+  width: 40px;
+  height: 22px;
+}
+.uikit-toggle--md .uikit-toggle__thumb {
+  width: 18px;
+  height: 18px;
+}
+.uikit-toggle--md .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(18px, 0, 0);
+}
+.uikit-toggle--md .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 22px;
+}
+.uikit-toggle--md .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(14px, 0, 0);
+  width: 22px;
+}
+
+/* 2. 紧凑微型小号 (Micro / sm: 28 × 16px, 滑块 12px) - 专为高密度表格/列表定制 */
+.uikit-toggle--sm .uikit-toggle__switch {
+  width: 28px;
+  height: 16px;
+}
+.uikit-toggle--sm .uikit-toggle__thumb {
+  width: 12px;
+  height: 12px;
+}
+.uikit-toggle--sm .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(12px, 0, 0);
+}
+.uikit-toggle--sm .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 15px;
+}
+.uikit-toggle--sm .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(9px, 0, 0);
+  width: 15px;
+}
+
+/* 3. 全局大号 (Large / lg: 48 × 26px, 滑块 22px) - 专为核心大主控定制 */
+.uikit-toggle--lg .uikit-toggle__switch {
+  width: 48px;
+  height: 26px;
+}
+.uikit-toggle--lg .uikit-toggle__thumb {
+  width: 22px;
+  height: 22px;
+}
+.uikit-toggle--lg .uikit-toggle__switch input:checked + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(22px, 0, 0);
+}
+.uikit-toggle--lg .uikit-toggle__switch:active .uikit-toggle__thumb {
+  width: 27px;
+}
+.uikit-toggle--lg .uikit-toggle__switch input:checked:active + .uikit-toggle__slider .uikit-toggle__thumb {
+  transform: translate3d(17px, 0, 0);
+  width: 27px;
 }
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
@@ -228,7 +337,7 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: var(--radius-full);
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   letter-spacing: 0.03em;
 }
@@ -258,37 +367,140 @@
   color: var(--text-muted);
 }
 
-/* ── Select ───────────────────────────────────────────────────────────────── */
-.uikit-select {
-  padding: 6px 32px 6px 12px;
+/* ── 世界级微晶 Select (Custom Glass Floating Select) ────────────────────────── */
+.uikit-select-wrapper {
+  position: relative;
+  display: inline-block;
+  min-width: 180px;
+  max-width: 100%;
+}
+
+.uikit-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--input-border);
   background: var(--input-bg);
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: var(--text-sm, 0.88rem);
   font-family: inherit;
-  outline: none;
+  font-weight: 500;
   cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
+  outline: none;
+  user-select: none;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.uikit-select-trigger:hover:not(:disabled) {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--card-border-hover, rgba(255, 255, 255, 0.18));
+}
+
+.uikit-select-wrapper--open .uikit-select-trigger,
+.uikit-select-trigger:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-dim);
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.uikit-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.uikit-select-trigger__label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uikit-select-trigger__icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.uikit-select-trigger__icon--rotated {
+  transform: rotate(180deg);
+  color: var(--primary);
+}
+
+/* ── 下拉浮层 (Mica Glass Floating Popover) ── */
+.uikit-select-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elevated);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border-dark, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: uikitSelectFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes uikitSelectFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.uikit-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-sm, 0.88rem);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
   transition: all var(--transition-fast);
 }
 
-.uikit-select:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary-dim);
-}
-
-.uikit-select option {
-  background: var(--bg-elevated);
+.uikit-select-option:hover,
+.uikit-select-option:focus-visible {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.08));
   color: var(--text-primary);
 }
 
-.uikit-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.uikit-select-option--selected {
+  background: var(--primary-dim) !important;
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+
+.uikit-select-option__label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uikit-select-option__check {
+  color: var(--primary);
+  flex-shrink: 0;
 }
 
 /* ── Button ───────────────────────────────────────────────────────────────── */
@@ -308,7 +520,7 @@
 }
 
 .uikit-btn--md { padding: 8px 16px; font-size: 0.85rem; }
-.uikit-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
+.uikit-btn--sm { padding: 4px 10px; font-size: var(--text-sm, 0.86rem); }
 
 .uikit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -375,7 +587,7 @@
 .uikit-input--multiline {
   resize: vertical;
   min-height: 80px;
-  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
 }
 
@@ -479,12 +691,12 @@
 }
 
 .uikit-field__hint {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
 }
 
 .uikit-field__error {
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--danger);
 }
 
@@ -583,7 +795,7 @@
   flex: 1;
   justify-content: center;
   padding: 6px 8px;
-  font-size: 0.76rem;
+  font-size: var(--text-sm, 0.86rem);
   gap: 5px;
   white-space: nowrap;
 }
@@ -602,7 +814,7 @@
   flex: 1;
   justify-content: center;
   padding: 4px 6px;
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   gap: 4px;
   white-space: nowrap;
 }
@@ -620,7 +832,7 @@
   flex: 1;
   justify-content: center;
   padding: 7px 10px;
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   gap: 6px;
   white-space: nowrap;
 }
@@ -692,7 +904,7 @@
 }
 
 .picker-strategy-card__desc {
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
   line-height: 1.3;
 }
@@ -775,7 +987,7 @@
 }
 
 .app-picker-item__name {
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -784,9 +996,9 @@
 }
 
 .app-picker-item__proc {
-  font-size: 0.68rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -797,7 +1009,7 @@
   text-align: center;
   padding: 16px;
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
 }
 
 /* ── Tabs / Segmented Control ─────────────────────────────────────────────── */
@@ -867,7 +1079,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   min-width: 18px;
   height: 18px;
@@ -882,4 +1094,37 @@
 .uikit-tab--active .uikit-tab__badge {
   background: var(--primary);
   color: #ffffff;
+}
+
+/* ── CodeBadge (世界级微晶等宽胶囊) ────────────────────────────────────────── */
+.uikit-code-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  padding: 1.5px 6.5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  user-select: text;
+  -webkit-user-select: text;
+  white-space: nowrap;
+  vertical-align: baseline;
+  transition: all var(--transition-fast);
+}
+
+.uikit-code-badge--primary {
+  background: var(--primary-dim);
+  border-color: var(--primary-glow);
+  color: var(--primary-hover);
+}
+
+.uikit-code-badge--muted {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
 }

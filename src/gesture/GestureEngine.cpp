@@ -1026,6 +1026,7 @@ void GestureEngine::loadFromConfig() {
     recognizerConfig.minSegmentDistance = config.get<int>("/gesture/recognizer/minSegmentDistance", 14);
     recognizerConfig.samplingInterval = config.get<int>("/gesture/recognizer/samplingInterval", 2);
     recognizerConfig.angleToleranceDeg = config.get<double>("/gesture/recognizer/angleTolerance", 22.5);
+    recognizerConfig.enableScribbleCancel = config.get<bool>("/gesture/enableScribbleCancel", true);
     m_recognizer.setConfig(recognizerConfig);
 }
 

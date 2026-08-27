@@ -82,6 +82,7 @@ public:
     void toggleMaximize();
     void close();
     void dragMove();
+    void showSystemMenu(int screenX = -1, int screenY = -1);
     void startResize(const std::string& edge);
     bool isMaximized() const;
 

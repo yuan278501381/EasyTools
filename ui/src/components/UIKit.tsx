@@ -2,9 +2,10 @@
  * 通用 UI 组件 — Card / Toggle / SettingGroup
  * ───────────────────────────────────────────────────────────────────────────── */
 
-import { type FC, type ReactNode, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, useEffect, useCallback, useId, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef, type FC, type ReactNode, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, Check } from 'lucide-react';
 import { ControlA11yContext, useControlA11y } from './ControlA11yContext';
 import './UIKit.css';
 
@@ -35,35 +36,57 @@ export const Card: FC<CardProps> = ({ title, subtitle, headerAction, children, c
 
 /* ── Toggle Switch ────────────────────────────────────────────────────────── */
 
-interface ToggleProps {
+export interface ToggleProps {
   id: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-  label?: string;
-  description?: string;
+  label?: ReactNode;
+  description?: ReactNode;
   disabled?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+  variant?: 'primary' | 'success';
+  className?: string;
 }
 
-export const Toggle: FC<ToggleProps> = ({ id, checked, onChange, label, description, disabled = false }) => (
-  <div className={`uikit-toggle ${disabled ? 'uikit-toggle--disabled' : ''}`}>
-    <div className="uikit-toggle__text">
-      {label && <label id={`${id}-label`} htmlFor={id} className="uikit-toggle__label">{label}</label>}
-      {description && <span id={`${id}-description`} className="uikit-toggle__desc">{description}</span>}
+export const Toggle: FC<ToggleProps> = ({
+  id,
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+  size = 'md',
+  variant = 'primary',
+  className = '',
+}) => {
+  const hasText = Boolean(label || description);
+  return (
+    <div
+      className={`uikit-toggle uikit-toggle--${size} uikit-toggle--${variant} ${hasText ? 'uikit-toggle--with-text' : 'uikit-toggle--standalone'} ${disabled ? 'uikit-toggle--disabled' : ''} ${className}`.trim()}
+    >
+      {hasText && (
+        <div className="uikit-toggle__text">
+          {label && <label id={`${id}-label`} htmlFor={id} className="uikit-toggle__label">{label}</label>}
+          {description && <span id={`${id}-description`} className="uikit-toggle__desc">{description}</span>}
+        </div>
+      )}
+      <label className="uikit-toggle__switch" htmlFor={id}>
+        <input
+          type="checkbox"
+          id={id}
+          checked={checked}
+          aria-labelledby={label ? `${id}-label` : undefined}
+          aria-describedby={description ? `${id}-description` : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={disabled}
+        />
+        <span className="uikit-toggle__slider">
+          <span className="uikit-toggle__thumb" />
+        </span>
+      </label>
     </div>
-    <label className="uikit-toggle__switch" htmlFor={id}>
-      <input
-        type="checkbox"
-        id={id}
-        checked={checked}
-        aria-labelledby={label ? `${id}-label` : undefined}
-        aria-describedby={description ? `${id}-description` : undefined}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-      />
-      <span className="uikit-toggle__slider" />
-    </label>
-  </div>
-);
+  );
+};
 
 /* ── Setting Row ──────────────────────────────────────────────────────────── */
 
@@ -137,34 +160,123 @@ export const Badge: FC<BadgeProps> = ({ text, variant = 'primary' }) => (
 
 /* ── Select 下拉 ──────────────────────────────────────────────────────────── */
 
-interface SelectProps {
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+export interface SelectProps {
   id?: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: SelectOption[];
   onChange: (value: string) => void;
   disabled?: boolean;
   ariaLabel?: string;
+  placeholder?: string;
+  className?: string;
 }
 
-export const Select: FC<SelectProps> = ({ id, value, options, onChange, disabled = false, ariaLabel }) => {
+export const Select: FC<SelectProps> = ({
+  id,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  ariaLabel,
+  placeholder,
+  className = '',
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
   const a11y = useControlA11y();
+
+  const selectedOption = options.find((opt) => opt.value === value) || options[0];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const handleSelect = (val: string) => {
+    onChange(val);
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
   return (
-    <select
-      id={id}
-      className="uikit-select"
-      value={value}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      aria-labelledby={ariaLabel ? undefined : a11y.labelledBy}
-      aria-describedby={a11y.describedBy}
-      onChange={(e) => onChange(e.target.value)}
+    <div
+      ref={containerRef}
+      className={`uikit-select-wrapper ${isOpen ? 'uikit-select-wrapper--open' : ''} ${className}`}
     >
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        className="uikit-select-trigger"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabel ? undefined : a11y.labelledBy}
+        aria-describedby={a11y.describedBy}
+        onClick={() => !disabled && setIsOpen((prev) => !prev)}
+      >
+        <span className="uikit-select-trigger__label">
+          {selectedOption ? selectedOption.label : placeholder || ''}
+        </span>
+        <ChevronDown
+          size={14}
+          className={`uikit-select-trigger__icon ${isOpen ? 'uikit-select-trigger__icon--rotated' : ''}`}
+        />
+      </button>
+
+      {isOpen && (
+        <div ref={listboxRef} className="uikit-select-dropdown" role="listbox">
+          {options.map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <div
+                key={opt.value}
+                role="option"
+                aria-selected={isSelected}
+                tabIndex={0}
+                className={`uikit-select-option ${isSelected ? 'uikit-select-option--selected' : ''}`}
+                onClick={() => handleSelect(opt.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleSelect(opt.value);
+                  }
+                }}
+              >
+                <span className="uikit-select-option__label">{opt.label}</span>
+                {isSelected && (
+                  <Check size={14} strokeWidth={2.4} className="uikit-select-option__check" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -426,3 +538,29 @@ export function Tabs<T extends string = string>({ tabs, activeId, onChange, clas
     </div>
   );
 }
+
+/* ── CodeBadge (世界级微晶代码/类名胶囊组件) ─────────────────────────────────── */
+
+export interface CodeBadgeProps {
+  children: ReactNode;
+  variant?: 'default' | 'primary' | 'muted';
+  className?: string;
+  style?: CSSProperties;
+  title?: string;
+}
+
+export const CodeBadge: FC<CodeBadgeProps> = ({
+  children,
+  variant = 'default',
+  className = '',
+  style,
+  title,
+}) => (
+  <code
+    className={`uikit-code-badge uikit-code-badge--${variant} ${className}`}
+    style={style}
+    title={title}
+  >
+    {children}
+  </code>
+);

@@ -41,7 +41,7 @@
 }
 
 .titlebar__admin-badge {
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 4px;

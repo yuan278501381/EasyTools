@@ -103,8 +103,8 @@
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-bottom: 2px solid rgba(0, 0, 0, 0.2);
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-  font-family: ui-monospace, SFMono-Regular, "Segoe UI Mono", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   color: var(--text-primary, #1e293b);
   letter-spacing: -0.01em;
@@ -141,7 +141,7 @@
 
 /* ── 加号连接符 ─────────────────────────────────────────────────────────── */
 .hotkey-recorder__separator {
-  font-size: 0.7rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   color: var(--text-muted, #94a3b8);
   margin: 0 1px;
@@ -160,7 +160,7 @@
   border: none;
   background: var(--bg-surface-hover, rgba(0, 0, 0, 0.06));
   color: var(--text-muted, #64748b);
-  font-size: 0.75rem;
+  font-size: var(--text-sm, 0.86rem);
   cursor: pointer;
   padding: 0;
   line-height: 1;

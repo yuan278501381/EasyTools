@@ -966,7 +966,7 @@ export const GesturePage: FC = () => {
                   { value: 'middle', label: tr('gesture.btnMiddle') },
                 ]}
               />
-              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+              <div style={{ fontSize: 'var(--text-xs, 0.84rem)', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                 {tr('gesture.triggerAdaptiveHint')}
               </div>
             </div>
@@ -1280,22 +1280,19 @@ export const GesturePage: FC = () => {
                               })()}
                             </span>
 
-                            {/* 5. 极简微型胶囊开关 Micro Switch */}
-                            <span className="gesture-table__col gesture-table__col--switch">
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={isEnabled}
-                                className={`gesture-micro-switch ${isEnabled ? 'active' : ''}`}
-                                title={isEnabled ? '点击禁用此手势' : '点击启用此手势'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleToggleMappingEnabled(actualIdx);
-                                }}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                              >
-                                <span className="gesture-micro-switch__thumb" />
-                              </button>
+                            {/* 5. 世界级统一微型 3D 胶囊开关 (Unified Micro 3D Toggle) */}
+                            <span
+                              className="gesture-table__col gesture-table__col--switch"
+                              onClick={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                            >
+                              <Toggle
+                                id={`gesture-mapping-${actualIdx}`}
+                                checked={isEnabled}
+                                size="sm"
+                                variant="primary"
+                                onChange={() => void handleToggleMappingEnabled(actualIdx)}
+                              />
                             </span>
 
                             {/* 6. 编辑与删除 */}

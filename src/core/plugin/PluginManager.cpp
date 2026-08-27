@@ -323,6 +323,7 @@ std::vector<PluginStatus> PluginManager::getPluginStatuses() const {
         result.push_back({
             inst.id, inst.name, inst.version, inst.fileName,
             inst.manifest.abiVersion, inst.manifest.capabilities, inst.manifest.permissions,
+            inst.manifest.executionModel,
             desiredEnabled, inst.initialized, restartRequired,
             std::move(state), inst.error
         });

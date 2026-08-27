@@ -70,11 +70,11 @@ void MftParser::UsnListenerLoop() {
     rujd.BytesToWaitFor = 0;
     rujd.UsnJournalID = m_UsnJournalData.UsnJournalID;
 
-    BYTE buffer[BUF_LEN];
+    std::vector<BYTE> buffer(BUF_LEN);
     DWORD bytesReturned = 0;
 
     while (m_IsListening) {
-        if (!DeviceIoControl(m_hVolume, FSCTL_READ_USN_JOURNAL, &rujd, sizeof(rujd), buffer, BUF_LEN, &bytesReturned, NULL)) {
+        if (!DeviceIoControl(m_hVolume, FSCTL_READ_USN_JOURNAL, &rujd, sizeof(rujd), buffer.data(), BUF_LEN, &bytesReturned, NULL)) {
             Sleep(100);
             continue;
         }
@@ -84,8 +84,8 @@ void MftParser::UsnListenerLoop() {
             continue;
         }
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
-        USN* pUsn = (USN*)buffer;
-        PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
+        USN* pUsn = reinterpret_cast<USN*>(buffer.data());
+        PUSN_RECORD_V2 pRecord = reinterpret_cast<PUSN_RECORD_V2>(buffer.data() + sizeof(USN));
 
         if (dwRetBytes > 0) {
             std::unique_lock lock(m_MapMutex);
@@ -308,16 +308,16 @@ void MftParser::EnumerateFiles() {
     med.LowUsn = 0;
     med.HighUsn = m_UsnJournalData.NextUsn;
 
-    BYTE buffer[BUF_LEN];
+    std::vector<BYTE> buffer(BUF_LEN);
     DWORD bytesReturned = 0;
     int count = 0;
 
     while (!m_StopRequested.load(std::memory_order_acquire) &&
-           DeviceIoControl(m_hVolume, FSCTL_ENUM_USN_DATA, &med, sizeof(med), buffer, BUF_LEN, &bytesReturned, NULL)) {
+           DeviceIoControl(m_hVolume, FSCTL_ENUM_USN_DATA, &med, sizeof(med), buffer.data(), BUF_LEN, &bytesReturned, NULL)) {
         if (bytesReturned <= sizeof(USN)) break;
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
-        USN* pUsn = (USN*)buffer;
-        PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
+        USN* pUsn = reinterpret_cast<USN*>(buffer.data());
+        PUSN_RECORD_V2 pRecord = reinterpret_cast<PUSN_RECORD_V2>(buffer.data() + sizeof(USN));
         
         std::unique_lock lock(m_MapMutex);
         while (!m_StopRequested.load(std::memory_order_relaxed) &&
@@ -405,9 +405,10 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
     {
         std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
         if (generation == m_CachedGeneration && !m_CachedQuery.empty() &&
+            !expr.requiresFullPath() &&
             lowerQuery.rfind(m_CachedQuery, 0) == 0 &&
-            lowerQuery.find_first_of(L"*?|/\\:") == std::wstring::npos &&
-            m_CachedQuery.find_first_of(L"*?|/\\:") == std::wstring::npos) {
+            lowerQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos &&
+            m_CachedQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos) {
             candidates = m_CachedCandidates;
             canNarrow = true;
         }
@@ -548,9 +549,18 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         std::sort(ranked.begin(), ranked.end(), compareRank);
     }
 
-    m_CachedQuery = lowerQuery;
-    m_CachedCandidates = std::move(candidates);
-    m_CachedGeneration = generation;
+    {
+        std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
+        if (!expr.requiresFullPath() &&
+            lowerQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos) {
+            m_CachedQuery = lowerQuery;
+            m_CachedCandidates = std::move(candidates);
+            m_CachedGeneration = generation;
+        } else {
+            m_CachedQuery.clear();
+            m_CachedCandidates.clear();
+        }
+    }
 
     results.reserve(resultCount);
     for (size_t i = 0; i < resultCount; ++i) {
@@ -693,18 +703,18 @@ bool MftParser::catchUpUsnJournal(uint64_t fromUsn) {
     rujd.BytesToWaitFor = 0;
     rujd.UsnJournalID = m_UsnJournalData.UsnJournalID;
 
-    BYTE buffer[BUF_LEN];
+    std::vector<BYTE> buffer(BUF_LEN);
     DWORD bytesReturned = 0;
     bool anyChanged = false;
 
-    while (DeviceIoControl(m_hVolume, FSCTL_READ_USN_JOURNAL, &rujd, sizeof(rujd), buffer, BUF_LEN, &bytesReturned, NULL)) {
+    while (DeviceIoControl(m_hVolume, FSCTL_READ_USN_JOURNAL, &rujd, sizeof(rujd), buffer.data(), BUF_LEN, &bytesReturned, NULL)) {
         if (bytesReturned <= sizeof(USN)) break;
 
         DWORD dwRetBytes = bytesReturned - sizeof(USN);
-        USN* pNextUsn = (USN*)buffer;
+        USN* pNextUsn = reinterpret_cast<USN*>(buffer.data());
         rujd.StartUsn = *pNextUsn;
 
-        PUSN_RECORD_V2 pRecord = (PUSN_RECORD_V2)((PBYTE)buffer + sizeof(USN));
+        PUSN_RECORD_V2 pRecord = reinterpret_cast<PUSN_RECORD_V2>(buffer.data() + sizeof(USN));
 
         if (dwRetBytes > 0) {
             std::unique_lock lock(m_MapMutex);

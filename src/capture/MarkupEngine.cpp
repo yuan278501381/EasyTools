@@ -16,10 +16,15 @@
 //   - 智能消除: cv::inpaint (TELEA) 背景重建
 // ─────────────────────────────────────────────────────────────────────────────
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "capture/MarkupEngine.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
+#include <algorithm>
 #include <windows.h>
 
 #include <objidl.h>
@@ -126,6 +131,14 @@ namespace {
         if (!fontFamily.IsAvailable()) {
             activeFamily = &fallbackFamily;
         }
+
+        if (wtext.empty()) {
+            // 空文本预留舒适编辑框尺寸 (支持用户在输入内容前拖拽 8 手柄调节大小)
+            int minW = static_cast<int>(std::max(90.0f, fontSize * 4.2f));
+            int minH = static_cast<int>(std::max(26.0f, fontSize * 1.4f));
+            return cv::Size(minW, minH);
+        }
+
         Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
         HDC hdc = GetDC(nullptr);
         Gdiplus::Graphics graphics(hdc);
@@ -138,7 +151,7 @@ namespace {
         return cv::Size(std::max(w, 24), std::max(h, fontSize + 8));
     }
 
-    void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, cv::Size& outSize) {
+    void renderSnipasteStyleText(cv::Mat& canvas, const std::string& text, cv::Point pt, const cv::Scalar& color, int fontSize, bool isEditing, bool withBackdrop, cv::Size& outSize) {
         std::wstring wtext = utf8ToWide(text);
         if (wtext.empty() && !isEditing) {
             outSize = cv::Size(0, 0);
@@ -177,6 +190,20 @@ namespace {
             float textX = 4.0f;
             float textY = 3.0f;
 
+            if (withBackdrop) {
+                Gdiplus::SolidBrush bgBrush(luminance > 0.45f ? Gdiplus::Color(210, 15, 23, 42) : Gdiplus::Color(210, 255, 255, 255));
+                Gdiplus::GraphicsPath bgPath;
+                float padX = 2.0f, padY = 1.0f;
+                float r = 4.0f;
+                float bx = textX - padX, by = textY - padY, bw = sz.width - 4.0f, bh = sz.height - 2.0f;
+                bgPath.AddArc(bx, by, r * 2, r * 2, 180, 90);
+                bgPath.AddArc(bx + bw - r * 2, by, r * 2, r * 2, 270, 90);
+                bgPath.AddArc(bx + bw - r * 2, by + bh - r * 2, r * 2, r * 2, 0, 90);
+                bgPath.AddArc(bx, by + bh - r * 2, r * 2, r * 2, 90, 90);
+                bgPath.CloseFigure();
+                g.FillPath(&bgBrush, &bgPath);
+            }
+
             if (!wtext.empty()) {
                 Gdiplus::GraphicsPath textPath;
                 textPath.AddString(wtext.c_str(), -1, activeFamily, Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::PointF(textX, textY), &format);
@@ -190,13 +217,18 @@ namespace {
                 // 正文矢量文字填充
                 Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
                 g.FillPath(&textBrush, &textPath);
+            } else if (isEditing) {
+                // 空文本编辑态：绘制柔和的极细占位微虚线边框
+                Gdiplus::Pen dashPen(Gdiplus::Color(120, 59, 130, 246), 1.0f);
+                dashPen.SetDashStyle(Gdiplus::DashStyleDash);
+                g.DrawRectangle(&dashPen, textX, textY, static_cast<float>(sz.width - 8), static_cast<float>(sz.height - 6));
             }
 
             // 2. 编辑态光标绘制
             if (isEditing) {
                 bool showCursor = ((GetTickCount() / 450) % 2 == 0) || wtext.empty();
                 if (showCursor) {
-                    float cursorX = textX + 1.0f;
+                    float cursorX = textX + 2.0f;
                     if (!wtext.empty()) {
                         Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
                         Gdiplus::RectF measured;
@@ -204,7 +236,7 @@ namespace {
                         cursorX = textX + measured.Width + 2.0f;
                     }
                     Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
-                    g.DrawLine(&cursorPen, cursorX, textY + 1.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
+                    g.DrawLine(&cursorPen, cursorX, textY + 2.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
                 }
             }
         }
@@ -213,7 +245,7 @@ namespace {
         blendOverlay(canvas, textMat, pt.x, pt.y);
     }
 
-    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, float dpiScale = 1.0f) {
+    void renderSnipasteStyleNumberBadge(cv::Mat& canvas, int number, cv::Point center, const cv::Scalar& color, bool fill = true, float dpiScale = 1.0f) {
         float scale = dpiScale > 0.0f ? dpiScale : 1.0f;
         int radius = static_cast<int>(std::round(15.0f * scale));
         int sz = radius * 2 + static_cast<int>(std::round(10.0f * scale));
@@ -227,20 +259,28 @@ namespace {
             float cx = sz / 2.0f;
             float cy = sz / 2.0f;
 
-            // 1. 柔和外层投影
-            Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
-            g.FillEllipse(&shadowBrush, cx - radius + 1.5f * scale, cy - radius + 2.5f * scale, radius * 2.0f, radius * 2.0f);
-
-            // 2. 主题色彩圆盘
             BYTE rVal = static_cast<BYTE>(color[2]);
             BYTE gVal = static_cast<BYTE>(color[1]);
             BYTE bVal = static_cast<BYTE>(color[0]);
-            Gdiplus::SolidBrush circleBrush(Gdiplus::Color(255, rVal, gVal, bVal));
-            g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
 
-            // 3. 1.5px 白色高光内圈
-            Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f * scale);
-            g.DrawEllipse(&ringPen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            if (fill) {
+                // 1. 实心模式：柔和外层投影 + 主题色彩圆盘 + 1.5px 白色高光内圈
+                Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(100, 0, 0, 0));
+                g.FillEllipse(&shadowBrush, cx - radius + 1.5f * scale, cy - radius + 2.5f * scale, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::SolidBrush circleBrush(Gdiplus::Color(255, rVal, gVal, bVal));
+                g.FillEllipse(&circleBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::Pen ringPen(Gdiplus::Color(220, 255, 255, 255), 1.5f * scale);
+                g.DrawEllipse(&ringPen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            } else {
+                // 2. 空心模式：半透明纯白底 + 主题色彩外环
+                Gdiplus::SolidBrush bgBrush(Gdiplus::Color(230, 255, 255, 255));
+                g.FillEllipse(&bgBrush, cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+
+                Gdiplus::Pen outlinePen(Gdiplus::Color(255, rVal, gVal, bVal), 2.2f * scale);
+                g.DrawEllipse(&outlinePen, cx - radius + 1.0f * scale, cy - radius + 1.0f * scale, (radius - 1.0f * scale) * 2.0f, (radius - 1.0f * scale) * 2.0f);
+            }
 
             // 4. 数字矢量排版
             std::wstring numWStr = std::to_wstring(number);
@@ -252,7 +292,7 @@ namespace {
             format.SetAlignment(Gdiplus::StringAlignmentCenter);
             format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
-            Gdiplus::SolidBrush numBrush(Gdiplus::Color(255, 255, 255, 255));
+            Gdiplus::SolidBrush numBrush(fill ? Gdiplus::Color(255, 255, 255, 255) : Gdiplus::Color(255, rVal, gVal, bVal));
             Gdiplus::RectF layoutRect(cx - radius, cy - radius - 0.5f * scale, radius * 2.0f, radius * 2.0f);
             g.DrawString(numWStr.c_str(), -1, &font, layoutRect, &format, &numBrush);
         }
@@ -336,11 +376,15 @@ cv::Rect MarkupElement::getBoundingBox() const {
             return cv::Rect(cx - rx, cy - ry, rx * 2, ry * 2);
         }
         case MarkupTool::Text: {
-            if (textRenderSize.width == 0) {
+            if (textRenderSize.width <= 0 || textRenderSize.height <= 0) {
                 std::wstring wtext = utf8ToWide(text);
                 const_cast<MarkupElement*>(this)->textRenderSize = measureSnipasteText(wtext, static_cast<int>(fontSize));
             }
-            return cv::Rect(startPt.x, startPt.y, textRenderSize.width, textRenderSize.height);
+            int bw = textRenderSize.width;
+            int bh = textRenderSize.height;
+            if (bw < 80) bw = static_cast<int>(std::max(80.0f, fontSize * 4.0f));
+            if (bh < static_cast<int>(fontSize * 1.3f)) bh = static_cast<int>(std::max(26.0f, fontSize * 1.3f));
+            return cv::Rect(startPt.x, startPt.y, bw, bh);
         }
         case MarkupTool::Magnifier: {
             return cv::Rect(startPt.x - magnifierRadius, startPt.y - magnifierRadius, magnifierRadius * 2, magnifierRadius * 2);
@@ -680,6 +724,72 @@ void MarkupEngine::applyInpaint(cv::Point p1, cv::Point p2, int radius) {
 // 渲染
 // ─────────────────────────────────────────────────────────────────────────────
 
+namespace {
+
+void drawPatternedLine(cv::Mat& canvas, cv::Point p1, cv::Point p2, const cv::Scalar& color, int thick, LineStyle style) {
+    if (style == LineStyle::Solid) {
+        cv::line(canvas, p1, p2, color, thick, cv::LINE_AA);
+        return;
+    }
+
+    float dx = static_cast<float>(p2.x - p1.x);
+    float dy = static_cast<float>(p2.y - p1.y);
+    float dist = std::hypot(dx, dy);
+    if (dist < 1.0f) return;
+
+    float ux = dx / dist;
+    float uy = dy / dist;
+
+    std::vector<float> pattern;
+    if (style == LineStyle::Dashed) {
+        pattern = { 10.0f, 6.0f }; // 10px 实线, 6px 空白
+    } else if (style == LineStyle::Dotted) {
+        pattern = { 3.0f, 4.0f };  // 3px 实线点, 4px 空白
+    } else if (style == LineStyle::DashDot) {
+        pattern = { 10.0f, 4.0f, 3.0f, 4.0f }; // 线 - 间隙 - 点 - 间隙
+    } else {
+        pattern = { dist, 0.0f };
+    }
+
+    float cur = 0.0f;
+    size_t patIdx = 0;
+    while (cur < dist) {
+        float segLen = pattern[patIdx % pattern.size()];
+        bool isDraw = (patIdx % 2 == 0);
+        float nextCur = (std::min)(dist, cur + segLen);
+        if (isDraw) {
+            cv::Point ptA(static_cast<int>(std::round(p1.x + ux * cur)), static_cast<int>(std::round(p1.y + uy * cur)));
+            cv::Point ptB(static_cast<int>(std::round(p1.x + ux * nextCur)), static_cast<int>(std::round(p1.y + uy * nextCur)));
+            cv::line(canvas, ptA, ptB, color, thick, cv::LINE_AA);
+        }
+        cur = nextCur;
+        ++patIdx;
+    }
+}
+
+void drawPatternedRect(cv::Mat& canvas, cv::Point p1, cv::Point p2, const cv::Scalar& color, int thick, LineStyle style, bool fill) {
+    int x1 = (std::min)(p1.x, p2.x);
+    int y1 = (std::min)(p1.y, p2.y);
+    int x2 = (std::max)(p1.x, p2.x);
+    int y2 = (std::max)(p1.y, p2.y);
+
+    if (fill) {
+        cv::rectangle(canvas, cv::Point(x1, y1), cv::Point(x2, y2), color, cv::FILLED);
+    }
+    if (style == LineStyle::Solid) {
+        if (!fill || thick > 1) {
+            cv::rectangle(canvas, cv::Point(x1, y1), cv::Point(x2, y2), color, thick, cv::LINE_AA);
+        }
+    } else {
+        drawPatternedLine(canvas, cv::Point(x1, y1), cv::Point(x2, y1), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x2, y1), cv::Point(x2, y2), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x2, y2), cv::Point(x1, y2), color, thick, style);
+        drawPatternedLine(canvas, cv::Point(x1, y2), cv::Point(x1, y1), color, thick, style);
+    }
+}
+
+}  // namespace
+
 void MarkupEngine::renderAll(cv::Mat& canvas) const {
     for (const auto& elem : m_elements) {
         renderElement(canvas, *elem);
@@ -688,16 +798,33 @@ void MarkupEngine::renderAll(cv::Mat& canvas) const {
 
 void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) const {
     auto color = element.color.toCvScalar();
-    int thick = static_cast<int>(element.thickness);
+    int thick = std::max(1, static_cast<int>(element.thickness));
 
     switch (element.tool) {
         case MarkupTool::Rectangle: {
-            cv::rectangle(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA);
+            drawPatternedRect(canvas, element.startPt, element.endPt, color, thick, element.lineStyle, element.fill);
             break;
         }
 
         case MarkupTool::Arrow: {
-            cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+            if (element.arrowStyle == ArrowStyle::DoubleEnded) {
+                cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+                cv::arrowedLine(canvas, element.endPt, element.startPt, color, thick, cv::LINE_AA, 0, 0.08);
+            } else {
+                if (element.lineStyle == LineStyle::Solid) {
+                    cv::arrowedLine(canvas, element.startPt, element.endPt, color, thick, cv::LINE_AA, 0, 0.08);
+                } else {
+                    drawPatternedLine(canvas, element.startPt, element.endPt, color, thick, element.lineStyle);
+                    double angle = std::atan2(element.endPt.y - element.startPt.y, element.endPt.x - element.startPt.x);
+                    double arrowLen = std::max(12.0, thick * 3.5);
+                    cv::Point arrowP1(static_cast<int>(element.endPt.x - arrowLen * std::cos(angle - CV_PI / 6)),
+                                      static_cast<int>(element.endPt.y - arrowLen * std::sin(angle - CV_PI / 6)));
+                    cv::Point arrowP2(static_cast<int>(element.endPt.x - arrowLen * std::cos(angle + CV_PI / 6)),
+                                      static_cast<int>(element.endPt.y - arrowLen * std::sin(angle + CV_PI / 6)));
+                    cv::line(canvas, element.endPt, arrowP1, color, thick, cv::LINE_AA);
+                    cv::line(canvas, element.endPt, arrowP2, color, thick, cv::LINE_AA);
+                }
+            }
             break;
         }
 
@@ -706,13 +833,24 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
                              (element.startPt.y + element.endPt.y) / 2);
             cv::Size axes(std::abs(element.endPt.x - element.startPt.x) / 2,
                           std::abs(element.endPt.y - element.startPt.y) / 2);
-            cv::ellipse(canvas, center, axes, 0, 0, 360, color, thick, cv::LINE_AA);
+            if (axes.width > 0 && axes.height > 0) {
+                if (element.fill) {
+                    cv::ellipse(canvas, center, axes, 0, 0, 360, color, cv::FILLED, cv::LINE_AA);
+                }
+                cv::ellipse(canvas, center, axes, 0, 0, 360, color, thick, cv::LINE_AA);
+            }
             break;
         }
 
         case MarkupTool::Pen: {
             if (element.penPoints.size() >= 2) {
-                cv::polylines(canvas, element.penPoints, false, color, thick, cv::LINE_AA);
+                if (element.lineStyle == LineStyle::Solid) {
+                    cv::polylines(canvas, element.penPoints, false, color, thick, cv::LINE_AA);
+                } else {
+                    for (size_t i = 1; i < element.penPoints.size(); ++i) {
+                        drawPatternedLine(canvas, element.penPoints[i - 1], element.penPoints[i], color, thick, element.lineStyle);
+                    }
+                }
             }
             break;
         }
@@ -729,22 +867,22 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
 
         case MarkupTool::Mosaic: {
             // 马赛克: 区域像素块化
-            int x1 = std::min(element.startPt.x, element.endPt.x);
-            int y1 = std::min(element.startPt.y, element.endPt.y);
-            int x2 = std::max(element.startPt.x, element.endPt.x);
-            int y2 = std::max(element.startPt.y, element.endPt.y);
+            int x1 = (std::min)(element.startPt.x, element.endPt.x);
+            int y1 = (std::min)(element.startPt.y, element.endPt.y);
+            int x2 = (std::max)(element.startPt.x, element.endPt.x);
+            int y2 = (std::max)(element.startPt.y, element.endPt.y);
 
             // 边界裁剪
-            x1 = std::max(0, x1);
-            y1 = std::max(0, y1);
-            x2 = std::min(canvas.cols, x2);
-            y2 = std::min(canvas.rows, y2);
+            x1 = (std::max)(0, x1);
+            y1 = (std::max)(0, y1);
+            x2 = (std::min)(canvas.cols, x2);
+            y2 = (std::min)(canvas.rows, y2);
 
             int bs = element.mosaicBlockSize;
             for (int yy = y1; yy < y2; yy += bs) {
                 for (int xx = x1; xx < x2; xx += bs) {
-                    int bw = std::min(bs, x2 - xx);
-                    int bh = std::min(bs, y2 - yy);
+                    int bw = (std::min)(bs, x2 - xx);
+                    int bh = (std::min)(bs, y2 - yy);
                     cv::Rect blockRect(xx, yy, bw, bh);
                     cv::Mat block = canvas(blockRect);
                     cv::Scalar meanColor = cv::mean(block);
@@ -756,13 +894,13 @@ void MarkupEngine::renderElement(cv::Mat& canvas, const MarkupElement& element) 
 
         case MarkupTool::Text: {
             cv::Size renderedSize(0, 0);
-            renderSnipasteStyleText(canvas, element.text, element.startPt, color, static_cast<int>(element.fontSize), element.isEditing, renderedSize);
+            renderSnipasteStyleText(canvas, element.text, element.startPt, color, static_cast<int>(element.fontSize), element.isEditing, element.fill, renderedSize);
             const_cast<MarkupElement*>(&element)->textRenderSize = renderedSize;
             break;
         }
 
         case MarkupTool::Number: {
-            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color, element.dpiScale);
+            renderSnipasteStyleNumberBadge(canvas, element.numberValue, element.startPt, color, element.fill, element.dpiScale);
             break;
         }
 

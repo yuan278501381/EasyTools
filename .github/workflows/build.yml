@@ -80,12 +80,17 @@ jobs:
       - name: 执行一键幂等部署流水线 (Run Deployment Script with Coverage)
         shell: pwsh
         run: |
-          .\deploy.ps1 -Configuration Release -Coverage
+          .\deploy.ps1 -Configuration Release -Coverage -StaticAnalysis
 
       - name: 审计生产依赖漏洞 (Audit Production Dependencies)
         shell: pwsh
         working-directory: ui
         run: npm audit --omit=dev --audit-level=high
+
+      - name: 审计完整工具链依赖漏洞 (Audit All Dependencies)
+        shell: pwsh
+        working-directory: ui
+        run: npm audit --audit-level=high
 
       - name: 统计 Sccache 命中率 (Show Sccache Stats)
         shell: pwsh

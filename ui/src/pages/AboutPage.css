@@ -83,7 +83,7 @@
 .about-grand-showcase__version {
   font-size: 0.95rem;
   font-weight: 700;
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-family: var(--font-mono);
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.35);
@@ -247,8 +247,8 @@
 
 .about-meta-handle {
   color: var(--text-muted);
-  font-size: 0.78rem;
-  font-family: 'Consolas', monospace;
+  font-size: var(--text-sm, 0.86rem);
+  font-family: var(--font-mono);
   transition: color var(--transition-fast);
 }
 
@@ -302,7 +302,7 @@
   font-weight: 600;
   font-size: 0.88rem;
   color: var(--text-primary);
-  font-family: 'Consolas', monospace;
+  font-family: var(--font-mono);
 }
 
 .about-dep-purpose {
@@ -335,6 +335,6 @@
 }
 
 .about-footer-sub {
-  font-size: 0.76rem !important;
+  font-size: var(--text-xs, 0.84rem) !important;
   color: var(--text-muted) !important;
 }

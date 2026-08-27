@@ -5,7 +5,7 @@ trigger: always_on
 1、世界级架构、世界级性能、世界级鲁棒性 世界级UI，世界级UX
 2、易用：每一个功能都要考虑人类的易用度，世界级的用户体验，方便操作，因为这本身就是效率软件
 2.1全面支持高分屏以及Windows缩放
-2.2支持EasyTools设置页面的深浅主题，以及品牌色
+2.2支持EasyTools设置页面的深浅主题，以及主题色
 3、极限轻量与物理内存收缩：
    - 遵循“冷路径退场修剪，热操作期间绝不修剪”原则。
    - 在重型任务结束（截图/录屏/长截图/OCR）或窗口隐藏/组件停用时，释放大对象并主动调用 `WinUtils::trimWorkingSet()` 归还物理内存。
@@ -18,10 +18,12 @@ trigger: always_on
    - Win32 宿主拦截：所有顶层宿主窗口（SettingsWindow, SearchWindow, TrayWindow 等）必须通过 `KeyboardPipeline::filterWindowMessage` 拦截 `SC_KEYMENU`、`SC_CONTEXTHELP`、`WM_HELP`，杜绝 Alt、F10、F1 激活系统菜单抢夺焦点。
    - WebView2 加速器策略：必须在控制器上挂载 `KeyboardPipeline::applyWebKeyboardPolicy` 屏蔽 Chromium 默认浏览器快捷键（`Ctrl+P/F/U/J/H/W` 等），保障组合键 100% 透传至前端 DOM。
    - 录制态全局热键防误触：进入快捷键录制时底层热键自动静默（`hotkey.setPaused(true)`），防止录入时在后台误触发已有功能。
-6、字体排版与清晰度标准（方案 B & C 黄金准则）：
+6、字体排版与清晰度标准（方案 B & C 黄金准则 & 排版单一事实源）：
    - 零系统字体污染（Zero System Font Pollution）：严禁在安装包中向 Windows `C:\Windows\Fonts` 写入字体或修改系统注册表，杜绝管理员权限受限、DirectWrite 进程锁定导致的卸载残留以及字体分发版权合规风险。
-   - 应用级内嵌 WebFont + DirectWrite 硬件加速梯队：强制采用“应用级内嵌 WebFont + 系统 DirectWrite 梯队回退”体系。全局字体栈统一为：`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;` 并标配 `-webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;`。
-   - 中文字号与清晰度红线：界面所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 0.83rem（11.8px~12px），行高不得低于 1.4，保障 ClearType 次像素渲染字字清晰锐利。
+   - 应用级单一事实源字体栈体系：界面无衬线统一引用 `--font-sans`（`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;`）；现代等宽/类名/代码/快捷键统一引用 `--font-mono`（`"Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;`）。严禁在任何新组件中裸写 `ui-monospace` 或硬编码 `font-family`。
+   - 字号底线与字重加权红线：界面中所有文本（含次级辅助说明、状态徽章、输入控件、提示语等）字号不得低于 0.83rem（11.8px~12px），次级文本字重不得低于 500（正文 550，标题 650~700），行高不得低于 1.4，保障 ClearType 次像素物理渲染字字饱满锐利。
+   - 技术标识符微晶胶囊标准：所有窗口类名、进程名、文件路径等元数据严禁以粗糙细文本直接裸露，必须统一使用 `<CodeBadge />` 微晶等宽代码胶囊封装。
+   - 自动化排版 CI 门禁：CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明或低于 11.8px 的微小字号直接阻断构建。
 7、开源版权与原作者署名基准：
    - 原作者官方署名：`Yy1 (yuan278501381)`（展示格式 `Yy1 (@yuan278501381)`）。
    - GitHub 官方主页：`https://github.com/yuan278501381`。

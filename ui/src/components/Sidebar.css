@@ -286,7 +286,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -308,7 +308,7 @@
   justify-content: center;
   gap: 5px;
   padding: 6px 4px;
-  font-size: 0.75rem;
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 500;
   border-radius: 5px;
   border: none;
@@ -338,7 +338,7 @@
 }
 
 .appearance-flyout__accents-label {
-  font-size: 0.72rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -390,7 +390,7 @@
 }
 
 .appearance-flyout__accent-name {
-  font-size: 0.68rem;
+  font-size: var(--text-xs, 0.84rem);
   color: var(--text-secondary);
   white-space: nowrap;
 }

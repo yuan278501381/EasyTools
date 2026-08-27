@@ -86,7 +86,7 @@
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 0.74rem;
+  font-size: var(--text-xs, 0.84rem);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -228,7 +228,7 @@
   gap: 3px;
   font-size: 7.5px;
   font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
   letter-spacing: -0.02em;
 }
@@ -261,7 +261,7 @@
   border-radius: clamp(4px, 0.5vw, 6px);
   border-width: 1px;
   border-style: solid;
-  font-family: 'JetBrains Mono', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-mono);
   font-size: clamp(0.60rem, 0.8vw, 0.82rem);
   font-weight: 600;
   transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.14s ease, border-color 0.14s ease;
@@ -317,7 +317,7 @@
   bottom: 1.5px;
   font-size: clamp(6.5px, 0.75vw, 8px);
   font-weight: 700;
-  font-family: ui-monospace, 'Consolas', monospace;
+  font-family: var(--font-mono);
   opacity: 0.9;
   pointer-events: none;
   line-height: 1;
@@ -327,7 +327,7 @@
   position: absolute;
   top: -8px;
   right: -4px;
-  font-size: 11px;
+  font-size: 12px;
   animation: crownBob 2s infinite ease-in-out;
   pointer-events: none;
   filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.6));
@@ -415,7 +415,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -460,7 +460,7 @@
 }
 
 .legend-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -546,7 +546,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-base);
   padding: 1px 7px;
@@ -557,7 +557,7 @@
 .top-badge-count {
   font-weight: 600;
   color: var(--text-primary);
-  font-family: 'Consolas', monospace;
+  font-family: var(--font-mono);
 }
 
 .top-badge-unit {
@@ -572,7 +572,7 @@
 .top-badge-pct {
   font-weight: 600;
   color: #f59e0b;
-  font-family: 'Consolas', monospace;
+  font-family: var(--font-mono);
 }
 
 .keyboard-heatmap__top-badge--idle {

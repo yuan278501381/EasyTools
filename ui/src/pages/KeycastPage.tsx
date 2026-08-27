@@ -29,11 +29,13 @@ interface KeycastSettings {
   autoBypassFullscreen: boolean;
   showKeyboard: boolean;
   filterMode: 'smart_shortcuts' | 'with_single_modifiers' | 'all_keys';
+  includeFunctionKeys: boolean;
   position: 'bottom_left' | 'bottom_center' | 'bottom_right' | 'top_left' | 'top_right';
   mergeRecentKeys: boolean;
   mergeTimeoutMs: number;
   displayDurationMs: number;
   fontSize: number;
+  opacity: number;
   textColor: string;
   backgroundColor: string;
   modifierKeycapColor: string;
@@ -50,16 +52,18 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   autoBypassFullscreen: true,
   showKeyboard: true,
   filterMode: 'smart_shortcuts',
-  position: 'bottom_left',
+  includeFunctionKeys: false,
+  position: 'top_left',
   mergeRecentKeys: true,
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
-  fontSize: 18,
+  fontSize: 28,
+  opacity: 100,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
-  modifierKeycapOpacity: 22,
-  modifierTextColor: 'auto',
+  modifierKeycapOpacity: 40,
+  modifierTextColor: '#000000',
   firstKeyAnim: 'slide',
   subsequentKeyAnim: 'fade',
   rowCascadeAnim: true,
@@ -111,7 +115,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           onClick={() => onChange('auto')}
         >
           <Sparkles size={13} />
-          <span>{t('keycast.followBrandAccent', '跟随品牌色')}</span>
+          <span>{t('keycast.followBrandAccent', '跟随主题色')}</span>
           <span className="keycast-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
         </button>
 
@@ -139,10 +143,10 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
                 type="button"
                 className="keycast-page__restore-capsule"
                 onClick={() => onChange('auto')}
-                title={t('keycast.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 品牌主色')}
+                title={t('keycast.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 主题色')}
               >
                 <RotateCcw size={11} />
-                <span>{t('keycast.restoreFollowBrand', '恢复跟随品牌色')}</span>
+                <span>{t('keycast.restoreFollowBrand', '恢复跟随主题色')}</span>
               </button>
             )}
           </div>
@@ -344,6 +348,15 @@ export const KeycastPage: FC = () => {
             );
           })}
         </div>
+        <Card>
+          <Toggle
+            id="keycast-include-func-keys"
+            label={t('keycast.includeFunctionKeys', '包含独立功能键')}
+            description={t('keycast.includeFunctionKeysDesc', '包含单独按下的 Space (空格)、Backspace (退格)、Delete (删除)、Enter、Tab、方向键及 F1~F12 等；关闭后仅在作为组合快捷键时回显')}
+            checked={settings.includeFunctionKeys}
+            onChange={(v) => saveSetting('includeFunctionKeys', v)}
+          />
+        </Card>
       </SettingGroup>
 
       {/* ── 4. 时序流与物理动效 ─────────────────────────────────────── */}
@@ -466,6 +479,26 @@ export const KeycastPage: FC = () => {
             </div>
           </div>
 
+          
+          {/* 整体不透明度 */}
+          <div className="keycast-page__prop-card">
+            <div className="keycast-page__prop-header">
+              <span className="keycast-page__prop-title">{t('keycast.opacity', '整体不透明度')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', '按键回显胶囊的全局不透明度 (20%~100%)，调低可获得更通透的悬浮效果。')}</span>
+            </div>
+            <div className="keycast-page__prop-body">
+              <input
+                type="number"
+                className="keycast-page__number-input"
+                min={20}
+                max={100}
+                step={5}
+                value={settings.opacity ?? 100}
+                onChange={(e) => saveSetting('opacity', Math.max(20, Math.min(100, Number(e.target.value) || 100)))}
+                aria-label={t('keycast.opacity', '整体不透明度')}
+              />
+            </div>
+          </div>
           {/* 文字大小 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
@@ -480,7 +513,7 @@ export const KeycastPage: FC = () => {
                 max={36}
                 step={2}
                 value={settings.fontSize}
-                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 18)}
+                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 20)}
                 aria-label={t('keycast.fontSize', '键帽字号')}
               />
             </div>
@@ -491,7 +524,7 @@ export const KeycastPage: FC = () => {
             label={t('keycast.textColor', '文字颜色')}
             desc={t('keycast.textColorDesc', '按键文字的颜色。')}
             value={settings.textColor}
-            defaultCustomFallback="#ffffff"
+            defaultCustomFallback="#000000"
             brandAccentHex={currentBrandAccentHex}
             onChange={(val) => saveSetting('textColor', val)}
           />
@@ -509,7 +542,7 @@ export const KeycastPage: FC = () => {
           {/* 修饰键底色 (双态胶囊) */}
           <ColorSegmentControl
             label={t('keycast.modifierKeycapColor', '修饰键底色')}
-            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随品牌色）。')}
+            desc={t('keycast.modifierKeycapColorDesc', 'Ctrl / Alt / Win 等按键底座背景颜色（默认跟随主题色）。')}
             value={settings.modifierKeycapColor || 'auto'}
             defaultCustomFallback="#3b82f6"
             brandAccentHex={currentBrandAccentHex}
@@ -529,8 +562,8 @@ export const KeycastPage: FC = () => {
                 min={0}
                 max={100}
                 step={2}
-                value={settings.modifierKeycapOpacity ?? 22}
-                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 22)))}
+                value={settings.modifierKeycapOpacity ?? 65}
+                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 65)))}
                 aria-label={t('keycast.modifierKeycapOpacity', '修饰键底色不透明度')}
               />
             </div>

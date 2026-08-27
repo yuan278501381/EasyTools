@@ -39,7 +39,7 @@
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   color: var(--ql-text-main);
-  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  font-family: var(--font-sans);
   overflow: hidden;
   user-select: none;
   box-sizing: border-box;
@@ -125,7 +125,7 @@
 }
 
 .ql-file-badge {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: 9999px;
   background: var(--primary-dim, rgba(59, 130, 246, 0.16));
@@ -164,7 +164,7 @@
   background: transparent;
   border: none;
   color: var(--ql-text-sub);
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -182,7 +182,7 @@
 }
 
 .ql-scale-text {
-  font-size: 11px;
+  font-size: 12px;
   color: #94a3b8;
   padding: 0 4px;
 }
@@ -301,7 +301,7 @@
   color: #38bdf8;
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: 'Cascadia Code', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
@@ -323,17 +323,17 @@
 }
 
 .ql-code-lang {
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
   text-transform: uppercase;
-  font-family: 'Cascadia Code', Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .ql-code-copy-btn {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -348,7 +348,7 @@
   margin: 0;
   padding: 14px 16px;
   overflow-x: auto;
-  font-family: 'Cascadia Code', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -373,7 +373,7 @@
   display: flex;
   height: 100%;
   user-select: text;
-  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .ql-line-numbers {
@@ -566,7 +566,7 @@
   background: rgba(0, 0, 0, 0.4);
   padding: 16px;
   border-radius: 8px;
-  font-family: 'Cascadia Code', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: #38bdf8;
   max-width: 600px;
@@ -588,7 +588,7 @@
   padding: 8px 20px;
   background: var(--ql-footer-bg);
   border-top: 1px solid var(--ql-border);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ql-text-muted);
   min-height: 36px;
   box-sizing: border-box;
@@ -606,7 +606,7 @@
   border-radius: 4px;
   padding: 2px 6px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ql-text-sub);
 }
 

@@ -22,7 +22,7 @@
 
 .hotcorner-page__monitor {
   position: relative;
-  width: 400px;
+  width: min(400px, 100%);
   height: 250px;
   border-radius: var(--radius-lg);
   background:
@@ -210,7 +210,7 @@
 .hotcorner-page__slider-value {
   min-width: 50px;
   text-align: right;
-  font-family: 'Consolas', 'Menlo', monospace;
+  font-family: var(--font-mono);
   font-size: 0.84rem;
   color: var(--text-secondary);
   font-weight: 600;
@@ -223,7 +223,7 @@
 
 .hotcorner-page__corner-select .uikit-select {
   width: 100%;
-  font-size: 0.78rem;
+  font-size: var(--text-sm, 0.86rem);
   padding: 4px 6px;
   min-height: 28px;
 }

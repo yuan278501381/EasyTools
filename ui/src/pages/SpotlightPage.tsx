@@ -119,7 +119,7 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
           onClick={() => onChange('auto')}
         >
           <Sparkles size={13} />
-          <span>{t('spotlight.followBrandAccent', '跟随品牌色')}</span>
+          <span>{t('spotlight.followBrandAccent', '跟随主题色')}</span>
           <span className="spotlight-page__capsule-dot" style={{ backgroundColor: brandAccentHex }} />
         </button>
 
@@ -147,10 +147,10 @@ const ColorSegmentControl: FC<ColorSegmentControlProps> = ({
                 type="button"
                 className="spotlight-page__restore-capsule"
                 onClick={() => onChange('auto')}
-                title={t('spotlight.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 品牌主色')}
+                title={t('spotlight.restoreFollowBrandDesc', '一键切回并实时联动 EasyTools 主题色')}
               >
                 <RotateCcw size={11} />
-                <span>{t('spotlight.restoreFollowBrand', '恢复跟随品牌色')}</span>
+                <span>{t('spotlight.restoreFollowBrand', '恢复跟随主题色')}</span>
               </button>
             )}
           </div>

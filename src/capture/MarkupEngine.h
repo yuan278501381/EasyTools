@@ -9,9 +9,11 @@
 //   4. 自动序号递增管理
 // ─────────────────────────────────────────────────────────────────────────────
 
-#ifndef EASYTOOLS_CAPTURE_MARKUPENGINE_H
-#define EASYTOOLS_CAPTURE_MARKUPENGINE_H
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 
+#include <algorithm>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
@@ -43,19 +45,35 @@ enum class MarkupTool {
     Inpaint,     // 智能消除（背景重建）
 };
 
+/// 线条样式
+enum class LineStyle {
+    Solid = 0,   // 实线 ──────
+    Dashed = 1,  // 长虚线 ------
+    Dotted = 2,  // 点虚线 ......
+    DashDot = 3, // 点划线 -.-.-.-
+};
+
+/// 箭头样式
+enum class ArrowStyle {
+    Standard = 0,   // 标准实心单向箭头
+    Thin = 1,       // 细线折角单向箭头
+    DoubleEnded = 2 // 双向箭头
+};
+
 /// 颜色预设
 struct MarkupColor {
     uint8_t r, g, b, a;
 
     cv::Scalar toCvScalar() const { return cv::Scalar(b, g, r, a); }
 
-    static MarkupColor Red()    { return {255, 68, 68, 255}; }
-    static MarkupColor Green()  { return {52, 211, 153, 255}; }
-    static MarkupColor Blue()   { return {96, 165, 250, 255}; }
-    static MarkupColor Yellow() { return {251, 191, 36, 255}; }
+    static MarkupColor Red()    { return {244, 63, 94, 255}; }   // #F43F5E 珊瑚红
+    static MarkupColor Orange() { return {245, 158, 11, 255}; }  // #F59E0B 曜石橙
+    static MarkupColor Yellow() { return {234, 179, 8, 255}; }   // #EAB308 明快黄
+    static MarkupColor Green()  { return {16, 185, 129, 255}; }  // #10B981 薄荷绿
+    static MarkupColor Blue()   { return {59, 130, 246, 255}; }  // #3B82F6 科技蓝
+    static MarkupColor Black()  { return {30, 41, 59, 255}; }    // #1E293B 极客黑
+    static MarkupColor White()  { return {255, 255, 255, 255}; } // #FFFFFF 纯白
     static MarkupColor Purple() { return {139, 92, 246, 255}; }
-    static MarkupColor White()  { return {255, 255, 255, 255}; }
-    static MarkupColor Black()  { return {0, 0, 0, 255}; }
 };
 
 enum class HitArea {
@@ -77,6 +95,10 @@ struct MarkupElement {
     MarkupTool tool;
     MarkupColor color = MarkupColor::Red();
     float thickness = 2.0f;
+    LineStyle lineStyle = LineStyle::Solid;
+    bool fill = false;
+    float cornerRadius = 0.0f;
+    ArrowStyle arrowStyle = ArrowStyle::Standard;
 
     // 起点/终点（矩形/箭头/椭圆用）
     cv::Point startPt{0, 0};
@@ -229,13 +251,13 @@ public:
     /// 重置序列号
     void resetNumber() { m_nextNumber = 1; }
 
-private:
     /// 渲染单个元素到图像上
     void renderElement(cv::Mat& canvas, const MarkupElement& element) const;
 
     /// 渲染所有元素
     void renderAll(cv::Mat& canvas) const;
 
+private:
     cv::Mat m_baseImage;                                    // 底图
     std::vector<std::unique_ptr<MarkupElement>> m_elements; // 标注元素
     std::deque<std::unique_ptr<MarkupElement>> m_undoStack; // 撤销栈
@@ -243,5 +265,3 @@ private:
 };
 
 }  // namespace easy::capture
-
-#endif  // EASYTOOLS_CAPTURE_MARKUPENGINE_H

@@ -9,6 +9,7 @@
 #include "search/ServiceStartupPolicy.h"
 #include "service/PipeProtocol.h"
 #include "service/PipeEndpoint.h"
+#include "service/SearchRequestLimits.h"
 #include <windows.h>
 #include <sddl.h>
 #include <tlhelp32.h>
@@ -69,6 +70,26 @@ std::optional<std::string> generatePipeToken() {
         result.push_back(hex[value & 0x0F]);
     }
     return result;
+}
+
+nlohmann::json invalidSearchRequest(const std::string& message) {
+    return {
+        {"results", nlohmann::json::array()},
+        {"available", true},
+        {"status", "ready"},
+        {"error", message}
+    };
+}
+
+bool validStringArray(const nlohmann::json& params, const char* key,
+                      std::size_t maxItems, std::size_t maxStringBytes) {
+    const auto it = params.find(key);
+    if (it == params.end() || it->is_null()) return true;
+    if (!it->is_array() || it->size() > maxItems) return false;
+    return std::all_of(it->begin(), it->end(), [maxStringBytes](const auto& value) {
+        return value.is_string() &&
+               value.template get_ref<const std::string&>().size() <= maxStringBytes;
+    });
 }
 
 bool initializePipeEndpoint() {
@@ -544,19 +565,48 @@ public:
         auto& mb = easy::core::MessageBridge::instance();
         
         mb.registerHandler("search.query", [](const nlohmann::json& params) -> nlohmann::json {
-            std::string query = params.value("query", "");
+            if (!params.is_object()) return invalidSearchRequest("search params must be an object");
+            const auto queryIt = params.find("query");
+            if (queryIt == params.end() || !queryIt->is_string()) {
+                return invalidSearchRequest("query must be a string");
+            }
+            std::string query = queryIt->get<std::string>();
             if (query.empty()) {
                 return {{"results", nlohmann::json::array()}, {"available", true}};
             }
 
-            if (query.size() > 1024) query.resize(1024);
-
-            std::string payload;
-            if (params.is_object()) {
-                payload = params.dump();
-            } else {
-                payload = query;
+            if (query.size() > easy::service::search_limits::MaxQueryUtf8Bytes) {
+                return invalidSearchRequest("query exceeds 1024-byte limit");
             }
+            if (!validStringArray(params, "drives", easy::service::search_limits::MaxDriveItems, 2) ||
+                !validStringArray(params, "excludes", easy::service::search_limits::MaxExcludeItems,
+                                  easy::service::search_limits::MaxExcludeUtf8Bytes) ||
+                !validStringArray(params, "contentCustomExts", easy::service::search_limits::MaxFormatItems,
+                                  easy::service::search_limits::MaxFormatUtf8Bytes) ||
+                !validStringArray(params, "contentDisabledExts", easy::service::search_limits::MaxFormatItems,
+                                  easy::service::search_limits::MaxFormatUtf8Bytes)) {
+                return invalidSearchRequest("search options exceed their limits");
+            }
+
+            nlohmann::json normalized = params;
+            if (const auto limitIt = normalized.find("limit"); limitIt != normalized.end()) {
+                if (!limitIt->is_number_integer() && !limitIt->is_number_unsigned()) {
+                    return invalidSearchRequest("limit must be an integer");
+                }
+                std::uint64_t limit = easy::service::search_limits::MaxResults;
+                if (limitIt->is_number_unsigned()) {
+                    limit = limitIt->get<std::uint64_t>();
+                    if (limit == 0) limit = easy::service::search_limits::MaxResults;
+                } else {
+                    const auto signedLimit = limitIt->get<std::int64_t>();
+                    limit = signedLimit <= 0 ? easy::service::search_limits::MaxResults
+                                             : static_cast<std::uint64_t>(signedLimit);
+                }
+                normalized["limit"] = (std::min<std::uint64_t>)(
+                    limit, easy::service::search_limits::MaxResults);
+            }
+            normalized["query"] = query;
+            const std::string payload = normalized.dump();
 
             DWORD pipeError = ERROR_SUCCESS;
             auto response = querySearchService(payload, pipeError);

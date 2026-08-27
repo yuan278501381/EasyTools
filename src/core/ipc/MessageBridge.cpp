@@ -87,6 +87,7 @@ namespace {
 constexpr wchar_t AUTOSTART_TASK_NAME[] = L"EasyTools_Autostart";
 
 bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput = nullptr) {
+    constexpr std::size_t MaxCapturedOutputBytes = 1024u * 1024u;
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
@@ -130,26 +131,53 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
         return false;
     }
 
+    CloseHandle(pi.hThread);
+    pi.hThread = nullptr;
+
     if (writePipe) {
         CloseHandle(writePipe);
         writePipe = nullptr;
     }
 
     bool timedOut = false;
+    bool outputTooLarge = false;
+    bool pipeFailed = false;
     if (capturedOutput) {
         capturedOutput->clear();
         char buffer[4096];
+        const auto appendOutput = [&](const char* data, DWORD bytes) {
+            if (capturedOutput->size() + bytes > MaxCapturedOutputBytes) {
+                outputTooLarge = true;
+                return false;
+            }
+            capturedOutput->append(data, bytes);
+            return true;
+        };
         const ULONGLONG deadline = GetTickCount64() + 3000;
         for (;;) {
             DWORD available = 0;
-            if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr)) break;
+            if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr)) {
+                DWORD currentExitCode = STILL_ACTIVE;
+                if (!GetExitCodeProcess(pi.hProcess, &currentExitCode) || currentExitCode == STILL_ACTIVE) {
+                    pipeFailed = true;
+                    TerminateProcess(pi.hProcess, ERROR_BROKEN_PIPE);
+                    WaitForSingleObject(pi.hProcess, 1000);
+                }
+                break;
+            }
             while (available > 0) {
                 DWORD bytesRead = 0;
                 const DWORD requested = std::min<DWORD>(available, sizeof(buffer));
                 if (!ReadFile(readPipe, buffer, requested, &bytesRead, nullptr) || bytesRead == 0) break;
-                capturedOutput->append(buffer, bytesRead);
+                if (!appendOutput(buffer, bytesRead)) {
+                    TerminateProcess(pi.hProcess, ERROR_BUFFER_OVERFLOW);
+                    WaitForSingleObject(pi.hProcess, 1000);
+                    break;
+                }
                 available -= bytesRead;
             }
+
+            if (outputTooLarge) break;
 
             DWORD currentExitCode = STILL_ACTIVE;
             GetExitCodeProcess(pi.hProcess, &currentExitCode);
@@ -163,17 +191,25 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
             Sleep(10);
         }
 
-        DWORD bytesRead = 0;
-        while (ReadFile(readPipe, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
-            capturedOutput->append(buffer, bytesRead);
+        if (!outputTooLarge) {
+            DWORD bytesRead = 0;
+            while (ReadFile(readPipe, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
+                if (!appendOutput(buffer, bytesRead)) break;
+            }
         }
         CloseHandle(readPipe);
     }
 
-    WaitForSingleObject(pi.hProcess, 3000);
+    const DWORD waitResult = WaitForSingleObject(pi.hProcess, 3000);
+    if (waitResult == WAIT_TIMEOUT) {
+        timedOut = true;
+        TerminateProcess(pi.hProcess, ERROR_TIMEOUT);
+        WaitForSingleObject(pi.hProcess, 1000);
+    }
     DWORD exitCode = 1;
     GetExitCodeProcess(pi.hProcess, &exitCode);
-    return !timedOut && exitCode == 0;
+    CloseHandle(pi.hProcess);
+    return !timedOut && !outputTooLarge && !pipeFailed && exitCode == 0;
 }
 
 std::optional<std::filesystem::path> currentExecutablePath() {
@@ -524,6 +560,7 @@ std::mutex g_workerPoolMutex;
 
 struct MessageBridge::WorkerPool {
     struct Job {
+        int id = 0;
         std::string message;
         AsyncResponder responder;
     };
@@ -592,7 +629,7 @@ void MessageBridge::shutdownWorkerPool() {
     for (auto& job : abandoned) {
         if (!job.responder) continue;
         json response = {
-            {"id", 0},
+            {"id", job.id},
             {"error", {{"code", -32000}, {"message", "Bridge is shutting down"}}}
         };
         try {
@@ -658,14 +695,14 @@ void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResp
             pool.jobs.pop_front();
             hasEvicted = true;
         }
-        pool.jobs.push_back(WorkerPool::Job{messageJson, std::move(responder)});
+        pool.jobs.push_back(WorkerPool::Job{id, messageJson, std::move(responder)});
     }
     pool.cv.notify_one();
 
     if (hasEvicted && evicted.responder) {
         LOG_WARN("异步 IPC 队列过载, 丢弃最旧的待处理请求");
         json response = {
-            {"id", 0},
+            {"id", evicted.id},
             {"error", {{"code", -32000}, {"message", "Request dropped: bridge queue overloaded"}}}
         };
         try {
@@ -852,6 +889,7 @@ void MessageBridge::registerBuiltinHandlers() {
                 {"abiVersion", plugin.abiVersion},
                 {"capabilities", plugin.capabilities},
                 {"permissions", plugin.permissions},
+                {"executionModel", plugin.executionModel},
                 {"enabled", plugin.enabled},
                 {"active", plugin.active},
                 {"restartRequired", plugin.restartRequired},
@@ -871,6 +909,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"abiVersion", 1},
             {"capabilities", {"spotlight", "click-ripple", "mouse-trail"}},
             {"permissions", {"low-level-mouse-hook", "direct2d-overlay"}},
+            {"executionModel", "trusted-native-in-process"},
             {"enabled", spotlightEnabled},
             {"active", spotlightEnabled},
             {"restartRequired", false},
@@ -895,6 +934,7 @@ void MessageBridge::registerBuiltinHandlers() {
                     {"abiVersion", item.abiVersion},
                     {"capabilities", item.capabilities},
                     {"permissions", item.permissions},
+                    {"executionModel", "trusted-native-in-process"},
                     {"enabled", false},
                     {"active", false},
                     {"restartRequired", false},
@@ -1212,6 +1252,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"isPortableMode", WinUtils::isPortableMode()},
             {"dataDirectory", WinUtils::wstringToUtf8(WinUtils::getAppDataDirectory().wstring())},
             {"language", config.get<std::string>("/general/language", "auto")},
+            {"fontFamily", config.get<std::string>("/general/fontFamily", "auto")},
             {"logLevel", config.get<std::string>("/general/logLevel", "info")},
             {"theme", config.get<std::string>("/general/theme", "system")},
             {"accentColor", config.get<std::string>("/general/accentColor", "blue")},
@@ -1223,6 +1264,12 @@ void MessageBridge::registerBuiltinHandlers() {
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};
+        static const std::unordered_set<std::string> fontFamilies = {
+            "auto", "noto-sans-sc", "harmony-sans", "yahei", "pingfang", "system"
+        };
+        static const std::unordered_set<std::string> readOnlyKeys = {
+            "elevated", "isPortableMode", "dataDirectory"
+        };
         static const std::unordered_set<std::string> accents = {
             "violet", "cyan", "amber", "blue", "mint", "coral"
         };
@@ -1232,6 +1279,9 @@ void MessageBridge::registerBuiltinHandlers() {
         auto& config = ConfigManager::instance();
         const bool previousAutoStart = config.get<bool>("/general/autoStart", false);
         for (const auto& [key, value] : params.items()) {
+            if (readOnlyKeys.contains(key)) {
+                continue;
+            }
             if (boolKeys.contains(key) && !value.is_boolean()) {
                 return {{"success", false}, {"error", key + " must be boolean"}};
             }
@@ -1249,7 +1299,11 @@ void MessageBridge::registerBuiltinHandlers() {
                 !languages.contains(value.get<std::string>()))) {
                 return {{"success", false}, {"error", "invalid language"}};
             }
-            if (!boolKeys.contains(key) && key != "theme" && key != "accentColor" && key != "logLevel" && key != "language") {
+            if (key == "fontFamily" && (!value.is_string() ||
+                !fontFamilies.contains(value.get<std::string>()))) {
+                return {{"success", false}, {"error", "invalid font family"}};
+            }
+            if (!boolKeys.contains(key) && key != "theme" && key != "accentColor" && key != "logLevel" && key != "language" && key != "fontFamily") {
                 return {{"success", false}, {"error", "unsupported setting: " + key}};
             }
         }

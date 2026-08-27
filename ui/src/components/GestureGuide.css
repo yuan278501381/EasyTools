@@ -43,8 +43,8 @@
   background: var(--primary-dim);
   border: 1px solid rgba(139, 92, 246, 0.2);
   border-radius: var(--radius-sm);
-  font-family: 'Consolas', 'Menlo', monospace;
-  font-size: 0.76rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm, 0.86rem);
   font-weight: 600;
   color: var(--primary);
   width: fit-content;

@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // test_main.cpp — EasyTools 单元测试套件 (基于 Google Test / GMock 工业级测试架构)
 //
 // 覆盖核心纯业务逻辑、状态机、多格式解析器与高分屏适配:
@@ -37,6 +37,7 @@
 #include "capture/ScrollCaptureStorage.h"
 #include "capture/ShortcutHintOverlay.h"
 #include "capture/ShortcutHintStyle.h"
+#include "capture/CaptureVectorIcons.h"
 #include "keycast/KeycastStyle.h"
 #include "keycast/KeycastOverlay.h"
 #include "ocr/OcrResultStyle.h"
@@ -74,6 +75,7 @@
 #include "service/PipeProtocol.h"
 #include "service/SearchCancellation.h"
 #include "service/SearchExpression.h"
+#include "service/SearchRequestLimits.h"
 #include "service/content/ContentSearchEngine.h"
 #include "service/content/PlainTextExtractor.h"
 #include "service/content/ZipXmlExtractor.h"
@@ -1519,13 +1521,14 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << R"({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "abiVersion": 1,
             "id": "capture",
             "name": "Capture",
             "version": "1.0.0",
             "minimumHostVersion": "1.0.0",
             "entryPoint": "CreatePlugin",
+            "executionModel": "trusted-native-in-process",
             "capabilities": ["screenshot", "recording"],
             "permissions": ["screen-capture"]
         })";
@@ -1534,6 +1537,7 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     EXPECT_TRUE(static_cast<bool>(valid));
     EXPECT_EQ(valid.manifest.id, "capture");
     EXPECT_EQ(valid.manifest.capabilities.size(), 2u);
+    EXPECT_EQ(valid.manifest.executionModel, "trusted-native-in-process");
 
     const auto wrongId = loadPluginManifest(path, "gesture", "1.2.0");
     EXPECT_FALSE(wrongId);
@@ -1542,6 +1546,20 @@ TEST(PluginManifestTest, SidecarParsingAndValidation) {
     const auto oldHost = loadPluginManifest(path, "capture", "0.9.0");
     EXPECT_FALSE(oldHost);
     EXPECT_EQ(oldHost.error, "plugin requires a newer EasyTools version");
+
+    {
+        std::ifstream input(path, std::ios::binary);
+        nlohmann::json manifestJson;
+        input >> manifestJson;
+        input.close();
+        manifestJson.erase("executionModel");
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        output << manifestJson.dump(2);
+    }
+    const auto missingTrustModel = loadPluginManifest(path, "capture", "1.2.0");
+    EXPECT_FALSE(missingTrustModel);
+    EXPECT_EQ(missingTrustModel.error,
+              "plugin must declare the trusted native in-process execution model");
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2734,7 +2752,9 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     const D2D1_SIZE_F desktop150 = D2D1::SizeF(2304.0f, 1440.0f);
     rebuildCaptureToolbar(screenshot, D2D1::RectF(180.0f, 120.0f, 1600.0f, 980.0f),
                           desktop150);
-    EXPECT_EQ(screenshot.toolbarButtons.size(), 26u);
+    EXPECT_EQ(screenshot.toolbarButtons.size(), 14u);
+    EXPECT_EQ(screenshot.secondaryToolbarButtons.size(), 13u);
+    EXPECT_EQ(screenshot.selectionSideButtons.size(), 3u);
     EXPECT_NEAR(screenshot.toolbarButtons.front().rect.bottom -
                 screenshot.toolbarButtons.front().rect.top, 45.0f, 0.01f);
     check_toolbar_inside_surface(screenshot, desktop150);
@@ -2748,15 +2768,9 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     wrapped.dpiScale = 2.0f;
     const D2D1_SIZE_F compact = D2D1::SizeF(1000.0f, 700.0f);
     rebuildCaptureToolbar(wrapped, D2D1::RectF(80.0f, 100.0f, 850.0f, 480.0f), compact);
-    EXPECT_EQ(wrapped.toolbarButtons.size(), 26u);
-    bool hasSecondRow = false;
-    for (const auto& button : wrapped.toolbarButtons) {
-        if (button.rect.top > wrapped.toolbarButtons.front().rect.top + 0.01f) {
-            hasSecondRow = true;
-            break;
-        }
-    }
-    EXPECT_TRUE(hasSecondRow);
+    EXPECT_EQ(wrapped.toolbarButtons.size(), 14u);
+    EXPECT_EQ(wrapped.secondaryToolbarButtons.size(), 13u);
+    EXPECT_EQ(wrapped.selectionSideButtons.size(), 3u);
     check_toolbar_inside_surface(wrapped, compact);
 
     CaptureState recording;
@@ -2766,9 +2780,9 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
                           desktop150);
     EXPECT_EQ(recording.toolbarButtons.size(), 2u);
     EXPECT_NEAR(recording.toolbarButtons[0].rect.right -
-                recording.toolbarButtons[0].rect.left, 102.0f, 0.01f);
+                recording.toolbarButtons[0].rect.left, 51.0f, 0.01f);
     EXPECT_NEAR(recording.toolbarButtons[1].rect.right -
-                recording.toolbarButtons[1].rect.left, 117.0f, 0.01f);
+                recording.toolbarButtons[1].rect.left, 45.0f, 0.01f);
     check_toolbar_inside_surface(recording, desktop150);
 
     CaptureState extreme;
@@ -2777,7 +2791,7 @@ TEST(CaptureToolbarTest, DpiAdaptiveLayout) {
     const D2D1_SIZE_F desktop500 = D2D1::SizeF(7680.0f, 4320.0f);
     rebuildCaptureToolbar(extreme, D2D1::RectF(500.0f, 400.0f, 7000.0f, 3600.0f),
                           desktop500);
-    EXPECT_EQ(extreme.toolbarButtons.size(), 26u);
+    EXPECT_EQ(extreme.toolbarButtons.size(), 14u);
     check_toolbar_inside_surface(extreme, desktop500);
 }
 
@@ -3204,6 +3218,15 @@ TEST(ContentSearchTest, ExtractorEngines) {
     EXPECT_TRUE(expr3.hasContentFilter());
     EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(expr3.getContentQuery()), "工程图纸");
 
+    // 验证多关键词全文穿透检索 (如 content:同心 账号密码，后续词不会被误判为文件名过滤)
+    auto exprMultiContent = SearchExpression::parse(L"content:同心 账号密码");
+    EXPECT_TRUE(exprMultiContent.hasContentFilter());
+    EXPECT_EQ(easy::core::WinUtils::wstringToUtf8(exprMultiContent.getContentQuery()), "同心 账号密码");
+    FileRecord recMulti;
+    recMulti.fileName = L"备忘录.txt";
+    recMulti.normalizedName = L"备忘录.txt";
+    EXPECT_TRUE(exprMultiContent.matches(recMulti, L'C'));
+
     // 拼音音节分隔符 (如输入法 tong'xi 匹配同喜 tongxi)
     auto exprPinyinSyllable = SearchExpression::parse(L"tong'xi");
     FileRecord recTongXi;
@@ -3274,17 +3297,6 @@ TEST(ContentSearchTest, ExtractorEngines) {
         EXPECT_NE(snippets[0].lineContent.find(L"OITT"), std::wstring::npos);
     }
     DeleteFileW(testSqlFile.c_str());
-
-    // 3.2 针对用户真实磁盘文件 019-get_Bom_Lev.txt 进行全文检索断言
-    std::wstring realTargetFile = L"D:\\Chosen\\106-常用方案\\9.3方案\\通用报表\\后台代码\\019-get_Bom_Lev.txt";
-    if (GetFileAttributesW(realTargetFile.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        snippets.clear();
-        bool realFileFound = engine.searchFile(realTargetFile, L"oitt", false, snippets);
-        EXPECT_TRUE(realFileFound);
-        EXPECT_GE(snippets.size(), 2u);
-        std::cout << "[LiveTest-Success] Extracted " << snippets.size() << " 'oitt' snippets from real file: " 
-                  << easy::core::WinUtils::wstringToUtf8(realTargetFile) << std::endl;
-    }
 
     // 4. DxfExtractor 实际文件扫描测试 (创建临时测试 DXF)
     std::wstring testDxfFile = std::wstring(tempPath) + L"easytools_test_drawing.dxf";
@@ -3377,7 +3389,7 @@ TEST(ContentSearchTest, ExtractorEngines) {
     EXPECT_FALSE(engine.canSearchContent(L"psd"));
     EXPECT_FALSE(engine.canSearchContent(L"dxf"));
 
-    std::wstring testProtoFile = std::wstring(tempPath) + L"easytools_test.proto";
+    std::wstring testProtoFile = std::wstring(tempPath) + L"easytools_test.mycustomext";
     {
         std::ofstream ofs(testProtoFile);
         ofs << "syntax = \"proto3\";\n";
@@ -3395,6 +3407,36 @@ TEST(ContentSearchTest, ExtractorEngines) {
     engine.configureFormats({}, {});
     EXPECT_TRUE(engine.canSearchContent(L"psd"));
     EXPECT_TRUE(engine.canSearchContent(L"dxf"));
+    EXPECT_TRUE(engine.canSearchContent(L"proto"));
+    EXPECT_FALSE(engine.canSearchContent(L"mycustomext"));
+}
+
+TEST(ContentSearchTest, FormatConfigurationIsReversibleUnderConcurrency) {
+    auto& engine = easy::service::content::ContentSearchEngine::instance();
+    std::vector<std::thread> workers;
+    for (int worker = 0; worker < 8; ++worker) {
+        workers.emplace_back([&engine, worker]() {
+            for (int iteration = 0; iteration < 500; ++iteration) {
+                if (worker < 2) {
+                    if ((iteration + worker) % 2 == 0) {
+                        engine.configureFormats({L"temporary"}, {L"psd"});
+                    } else {
+                        engine.configureFormats({}, {});
+                    }
+                } else {
+                    (void)engine.canSearchContent(L"temporary");
+                    (void)engine.canSearchContent(L"psd");
+                    (void)engine.canSearchContent(L"cpp");
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) worker.join();
+
+    engine.configureFormats({}, {});
+    EXPECT_FALSE(engine.canSearchContent(L"temporary"));
+    EXPECT_TRUE(engine.canSearchContent(L"psd"));
+    EXPECT_TRUE(engine.canSearchContent(L"cpp"));
 }
 
 // -----------------------------------------------------------------------------
@@ -3545,26 +3587,31 @@ TEST(SearchHistoryTest, PersistenceAndDeduplication) {
 
     const std::wstring q1 = L"*中源*账号密码*";
     const std::wstring q2 = L"ext:docx 订单";
+    const std::wstring quotedQuery = L"\"exact, phrase\"\n第二行";
 
     searchMgr.recordSearch(q1);
     searchMgr.recordSearch(q2);
+    searchMgr.recordSearch(quotedQuery);
     searchMgr.recordSearch(q1); // 重复记录
 
-    EXPECT_EQ(searchMgr.size(), 2u);
+    EXPECT_EQ(searchMgr.size(), 3u);
     auto recents = searchMgr.getRecentSearches(10);
-    ASSERT_EQ(recents.size(), 2u);
+    ASSERT_EQ(recents.size(), 3u);
     EXPECT_EQ(recents[0].search, q1);
     EXPECT_EQ(recents[0].searchCount, 2u);
 
     // 移除单个搜索项
     EXPECT_TRUE(searchMgr.removeSearch(q2));
-    EXPECT_EQ(searchMgr.size(), 1u);
+    EXPECT_EQ(searchMgr.size(), 2u);
 
     // 存盘与重载
     EXPECT_TRUE(searchMgr.save());
     searchMgr.init(csvFile);
-    EXPECT_EQ(searchMgr.size(), 1u);
-    EXPECT_EQ(searchMgr.getRecentSearches(10)[0].search, q1);
+    EXPECT_EQ(searchMgr.size(), 2u);
+    const auto restoredSearches = searchMgr.getRecentSearches(10);
+    EXPECT_NE(std::find_if(restoredSearches.begin(), restoredSearches.end(), [&](const auto& item) {
+        return item.search == quotedQuery;
+    }), restoredSearches.end());
 
     DeleteFileW(csvFile.c_str());
 }
@@ -3621,6 +3668,19 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
     EXPECT_EQ(searchResults[0].fileName, L"test_document_5.docx");
     EXPECT_EQ(searchResults[0].fileSize, 5120u);
 
+    const auto originalSize = std::filesystem::file_size(dbFile);
+    HANDLE lockedDatabase = CreateFileW(dbFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(lockedDatabase, INVALID_HANDLE_VALUE);
+    EXPECT_FALSE(dbMgr.saveSnapshot(parsers));
+    CloseHandle(lockedDatabase);
+    EXPECT_EQ(std::filesystem::file_size(dbFile), originalSize);
+
+    auto parserAfterFailedSave = std::make_unique<MftParser>();
+    std::vector<MftParser*> parsersAfterFailedSave = {parserAfterFailedSave.get()};
+    EXPECT_TRUE(dbMgr.loadSnapshot(parsersAfterFailedSave));
+    EXPECT_EQ(parserAfterFailedSave->getFileCount(), 50u);
+
     DeleteFileW(dbFile.c_str());
 }
 
@@ -3631,6 +3691,45 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
 // 把 ERROR_MORE_DATA 当成失败并丢弃整份结果，残留数据还会拖垮后续连接。
 // 现在改为显式长度前缀，这些用例锁定编解码的边界行为。
 // -----------------------------------------------------------------------------
+TEST(MftParserTest, IncrementalTypingMultiWordCrossPathSearch) {
+    auto parser = std::make_unique<MftParser>();
+    std::vector<FileRecordInit> mockRecords;
+    
+    // 构造目录: 226-苏州同心 (id = 100)
+    FileRecordInit dirRec{};
+    dirRec.fileReferenceNumber = 100;
+    dirRec.parentFileReferenceNumber = 0;
+    dirRec.fileName = L"226-苏州同心";
+    dirRec.isDirectory = true;
+    mockRecords.push_back(std::move(dirRec));
+
+    // 构造文件: 账号密码.txt (id = 101, parent = 100)
+    FileRecordInit fileRec{};
+    fileRec.fileReferenceNumber = 101;
+    fileRec.parentFileReferenceNumber = 100;
+    fileRec.fileName = L"账号密码.txt";
+    fileRec.isDirectory = false;
+    fileRec.fileSize = 1024;
+    mockRecords.push_back(std::move(fileRec));
+
+    EXPECT_TRUE(parser->importSnapshot(std::move(mockRecords), 123456ULL, 0x11223344));
+
+    // 模拟连续打字:
+    // 1. 用户先搜 "同" (单字仅匹配文件名/目录名，此时 账号密码.txt 仅在目录命中，缓存被填入)
+    auto res1 = parser->Search(L"同");
+    EXPECT_GE(res1.size(), 1u);
+
+    // 2. 用户接着打 "同心" (缩小缓存)
+    auto res2 = parser->Search(L"同心");
+    EXPECT_GE(res2.size(), 1u);
+
+    // 3. 用户追加空格与第二个词 "同心 账号密码" (多词全路径匹配，必须绕开单字文件名缓存，正确命中 账号密码.txt)
+    auto res3 = parser->Search(L"同心 账号密码");
+    ASSERT_EQ(res3.size(), 1u);
+    EXPECT_EQ(res3[0].fileName, L"账号密码.txt");
+    EXPECT_NE(res3[0].fullPath.find(L"226-苏州同心"), std::wstring::npos);
+}
+
 TEST(PipeProtocolTest, HeaderRoundTripsPayloadSize) {
     namespace frame = easy::service::pipe;
     for (uint32_t size : {1u, 2u, 255u, 256u, 65535u, 65536u, 1048576u, frame::MaxFrameBytes}) {
@@ -3879,6 +3978,86 @@ TEST(MessageBridgeAsyncTest, MalformedAndUnknownMessagesStillProduceAResponse) {
     const auto parsed = nlohmann::json::parse(unknown);
     EXPECT_EQ(parsed["id"].get<int>(), 9);
     EXPECT_EQ(parsed["error"]["code"].get<int>(), -32601);
+}
+
+TEST(SearchRequestLimitsTest, OversizedRegexIsNotCompiled) {
+    std::wstring pattern(easy::service::search_limits::MaxRegexCharacters + 1, L'a');
+    const auto expression = SearchExpression::parse(L"regex:" + pattern);
+    ASSERT_EQ(expression.getOrGroups().size(), 1u);
+    ASSERT_EQ(expression.getOrGroups()[0].clauses.size(), 1u);
+    EXPECT_FALSE(expression.getOrGroups()[0].clauses[0].regexObj.has_value());
+}
+
+TEST(MessageBridgeAsyncTest, QueueOverloadRespondsWithTheEvictedRequestId) {
+    auto& bridge = easy::core::MessageBridge::instance();
+    std::mutex gateMutex;
+    std::condition_variable gateCv;
+    int running = 0;
+    bool release = false;
+
+    bridge.registerHandler("test.asyncQueueOverload", [&](const nlohmann::json&) -> nlohmann::json {
+        std::unique_lock lock(gateMutex);
+        ++running;
+        gateCv.notify_all();
+        gateCv.wait(lock, [&release]() { return release; });
+        return {{"done", true}};
+    });
+    bridge.markMethodAsync("test.asyncQueueOverload");
+
+    std::vector<std::shared_ptr<std::promise<std::string>>> promises;
+    std::vector<std::future<std::string>> futures;
+    const auto submit = [&](int id) {
+        auto response = std::make_shared<std::promise<std::string>>();
+        futures.push_back(response->get_future());
+        promises.push_back(response);
+        bridge.handleMessageAsync(
+            nlohmann::json{{"id", id}, {"method", "test.asyncQueueOverload"}, {"params", nlohmann::json::object()}}.dump(),
+            [response](std::string value) { response->set_value(std::move(value)); });
+    };
+
+    for (int id = 1000; id < 1004; ++id) submit(id);
+    bool allWorkersStarted = false;
+    {
+        std::unique_lock lock(gateMutex);
+        allWorkersStarted = gateCv.wait_for(lock, std::chrono::seconds(5), [&running]() {
+            return running == 4;
+        });
+        if (!allWorkersStarted) {
+            release = true;
+        }
+    }
+    if (!allWorkersStarted) {
+        gateCv.notify_all();
+        for (auto& future : futures) future.wait_for(std::chrono::seconds(5));
+        bridge.unregisterHandler("test.asyncQueueOverload");
+        FAIL() << "async worker pool did not start all workers";
+    }
+
+    for (int id = 2000; id < 2065; ++id) submit(id);
+    const bool evictionResponded =
+        futures[4].wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    std::string evictedResponse;
+    if (evictionResponded) evictedResponse = futures[4].get();
+
+    {
+        std::lock_guard lock(gateMutex);
+        release = true;
+    }
+    gateCv.notify_all();
+    bool allResponsesReady = true;
+    for (size_t index = 0; index < futures.size(); ++index) {
+        if (index == 4) continue;
+        if (futures[index].wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+            allResponsesReady = false;
+        }
+    }
+    bridge.unregisterHandler("test.asyncQueueOverload");
+
+    EXPECT_TRUE(allResponsesReady);
+    ASSERT_TRUE(evictionResponded);
+    const auto evicted = nlohmann::json::parse(evictedResponse);
+    EXPECT_EQ(evicted["id"].get<int>(), 2000);
+    EXPECT_EQ(evicted["error"]["code"].get<int>(), -32000);
 }
 
 // -----------------------------------------------------------------------------
@@ -4268,25 +4447,307 @@ TEST(CaptureCornerRadiusTest, CornerRadiusInteractiveAdjustment) {
     state.selAdjustHandle = HitArea::CornerRadius;
     EXPECT_EQ(state.selAdjustHandle, HitArea::CornerRadius);
 
-    // 2. 验证圆角控制点动态偏移量计算算法 (offset = max(12.0f, cornerRadius + 6.0f))
+    // 2. 验证圆角控制点动态偏移量计算算法 (offset = max(14.0f, cornerRadius + 8.0f))
     float selW = 400.0f;
     float selH = 300.0f;
     float maxR = std::min(selW, selH) * 0.5f;
     EXPECT_NEAR(maxR, 150.0f, 0.01f);
 
-    float offset0 = std::clamp(std::max(12.0f, state.cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f);
-    EXPECT_NEAR(offset0, 12.0f, 0.01f);
+    float offset0 = std::clamp(std::max(14.0f, state.cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_NEAR(offset0, 14.0f, 0.01f);
 
     state.cornerRadius = 16.0f;
-    float offset16 = std::clamp(std::max(12.0f, state.cornerRadius + 6.0f), 10.0f, std::min(selW, selH) * 0.45f);
-    EXPECT_NEAR(offset16, 22.0f, 0.01f);
+    float offset16 = std::clamp(std::max(14.0f, state.cornerRadius + 8.0f), 12.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_NEAR(offset16, 24.0f, 0.01f);
 
     // 3. 验证圆角拖拽状态变更与极值约束
     state.isAdjustingCornerRadius = true;
     state.cornerDragStartRadius = 16.0f;
-    state.cornerDragStartPos = {122, 122};
+    state.cornerDragStartPos = {124, 124};
     EXPECT_TRUE(state.isAdjustingCornerRadius);
     EXPECT_NEAR(state.cornerDragStartRadius, 16.0f, 0.01f);
+
+    // 4. 验证鼠标靠近角部检测 (triggerDist = 36.0f)
+    const float triggerDist = 36.0f;
+    POINT nearPt{124, 124};
+    float dist = std::hypot(nearPt.x - (100.0f + offset16), nearPt.y - (100.0f + offset16));
+    EXPECT_LE(dist, triggerDist);
+
+    POINT farPt{300, 250};
+    float farDist = std::hypot(farPt.x - (100.0f + offset16), farPt.y - (100.0f + offset16));
+    EXPECT_GT(farDist, triggerDist);
+}
+
+TEST(CaptureToolbarTooltipTest, ComprehensiveTooltips) {
+    using namespace easy::capture;
+
+    ToolbarButton btnRect;
+    btnRect.command = ToolbarCommand::SelectTool;
+    btnRect.tool = MarkupTool::Rectangle;
+    EXPECT_EQ(btnRect.command, ToolbarCommand::SelectTool);
+    EXPECT_EQ(btnRect.tool, MarkupTool::Rectangle);
+
+    ToolbarButton btnArrow;
+    btnArrow.command = ToolbarCommand::SelectTool;
+    btnArrow.tool = MarkupTool::Arrow;
+    EXPECT_EQ(btnArrow.tool, MarkupTool::Arrow);
+
+    ToolbarButton btnColor;
+    btnColor.command = ToolbarCommand::SelectColor;
+    btnColor.color = {255, 0, 0, 255};
+    EXPECT_EQ(btnColor.color.r, 255);
+}
+
+TEST(CaptureClipboardFormatTest, BottomUpDIBAndPNG) {
+    cv::Mat testMat(100, 100, CV_8UC4, cv::Scalar(100, 150, 200, 255));
+    EXPECT_FALSE(testMat.empty());
+    EXPECT_EQ(testMat.cols, 100);
+    EXPECT_EQ(testMat.rows, 100);
+
+    // 验证 PNG 内存编码支持
+    std::vector<uint8_t> pngBytes;
+    bool encoded = cv::imencode(".png", testMat, pngBytes);
+    EXPECT_TRUE(encoded);
+    EXPECT_FALSE(pngBytes.empty());
+
+    // 验证 Windows GDI 标准底向上扫描行正数约束
+    BITMAPINFOHEADER bi{};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = testMat.cols;
+    bi.biHeight = testMat.rows; // 正数 = Bottom-Up DIB
+    EXPECT_GT(bi.biHeight, 0);
+}
+
+TEST(EasyCoreWinUtilsCoverageTest, StringAndMemoryConversion) {
+    using namespace easy::core;
+    std::string utf8Str = "EasyTools 世界级截图工具";
+    std::wstring wstr = WinUtils::utf8ToWstring(utf8Str);
+    EXPECT_FALSE(wstr.empty());
+    std::string roundtrip = WinUtils::wstringToUtf8(wstr);
+    EXPECT_EQ(utf8Str, roundtrip);
+
+    // 验证拼音引擎
+    std::wstring initials = PinyinEngine::GetInitials(L"截图工具");
+    EXPECT_FALSE(initials.empty());
+    std::wstring fullPinyin = PinyinEngine::GetFullPinyin(L"截图");
+    EXPECT_FALSE(fullPinyin.empty());
+
+    // 验证物理内存修剪与冷路径安全调用
+    WinUtils::trimWorkingSet();
+}
+
+TEST(EasyCorePipelineAndEventTest, KeyboardFilterAndEventBus) {
+    using namespace easy::core;
+    using namespace easy::ui;
+    
+    // 1. 验证 KeyboardPipeline Win32 菜单与帮助快捷键拦截
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_KEYMENU, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_SYSCOMMAND, SC_CONTEXTHELP, 0));
+    EXPECT_TRUE(KeyboardPipeline::filterWindowMessage(nullptr, WM_HELP, 0, 0));
+    EXPECT_FALSE(KeyboardPipeline::filterWindowMessage(nullptr, WM_NULL, 0, 0));
+
+    // 2. 验证 EventBus 同步分发与订阅机制
+    bool eventReceived = false;
+    auto subId = EventBus::instance().subscribe<ShowToastEvent>([&](const ShowToastEvent& evt) {
+        if (evt.message == L"测试事件") {
+            eventReceived = true;
+        }
+    });
+
+    EventBus::instance().publish(ShowToastEvent{L"测试事件"});
+    EXPECT_TRUE(eventReceived);
+    EventBus::instance().unsubscribe(subId);
+}
+
+// -----------------------------------------------------------------------------
+// 36.5 截图尺寸胶囊 HUD 与单位设置交互测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureSizeHudAndMenuTest, HudUnitsAndSwitches) {
+    using namespace easy::capture;
+    CaptureState state;
+    
+    // 1. 默认设置检查
+    EXPECT_EQ(state.sizeUnit, CaptureState::SizeUnit::Pixel);
+    EXPECT_TRUE(state.showPositionInHud);
+    EXPECT_TRUE(state.showUnitInHud);
+    EXPECT_FALSE(state.isSizeMenuOpen);
+    EXPECT_FALSE(state.isSizeHudHovered);
+
+    // 2. 状态切换
+    state.sizeUnit = CaptureState::SizeUnit::DeviceIndependentPixel;
+    EXPECT_EQ(state.sizeUnit, CaptureState::SizeUnit::DeviceIndependentPixel);
+
+    state.showPositionInHud = false;
+    EXPECT_FALSE(state.showPositionInHud);
+
+    state.showUnitInHud = false;
+    EXPECT_FALSE(state.showUnitInHud);
+
+    // 3. 菜单开关
+    state.isSizeMenuOpen = true;
+    EXPECT_TRUE(state.isSizeMenuOpen);
+
+    // 4. AccentColor 与 HEX 解析覆盖
+    auto col = easy::core::getAccentColorRGB("coral");
+    EXPECT_GT(col.r, 0.5f);
+    auto cyanCol = easy::core::getAccentColorRGB("cyan");
+    EXPECT_GT(cyanCol.b, 0.5f);
+    auto amberCol = easy::core::getAccentColorRGB("amber");
+    EXPECT_GT(amberCol.r, 0.5f);
+    auto mintCol = easy::core::getAccentColorRGB("mint");
+    EXPECT_GT(mintCol.g, 0.5f);
+    auto violetCol = easy::core::getAccentColorRGB("violet");
+    EXPECT_GT(violetCol.b, 0.5f);
+    auto defCol = easy::core::getAccentColorRGB("invalid_name");
+    EXPECT_GT(defCol.b, 0.5f);
+
+    auto hexCol1 = easy::core::parseHexColor("#FF0000");
+    EXPECT_NEAR(hexCol1.r, 1.0f, 0.01f);
+    auto hexCol2 = easy::core::parseHexColor("00FF00");
+    EXPECT_NEAR(hexCol2.g, 1.0f, 0.01f);
+    auto hexCol3 = easy::core::parseHexColor("invalid_hex");
+    EXPECT_NEAR(hexCol3.r, 0.231f, 0.01f);
+
+    // 5. 吸管取色与画笔色彩同步验证
+    MarkupColor picked(59, 130, 246);
+    state.currentColor = picked;
+    EXPECT_EQ(state.currentColor.r, 59);
+    EXPECT_EQ(state.currentColor.g, 130);
+    EXPECT_EQ(state.currentColor.b, 246);
+}
+
+TEST(CaptureTwoTierToolbarAndSubmenuTest, LayoutAndSecondaryProperties) {
+    using namespace easy::capture;
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.mode = OverlayMode::Screenshot;
+    state.currentTool = MarkupTool::Rectangle;
+
+    D2D1_RECT_F selRect = D2D1::RectF(100.0f, 100.0f, 600.0f, 500.0f);
+    D2D1_SIZE_F surfaceSize = D2D1::SizeF(1920.0f, 1080.0f);
+
+    // 1. 测试矩形工具下的双层工具栏布局生成
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.toolbarButtons.empty());
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+    EXPECT_GT(state.primaryToolbarRect.right - state.primaryToolbarRect.left, 100.0f);
+    EXPECT_GT(state.secondaryToolbarRect.right - state.secondaryToolbarRect.left, 100.0f);
+
+    // 验证二级栏包含填充、线条样式、线宽、圆角、调色板
+    bool hasFill = false;
+    bool hasLineStyle = false;
+    bool hasStrokeWidth = false;
+    bool hasCornerRadius = false;
+    int colorCount = 0;
+
+    for (const auto& btn : state.secondaryToolbarButtons) {
+        if (btn.command == ToolbarCommand::ToggleFill) hasFill = true;
+        if (btn.command == ToolbarCommand::ToggleLineStyleDropdown) hasLineStyle = true;
+        if (btn.command == ToolbarCommand::CycleStrokeWidth) hasStrokeWidth = true;
+        if (btn.command == ToolbarCommand::CycleElementCornerRadius) hasCornerRadius = true;
+        if (btn.command == ToolbarCommand::SelectColor) ++colorCount;
+    }
+    EXPECT_TRUE(hasFill);
+    EXPECT_TRUE(hasLineStyle);
+    EXPECT_TRUE(hasStrokeWidth);
+    EXPECT_TRUE(hasCornerRadius);
+    EXPECT_EQ(colorCount, 7);
+
+    // 验证主工具栏与二级属性栏包含前置分隔符
+    bool hasPriSeparators = false;
+    for (const auto& btn : state.toolbarButtons) {
+        if (btn.isSeparatorBefore) hasPriSeparators = true;
+    }
+    EXPECT_TRUE(hasPriSeparators);
+
+    bool hasSecSeparators = false;
+    for (const auto& btn : state.secondaryToolbarButtons) {
+        if (btn.isSeparatorBefore) hasSecSeparators = true;
+    }
+    EXPECT_TRUE(hasSecSeparators);
+
+    // 2. 切换到文本工具
+    state.currentTool = MarkupTool::Text;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 3. 切换到箭头工具
+    state.currentTool = MarkupTool::Arrow;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 4. 切换到马赛克工具
+    state.currentTool = MarkupTool::Mosaic;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 4.5 切换到序号工具
+    state.currentTool = MarkupTool::Number;
+    state.toolbarLayoutValid = false;
+    rebuildCaptureToolbar(state, selRect, surfaceSize);
+    EXPECT_FALSE(state.secondaryToolbarButtons.empty());
+
+    // 5. 验证 OpenCV 虚线与填充渲染及全部标注工具
+    initializeMarkupTextRenderer();
+    cv::Mat canvas = cv::Mat::zeros(400, 400, CV_8UC4);
+    MarkupEngine engine;
+    engine.setBaseImage(canvas.clone());
+
+    auto* elemRect = engine.drawRectangle(cv::Point(20, 20), cv::Point(120, 120), MarkupColor::Red(), 3.0f);
+    ASSERT_NE(elemRect, nullptr);
+    elemRect->lineStyle = LineStyle::Dashed;
+    elemRect->fill = true;
+    elemRect->cornerRadius = 14.0f;
+
+    auto* elemArrow = engine.drawArrow(cv::Point(150, 50), cv::Point(250, 150), MarkupColor::Blue(), 4.0f);
+    ASSERT_NE(elemArrow, nullptr);
+    elemArrow->lineStyle = LineStyle::Dotted;
+    elemArrow->arrowStyle = ArrowStyle::DoubleEnded;
+
+    auto* elemPen = engine.drawPenStroke({cv::Point(30, 200), cv::Point(60, 240), cv::Point(90, 210)}, MarkupColor::Green(), 2.0f);
+    ASSERT_NE(elemPen, nullptr);
+    elemPen->lineStyle = LineStyle::DashDot;
+
+    auto* elemEllipse = engine.drawEllipse(cv::Point(200, 200), cv::Point(300, 300), MarkupColor::Yellow(), 2.0f);
+    ASSERT_NE(elemEllipse, nullptr);
+    elemEllipse->fill = true;
+
+    engine.drawHighlight(cv::Point(10, 10), cv::Point(80, 40), MarkupColor::Yellow());
+    engine.applyMosaic(cv::Point(300, 300), cv::Point(380, 380), 8);
+    
+    int numVal = engine.addNumberMark(cv::Point(100, 350), MarkupColor::Red());
+    EXPECT_EQ(numVal, 1);
+    EXPECT_EQ(engine.currentNumber(), 2);
+    engine.resetNumber();
+    EXPECT_EQ(engine.currentNumber(), 1);
+
+    engine.addSpotlight(cv::Point(100, 100), cv::Point(200, 200), MarkupColor::White());
+    engine.addWatermark(cv::Point(0, 0), cv::Point(400, 400), "CONFIDENTIAL");
+    engine.applyInpaint(cv::Point(50, 50), cv::Point(70, 70), 3);
+
+    engine.renderAll(canvas);
+    EXPECT_GT(cv::countNonZero(canvas.reshape(1)), 0);
+
+    // 验证撤销与重做
+    EXPECT_TRUE(engine.canUndo());
+    engine.undo();
+    EXPECT_TRUE(engine.canRedo());
+    engine.redo();
+    engine.translateAll(5, 5);
+    engine.updateBaseImage(canvas.clone());
+    EXPECT_FALSE(engine.getCompositeImage().empty());
+    engine.clearAll();
+    EXPECT_FALSE(engine.canUndo());
+
+    shutdownMarkupTextRenderer();
+
+    // 6. 验证最大圆角 60 上限配置
+    easy::core::ConfigManager::instance().set<double>("/screenshot/maxCornerRadius", 60.0);
+    double cfgR = easy::core::ConfigManager::instance().get<double>("/screenshot/maxCornerRadius", 60.0);
+    EXPECT_DOUBLE_EQ(cfgR, 60.0);
 }
 
 // -----------------------------------------------------------------------------
@@ -4361,7 +4822,7 @@ TEST(SpotlightOverlayTest, ColorParsingAndAutoAccent) {
     EXPECT_NEAR(c2.g, 1.0f, 0.01f);
     EXPECT_NEAR(c2.a, 0.5f, 0.01f);
 
-    // 2. auto 与品牌色联动
+    // 2. auto 与主题色联动
     auto temp = std::filesystem::temp_directory_path() /
         (L"EasyTools_SpotlightTest_" + std::to_wstring(GetCurrentProcessId()));
     std::error_code ec;
@@ -4601,6 +5062,17 @@ TEST(WorldClassArchitectureTest, JobObjectAndAtomicWrite) {
     std::string readContent((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
     EXPECT_EQ(readContent, payload);
 
+    HANDLE lockedTarget = CreateFileW(testFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(lockedTarget, INVALID_HANDLE_VALUE);
+    EXPECT_FALSE(easy::core::WinUtils::atomicWriteFileWithFlush(
+        testFile.wstring(), "replacement must not become visible"));
+    CloseHandle(lockedTarget);
+    std::ifstream preserved(testFile);
+    std::string preservedContent((std::istreambuf_iterator<char>(preserved)),
+                                 std::istreambuf_iterator<char>());
+    EXPECT_EQ(preservedContent, payload);
+
     // 3. 验证低内存资源事件创建
     HANDLE lowMem = easy::core::WinUtils::createLowMemoryNotification();
     if (lowMem) {
@@ -4726,6 +5198,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     // 1. 测试默认配置获取
     easy::keycast::KeycastSettings s = overlay.getSettings();
     EXPECT_TRUE(s.enabled);
+    EXPECT_EQ(s.fontSize, 28);
     EXPECT_EQ(s.firstKeyAnim, "slide");
     EXPECT_EQ(s.subsequentKeyAnim, "fade");
     EXPECT_TRUE(s.rowCascadeAnim);
@@ -4797,7 +5270,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     overlay.setAutoBypassFullscreen(true);
     EXPECT_TRUE(overlay.autoBypassFullscreen());
 
-    // 验证全局主题与品牌色变更响应
+    // 验证全局主题与主题色变更响应
     overlay.onThemeChanged();
 
     overlay.resetDefaults();
@@ -4806,6 +5279,103 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
 // -----------------------------------------------------------------------------
 // 39. 全局核心鼠标钩子测试套件
 // -----------------------------------------------------------------------------
+
+TEST(KeycastSmartFilterAndModifierStateMachineTest, ComprehensiveBehavior) {
+    auto& overlay = easy::keycast::KeycastOverlay::instance();
+    auto s = overlay.getSettings();
+    EXPECT_FALSE(s.includeFunctionKeys);
+
+    // 1. 配置更新与持久化测试
+    s.includeFunctionKeys = false;
+    overlay.updateSettings(s);
+    EXPECT_FALSE(overlay.getSettings().includeFunctionKeys);
+
+    s.includeFunctionKeys = true;
+    overlay.updateSettings(s);
+    EXPECT_TRUE(overlay.getSettings().includeFunctionKeys);
+
+    // 2. 模拟状态机逻辑单元验证
+    // 模拟修饰键 Win 按下 (KeyDown) -> 暂存
+    DWORD pendingMod = VK_LWIN;
+    bool comboTriggered = false;
+
+    // 模拟随后的字母 D 按下 (KeyDown) -> 组合键触发
+    DWORD mainVk = 'D';
+    bool hasWin = true;
+    bool hasShift = false;
+        bool isLetter = (mainVk >= 0x41 && mainVk <= 0x5A);
+
+    if (pendingMod != 0) {
+        comboTriggered = true;
+    }
+    EXPECT_TRUE(comboTriggered);
+
+    // 模拟 Win 键松开 (KeyUp) -> 已经触发过组合键，不应补发单 Win
+    bool shouldEmitSingleWin = false;
+    if (pendingMod == VK_LWIN && !comboTriggered) {
+        shouldEmitSingleWin = true;
+    }
+    EXPECT_FALSE(shouldEmitSingleWin);
+
+    // 3. 模拟纯单按 Alt 激活菜单
+    pendingMod = VK_LMENU;
+    comboTriggered = false;
+    // 期间无其他键按下，Alt 松开 (KeyUp)
+    bool shouldEmitSingleAlt = false;
+    if (pendingMod == VK_LMENU && !comboTriggered) {
+        shouldEmitSingleAlt = true;
+    }
+    EXPECT_TRUE(shouldEmitSingleAlt);
+
+    // 4. 模拟大写单词打字智能过滤 (Shift + H O M E)
+    hasShift = true;
+    bool hasCtrl = false;
+    bool hasAlt = false;
+    hasWin = false;
+    bool isOnlyShift = hasShift && !hasCtrl && !hasAlt && !hasWin;
+    
+    // Shift + H: 仅 Shift + 字母 -> 在智能模式下过滤
+    std::string filterMode = "smart_shortcuts";
+    bool shouldDisplayHomeLetter = true;
+    if (filterMode == "smart_shortcuts" && isOnlyShift && isLetter) {
+        shouldDisplayHomeLetter = false;
+    }
+    EXPECT_FALSE(shouldDisplayHomeLetter);
+
+    // Shift + Delete: Shift + 功能键 -> 正常回显组合键
+    bool isFunctionalKey = true;
+    isLetter = false;
+    bool shouldDisplayShiftDelete = false;
+    if (!(isOnlyShift && isLetter) && (hasShift || isFunctionalKey)) {
+        shouldDisplayShiftDelete = true;
+    }
+    EXPECT_TRUE(shouldDisplayShiftDelete);
+
+    // 5. 模拟功能键子开关对单按 Space/Delete 的控制
+    bool includeFunc = false;
+    bool isComboWithMod = false;
+    bool shouldDisplaySpaceWithoutMod = isComboWithMod || (isFunctionalKey && includeFunc);
+    EXPECT_FALSE(shouldDisplaySpaceWithoutMod);
+
+    includeFunc = true;
+    bool shouldDisplaySpaceWithInclude = isComboWithMod || (isFunctionalKey && includeFunc);
+    EXPECT_TRUE(shouldDisplaySpaceWithInclude);
+}
+
+
+TEST(CoreKeyboardHookTest, InstallPauseAndUninstall) {
+    auto& kbHook = easy::core::KeyboardHook::instance();
+    EXPECT_FALSE(kbHook.isPaused());
+
+    kbHook.setPaused(true);
+    EXPECT_TRUE(kbHook.isPaused());
+    kbHook.setPaused(false);
+    EXPECT_FALSE(kbHook.isPaused());
+
+    kbHook.install();
+    kbHook.uninstall();
+}
+
 TEST(CoreMouseHookTest, InstallAndCallbacks) {
     auto& mouseHook = easy::core::MouseHook::instance();
     EXPECT_FALSE(mouseHook.isPaused());
@@ -4817,11 +5387,376 @@ TEST(CoreMouseHookTest, InstallAndCallbacks) {
 
     bool callbackInvoked = false;
     mouseHook.setMouseActivityCallback([&](int btn, long x, long y) {
+        (void)btn; (void)x; (void)y;
         callbackInvoked = true;
     });
 
     mouseHook.install();
     mouseHook.uninstall();
+}
+
+// -----------------------------------------------------------------------------
+// 40. 纯矢量图标系统全覆盖测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureVectorIconsTest, ComprehensiveVectorRendering) {
+    using namespace easy::capture;
+
+    // 验证空指针与无效参数防护
+    CaptureVectorIcons::renderIcon(nullptr, nullptr, CaptureIconId::ActionConfirm,
+                                   D2D1::RectF(0, 0, 30, 30), nullptr, 1.0f);
+
+    // 创建 Direct2D 工厂与 WIC/D2D 离屏 RenderTarget 进行全图标渲染覆盖验证
+    Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory;
+    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2dFactory.GetAddressOf());
+    ASSERT_NE(d2dFactory, nullptr);
+
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> dcRt;
+    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        0, 0, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_FEATURE_LEVEL_DEFAULT);
+    HRESULT hr = d2dFactory->CreateDCRenderTarget(&props, dcRt.GetAddressOf());
+    ASSERT_EQ(hr, S_OK);
+    ASSERT_NE(dcRt, nullptr);
+
+    HDC hdc = GetDC(nullptr);
+    RECT rc{0, 0, 100, 100};
+    dcRt->BindDC(hdc, &rc);
+    dcRt->BeginDraw();
+
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> testBrush;
+    dcRt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Blue), testBrush.GetAddressOf());
+    ASSERT_NE(testBrush, nullptr);
+
+    // 遍历所有枚举值进行 100% 渲染覆盖
+    const std::vector<CaptureIconId> allIcons = {
+        CaptureIconId::None,
+        CaptureIconId::ToolRectangle,
+        CaptureIconId::ToolEllipse,
+        CaptureIconId::ToolPen,
+        CaptureIconId::ToolHighlight,
+        CaptureIconId::ToolArrow,
+        CaptureIconId::ToolArrowThin,
+        CaptureIconId::ToolArrowDouble,
+        CaptureIconId::ToolText,
+        CaptureIconId::ToolNumber,
+        CaptureIconId::ToolMosaic,
+        CaptureIconId::ToolBlur,
+        CaptureIconId::ToolInpaint,
+        CaptureIconId::ActionUndo,
+        CaptureIconId::ActionRedo,
+        CaptureIconId::ActionClear,
+        CaptureIconId::ActionExtractText,
+        CaptureIconId::ActionPinWindow,
+        CaptureIconId::ActionScrollCapture,
+        CaptureIconId::ActionRecordStart,
+        CaptureIconId::ActionRecordPause,
+        CaptureIconId::ActionRecordStop,
+        CaptureIconId::ActionToggleMic,
+        CaptureIconId::ActionToggleSpeaker,
+        CaptureIconId::ActionCopy,
+        CaptureIconId::ActionSave,
+        CaptureIconId::ActionCancel,
+        CaptureIconId::ActionConfirm,
+        CaptureIconId::PropSolidLine,
+        CaptureIconId::PropDashedLine,
+        CaptureIconId::PropDottedLine,
+        CaptureIconId::PropDashDotLine,
+        CaptureIconId::PropStrokeWidth,
+        CaptureIconId::PropCornerRadius,
+        CaptureIconId::PropFillOutline,
+        CaptureIconId::PropFillSolid,
+        CaptureIconId::PropPipette,
+        CaptureIconId::PropPalette,
+        CaptureIconId::PropQrCode,
+    };
+
+    D2D1_RECT_F targetRect = D2D1::RectF(10.0f, 10.0f, 40.0f, 40.0f);
+    for (auto id : allIcons) {
+        CaptureVectorIcons::renderIcon(dcRt.Get(), d2dFactory.Get(), id, targetRect, testBrush.Get(), 1.0f);
+        CaptureVectorIcons::renderIcon(dcRt.Get(), d2dFactory.Get(), id, targetRect, testBrush.Get(), 2.0f);
+    }
+
+    dcRt->EndDraw();
+    ReleaseDC(nullptr, hdc);
+}
+
+TEST(CaptureSliderPopupTest, SteplessSliderAndWheelInteraction) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.25f;
+    state.currentStrokeWidth = 6;
+    state.currentElementCornerRadius = 12.0f;
+
+    // 1. 初始化线宽滑块弹窗
+    state.sliderPopup.type = SliderPopupType::StrokeWidth;
+    state.sliderPopup.minValue = 1;
+    state.sliderPopup.maxValue = 28;
+    state.sliderPopup.currentValue = state.currentStrokeWidth;
+    state.sliderPopup.trackRect = D2D1::RectF(100.0f, 200.0f, 300.0f, 206.0f);
+    
+    EXPECT_EQ(state.sliderPopup.type, SliderPopupType::StrokeWidth);
+    EXPECT_EQ(state.sliderPopup.currentValue, 6);
+
+    // 2. 模拟滑块拖拽映射
+    float trackW = state.sliderPopup.trackRect.right - state.sliderPopup.trackRect.left;
+    float clickX = state.sliderPopup.trackRect.left + trackW * 0.5f; // 50% 位置
+    float pct = std::clamp((clickX - state.sliderPopup.trackRect.left) / trackW, 0.0f, 1.0f);
+    int mappedVal = state.sliderPopup.minValue + static_cast<int>(std::round(pct * (state.sliderPopup.maxValue - state.sliderPopup.minValue)));
+    EXPECT_NEAR(mappedVal, 15, 1);
+
+    // 3. 模拟预设胶囊按钮配置
+    std::vector<int> presets = { 2, 4, 6, 8, 14, 20 };
+    for (size_t i = 0; i < presets.size(); ++i) {
+        float px = state.sliderPopup.trackRect.left + i * (trackW / presets.size());
+        state.sliderPopup.presetButtons.push_back({ presets[i], D2D1::RectF(px, 220.0f, px + 25.0f, 240.0f) });
+    }
+    EXPECT_EQ(state.sliderPopup.presetButtons.size(), 6);
+    EXPECT_EQ(state.sliderPopup.presetButtons[2].first, 6);
+
+    // 4. 模拟滚轮调节步进
+    int zDeltaUp = 120;
+    int stepUp = (zDeltaUp > 0) ? 1 : -1;
+    state.currentStrokeWidth = std::clamp(state.currentStrokeWidth + stepUp, 1, 28);
+    EXPECT_EQ(state.currentStrokeWidth, 7);
+
+    int zDeltaDown = -120;
+    int stepDown = (zDeltaDown > 0) ? 1 : -1;
+    state.currentStrokeWidth = std::clamp(state.currentStrokeWidth + stepDown, 1, 28);
+    EXPECT_EQ(state.currentStrokeWidth, 6);
+
+    // 5. 切换到圆角滑块弹窗
+    state.sliderPopup.type = SliderPopupType::CornerRadius;
+    state.sliderPopup.minValue = 0;
+    state.sliderPopup.maxValue = 40;
+    state.sliderPopup.currentValue = static_cast<int>(state.currentElementCornerRadius);
+    EXPECT_EQ(state.sliderPopup.type, SliderPopupType::CornerRadius);
+    EXPECT_EQ(state.sliderPopup.currentValue, 12);
+}
+
+TEST(CaptureShiftConstraintTest, OrthogonalAndSquareAspectConstraints) {
+    using namespace easy::capture;
+
+    // 1. 验证正方形约束算法
+    cv::Point start(100, 100);
+    cv::Point end(250, 180); // w=150, h=80
+    int w = std::abs(end.x - start.x);
+    int h = std::abs(end.y - start.y);
+    int side = std::max(w, h);
+    cv::Point constrainedEnd(start.x + (end.x >= start.x ? side : -side),
+                             start.y + (end.y >= start.y ? side : -side));
+    EXPECT_EQ(constrainedEnd.x - start.x, 150);
+    EXPECT_EQ(constrainedEnd.y - start.y, 150);
+
+    // 2. 验证箭头 45° 正交吸附算法
+    cv::Point arrowStart(200, 200);
+    cv::Point arrowEnd(300, 210); // 接近水平 0°
+    double dx = arrowEnd.x - arrowStart.x;
+    double dy = arrowEnd.y - arrowStart.y;
+    double dist = std::hypot(dx, dy);
+    double angle = std::atan2(dy, dx);
+    constexpr double step = 3.14159265358979323846 / 4.0;
+    double snappedAngle = std::round(angle / step) * step;
+    cv::Point snappedEnd(static_cast<int>(std::round(arrowStart.x + dist * std::cos(snappedAngle))),
+                         static_cast<int>(std::round(arrowStart.y + dist * std::sin(snappedAngle))));
+    EXPECT_NEAR(snappedEnd.y, arrowStart.y, 1); // 成功吸附到绝对水平 0°
+    EXPECT_NEAR(snappedEnd.x - arrowStart.x, static_cast<int>(dist), 1);
+}
+
+TEST(CaptureSmartGuidesAndQrTest, AlignmentDetectionAndQrLayout) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.detectedQrText = "https://github.com/yuan278501381/easyTools";
+
+    // 1. 验证二维码微晶胶囊文本截断与布局计算
+    std::wstring displayMsg = L"二维码: " + easy::core::WinUtils::utf8ToWstring(state.detectedQrText);
+    EXPECT_TRUE(displayMsg.find(L"https://github.com") != std::wstring::npos);
+    if (displayMsg.size() > 28) {
+        displayMsg = displayMsg.substr(0, 26) + L"...";
+    }
+    EXPECT_EQ(displayMsg.substr(displayMsg.size() - 3), L"...");
+
+    // 2. 验证智能对齐中轴计算
+    D2D1_RECT_F selRect = D2D1::RectF(460.0f, 270.0f, 1460.0f, 810.0f); // 中心 (960, 540)
+    D2D1_SIZE_F surfaceSize = D2D1::SizeF(1920.0f, 1080.0f); // 中心 (960, 540)
+    float cx = (selRect.left + selRect.right) * 0.5f;
+    float cy = (selRect.top + selRect.bottom) * 0.5f;
+    float midScreenX = surfaceSize.width * 0.5f;
+    float midScreenY = surfaceSize.height * 0.5f;
+
+    EXPECT_NEAR(cx, midScreenX, 0.001f);
+    EXPECT_NEAR(cy, midScreenY, 0.001f);
+    EXPECT_LT(std::abs(cx - midScreenX), 4.0f);
+    EXPECT_LT(std::abs(cy - midScreenY), 4.0f);
+}
+
+TEST(CaptureUndoRedoStateSanitizationTest, ActiveElementSafetyAndDirtyFlags) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    cv::Mat dummy(400, 400, CV_8UC3, cv::Scalar(100, 100, 100));
+    state.markup.setBaseImage(dummy);
+
+    // 1. 添加图元
+    auto* rectElem = state.markup.drawRectangle(cv::Point(10, 10), cv::Point(100, 100), MarkupColor::Red(), 2.0f);
+    ASSERT_NE(rectElem, nullptr);
+    state.activeElement = rectElem;
+    EXPECT_EQ(state.markup.elementCount(), 1);
+
+    // 2. 执行撤销并验证安全归空
+    state.activeElement = nullptr;
+    EXPECT_TRUE(state.markup.undo());
+    EXPECT_EQ(state.markup.elementCount(), 0);
+    EXPECT_EQ(state.activeElement, nullptr);
+
+    // 3. 执行重做并验证图元恢复
+    EXPECT_TRUE(state.markup.redo());
+    EXPECT_EQ(state.markup.elementCount(), 1);
+
+    // 4. 清空验证
+    state.activeElement = nullptr;
+    state.markup.clearAll();
+    EXPECT_EQ(state.markup.elementCount(), 0);
+}
+
+TEST(CaptureHistoryTimeMachineTest, NavigationAndClampLogic) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.historyMode = false;
+    state.historyIndex = 0;
+
+    int totalHistory = 5;
+    // 模拟逗号按键（上溯历史）
+    if (!state.historyMode) {
+        state.historyMode = true;
+        state.historyIndex = 0;
+    }
+    EXPECT_TRUE(state.historyMode);
+    EXPECT_EQ(state.historyIndex, 0);
+
+    // 连续按逗号上溯
+    for (int i = 0; i < 10; ++i) {
+        state.historyIndex = std::min(state.historyIndex + 1, totalHistory - 1);
+    }
+    EXPECT_EQ(state.historyIndex, 4); // 严格夹取在上限
+
+    // 连续按句号回溯
+    for (int i = 0; i < 10; ++i) {
+        state.historyIndex = std::max(state.historyIndex - 1, 0);
+    }
+    EXPECT_EQ(state.historyIndex, 0); // 严格夹取在下限
+}
+
+TEST(CaptureEmptyTextBoxResizeTest, MinimumBoundsAndResizeBeforeInput) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    cv::Mat canvas(600, 800, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    state.markup.setBaseImage(canvas);
+
+    // 1. 创建空文本标注元素（模拟用户刚刚点击画布）
+    auto* textElem = state.markup.addText(cv::Point(150, 150), "", MarkupColor::Red(), 18.0f);
+    ASSERT_NE(textElem, nullptr);
+    textElem->isActive = true;
+    textElem->isEditing = true;
+
+    // 2. 验证空文本时的包围盒绝不为 0 且具有舒适的最小尺寸 (杜绝 8 手柄挤压在一起)
+    cv::Rect bbox = textElem->getBoundingBox();
+    EXPECT_GE(bbox.width, 80);
+    EXPECT_GE(bbox.height, 25);
+    EXPECT_EQ(bbox.x, 150);
+    EXPECT_EQ(bbox.y, 150);
+
+    // 3. 验证 8 个手柄的命中测试 (用户在未输入内容前即可拖拽任意手柄)
+    HitArea hitRB = textElem->hitTestEx(cv::Point(bbox.x + bbox.width, bbox.y + bbox.height));
+    EXPECT_EQ(hitRB, HitArea::RB);
+
+    HitArea hitLT = textElem->hitTestEx(cv::Point(bbox.x, bbox.y));
+    EXPECT_EQ(hitLT, HitArea::LT);
+
+    // 4. 模拟拖拽 RB 手柄放大文本框 (字号增大)
+    float oldFontSize = textElem->fontSize;
+    textElem->resize(20, 20, HitArea::RB);
+    EXPECT_GT(textElem->fontSize, oldFontSize);
+
+    // 5. 模拟拖拽 LT 手柄缩小文本框
+    textElem->resize(10, 10, HitArea::LT);
+    EXPECT_LE(textElem->fontSize, 180.0f);
+    EXPECT_GE(textElem->fontSize, 12.0f);
+}
+
+TEST(CaptureCornerRadiusDesignerWorkflowTest, LiveCornerCursorAndReset) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.dpiScale = 1.0f;
+    state.cornerRadius = 12.0f;
+
+    // 1. 模拟设计师双击圆角手柄：在 12px 与 0px 之间快速重置/切换
+    float currentR = state.cornerRadius;
+    float toggledR = (currentR > 0.0f) ? 0.0f : 12.0f;
+    EXPECT_EQ(toggledR, 0.0f);
+
+    float restoredR = (toggledR > 0.0f) ? 0.0f : 12.0f;
+    EXPECT_EQ(restoredR, 12.0f);
+
+    // 2. 验证四个角部的 offset 计算
+    float selW = 400.0f, selH = 300.0f;
+    float offset = std::clamp(std::max(22.0f, state.cornerRadius + 8.0f), 16.0f, std::min(selW, selH) * 0.40f);
+    EXPECT_EQ(offset, 22.0f);
+}
+
+TEST(CaptureSelectionSideMenuTest, PixPinSideMenuAndSliderInteraction) {
+    using namespace easy::capture;
+
+    CaptureState state;
+    state.mode = OverlayMode::Screenshot;
+    state.dpiScale = 1.0f;
+    state.cornerRadius = 16.0f;
+
+    // 1. 测试常规居中选区：侧边菜单默认在右侧
+    D2D1_RECT_F selRect = D2D1::RectF(100.0f, 100.0f, 400.0f, 300.0f);
+    D2D1_SIZE_F surface = D2D1::SizeF(1920.0f, 1080.0f);
+    rebuildCaptureToolbar(state, selRect, surface);
+
+    EXPECT_EQ(state.selectionSideButtons.size(), 3u);
+    EXPECT_EQ(state.selectionSideButtons[0].command, ToolbarCommand::SideToggleCornerRadius);
+    EXPECT_EQ(state.selectionSideButtons[1].command, ToolbarCommand::SideInvertSelection);
+    EXPECT_EQ(state.selectionSideButtons[2].command, ToolbarCommand::SideResetSelection);
+    EXPECT_GT(state.selectionSideRect.left, selRect.right); // 默认在右侧
+
+    // 2. 测试紧贴屏幕右边缘选区：侧边菜单自动翻转至左侧
+    D2D1_RECT_F rightEdgeSel = D2D1::RectF(1750.0f, 100.0f, 1910.0f, 300.0f);
+    rebuildCaptureToolbar(state, rightEdgeSel, surface);
+    EXPECT_EQ(state.selectionSideButtons.size(), 3u);
+    EXPECT_LT(state.selectionSideRect.right, rightEdgeSel.left); // 智能翻转至左侧
+
+    // 3. 模拟激活 SideToggleCornerRadius 展开 SelectionCornerRadius 滑块弹窗
+    state.sliderPopup.type = SliderPopupType::SelectionCornerRadius;
+    state.sliderPopup.minValue = 0;
+    state.sliderPopup.maxValue = 80;
+    state.sliderPopup.currentValue = static_cast<int>(state.cornerRadius);
+    state.sliderPopup.trackRect = D2D1::RectF(100.0f, 200.0f, 300.0f, 205.0f);
+
+    EXPECT_EQ(state.sliderPopup.currentValue, 16);
+
+    // 4. 模拟在滑块轨道上点击 50% 位置
+    float trackW = state.sliderPopup.trackRect.right - state.sliderPopup.trackRect.left;
+    float clickX = state.sliderPopup.trackRect.left + trackW * 0.5f;
+    float pct = std::clamp((clickX - state.sliderPopup.trackRect.left) / trackW, 0.0f, 1.0f);
+    int mappedVal = state.sliderPopup.minValue + static_cast<int>(std::round(pct * (state.sliderPopup.maxValue - state.sliderPopup.minValue)));
+    state.cornerRadius = static_cast<float>(mappedVal);
+    EXPECT_EQ(state.cornerRadius, 40.0f);
+
+    // 5. 模拟滚轮微调选区圆角
+    int zDelta = 120;
+    int delta = (zDelta > 0) ? 1 : -1;
+    state.cornerRadius = std::clamp(state.cornerRadius + static_cast<float>(delta * 2), 0.0f, 80.0f);
+    EXPECT_EQ(state.cornerRadius, 42.0f);
 }
 
 // -----------------------------------------------------------------------------

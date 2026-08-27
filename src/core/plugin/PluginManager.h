@@ -45,6 +45,7 @@ struct PluginStatus {
     std::uint32_t abiVersion = 0;
     std::vector<std::string> capabilities;
     std::vector<std::string> permissions;
+    std::string executionModel;
     bool enabled = true;
     bool active = false;
     bool restartRequired = false;

@@ -28,7 +28,7 @@ public:
             KeycastOverlay::instance().pushKey(sequence);
         });
 
-        // 订阅全局主题与品牌色变更事件
+        // 订阅全局主题与主题色变更事件
         m_themeSubscription = easy::core::EventBus::instance().subscribe<easy::core::ThemeChangedEvent>([](const easy::core::ThemeChangedEvent&) {
             KeycastOverlay::instance().onThemeChanged();
         });
@@ -41,12 +41,14 @@ public:
                 {"autoBypassFullscreen", s.autoBypassFullscreen},
                 {"showKeyboard", s.showKeyboard},
                 {"filterMode", s.filterMode},
+                {"includeFunctionKeys", s.includeFunctionKeys},
                 {"position", s.position},
                 {"mergeRecentKeys", s.mergeRecentKeys},
                 {"mergeTimeoutMs", s.mergeTimeoutMs},
                 {"onlyShortcuts", s.filterMode == "smart_shortcuts"},
                 {"displayDurationMs", s.displayDurationMs},
                 {"fontSize", s.fontSize},
+                {"opacity", s.opacity},
                 {"textColor", s.textColor},
                 {"backgroundColor", s.backgroundColor},
                 {"modifierKeycapColor", s.modifierKeycapColor},
@@ -59,7 +61,7 @@ public:
             };
         });
 
-        mb.registerHandler("keycast.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
+                mb.registerHandler("keycast.updateSettings", [](const nlohmann::json& params) -> nlohmann::json {
             if (!params.is_object() || params.empty()) {
                 return {{"success", false}, {"error", "no settings supplied"}};
             }
@@ -77,6 +79,9 @@ public:
             }
             if (params.contains("filterMode") && params["filterMode"].is_string()) {
                 s.filterMode = params["filterMode"].get<std::string>();
+            }
+            if (params.contains("includeFunctionKeys") && params["includeFunctionKeys"].is_boolean()) {
+                s.includeFunctionKeys = params["includeFunctionKeys"].get<bool>();
             }
             if (params.contains("position") && params["position"].is_string()) {
                 s.position = params["position"].get<std::string>();
