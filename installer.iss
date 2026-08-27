@@ -26,12 +26,13 @@ PrivilegesRequired=admin
 ; 禁用 Windows 重启管理器干扰，由 Pascal 脚本实现精准进程状态检测与友好关闭
 CloseApplications=no
 RestartApplications=no
-; 默认跟随系统语言，英文兜底，免额外弹窗打扰
+; 默认严格跟随系统 UI 语言，非中文环境一律纯英文兜底，零弹窗干扰
 ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "resources\installer\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "resources\installer\ChineseSimplified.isl"
 
 [CustomMessages]
 chinesesimplified.AppRunningPrompt=安装程序检测到 EasyTools 正在运行。%n%n是否自动关闭正在运行的 EasyTools 并继续安装？
