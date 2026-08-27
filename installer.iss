@@ -70,6 +70,37 @@ chinesesimplified.ContinueUninstall=继续卸载
 english.ContinueUninstall=Continue Uninstall
 chinesesimplified.AutoStartProgram=开机自动启动 EasyTools
 english.AutoStartProgram=Start EasyTools automatically on Windows startup
+chinesesimplified.TypeFull=完整体验安装 (推荐 · 默认启用全部 6 大模块)
+english.TypeFull=Full Installation (Recommended - All 6 Modules Enabled)
+chinesesimplified.TypeCompact=极简轻量安装
+english.TypeCompact=Compact Installation
+chinesesimplified.TypeCustom=自定义模块选择
+english.TypeCustom=Custom Module Selection
+chinesesimplified.CompSearch=超级文件检索 (Search) — 全盘秒级索引与快速启动 [设置 -> 快速搜索]
+english.CompSearch=Fast File Search (Search) — Instant disk indexing & launcher [Settings -> Search]
+chinesesimplified.CompCapture=截图贴图与录屏 (Capture) — 智能贴图、长截图、拾色器与高清录屏 [设置 -> 截屏与录屏]
+english.CompCapture=Screenshot, Pin & Recording (Capture) — Smart pin, OCR & HD recording [Settings -> Capture]
+chinesesimplified.CompGesture=鼠标手势与触发角 (Gesture) — 右键手势轨迹、屏幕四角触发与轮盘菜单 [设置 -> 鼠标手势]
+english.CompGesture=Mouse Gestures & Hot Corners (Gesture) — Trailing gestures, hot corners & radial menu [Settings -> Gestures]
+chinesesimplified.CompKeycast=按键回显 (Keycast) — 屏幕实时按键显示、机械键帽动效 [设置 -> 按键回显]
+english.CompKeycast=Keycast Overlay (Keycast) — Real-time keystroke visualization [Settings -> Keycast]
+chinesesimplified.CompDialog=文件对话框增强 (Dialog Enhancer) — 常用目录快速跳转、历史路径记忆 [设置 -> 对话框增强]
+english.CompDialog=File Dialog Enhancer (Dialog) — Quick folders & path memory [Settings -> Dialog Enhancer]
+chinesesimplified.CompSpotlight=演示专用特效 (Spotlight) — 屏幕聚光灯聚焦、点击水波纹与鼠标流光轨迹 [设置 -> 演示与聚光灯]
+english.CompSpotlight=Presentation FX (Spotlight) — Screen spotlight focus, click ripple & mouse trails [Settings -> Presentation & Spotlight]
+
+[Types]
+Name: "full"; Description: "{cm:TypeFull}"
+Name: "compact"; Description: "{cm:TypeCompact}"
+Name: "custom"; Description: "{cm:TypeCustom}"; Flags: iscustom
+
+[Components]
+Name: "search"; Description: "{cm:CompSearch}"; Types: full
+Name: "capture"; Description: "{cm:CompCapture}"; Types: full
+Name: "gesture"; Description: "{cm:CompGesture}"; Types: full
+Name: "keycast"; Description: "{cm:CompKeycast}"; Types: full
+Name: "dialogenhancer"; Description: "{cm:CompDialog}"; Types: full
+Name: "spotlight"; Description: "{cm:CompSpotlight}"; Types: full
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
