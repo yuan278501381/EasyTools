@@ -299,11 +299,8 @@ bool DialogNavigator::isFileDialog(HWND hwnd) {
     if (ctx.hasDefView) return true;
     if (ctx.namespaceTreeHwnd && (ctx.addressBandHwnd || ctx.okButtonHwnd)) return true;
 
-    // 3. Legacy 传统文件对话框判定：必须能成功响应 CDM_GETFOLDERPATH 消息
-    wchar_t cdmBuf[MAX_PATH] = {0};
-    LRESULT lr = 0;
-    if (sendMessageWithTimeout(hwnd, CDM_GETFOLDERPATH, MAX_PATH,
-                               reinterpret_cast<LPARAM>(cdmBuf), lr, 100) && lr > 0) {
+    // 3. Legacy 传统文件对话框判定：必须同时具备 Edit/Combo 控件与特定的子结构，绝不主动发送可能关闭普通弹窗的 CDM 消息
+    if (ctx.editHwnd && ctx.comboBoxHwnd) {
         return true;
     }
 
