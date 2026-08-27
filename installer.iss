@@ -165,12 +165,25 @@ begin
     DetailsButton.Caption := CustomMessage('ShowDetails');
 end;
 
+procedure ApplyComponentsListStyles();
+begin
+  { 世界级组件列表高分屏与呼吸感重构：行高38px + 左内边距16px，彻底杜绝复选框裁剪 }
+  WizardForm.ComponentsList.MinItemHeight := ScaleY(38);
+  WizardForm.ComponentsList.Offset := ScaleX(16);
+  WizardForm.ComponentsList.ShowLines := False;
+    WizardForm.ComponentsList.Font.Name := 'Microsoft YaHei UI';
+  WizardForm.ComponentsList.Font.Size := 9;
+
+  WizardForm.TasksList.MinItemHeight := ScaleY(34);
+  WizardForm.TasksList.Offset := ScaleX(16);
+  WizardForm.TasksList.ShowLines := False;
+    WizardForm.TasksList.Font.Name := 'Microsoft YaHei UI';
+  WizardForm.TasksList.Font.Size := 9;
+end;
+
 procedure InitializeWizard();
 begin
-  { Give native task checkboxes a full touch target. The stock minimum can clip
-    the glyph or caption after a per-monitor DPI/font change. }
-  WizardForm.TasksList.MinItemHeight := ScaleY(30);
-  WizardForm.TasksList.Offset := ScaleX(10);
+  ApplyComponentsListStyles();
   WizardForm.TasksList.ShowLines := False;
 
   // 创建详细信息展开/收起按钮
@@ -201,6 +214,10 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if (CurPageID = wpSelectComponents) or (CurPageID = wpSelectTasks) then
+  begin
+    ApplyComponentsListStyles();
+  end;
   if CurPageID = wpInstalling then
   begin
     if (ExtractTimerId = 0) and (TimerCallbackAddr <> 0) then

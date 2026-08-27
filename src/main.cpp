@@ -260,6 +260,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         return 1;
     }
 
+    // ── 5b. 检测并应用安装器生成的初始模块开关 (initial_modules.json) ──
+    const auto initialModulesPath = easy::core::WinUtils::getExeDirectory() / L"initial_modules.json";
+    std::error_code ecInit;
+    if (std::filesystem::exists(initialModulesPath, ecInit)) {
+        try {
+            std::ifstream initFile(initialModulesPath);
+            if (initFile.is_open()) {
+                nlohmann::json patch = nlohmann::json::parse(initFile, nullptr, false);
+                initFile.close();
+                if (!patch.is_discarded() && patch.is_object()) {
+                    easy::core::ConfigManager::instance().mergePatch(patch);
+                    LOG_INFO("成功从安装包初始配置同步模块开关并写入当前用户配置");
+                }
+            }
+            std::filesystem::remove(initialModulesPath, ecInit);
+        } catch (const std::exception& e) {
+            LOG_ERROR("解析或应用 initial_modules.json 失败: {}", e.what());
+        }
+    }
+
     const bool elevateSuppressed = hasCommandLineFlag(L"--no-elevate") ||
         commandLinePathValue(L"--performance-baseline-output=").has_value();
     if (easy::core::shouldAutoElevateOnStartup(
