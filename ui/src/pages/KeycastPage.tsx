@@ -58,7 +58,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
   fontSize: 36,
-  opacity: 100,
+  opacity: 85,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
@@ -490,7 +490,7 @@ export const KeycastPage: FC = () => {
                 max={100}
                 step={5}
                 unit="%"
-                value={settings.opacity ?? 100}
+                value={settings.opacity ?? 85}
                 onChange={(v) => saveSetting('opacity', v)}
                 ariaLabel={t('keycast.opacity', 'Overall Opacity')}
               />
