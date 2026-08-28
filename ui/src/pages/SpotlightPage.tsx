@@ -4,7 +4,7 @@
 
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Toggle, SettingGroup, Button } from '../components/UIKit';
+import { Card, Toggle, SettingGroup, Button, NumberInput } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import {
@@ -375,15 +375,14 @@ export const SpotlightPage: FC = () => {
               <span className="spotlight-page__prop-desc">{t('spotlight.spotlightSizeDesc', 'Circle diameter (pixels).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
-              <input
-                type="number"
-                className="spotlight-page__number-input"
+              <NumberInput
                 min={80}
                 max={600}
                 step={20}
+                unit="px"
                 value={settings.spotlightSize}
-                onChange={(e) => saveSetting('spotlightSize', Number(e.target.value) || 200)}
-                aria-label={t('spotlight.spotlightSize', 'Spotlight Size')}
+                onChange={(v) => saveSetting('spotlightSize', v)}
+                ariaLabel={t('spotlight.spotlightSize', 'Spotlight Size')}
               />
             </div>
           </div>
@@ -395,15 +394,14 @@ export const SpotlightPage: FC = () => {
               <span className="spotlight-page__prop-desc">{t('spotlight.animDurationDesc', 'Fade in/out speed (ms).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
-              <input
-                type="number"
-                className="spotlight-page__number-input"
+              <NumberInput
                 min={200}
                 max={3000}
                 step={100}
+                unit="ms"
                 value={settings.animationDurationMs}
-                onChange={(e) => saveSetting('animationDurationMs', Number(e.target.value) || 1000)}
-                aria-label={t('spotlight.animDuration', 'Animation Duration')}
+                onChange={(v) => saveSetting('animationDurationMs', v)}
+                ariaLabel={t('spotlight.animDuration', 'Animation Duration')}
               />
             </div>
           </div>
@@ -415,15 +413,14 @@ export const SpotlightPage: FC = () => {
               <span className="spotlight-page__prop-desc">{t('spotlight.holdDurationDesc', 'Duration spotlight stays fully visible (ms).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
-              <input
-                type="number"
-                className="spotlight-page__number-input"
+              <NumberInput
                 min={100}
                 max={5000}
                 step={100}
+                unit="ms"
                 value={settings.holdDurationMs}
-                onChange={(e) => saveSetting('holdDurationMs', Number(e.target.value) || 800)}
-                aria-label={t('spotlight.holdDuration', 'Hold Duration')}
+                onChange={(v) => saveSetting('holdDurationMs', v)}
+                ariaLabel={t('spotlight.holdDuration', 'Hold Duration')}
               />
             </div>
           </div>
@@ -435,15 +432,13 @@ export const SpotlightPage: FC = () => {
               <span className="spotlight-page__prop-desc">{t('spotlight.shakeThresholdDesc', 'Shake detection sensitivity (default 7).')}</span>
             </div>
             <div className="spotlight-page__prop-body">
-              <input
-                type="number"
-                className="spotlight-page__number-input"
+              <NumberInput
                 min={3}
                 max={20}
                 step={1}
                 value={settings.shakeThreshold}
-                onChange={(e) => saveSetting('shakeThreshold', Number(e.target.value) || 7)}
-                aria-label={t('spotlight.shakeThreshold', 'Shake Threshold')}
+                onChange={(v) => saveSetting('shakeThreshold', v)}
+                ariaLabel={t('spotlight.shakeThreshold', 'Shake Threshold')}
               />
             </div>
           </div>

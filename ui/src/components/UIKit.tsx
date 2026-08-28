@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useId, useRef, type FC, type ReactNode, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { ControlA11yContext, useControlA11y } from './ControlA11yContext';
 import './UIKit.css';
 
@@ -564,3 +564,164 @@ export const CodeBadge: FC<CodeBadgeProps> = ({
     {children}
   </code>
 );
+
+/* ── NumberInput (世界级数字微调输入组件) ─────────────────────────────────── */
+
+export interface NumberInputProps {
+  id?: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  disabled?: boolean;
+  className?: string;
+  ariaLabel?: string;
+}
+
+export const NumberInput: FC<NumberInputProps> = ({
+  id,
+  value,
+  onChange,
+  min = -Infinity,
+  max = Infinity,
+  step = 1,
+  unit,
+  disabled = false,
+  className = '',
+  ariaLabel,
+}) => {
+  const [draft, setDraft] = useState<string>(() => String(value ?? 0));
+  const isFocusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setDraft(String(value ?? 0));
+    }
+  }, [value]);
+
+  const commit = (text: string) => {
+    let num = Number(text.trim());
+    if (isNaN(num) || text.trim() === '') {
+      num = value ?? 0;
+    }
+    if (min !== undefined && num < min) num = min;
+    if (max !== undefined && num > max) num = max;
+    setDraft(String(num));
+    if (num !== value) {
+      onChange(num);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setDraft(raw);
+    const num = Number(raw);
+    if (!isNaN(num) && raw.trim() !== '') {
+      if (num >= min && num <= max) {
+        onChange(num);
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    commit(draft);
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    isFocusedRef.current = true;
+    e.target.select();
+  };
+
+  const stepUp = () => {
+    if (disabled) return;
+    const current = Number(draft) || value || 0;
+    const next = Math.min(max, current + step);
+    setDraft(String(next));
+    onChange(next);
+  };
+
+  const stepDown = () => {
+    if (disabled) return;
+    const current = Number(draft) || value || 0;
+    const next = Math.max(min, current - step);
+    setDraft(String(next));
+    onChange(next);
+  };
+
+  const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      commit(draft);
+      (e.target as HTMLInputElement).blur();
+    } else if (e.key === 'Escape') {
+      setDraft(String(value ?? 0));
+      (e.target as HTMLInputElement).blur();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      stepUp();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      stepDown();
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (isFocusedRef.current && !disabled) {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        stepUp();
+      } else {
+        stepDown();
+      }
+    }
+  };
+
+  return (
+    <div
+      className={`uikit-number-input-wrap ${disabled ? 'uikit-number-input-wrap--disabled' : ''} ${className}`.trim()}
+      onWheel={handleWheel}
+    >
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        className="uikit-number-input"
+        value={draft}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        disabled={disabled}
+        aria-label={ariaLabel}
+      />
+      {unit && <span className="uikit-number-unit">{unit}</span>}
+      <div className="uikit-number-steppers">
+        <button
+          type="button"
+          tabIndex={-1}
+          className="uikit-number-stepper-btn uikit-number-stepper-btn--up"
+          onClick={stepUp}
+          disabled={disabled || (Number(draft) || value) >= max}
+          aria-label="Increase"
+        >
+          <ChevronUp size={11} strokeWidth={2.8} />
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          className="uikit-number-stepper-btn uikit-number-stepper-btn--down"
+          onClick={stepDown}
+          disabled={disabled || (Number(draft) || value) <= min}
+          aria-label="Decrease"
+        >
+          <ChevronDown size={11} strokeWidth={2.8} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+

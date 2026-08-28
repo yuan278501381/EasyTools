@@ -1128,3 +1128,126 @@
   border-color: rgba(255, 255, 255, 0.05);
   color: var(--text-muted);
 }
+
+/* ── NumberInput (世界级微晶数字输入框) ─────────────────────────────────── */
+.uikit-number-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-sm, 6px);
+  padding: 3px 8px;
+  min-width: 78px;
+  max-width: 110px;
+  height: 32px;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+[data-theme="light"] .uikit-number-input-wrap {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.uikit-number-input-wrap:hover:not(.uikit-number-input-wrap--disabled) {
+  border-color: var(--card-border-hover, rgba(255, 255, 255, 0.22));
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.06));
+}
+
+[data-theme="light"] .uikit-number-input-wrap:hover:not(.uikit-number-input-wrap--disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.20);
+}
+
+.uikit-number-input-wrap:focus-within {
+  border-color: var(--primary, #3b82f6) !important;
+  box-shadow: 0 0 0 2.5px var(--primary-dim, rgba(59, 130, 246, 0.25)) !important;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.06));
+}
+
+[data-theme="light"] .uikit-number-input-wrap:focus-within {
+  background: #ffffff;
+  border-color: var(--primary, #3b82f6) !important;
+  box-shadow: 0 0 0 2.5px var(--primary-dim, rgba(59, 130, 246, 0.20)) !important;
+}
+
+.uikit-number-input {
+  width: 100%;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--text-primary, #ffffff);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  padding: 0;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.uikit-number-input:focus,
+.uikit-number-input:focus-visible {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.uikit-number-unit {
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
+  font-weight: 550;
+  color: var(--text-muted);
+  margin-left: 2px;
+  margin-right: 4px;
+  user-select: none;
+}
+
+.uikit-number-steppers {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin-left: auto;
+  gap: 1px;
+}
+
+.uikit-number-stepper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 14px;
+  height: 11px;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all var(--transition-fast);
+}
+
+.uikit-number-stepper-btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.12));
+  color: var(--primary, #3b82f6);
+}
+
+.uikit-number-stepper-btn:disabled {
+  opacity: 0.20;
+  cursor: not-allowed;
+}
+
+.uikit-number-input-wrap--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+
+

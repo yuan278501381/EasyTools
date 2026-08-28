@@ -719,8 +719,16 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         return contentResults;
     };
 
-    bool isExplicitContent = expr.hasContentFilter() && !expr.getContentQuery().empty();
+    bool isExplicitContent = expr.hasContentFilter();
     std::wstring contentPattern = isExplicitContent ? expr.getContentQuery() : wQuery;
+
+    // 语法安全门禁 1：若显式包含 content: / 内容: / c: 语法但未提供任何搜索词，直接 0ms 返回空结果
+    if (isExplicitContent && contentPattern.empty()) {
+        responseJson["results"] = nlohmann::json::array();
+        responseJson["totalIndexedFiles"] = totalIndexedFiles;
+        responseJson["elapsedMs"] = 0;
+        return responseJson;
+    }
 
     if (isExplicitContent || searchMode == "content") {
         auto contentMatches = runContentSearch(isExplicitContent ? wQuery : (L"content:" + wQuery), contentPattern, requestedLimit);

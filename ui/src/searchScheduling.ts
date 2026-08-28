@@ -19,7 +19,15 @@ export interface SearchScopeInput {
 }
 
 /** 显式声明全文检索的查询前缀。 */
-const CONTENT_PREFIXES = ['content:', '内容:'];
+const CONTENT_PREFIXES = ['content:', '\u5185\u5bb9:'];
+
+/**
+ * 检查当前查询是否仅为内容搜索语法前缀（未提供实际内容关键词）。
+ */
+export function isEmptyContentSyntax(query: string): boolean {
+  const lowered = query.trim().toLowerCase();
+  return lowered === 'content:' || lowered === '\u5185\u5bb9:' || lowered === 'c:';
+}
 
 /**
  * 判断一次查询是否需要读取文件内容。
@@ -37,21 +45,45 @@ export function isContentSearch({ query, activeCategory, searchMode }: SearchSco
   return lowered.startsWith('c:') && !lowered.startsWith('c:\\') && !lowered.startsWith('c:/');
 }
 
-/** 内容搜索的防抖时长。读盘代价高，等用户明显停顿后再发。 */
-export const CONTENT_DEBOUNCE_MS = 400;
+/** 内容搜索的防抖时长分级：读盘与文本提取代价高，按关键词成熟度分级。 */
+export const CONTENT_DEBOUNCE_MS = {
+  short: 500,  // <= 2 字符（如 content:cr）：给足打字缓冲，避免单字母过早扫盘
+  normal: 350, // >= 3 字符（如 content:create）：用户输入完单词自然停顿即刻触发
+} as const;
 
-/** 文件名搜索的防抖时长，按前缀长度分级：越短命中越多、越慢。 */
+/** 文件名搜索的防抖时长分级：基于人类正常击键间隔 (150~250ms) 精准吸纳连续打字。 */
 export const NAME_DEBOUNCE_MS = {
-  veryShort: 240,
-  short: 160,
-  normal: 110,
+  veryShort: 300, // <= 1 字符：防止单字母引发大范围内存初筛
+  short: 220,     // 2~3 字符：平滑吸纳快速打字击键
+  normal: 180,    // >= 4 字符：精准词停顿 180ms 即刻毫秒级呈现
 } as const;
 
 /**
+ * 提取去除语法前缀后的核心搜索词。
+ */
+export function extractContentKeyword(query: string): string {
+  const trimmed = query.trim();
+  const lowered = trimmed.toLowerCase();
+  for (const prefix of CONTENT_PREFIXES) {
+    if (lowered.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim();
+    }
+  }
+  if (lowered.startsWith('c:') && !lowered.startsWith('c:\\') && !lowered.startsWith('c:/')) {
+    return trimmed.slice(2).trim();
+  }
+  return trimmed;
+}
+
+/**
  * 计算一次查询应当等待的防抖时长（毫秒）。
+ * 基于人类打字生理节奏 (150ms~250ms/键)，在连续键入期间平滑静默，用户手指停顿时秒级响应。
  */
 export function resolveDebounceMs(input: SearchScopeInput): number {
-  if (isContentSearch(input)) return CONTENT_DEBOUNCE_MS;
+  if (isContentSearch(input)) {
+    const keyword = extractContentKeyword(input.query);
+    return keyword.length <= 2 ? CONTENT_DEBOUNCE_MS.short : CONTENT_DEBOUNCE_MS.normal;
+  }
   const length = input.query.length;
   if (length <= 1) return NAME_DEBOUNCE_MS.veryShort;
   if (length <= 3) return NAME_DEBOUNCE_MS.short;

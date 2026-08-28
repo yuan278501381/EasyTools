@@ -47,8 +47,10 @@ private:
     void handleDialogHiding(HWND hwnd);
     void handleDialogDestroyed(HWND hwnd);
     void handleForegroundChange(HWND hwnd);
+    void handleDialogLocationChange(HWND hwnd);
+    void handleDialogInvoked(HWND hwnd, LONG idObject, LONG idChild);
     void monitorThreadMain();
-    void finalizeDialog(HWND hwnd);
+    void finalizeDialog(HWND hwnd, bool windowStillReadable = false);
     static HWND rootWindow(HWND hwnd);
 
     // 专用钩子线程：SetWinEventHook(WINEVENT_OUTOFCONTEXT) 必须在有消息循环的线程注册
@@ -58,6 +60,8 @@ private:
     std::atomic<bool> m_running{false};
     HWINEVENTHOOK m_hookShow{nullptr};
     HWINEVENTHOOK m_hookForeground{nullptr};
+    HWINEVENTHOOK m_hookLocation{nullptr};
+    HWINEVENTHOOK m_hookInvoke{nullptr};
 
     std::thread m_hookThread;             // 专用钩子线程
     std::atomic<DWORD> m_hookThreadId{0}; // 钩子线程 tid，用于 PostThreadMessage
