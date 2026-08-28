@@ -105,8 +105,7 @@ void DialogEngine::hookThreadMain() {
     PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
     m_hookThreadId.store(GetCurrentThreadId(), std::memory_order_release);
 
-    // 仅监听顶层对话框生命周期 SHOW / HIDE / DESTROY 与 FOREGROUND 激活
-    // 彻底废除高频 LOCATIONCHANGE 与 INVOKED 钩子，保障 0 性能损耗与 0 消息干扰
+    // EVENT_OBJECT_DESTROY(0x8001) <= SHOW(0x8002) <= HIDE(0x8003)。
     m_hookShow = SetWinEventHook(
         EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
         nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -121,6 +120,20 @@ void DialogEngine::hookThreadMain() {
         LOG_WARN("DialogEngine: 前台窗口钩子注册失败, error={}", GetLastError());
     }
 
+    m_hookLocation = SetWinEventHook(
+        EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+    if (!m_hookLocation) {
+        LOG_WARN("DialogEngine: 位置钩子注册失败, error={}", GetLastError());
+    }
+
+    m_hookInvoke = SetWinEventHook(
+        EVENT_OBJECT_INVOKED, EVENT_OBJECT_INVOKED,
+        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+    if (!m_hookInvoke) {
+        LOG_WARN("DialogEngine: 按钮调用钩子注册失败, error={}", GetLastError());
+    }
+
     m_hookReady.store(true, std::memory_order_release);
     LOG_INFO("DialogEngine: WinEvent 线程就绪, tid={}", GetCurrentThreadId());
 
@@ -131,6 +144,8 @@ void DialogEngine::hookThreadMain() {
 
     if (m_hookShow)       { UnhookWinEvent(m_hookShow);       m_hookShow = nullptr; }
     if (m_hookForeground) { UnhookWinEvent(m_hookForeground); m_hookForeground = nullptr; }
+    if (m_hookLocation)   { UnhookWinEvent(m_hookLocation);   m_hookLocation = nullptr; }
+    if (m_hookInvoke)     { UnhookWinEvent(m_hookInvoke);     m_hookInvoke = nullptr; }
     LOG_INFO("DialogEngine: WinEvent 线程已退出");
 }
 
@@ -213,8 +228,14 @@ void DialogEngine::onWinEvent(DWORD event, HWND hwnd, LONG idObject, LONG idChil
         case EVENT_OBJECT_DESTROY:
             if (root == hwnd) handleDialogDestroyed(root);
             break;
+        case EVENT_OBJECT_INVOKED:
+            handleDialogInvoked(hwnd, idObject, idChild);
+            break;
         case EVENT_SYSTEM_FOREGROUND:
             handleForegroundChange(root);
+            break;
+        case EVENT_OBJECT_LOCATIONCHANGE:
+            handleDialogLocationChange(root);
             break;
         default:
             break;
@@ -242,6 +263,28 @@ void DialogEngine::handleDialogShown(HWND hwnd) {
     LOG_DEBUG("DialogEngine: 收到候选对话框 SHOW, hwnd=0x{:X}, pid={}",
               reinterpret_cast<uintptr_t>(hwnd), processId);
     m_monitorCv.notify_one();
+}
+
+void DialogEngine::handleDialogInvoked(HWND hwnd, LONG, LONG idChild) {
+    const HWND root = rootWindow(hwnd);
+    if (!root) return;
+
+    int controlId = hwnd == root ? static_cast<int>(idChild) : GetDlgCtrlID(hwnd);
+    if (GetDlgItem(root, IDOK) == hwnd) controlId = IDOK;
+    if (GetDlgItem(root, IDCANCEL) == hwnd) controlId = IDCANCEL;
+    if (controlId != IDOK && controlId != IDCANCEL) return;
+
+    std::lock_guard lock(m_mutex);
+    auto it = m_sessions.find(root);
+    if (it == m_sessions.end()) return;
+    it->second.confirmed = controlId == IDOK;
+    it->second.cancelled = controlId == IDCANCEL;
+}
+
+void DialogEngine::handleDialogLocationChange(HWND hwnd) {
+    if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
+        DialogRibbonOverlay::instance().updatePosition();
+    }
 }
 
 void DialogEngine::handleDialogHiding(HWND hwnd) {

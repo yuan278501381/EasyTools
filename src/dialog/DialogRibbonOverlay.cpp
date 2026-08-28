@@ -174,11 +174,7 @@ void DialogRibbonOverlay::hide() {
 void DialogRibbonOverlay::doAttachToDialog() {
     // doUpdatePosition is the single authority that may show the overlay.
     // A queued stale ATTACH must never re-show it after validation failed.
-    if (doUpdatePosition()) {
-        if (m_hwnd && IsWindow(m_hwnd)) {
-            SetTimer(m_hwnd, 1001, 80, nullptr);
-        }
-    }
+    doUpdatePosition();
 }
 
 void DialogRibbonOverlay::doHide() {
@@ -188,7 +184,6 @@ void DialogRibbonOverlay::doHide() {
 
 void DialogRibbonOverlay::doHideLocked() {
     if (m_hwnd && IsWindow(m_hwnd)) {
-        KillTimer(m_hwnd, 1001);
         ShowWindow(m_hwnd, SW_HIDE);
     }
     m_targetDialog = nullptr;
@@ -238,13 +233,12 @@ bool DialogRibbonOverlay::doUpdatePosition() {
             return false;
         }
 
-        // 检查前台激活状态：仅在用户切换到完全不相关的其他进程时隐藏，
-        // 对话框内部子控件获取焦点、切换子窗口均稳定保持展示
+        // 2. 检查前台激活状态：仅在明确切换到其他无关进程且非刚附着时隐藏
         const HWND foreground = GetForegroundWindow();
-        if (foreground) {
+        if (foreground && foreground != m_hwnd && foreground != m_targetDialog) {
             DWORD fgPid = 0;
             GetWindowThreadProcessId(foreground, &fgPid);
-            if (fgPid != m_targetProcessId && fgPid != GetCurrentProcessId()) {
+            if (fgPid != 0 && fgPid != m_targetProcessId && fgPid != GetCurrentProcessId()) {
                 if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
                 return false;
             }
