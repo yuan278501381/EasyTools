@@ -57,7 +57,7 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   mergeRecentKeys: true,
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
-  fontSize: 28,
+  fontSize: 36,
   opacity: 100,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
@@ -510,10 +510,10 @@ export const KeycastPage: FC = () => {
                 type="number"
                 className="keycast-page__number-input"
                 min={12}
-                max={36}
+                max={64}
                 step={2}
                 value={settings.fontSize}
-                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 20)}
+                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 36)}
                 aria-label={t('keycast.fontSize', 'Keycap Font Size')}
               />
             </div>

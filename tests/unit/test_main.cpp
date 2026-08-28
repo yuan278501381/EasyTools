@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // test_main.cpp — EasyTools 单元测试套件 (基于 Google Test / GMock 工业级测试架构)
 //
 // 覆盖核心纯业务逻辑、状态机、多格式解析器与高分屏适配:
@@ -5198,7 +5198,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     // 1. 测试默认配置获取
     easy::keycast::KeycastSettings s = overlay.getSettings();
     EXPECT_TRUE(s.enabled);
-    EXPECT_EQ(s.fontSize, 28);
+    EXPECT_EQ(s.fontSize, 36);
     EXPECT_EQ(s.firstKeyAnim, "slide");
     EXPECT_EQ(s.subsequentKeyAnim, "fade");
     EXPECT_TRUE(s.rowCascadeAnim);

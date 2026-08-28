@@ -124,7 +124,7 @@ bool KeycastOverlay::init() {
         m_settings.mergeRecentKeys = cfg.get<bool>("/keycast/mergeRecentKeys", true);
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);
         m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 2500);
-        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 28);
+        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 36);
         m_settings.opacity = cfg.get<int>("/keycast/opacity", 100);
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
