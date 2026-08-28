@@ -233,15 +233,15 @@ bool DialogRibbonOverlay::doUpdatePosition() {
             return false;
         }
 
-        // 2. 检查前台激活状态：仅在明确切换到其他无关进程且非刚附着时隐藏
+        // 2. 前台归属硬校验：胶囊只属于文件对话框本身。
+        // 切回同一 EXE 的主窗口（如 VS Code 主编辑器）或其他窗口时必须立刻隐藏，
+        // 绝不能把“同进程”误当作“同一个文件对话框”。
         const HWND foreground = GetForegroundWindow();
-        if (foreground && foreground != m_hwnd && foreground != m_targetDialog) {
-            DWORD fgPid = 0;
-            GetWindowThreadProcessId(foreground, &fgPid);
-            if (fgPid != 0 && fgPid != m_targetProcessId && fgPid != GetCurrentProcessId()) {
-                if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
-                return false;
-            }
+        const HWND foregroundRoot = foreground ? GetAncestor(foreground, GA_ROOT) : nullptr;
+        if (foreground != m_hwnd && foreground != m_targetDialog &&
+            foregroundRoot != m_targetDialog) {
+            if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
+            return false;
         }
 
         RECT dlgRect;
