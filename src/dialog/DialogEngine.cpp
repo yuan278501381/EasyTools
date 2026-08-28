@@ -293,6 +293,7 @@ void DialogEngine::handleDialogHiding(HWND hwnd) {
         auto it = m_sessions.find(hwnd);
         if (it == m_sessions.end()) return;
         it->second.closeRequested = true;
+        it->second.readableAtClose = true;
     }
     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
         DialogRibbonOverlay::instance().hide();
@@ -351,7 +352,7 @@ void DialogEngine::monitorThreadMain() {
             try {
                 if (!IsWindow(hwnd)) {
                     stage = "finalize-invalid-window";
-                    finalizeDialog(hwnd);
+                    finalizeDialog(hwnd, false);
                     continue;
                 }
 
@@ -366,7 +367,7 @@ void DialogEngine::monitorThreadMain() {
 
                 if (snapshot.closeRequested) {
                     stage = "finalize-closed-dialog";
-                    finalizeDialog(hwnd);
+                    finalizeDialog(hwnd, snapshot.readableAtClose && IsWindow(hwnd));
                     continue;
                 }
 
@@ -400,18 +401,33 @@ void DialogEngine::monitorThreadMain() {
                         continue;
                     }
 
+                    stage = "read-initial-folder";
+                    const std::string initialFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
+                    stage = "read-initial-selection";
+                    const std::string initialSelection = DialogNavigator::getSelectedPath(hwnd);
+                    stage = "resolve-restore-path";
+                    const std::string restorePath =
+                        PathMemoryManager::instance().isPerAppMemoryEnabled()
+                            ? PathMemoryManager::instance().getEffectiveAppPath(processName)
+                            : std::string{};
+
                     stage = "commit-initial-session";
                     {
                         std::lock_guard lock(m_mutex);
                         auto it = m_sessions.find(hwnd);
                         if (it == m_sessions.end()) continue;
                         it->second.processName = processName;
+                        it->second.initialFolder = initialFolder;
+                        it->second.currentFolder = initialFolder;
+                        it->second.initialSelection = initialSelection;
+                        it->second.restorePath = restorePath;
                         it->second.initialized = true;
                         it->second.lastPoll = now;
                     }
 
-                    LOG_INFO("DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}",
-                             reinterpret_cast<uintptr_t>(hwnd), snapshot.processId, processName);
+                    LOG_INFO("DialogEngine: 文件对话框会话已建立, hwnd=0x{:X}, pid={}, exe={}, initial={}, restore={}",
+                             reinterpret_cast<uintptr_t>(hwnd), snapshot.processId,
+                             processName, initialFolder, restorePath);
 
                     if (PathMemoryManager::instance().isRibbonEnabled()) {
                         stage = "attach-ribbon";
@@ -420,13 +436,51 @@ void DialogEngine::monitorThreadMain() {
                     continue;
                 }
 
-                // 零侵扰架构准则：绝不在对话框弹出时自动篡改地址栏或强行发送虚拟回车，
-                // 彻底杜绝与宿主程序（如 VS Code、Office）初始意图及选区焦点的冲突。
-                // 记忆路径与工作区一律由顶部 Ribbon 悬浮胶囊栏提供一键直达，实现 100% 用户可控。
+                if (!snapshot.restoreAttempted && now - snapshot.discoveredAt >= 180ms) {
+                    stage = "mark-restore-attempt";
+                    {
+                        std::lock_guard lock(m_mutex);
+                        auto it = m_sessions.find(hwnd);
+                        if (it == m_sessions.end()) continue;
+                        it->second.restoreAttempted = true;
+                    }
+
+                    if (!snapshot.restorePath.empty() &&
+                        !equalsIgnoreCase(snapshot.restorePath, snapshot.initialFolder)) {
+                        stage = "restore-folder";
+                        const bool restored = DialogNavigator::instance().navigateToFolder(
+                            hwnd, snapshot.restorePath);
+                        if (restored) {
+                            std::lock_guard lock(m_mutex);
+                            auto it = m_sessions.find(hwnd);
+                            if (it != m_sessions.end()) it->second.currentFolder = snapshot.restorePath;
+                        }
+                        LOG_INFO("DialogEngine: EXE 目录恢复完成, exe={}, path={}, success={}",
+                                 snapshot.processName, snapshot.restorePath, restored);
+                    }
+                }
+
+                if (now - snapshot.lastPoll < 200ms) continue;
+
+                stage = "poll-current-folder";
+                const std::string currentFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
+                stage = "poll-selection";
+                const std::string selectedPath = DialogNavigator::getSelectedPath(hwnd);
+                stage = "commit-poll-snapshot";
+                {
+                    std::lock_guard lock(m_mutex);
+                    auto it = m_sessions.find(hwnd);
+                    if (it == m_sessions.end()) continue;
+                    it->second.lastPoll = now;
+                    if (!currentFolder.empty()) it->second.currentFolder = currentFolder;
+                    if (!selectedPath.empty() &&
+                        !equalsIgnoreCase(selectedPath, it->second.initialSelection)) {
+                        it->second.lastSelection = selectedPath;
+                        it->second.selectionChanged = true;
+                    }
+                }
             } catch (const std::exception& error) {
                 logWorkerFailureNoexcept("monitor", stage, hwnd, error.what());
-                // Quarantine only the failing dialog. Other applications and
-                // the rest of EasyTools must remain available.
                 try {
                     std::lock_guard lock(m_mutex);
                     m_sessions.erase(hwnd);
@@ -456,7 +510,7 @@ void DialogEngine::monitorThreadMain() {
     }
 }
 
-void DialogEngine::finalizeDialog(HWND hwnd) {
+void DialogEngine::finalizeDialog(HWND hwnd, bool windowStillReadable) {
     if (!hwnd) return;
 
     DialogSession session;
@@ -466,6 +520,39 @@ void DialogEngine::finalizeDialog(HWND hwnd) {
         if (it == m_sessions.end()) return;
         session = it->second;
         m_sessions.erase(it);
+    }
+
+    if (!session.initialized) return;
+
+    std::string selectedPath;
+    std::string currentFolder = session.currentFolder;
+    if (windowStillReadable && IsWindow(hwnd)) {
+        selectedPath = DialogNavigator::getSelectedPath(hwnd);
+        const std::string latestFolder = DialogNavigator::getCurrentDialogFolder(hwnd);
+        if (!latestFolder.empty()) currentFolder = latestFolder;
+    }
+
+    if (selectedPath.empty() && session.selectionChanged) {
+        selectedPath = session.lastSelection;
+    }
+
+    const bool shouldRecord = !session.cancelled &&
+                              (!currentFolder.empty() || !selectedPath.empty());
+
+    if (shouldRecord) {
+        std::string directory = PathMemoryManager::directoryForSelection(currentFolder);
+        if (directory.empty()) {
+            directory = PathMemoryManager::directoryForSelection(selectedPath, currentFolder);
+        }
+        if (!directory.empty()) {
+            PathMemoryManager::instance().recordAppPath(session.processName, directory);
+            LOG_INFO("DialogEngine: 已提交 EXE 目录记忆, exe={}, current={}, selected={}, directory={}, confirmed={}",
+                     session.processName, currentFolder, selectedPath, directory,
+                     session.confirmed);
+        }
+    } else {
+        LOG_INFO("DialogEngine: 对话框关闭但未提交记忆, exe={}, cancelled={}, confirmed={}, selectionChanged={}",
+                 session.processName, session.cancelled, session.confirmed, session.selectionChanged);
     }
 
     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {

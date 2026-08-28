@@ -50,7 +50,7 @@ private:
     void handleDialogLocationChange(HWND hwnd);
     void handleDialogInvoked(HWND hwnd, LONG idObject, LONG idChild);
     void monitorThreadMain();
-    void finalizeDialog(HWND hwnd);
+    void finalizeDialog(HWND hwnd, bool windowStillReadable = false);
     static HWND rootWindow(HWND hwnd);
 
     // 专用钩子线程：SetWinEventHook(WINEVENT_OUTOFCONTEXT) 必须在有消息循环的线程注册
