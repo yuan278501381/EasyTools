@@ -27,8 +27,8 @@ namespace {
 SIZE getTrayWindowSize(POINT anchor, int customW = 0, int customH = 0) {
     const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
     const float scale = easy::core::dpi::scaleForMonitor(monitor);
-    const int effectiveW = customW > 0 ? std::clamp(customW, 180, 220) : TrayWindowStyle::BaseWidth;
-    const int effectiveH = customH > 0 ? std::clamp(customH, 100, 500) : TrayWindowStyle::BaseHeight;
+    const int effectiveW = customW > 0 ? std::clamp(customW, 180, 260) : TrayWindowStyle::BaseWidth;
+    const int effectiveH = customH > 0 ? std::clamp(customH, 100, 550) : TrayWindowStyle::BaseHeight;
     return {
         static_cast<LONG>(effectiveW * scale),
         static_cast<LONG>(effectiveH * scale)

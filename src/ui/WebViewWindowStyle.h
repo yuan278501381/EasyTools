@@ -19,7 +19,7 @@ struct SearchWindowStyle {
 };
 
 struct TrayWindowStyle {
-    static constexpr int BaseWidth = 200;
+    static constexpr int BaseWidth = 220;
     static constexpr int BaseHeight = 330;
     static constexpr int BaseScreenMargin = 10;
 

@@ -1398,7 +1398,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "restartToApply": "Plugin settings updated",
-    "restartNow": "Restart now"
+    "restartNow": "Restart"
   },
   "dialog": {
     "title": "File Dialog Enhancer",

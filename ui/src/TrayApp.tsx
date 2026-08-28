@@ -20,13 +20,13 @@ export default function TrayApp() {
     'capture', 'search', 'gesture', 'keycast', 'spotlight', 'dialogenhancer', 'dialog_enhancer'
   ]));
 
-  // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 200px，仅高度自适应内容）
-  const reportSize = useCallback(() => {
+    // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 220px，仅高度自适应内容）
+    const reportSize = useCallback(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
     // 加上 #root padding (4px * 2 = 8px) 阴影容差
     const totalHeight = Math.ceil(rect.height + 8);
-    const fixedWidth = 200;
+    const fixedWidth = 220;
     if (totalHeight > 20) {
       void bridgeRequest('tray.resize', { width: fixedWidth, height: totalHeight }).catch(() => {});
     }
@@ -292,7 +292,7 @@ export default function TrayApp() {
         >
           <span className="tray-restart-banner__info">
             <RotateCw size={12} className="tray-menu__icon--spinning" />
-            <span>{t('tray.restartToApply', 'Plugin settings updated')}</span>
+            <span className="tray-restart-banner__text">{t('tray.restartToApply', 'Plugin settings updated')}</span>
           </span>
           <span className="tray-restart-banner__btn">
             {t('tray.restartNow', 'Restart')}
