@@ -1128,3 +1128,89 @@
   border-color: rgba(255, 255, 255, 0.05);
   color: var(--text-muted);
 }
+
+/* ── NumberInput (世界级微晶数字输入框) ─────────────────────────────────── */
+.uikit-number-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px 8px;
+  min-width: 72px;
+  max-width: 120px;
+  height: 32px;
+  box-sizing: border-box;
+  transition: all var(--transition-fast);
+}
+
+.uikit-number-input-wrap:focus-within {
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 0 0 2px var(--primary-dim, rgba(59, 130, 246, 0.25));
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.06));
+}
+
+.uikit-number-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #ffffff);
+  font-family: var(--font-mono);
+  font-size: 0.90rem;
+  font-weight: 550;
+  line-height: 1.4;
+  outline: none;
+  text-align: left;
+  padding: 0;
+}
+
+.uikit-number-unit {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 4px;
+  user-select: none;
+}
+
+.uikit-number-steppers {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin-left: 6px;
+  gap: 1px;
+}
+
+.uikit-number-stepper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 14px;
+  height: 11px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all var(--transition-fast);
+}
+
+.uikit-number-stepper-btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.1));
+  color: var(--primary, #3b82f6);
+}
+
+.uikit-number-stepper-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.uikit-number-input-wrap--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+

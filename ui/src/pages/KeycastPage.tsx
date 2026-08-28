@@ -4,7 +4,7 @@
 
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Toggle, SettingGroup, Button } from '../components/UIKit';
+import { Card, Toggle, SettingGroup, Button, NumberInput } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import {
@@ -445,15 +445,14 @@ export const KeycastPage: FC = () => {
                 <span className="keycast-page__prop-desc">{t('keycast.mergeTimeoutDesc', 'Time window (ms) to merge consecutive keystrokes into the same horizontal line.')}</span>
               </div>
               <div className="keycast-page__prop-body">
-                <input
-                  type="number"
-                  className="keycast-page__number-input"
+                <NumberInput
                   min={300}
                   max={5000}
                   step={100}
+                  unit="ms"
                   value={settings.mergeTimeoutMs || 1200}
-                  onChange={(e) => saveSetting('mergeTimeoutMs', Number(e.target.value) || 1200)}
-                  aria-label={t('keycast.mergeTimeout', 'In-Line Push Timeout')}
+                  onChange={(v) => saveSetting('mergeTimeoutMs', v)}
+                  ariaLabel={t('keycast.mergeTimeout', 'In-Line Push Timeout')}
                 />
               </div>
             </div>
@@ -466,15 +465,14 @@ export const KeycastPage: FC = () => {
               <span className="keycast-page__prop-desc">{t('keycast.displayDurationDesc', 'Duration each keystroke capsule stays on screen (ms).')}</span>
             </div>
             <div className="keycast-page__prop-body">
-              <input
-                type="number"
-                className="keycast-page__number-input"
+              <NumberInput
                 min={500}
                 max={10000}
                 step={500}
+                unit="ms"
                 value={settings.displayDurationMs}
-                onChange={(e) => saveSetting('displayDurationMs', Number(e.target.value) || 2500)}
-                aria-label={t('keycast.displayDuration', 'Hold Duration')}
+                onChange={(v) => saveSetting('displayDurationMs', v)}
+                ariaLabel={t('keycast.displayDuration', 'Hold Duration')}
               />
             </div>
           </div>
@@ -487,15 +485,14 @@ export const KeycastPage: FC = () => {
               <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', 'Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay.')}</span>
             </div>
             <div className="keycast-page__prop-body">
-              <input
-                type="number"
-                className="keycast-page__number-input"
+              <NumberInput
                 min={20}
                 max={100}
                 step={5}
+                unit="%"
                 value={settings.opacity ?? 100}
-                onChange={(e) => saveSetting('opacity', Math.max(20, Math.min(100, Number(e.target.value) || 100)))}
-                aria-label={t('keycast.opacity', 'Overall Opacity')}
+                onChange={(v) => saveSetting('opacity', v)}
+                ariaLabel={t('keycast.opacity', 'Overall Opacity')}
               />
             </div>
           </div>
@@ -506,15 +503,14 @@ export const KeycastPage: FC = () => {
               <span className="keycast-page__prop-desc">{t('keycast.fontSizeDesc', 'Base font size for keycast (px). Capsule trays, modifier keycaps, Windows logo and paddings scale dynamically in golden ratio.')}</span>
             </div>
             <div className="keycast-page__prop-body">
-              <input
-                type="number"
-                className="keycast-page__number-input"
+              <NumberInput
                 min={12}
                 max={64}
                 step={2}
+                unit="px"
                 value={settings.fontSize}
-                onChange={(e) => saveSetting('fontSize', Number(e.target.value) || 36)}
-                aria-label={t('keycast.fontSize', 'Keycap Font Size')}
+                onChange={(v) => saveSetting('fontSize', v)}
+                ariaLabel={t('keycast.fontSize', 'Keycap Font Size')}
               />
             </div>
           </div>
@@ -556,15 +552,14 @@ export const KeycastPage: FC = () => {
               <span className="keycast-page__prop-desc">{t('keycast.modifierKeycapOpacityDesc', 'Background base opacity (0%~100%, only affects background, text remains crisp and clear).')}</span>
             </div>
             <div className="keycast-page__prop-body">
-              <input
-                type="number"
-                className="keycast-page__number-input"
+              <NumberInput
                 min={0}
                 max={100}
                 step={2}
+                unit="%"
                 value={settings.modifierKeycapOpacity ?? 65}
-                onChange={(e) => saveSetting('modifierKeycapOpacity', Math.max(0, Math.min(100, Number(e.target.value) || 65)))}
-                aria-label={t('keycast.modifierKeycapOpacity', 'Modifier Base Opacity')}
+                onChange={(v) => saveSetting('modifierKeycapOpacity', v)}
+                ariaLabel={t('keycast.modifierKeycapOpacity', 'Modifier Base Opacity')}
               />
             </div>
           </div>

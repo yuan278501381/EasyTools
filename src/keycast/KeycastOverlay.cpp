@@ -1128,10 +1128,9 @@ void KeycastOverlay::render() {
         }
 
         float currentX = startX;
-        const float globalOpacity = (std::max)(0.20f, (std::min)(1.0f, static_cast<float>(settings.opacity) / 100.0f));
         for (size_t c = 0; c < row.items.size(); ++c) {
             const auto& item = row.items[c];
-            float itemAlpha = row.opacity * item.opacity * globalOpacity;
+            float itemAlpha = row.opacity * item.opacity;
             if (itemAlpha < 0.01f) continue;
 
             float drawX = currentX + item.offsetX * m_dpiScale;
@@ -1188,7 +1187,8 @@ void KeycastOverlay::render() {
     HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
     SIZE size = {m_width, m_height};
-    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    const BYTE globalAlpha = static_cast<BYTE>((std::clamp)(settings.opacity, 20, 100) * 255 / 100);
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, globalAlpha, AC_SRC_ALPHA};
     UpdateLayeredWindow(m_hwnd, hdcScreen, nullptr, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
 }

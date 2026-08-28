@@ -102,6 +102,9 @@ public:
             if (params.contains("fontSize") && params["fontSize"].is_number_integer()) {
                 s.fontSize = params["fontSize"].get<int>();
             }
+            if (params.contains("opacity") && params["opacity"].is_number_integer()) {
+                s.opacity = params["opacity"].get<int>();
+            }
             if (params.contains("textColor") && params["textColor"].is_string()) {
                 s.textColor = params["textColor"].get<std::string>();
             }
