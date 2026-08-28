@@ -2205,6 +2205,14 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 已阻止 WebView 导航到非可信来源",
             "[{}] operation WebView operation"
         }},
+        {"贴图编辑底图复制异常: {}", {
+            "[{}] 贴图编辑底图复制异常: {}",
+            "[{}] Exception copying pinned screenshot background: {}"
+        }},
+        {"贴图编辑底图复制发生未知异常", {
+            "[{}] 贴图编辑底图复制发生未知异常",
+            "[{}] Unknown exception copying pinned screenshot background"
+        }},
     };
     return catalog;
 }

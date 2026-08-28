@@ -260,15 +260,31 @@ void CaptureOverlay::startEditPinned(const cv::Mat& image, const CaptureRegion& 
         return;
     }
 
-    // 将贴图原图覆盖至对应选区区域
+    // 将贴图原图覆盖至对应选区区域（确保 3 通道与 4 通道类型严格对齐）
     cv::Rect roi(m_state.dragStart.x, m_state.dragStart.y, region.width, region.height);
     roi &= cv::Rect(0, 0, m_state.frozenScreen.cols, m_state.frozenScreen.rows);
-    if (roi.width == image.cols && roi.height == image.rows) {
-        cv::Mat bgrImage = image;
-        if (image.channels() == 4) {
-            cv::cvtColor(image, bgrImage, cv::COLOR_BGRA2BGR);
+    if (roi.width == image.cols && roi.height == image.rows && !m_state.frozenScreen.empty()) {
+        try {
+            cv::Mat targetImage = image;
+            const int targetChannels = m_state.frozenScreen.channels();
+            if (targetChannels == 4 && image.channels() == 3) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGR2BGRA);
+            } else if (targetChannels == 3 && image.channels() == 4) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGRA2BGR);
+            } else if (targetChannels == 1 && image.channels() != 1) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGR2GRAY);
+            }
+            if (targetImage.type() == m_state.frozenScreen.type()) {
+                targetImage.copyTo(m_state.frozenScreen(roi));
+            } else {
+                targetImage.convertTo(targetImage, m_state.frozenScreen.type());
+                targetImage.copyTo(m_state.frozenScreen(roi));
+            }
+        } catch (const std::exception& ex) {
+            LOG_ERROR("贴图编辑底图复制异常: {}", ex.what());
+        } catch (...) {
+            LOG_ERROR("贴图编辑底图复制发生未知异常");
         }
-        bgrImage.copyTo(m_state.frozenScreen(roi));
     }
 
     if (!m_renderer.updateScreenBitmap(m_state.frozenScreen)) {
