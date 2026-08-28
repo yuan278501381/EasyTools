@@ -1,5 +1,6 @@
 #include "MftParser.h"
 #include "PinyinEngine.h"
+#include "content/ContentSearchEngine.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <iostream>
@@ -381,7 +382,18 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             return lazyPath;
         };
 
-        // 1. 优先执行毫秒级纯内存表达式比对 (绝大部分非匹配文件在此立即返回 false)
+        // 1. 若为全文内容搜索模式，提前剪枝目录与不支持的二进制/媒体格式
+        if (expr.hasContentFilter()) {
+            if (record.isDirectory) return false;
+            size_t dotPos = record.fileName.rfind(L'.');
+            if (dotPos == std::wstring::npos) return false;
+            std::wstring_view ext = std::wstring_view(record.fileName).substr(dotPos + 1);
+            if (!easy::service::content::ContentSearchEngine::instance().canSearchContent(ext)) {
+                return false;
+            }
+        }
+
+        // 2. 优先执行毫秒级纯内存表达式比对 (绝大部分非匹配文件在此立即返回 false)
         if (!expr.matchesWithLazyPath(record, static_cast<wchar_t>(m_DriveLetter), getPath)) {
             return false;
         }
