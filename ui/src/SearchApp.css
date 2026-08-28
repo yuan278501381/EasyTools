@@ -2803,3 +2803,190 @@ html[data-surface="search"] #root {
     opacity: 0.45;
     cursor: not-allowed;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 全息深度内容检索加载舱 (Deep Content Scan Holographic View)
+ * ───────────────────────────────────────────────────────────────────────────── */
+.search-empty-container--deep-scan {
+    padding: 38px 24px;
+    max-width: 480px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    user-select: none;
+}
+
+.search-deep-scan-radar {
+    position: relative;
+    width: 68px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.search-deep-scan-radar-wave {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--primary);
+    opacity: 0;
+    pointer-events: none;
+    animation: search-radar-pulse 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.search-deep-scan-radar-wave.wave-2 {
+    animation-delay: 0.8s;
+}
+
+.search-deep-scan-radar-wave.wave-3 {
+    animation-delay: 1.6s;
+}
+
+@keyframes search-radar-pulse {
+    0% {
+        transform: scale(0.65);
+        opacity: 0.85;
+    }
+    100% {
+        transform: scale(1.65);
+        opacity: 0;
+    }
+}
+
+.search-empty-icon-wrap--deep-scan {
+    position: relative;
+    z-index: 2;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: var(--primary-dim, rgba(139, 92, 246, 0.15));
+    border: 1px solid var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    box-shadow: 0 0 20px var(--primary-dim);
+}
+
+.search-deep-scan-title {
+    font-size: 1.05rem;
+    font-weight: 650;
+    color: var(--search-text-main);
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+}
+
+.search-deep-scan-desc {
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--search-text-muted);
+    max-width: 420px;
+    margin-bottom: 20px;
+}
+
+.search-deep-scan-dashboard {
+    width: 100%;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.search-deep-scan-metrics {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.search-deep-scan-metric-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.search-deep-scan-metric--elapsed {
+    background: rgba(139, 92, 246, 0.12);
+    color: var(--primary);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.search-deep-scan-metric--bench {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+[data-theme="light"] .search-deep-scan-metric--bench {
+    background: rgba(217, 119, 6, 0.1);
+    color: #d97706;
+    border-color: rgba(217, 119, 6, 0.25);
+}
+
+.search-deep-scan-progress-bar-wrap {
+    width: 100%;
+    height: 6px;
+    background: var(--input-bg, rgba(0, 0, 0, 0.2));
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+}
+
+.search-deep-scan-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, #38bdf8 100%);
+    border-radius: 999px;
+    transition: width 0.2s linear;
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.search-deep-scan-tip {
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--search-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.search-footer-stat-item--scanning {
+    color: var(--search-text-main);
+    font-size: 0.85rem;
+    animation: searchPulseOpacity 2s infinite ease-in-out;
+}
+
+.search-empty-content-diagnostic {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: var(--search-snippet-bg);
+    border: 1px solid var(--search-border);
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.84rem;
+    color: var(--search-text-sub);
+    text-align: left;
+    max-width: 520px;
+}
+
+@keyframes searchPulseOpacity {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+}
+

@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive, ShieldCheck } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -26,7 +26,6 @@ interface GeneralSettings {
   language: string;
   logLevel: string;
   theme: string;
-  fontFamily?: string;
 }
 
 interface OperationResult {
@@ -355,41 +354,6 @@ export const GeneralPage: FC = () => {
               ]}
             />
           </SettingRow>
-
-          <SettingRow label={t('general.fontFamily', 'Interface Font Family')} description={t('general.fontFamilyDesc', 'Customize UI typography. All fonts are app-scoped with zero system directory pollution and zero uninstaller leftovers.')}>
-            <Select
-              id="fontFamily"
-              value={settings.fontFamily || 'auto'}
-              onChange={(v) => updateSetting('fontFamily', v)}
-              options={[
-                { value: 'auto', label: t('general.fontFamilyAuto', 'Smart Adaptive (Recommended · Native High-DPI)') },
-                { value: 'noto-sans-sc', label: t('general.fontFamilyNotoSans', 'Ultra-Clear Noto Sans SC (Crisp & Solid)') },
-                { value: 'harmony-sans', label: t('general.fontFamilyHarmony', 'HarmonyOS / MiSans Style') },
-                { value: 'yahei', label: t('general.fontFamilyYahei', 'Microsoft YaHei UI (Classic Windows)') },
-                { value: 'pingfang', label: t('general.fontFamilyPingfang', 'Apple PingFang SC Style') },
-                { value: 'system', label: t('general.fontFamilySystem', 'System Default (System UI)') },
-              ]}
-            />
-          </SettingRow>
-
-          <div style={{
-            margin: '4px 0 14px 0',
-            padding: '12px 14px',
-            background: 'var(--bg-elevated, rgba(255, 255, 255, 0.03))',
-            border: '1px solid var(--border-light, rgba(255, 255, 255, 0.06))',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 'var(--text-xs, 0.84rem)',
-            color: 'var(--text-secondary)',
-            lineHeight: 1.55,
-          }}>
-            <div style={{ fontWeight: 650, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShieldCheck size={14} style={{ color: 'var(--primary)' }} />
-              <span>{t('general.fontFallbackTitle', 'Intelligent Polyglot Cascading & Fallback Pipeline')}</span>
-            </div>
-            <div>
-              {t('general.fontFallbackDesc', '1. Primary glyphs are rendered with the preferred font family; 2. Automatically triggers Glyph-Level Fallback to native flagship fonts (YaHei UI / PingFang / Segoe UI) whenever missing glyphs or unsupported characters occur, completely preventing square tofu (□) and rendering glitches; 3. Zero system directory pollution with 100% clean portability.')}
-            </div>
-          </div>
 
           <SettingRow label={t('general.theme')} description={t('general.themeDesc')}>
             <Select

@@ -57,16 +57,16 @@ struct KeycastDynamicMetrics {
 inline KeycastDynamicMetrics computeKeycastMetrics(int baseFontSize, float dpiScale) {
     KeycastDynamicMetrics m;
     m.fontSize = (std::max)(12.0f, static_cast<float>(baseFontSize) * 0.75f) * dpiScale;
-    m.keycapFontSize = m.fontSize * 0.88f;
-    m.plusFontSize = m.fontSize * 0.88f; // 加大2号，字号饱满挺拔
+    m.keycapFontSize = m.fontSize * 0.82f;
+    m.plusFontSize = m.fontSize * 0.85f;
     m.charWidth = m.fontSize * 0.58f;
-    m.capHeight = m.fontSize * 1.50f;
-    m.capRadius = 5.5f * dpiScale;
-    m.capsuleHeight = m.capHeight + 10.0f * dpiScale;
-    m.capsuleRadius = 8.5f * dpiScale;
-    m.paddingX = m.fontSize * 0.50f;
-    m.winWidth = m.fontSize * 2.25f;
-    m.logoSize = m.capHeight * 0.44f;
+    m.capHeight = m.fontSize * 1.25f; // 键帽高度黄金比例，消除臃肿充塞感
+    m.capRadius = 4.5f * dpiScale;
+    m.capsuleHeight = m.capHeight + 14.0f * dpiScale; // 外托盘留出上下各 7px 优雅呼吸留白
+    m.capsuleRadius = 8.0f * dpiScale;
+    m.paddingX = m.fontSize * 0.55f;
+    m.winWidth = m.fontSize * 1.95f;
+    m.logoSize = m.capHeight * 0.58f; // Windows 徽标适度调高，饱满挺拔清晰
     m.plusWidth = m.plusFontSize * 0.78f;
     m.rowStep = m.capsuleHeight + 8.0f * dpiScale;
     m.borderWidth = (std::max)(1.0f * dpiScale, 1.0f);
@@ -125,11 +125,11 @@ bool KeycastOverlay::init() {
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);
         m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 2500);
         m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 36);
-        m_settings.opacity = cfg.get<int>("/keycast/opacity", 85);
+        m_settings.opacity = cfg.get<int>("/keycast/opacity", 80);
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
-        m_settings.modifierKeycapOpacity = cfg.get<int>("/keycast/modifierKeycapOpacity", 40);
+        m_settings.modifierKeycapOpacity = cfg.get<int>("/keycast/modifierKeycapOpacity", 50);
         m_settings.modifierTextColor = cfg.get<std::string>("/keycast/modifierTextColor", "#000000");
         m_settings.firstKeyAnim = cfg.get<std::string>("/keycast/firstKeyAnim", "slide");
         m_settings.subsequentKeyAnim = cfg.get<std::string>("/keycast/subsequentKeyAnim", "fade");
@@ -592,21 +592,30 @@ bool KeycastOverlay::updatePlacement() {
     const int marginY = easy::core::dpi::scaleMetric(42, m_dpiScale);
 
     int x = work.left + marginX;
-    int y = work.bottom - m_height - marginY;
+    int y = work.top + marginY;
 
-    if (settings.position == "bottom_center") {
-        x = work.left + ((work.right - work.left) - m_width) / 2;
-        y = work.bottom - m_height - marginY;
-    } else if (settings.position == "bottom_right") {
-        x = work.right - m_width - marginX;
-        y = work.bottom - m_height - marginY;
-    } else if (settings.position == "top_left") {
+    if (settings.position == "top_left") {
         x = work.left + marginX;
         y = work.top + marginY;
+    } else if (settings.position == "bottom_left") {
+        x = work.left + marginX;
+        y = work.bottom - m_height - marginY;
+    } else if (settings.position == "top_center") {
+        x = work.left + ((work.right - work.left) - m_width) / 2;
+        y = work.top + marginY;
+    } else if (settings.position == "bottom_center") {
+        x = work.left + ((work.right - work.left) - m_width) / 2;
+        y = work.bottom - m_height - marginY;
     } else if (settings.position == "top_right") {
         x = work.right - m_width - marginX;
         y = work.top + marginY;
+    } else if (settings.position == "bottom_right") {
+        x = work.right - m_width - marginX;
+        y = work.bottom - m_height - marginY;
     }
+
+    m_posX = x;
+    m_posY = y;
 
     const bool positioned = SetWindowPos(
         m_hwnd, HWND_TOPMOST, x, y, m_width, m_height,
@@ -1110,7 +1119,7 @@ void KeycastOverlay::render() {
         if (settings.position == "top_right" || settings.position == "bottom_right") {
             // 右对齐：紧贴右侧边缘
             startX = m_width - 12.0f * m_dpiScale - rowWidth;
-        } else if (settings.position == "bottom_center") {
+        } else if (settings.position == "bottom_center" || settings.position == "top_center") {
             // 居中对齐：在窗口水平中轴线上精准居中
             startX = (m_width - rowWidth) / 2.0f;
         } else {
@@ -1152,19 +1161,20 @@ void KeycastOverlay::render() {
                 m_renderTarget->SetTransform(scaleMatrix * oldTransform);
             }
 
-            // 1. 绘制深色不透明胶囊托盘背景 (0.97f 彻底阻隔背景文字透视穿帮)
+            // 1. 绘制胶囊托盘背景 (严格作用于背板通透度，前景文字与按键符号永久保持 100% 物理饱和度)
             D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(
                 D2D1::RectF(drawX, drawY, drawX + totalCapsuleW, drawY + dyn.capsuleHeight),
                 dyn.capsuleRadius, dyn.capsuleRadius
             );
 
-            m_brushBg->SetOpacity(0.97f * itemAlpha);
+            const float bgUserAlpha = static_cast<float>((std::clamp)(settings.opacity, 20, 100)) / 100.0f;
+            m_brushBg->SetOpacity(bgUserAlpha * itemAlpha);
             m_renderTarget->FillRoundedRectangle(&capsuleRect, m_brushBg.Get());
 
-            m_brushBorder->SetOpacity(0.20f * itemAlpha);
+            m_brushBorder->SetOpacity((std::min)(0.35f, bgUserAlpha * 0.40f) * itemAlpha);
             m_renderTarget->DrawRoundedRectangle(&capsuleRect, m_brushBorder.Get(), dyn.borderWidth);
 
-            // 2. 绘制键帽微凸槽与内容
+            // 2. 绘制键帽微凸槽与内容 (前景文字永久 100% 饱满清晰)
             drawKeycapCapsule(item, drawX, drawY, itemAlpha, m_dpiScale);
 
             if (hasScaleTransform) {
@@ -1185,11 +1195,11 @@ void KeycastOverlay::render() {
     }
 
     HDC hdcScreen = GetDC(nullptr);
+    POINT ptDst = {m_posX, m_posY};
     POINT ptSrc = {0, 0};
     SIZE size = {m_width, m_height};
-    const BYTE globalAlpha = static_cast<BYTE>((std::clamp)(settings.opacity, 20, 100) * 255 / 100);
-    BLENDFUNCTION blend = {AC_SRC_OVER, 0, globalAlpha, AC_SRC_ALPHA};
-    UpdateLayeredWindow(m_hwnd, hdcScreen, nullptr, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
 }
 

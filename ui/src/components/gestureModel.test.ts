@@ -66,14 +66,24 @@ describe('codeToArrows, parseGestureCode, assembleGestureCode and GESTURE_CODE_P
   it('correctly renders arrows with Middle+, X1+, X2+, TopEdge+ and modifier prefixes', () => {
     expect(codeToArrows('L')).toBe('←');
     expect(codeToArrows('R')).toBe('→');
-    expect(codeToArrows('Middle+L')).toBe('[Middle] ←');
-    expect(codeToArrows('Middle+R')).toBe('[Middle] →');
-    expect(codeToArrows('X1+L')).toBe('[X1] ←');
-    expect(codeToArrows('X2+R')).toBe('[X2] →');
-    expect(codeToArrows('TopEdge+D')).toBe('[Top Edge] ↓');
-    expect(codeToArrows('TopEdge+Left+D')).toBe('[Top Edge] [Left] ↓');
+    expect(codeToArrows('Middle+L')).toBe('[中键] ←');
+    expect(codeToArrows('Middle+R')).toBe('[中键] →');
+    expect(codeToArrows('X1+L')).toBe('[侧键1] ←');
+    expect(codeToArrows('X2+R')).toBe('[侧键2] →');
+    expect(codeToArrows('TopEdge+D')).toBe('[上边缘] ↓');
     expect(codeToArrows('Ctrl+U-R')).toBe('Ctrl+↑ →');
-    expect(codeToArrows('Ctrl+X1+L')).toBe('Ctrl+[X1] ←');
+    expect(codeToArrows('Ctrl+X1+L')).toBe('Ctrl+[侧键1] ←');
+
+    // 验证多语言前缀渲染 (英文环境)
+    const customEnT = (k: string) => {
+      if (k === 'gesture.prefixMiddleButton') return '[Middle] ';
+      if (k === 'gesture.prefixTopEdge') return '[Top Edge] ';
+      if (k === 'gesture.prefixX1Button') return '[X1] ';
+      return '';
+    };
+    expect(codeToArrows('Middle+L', customEnT)).toBe('[Middle] ←');
+    expect(codeToArrows('TopEdge+D', customEnT)).toBe('[Top Edge] ↓');
+    expect(codeToArrows('X1+L', customEnT)).toBe('[X1] ←');
 
     expect(GESTURE_CODE_PATTERN.test('L')).toBe(true);
     expect(GESTURE_CODE_PATTERN.test('R')).toBe(true);

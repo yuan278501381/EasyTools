@@ -738,10 +738,11 @@
 .trigger-pill-btn {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
+  gap: 4px;
+  padding: 3px 9px;
   font-size: var(--text-xs, 0.84rem);
-  font-weight: 500;
+  font-weight: 550;
+  letter-spacing: 0.015em;
   border-radius: 12px;
   border: 1px solid transparent;
   cursor: pointer;
@@ -754,6 +755,7 @@
   background: rgba(16, 185, 129, 0.12);
   color: #10b981;
   border-color: rgba(16, 185, 129, 0.35);
+  font-weight: 600;
 }
 
 .trigger-pill-btn--active:hover {
@@ -770,9 +772,9 @@
 
 .trigger-pill-btn--inactive {
   background: var(--bg-elevated);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border-color: var(--card-border);
-  opacity: 0.70;
+  opacity: 0.90;
 }
 
 .trigger-pill-btn--inactive:hover {

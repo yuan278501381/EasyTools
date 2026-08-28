@@ -4864,11 +4864,19 @@ TEST(SpotlightOverlayTest, KeyboardAndMouseInteraction) {
     auto& spotlight = SpotlightOverlay::instance();
     spotlight.resetDefaults();
 
-    // 1. 双击 Ctrl 检测
+    // 1. 严格双击 Ctrl 检测 (Down -> Up -> Down)
     spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+    // 模拟连发（Repeat KeyDown 应被静默丢弃）
     spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYUP);
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYUP);
 
-    // 2. 其它键取消
+    // 2. 其它键取消 / 污染熔断
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYDOWN);
+    spotlight.onKeyboardEvent('C', WM_KEYDOWN);
+    spotlight.onKeyboardEvent(VK_CONTROL, WM_KEYUP);
     spotlight.onKeyboardEvent(VK_ESCAPE, WM_KEYDOWN);
 
     // 3. 鼠标点击产生波纹
@@ -5199,7 +5207,7 @@ TEST(KeycastOverlayTest, SettingsAndAnimationCombos) {
     easy::keycast::KeycastSettings s = overlay.getSettings();
     EXPECT_TRUE(s.enabled);
     EXPECT_EQ(s.fontSize, 36);
-    EXPECT_EQ(s.opacity, 85);
+    EXPECT_EQ(s.opacity, 80);
     EXPECT_EQ(s.firstKeyAnim, "slide");
     EXPECT_EQ(s.subsequentKeyAnim, "fade");
     EXPECT_TRUE(s.rowCascadeAnim);

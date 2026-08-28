@@ -133,9 +133,16 @@ private:
     UINT_PTR m_animTimerId = 0;
     bool m_timerRunning = false;
 
-    // 双击 Ctrl 检测状态
-    std::chrono::steady_clock::time_point m_lastCtrlDownTime{};
-    int m_ctrlPressCount = 0;
+    // 双击 Ctrl 工业级状态机 (Down ➔ Up ➔ Down 严格闭环，杜绝 Auto-Repeat 连发与长按误触)
+    enum class CtrlDoubleTapState {
+        Idle,           // 初始静默态
+        FirstPressed,   // 第一次按下，等待快速松开
+        WaitingSecond   // 第一次已快速松开，等待第二次按下 (30ms ~ 350ms 时间窗)
+    };
+    CtrlDoubleTapState m_ctrlState = CtrlDoubleTapState::Idle;
+    std::chrono::steady_clock::time_point m_firstCtrlDownTime{};
+    std::chrono::steady_clock::time_point m_firstCtrlUpTime{};
+    bool m_ctrlIsPhysicallyDown = false;
 
     // 摇晃鼠标检测状态
     POINT m_lastMousePos{0, 0};

@@ -19,16 +19,16 @@ struct KeycastSettings {
     bool showKeyboard = true;
     std::string filterMode = "smart_shortcuts";
     bool includeFunctionKeys = false; // "smart_shortcuts", "with_single_modifiers", "all_keys"
-    std::string position = "top_left";         // "top_left", "top_right", "bottom_left", "bottom_center", "bottom_right"
+    std::string position = "top_left";         // "top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"
     bool mergeRecentKeys = true;
     int mergeTimeoutMs = 1200; // 同排连击合并间隔 (ms)
     int displayDurationMs = 2500;
     int fontSize = 36;
-    int opacity = 85;                          // 20~100 按键回显整体不透明度 (默认 85% 高雅通透)
+    int opacity = 80;                          // 20~100 胶囊背景不透明度 (默认 80% 高雅通透)
     std::string textColor = "#ffffff";
     std::string backgroundColor = "#1c1c22";
     std::string modifierKeycapColor = "auto"; // "auto" (跟随主题色) 或 HEX 颜色
-    int modifierKeycapOpacity = 40;            // 0~100 修饰键底色不透明度 (默认 65% 高雅微晶)
+    int modifierKeycapOpacity = 50;            // 0~100 修饰键底色不透明度 (默认 50% 高雅微晶)
     std::string modifierTextColor = "#000000"; // 默认纯黑实体文字与徽标，呈现顶级键帽反差质感
 
     // ── 物理微动效自由配置体系 (World-Class Motion Presets & Custom Combos) ──
@@ -142,6 +142,8 @@ private:
     HBITMAP m_oldBitmap = nullptr;
     int m_width = 720;
     int m_height = 200;
+    int m_posX = 0;
+    int m_posY = 0;
     float m_dpiScale = 1.0f;
     bool m_updatingPlacement = false;
     bool m_timerRunning = false;

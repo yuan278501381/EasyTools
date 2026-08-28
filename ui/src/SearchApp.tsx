@@ -876,6 +876,20 @@ export default function SearchApp() {
     runHistoryCount: number;
     searchHistoryCount: number;
   } | null>(null);
+  
+  // ── 深度全文搜索冷启动全息感知与会话韧性缓存池 (World-Class Deep Scan Session Cache) ──
+  const [lastColdScanDurationSec, setLastColdScanDurationSec] = useState<number>(() => {
+    const saved = localStorage.getItem('easytools_last_cold_content_scan_sec');
+    return saved ? Math.max(3.0, parseFloat(saved)) : 14.5;
+  });
+  const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
+  const scanElapsedTimerRef = useRef<number | null>(null);
+  const heavyQueryCacheRef = useRef<Map<string, {
+    results: SearchResult[];
+    elapsedMs: number;
+    totalIndexedFiles?: number;
+    timestamp: number;
+  }>>(new Map());
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -1430,16 +1444,51 @@ export default function SearchApp() {
         });
         return;
       }
+
+      const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
+      const isContentSearch = effectiveMode === 'content' || trimmed.toLowerCase().startsWith('content:') || trimmed.startsWith('内容:');
+      const cacheKey = `${effectiveMode}:${trimmed}:${enabledDrives.slice().sort().join(',')}:${maxResultLimit}:${excludeGitAndModules ? 'exDev' : 'all'}`;
+
+      // ── 1. 0ms 瞬间命中会话韧性缓存 (防止用户关开窗口丢失 14s 扫描结果) ──
+      const cached = heavyQueryCacheRef.current.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < 45000)) {
+        startTransition(() => {
+          setResults(cached.results);
+          setSelectedIndex(0);
+          setSearchElapsedMs(cached.elapsedMs);
+          if (cached.totalIndexedFiles !== undefined) {
+            setTotalIndexedFiles(cached.totalIndexedFiles);
+          }
+          setLoading(false);
+        });
+        return;
+      }
+
       const loadingTimer = window.setTimeout(() => {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);
+
+      // ── 2. 深度扫描实时秒表计时器与陈旧列表清空 (杜绝搜内容却显示旧文件名) ──
+      if (scanElapsedTimerRef.current) {
+        clearInterval(scanElapsedTimerRef.current);
+        scanElapsedTimerRef.current = null;
+      }
+      setScanElapsedSeconds(0);
+      const scanStartTime = Date.now();
+      if (isContentSearch) {
+        startTransition(() => {
+          setResults([]);
+          setSelectedIndex(0);
+        });
+        scanElapsedTimerRef.current = window.setInterval(() => {
+          setScanElapsedSeconds(+((Date.now() - scanStartTime) / 1000).toFixed(1));
+        }, 100);
+      }
 
       const excludesList: string[] = [];
       if (excludeGitAndModules) {
         excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__', 'npm-cache', 'go-build', '.gradle', 'pip\\cache');
       }
-
-      const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
 
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { 
@@ -1453,6 +1502,30 @@ export default function SearchApp() {
           contentCustomExts: customContentFormats,
           contentDisabledExts: disabledContentFormats
         });
+
+        // 停止秒表
+        if (scanElapsedTimerRef.current) {
+          clearInterval(scanElapsedTimerRef.current);
+          scanElapsedTimerRef.current = null;
+        }
+
+        // ── 3. 结果强制入缓存池 (即使 sequence 已过时，下次呼出也能瞬间命中) ──
+        if (response && Array.isArray(response.results) && response.results.length > 0) {
+          heavyQueryCacheRef.current.set(cacheKey, {
+            results: response.results,
+            elapsedMs: response.elapsedMs ?? 0,
+            totalIndexedFiles: response.totalIndexedFiles,
+            timestamp: Date.now(),
+          });
+        }
+
+        // ── 4. 自适应学习用户真实冷扫描耗时基准 ──
+        if (response && response.elapsedMs && response.elapsedMs >= 3500) {
+          const actualColdSec = +(response.elapsedMs / 1000).toFixed(1);
+          setLastColdScanDurationSec(actualColdSec);
+          localStorage.setItem('easytools_last_cold_content_scan_sec', String(actualColdSec));
+        }
+
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
 
@@ -1494,12 +1567,20 @@ export default function SearchApp() {
           }
         });
       } catch {
+        if (scanElapsedTimerRef.current) {
+          clearInterval(scanElapsedTimerRef.current);
+          scanElapsedTimerRef.current = null;
+        }
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
         startTransition(() => {
           setResults([]);
         });
       } finally {
+        if (scanElapsedTimerRef.current) {
+          clearInterval(scanElapsedTimerRef.current);
+          scanElapsedTimerRef.current = null;
+        }
         window.clearTimeout(loadingTimer);
         if (sequence === requestSequence.current) setLoading(false);
       }
@@ -1695,6 +1776,12 @@ export default function SearchApp() {
   }, []);
 
   const selectCategory = useCallback((cat: CategoryFilter) => {
+    if (cat.id === 'content') {
+      startTransition(() => {
+        setResults([]);
+        setSelectedIndex(0);
+      });
+    }
     if (!cat.prefix) {
       let cleaned = query;
       CATEGORY_DEFS.forEach(c => {
@@ -3157,6 +3244,53 @@ export default function SearchApp() {
           </div>
         )}
 
+        {/* ── 全息深度内容检索加载舱 (Cold Content Scan Holographic State) ── */}
+        {!isInitialIndexing && !isServiceStarting && loading && ((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) || sortedResults.length === 0) && (
+          <div className="search-empty-container search-empty-container--deep-scan" role="status">
+            <div className="search-deep-scan-radar">
+              <div className="search-deep-scan-radar-wave wave-1" />
+              <div className="search-deep-scan-radar-wave wave-2" />
+              <div className="search-empty-icon-wrap search-empty-icon-wrap--deep-scan">
+                <FileText size={32} className="search-empty-icon" />
+              </div>
+            </div>
+            
+            <div className="search-empty-title search-deep-scan-title">
+              {t('search.contentScanningTitle', 'Deep Full-Disk Content Search in progress...')}
+            </div>
+
+            <div className="search-empty-desc search-deep-scan-desc">
+              {t('search.contentScanningDesc', 'First-time query reads file contents directly from disk sectors (cold cache). Subsequent searches are accelerated by Windows memory page cache (instant).')}
+            </div>
+
+            <div className="search-deep-scan-dashboard">
+              <div className="search-deep-scan-metrics">
+                <div className="search-deep-scan-metric-badge search-deep-scan-metric--elapsed">
+                  <Clock size={13} />
+                  <span>{t('search.contentScanningElapsed', 'Scanned for {{elapsed}}s', { elapsed: scanElapsedSeconds.toFixed(1) })}</span>
+                </div>
+                <div className="search-deep-scan-metric-badge search-deep-scan-metric--bench" title={t('search.contentScanningLastBench', 'Last cold scan took ~{{duration}}s', { duration: lastColdScanDurationSec.toFixed(1) })}>
+                  <Zap size={13} />
+                  <span>{t('search.contentScanningLastBench', 'Last cold scan took ~{{duration}}s', { duration: lastColdScanDurationSec.toFixed(1) })}</span>
+                </div>
+              </div>
+
+              <div className="search-deep-scan-progress-bar-wrap">
+                <div
+                  className="search-deep-scan-progress-bar"
+                  style={{
+                    width: `${Math.min(94, Math.max(8, (scanElapsedSeconds / lastColdScanDurationSec) * 100))}%`
+                  }}
+                />
+              </div>
+
+              <div className="search-deep-scan-tip">
+                <span>{t('search.contentScanningSpeedupTip', 'Accelerated 5x+ once Windows memory cache warms up')}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {(isInitialIndexing || isServiceStarting) && sortedResults.length === 0 && (
           <div className="search-empty-container search-empty-container--indexing" role="status">
             <div className="search-empty-icon-wrap search-empty-icon-wrap--indexing">
@@ -3164,7 +3298,7 @@ export default function SearchApp() {
             </div>
             <div className="search-empty-title">
               {isInitialIndexing
-                ? t('search.initialIndexingTitle', 'Building and persisting full disk index...')
+                 ? t('search.initialIndexingTitle', 'Building and persisting full disk index...')
                 : t('search.serviceStartingTitle', 'Connecting to File Indexing Engine...')}
             </div>
             <div className="search-empty-desc">
@@ -3217,6 +3351,12 @@ export default function SearchApp() {
                 <span>{t('search.searchContentDirectly', { query: query.trim(), defaultValue: `Search full document and code contents for: "${query.trim()}"` })}</span>
               </button>
             )}
+            {(query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:') || activeCategory === 'content') && (
+              <div className="search-empty-content-diagnostic">
+                <span>{t('search.contentZeroResultTip1', 'Click top-right Customize to add custom file extensions (e.g. .vue, .ts, .log)')}</span>
+                <span>{t('search.contentZeroResultTip2', 'Ensure target files are not inside excluded directories (e.g. node_modules, .git)')}</span>
+              </div>
+            )}
             <div className="search-empty-hint">
               <Lightbulb size={12} className="search-empty-hint-icon" />
               <span>{t('search.searchHint', 'Tip: Press Enter to perform full-text search, or press F1 for advanced syntax.')}</span>
@@ -3250,7 +3390,7 @@ export default function SearchApp() {
           </div>
         )}
 
-        {sortedResults.length > 0 && (
+        {!isInitialIndexing && !isServiceStarting && !((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) && sortedResults.length > 0 && (
           <VirtualSearchResults
             key={`${density}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
             results={sortedResults}
@@ -3267,67 +3407,78 @@ export default function SearchApp() {
 
         <footer className="search-footer">
           <div className="search-footer-left">
-            {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
-            <div className="search-footer-stat-item search-footer-stat-item--interactive" title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}>
-              <span>
-                {isServiceStarting ? (
-                  <><strong>{t('search.serviceConnectingStatus', 'Connecting to Index Service...')}</strong></>
-                ) : isInitialIndexing ? (
-                  <><strong>{t('search.initialIndexingTitle', 'Building and persisting full disk index...')}</strong></>
-                ) : sortedResults.length > 0 ? (
-                  <><strong>{sortedResults.length.toLocaleString()}</strong> {t('search.objectsCount', 'objects')}</>
-                ) : (
-                  <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> {t('search.objectsCount', 'objects')}</>
-                )}
-              </span>
-              <button
-                type="button"
-                className="search-footer-refresh-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void rebuildIndex();
-                }}
-                disabled={isRebuilding || isServiceStarting}
-                title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}
-              >
-                <RefreshCw size={11} className={(isRebuilding || isServiceStarting) ? 'spin-animation' : ''} />
-              </button>
-            </div>
-
-            {/* 2. 当前匹配结果总大小 */}
-            {sortedResults.length > 0 && totalResultSize > 0 && (
+            {((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) ? (
+              <div className="search-footer-stat-item search-footer-stat-item--scanning" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RefreshCw size={11} className="spin-animation" style={{ color: 'var(--primary)' }} />
+                <span>
+                  <strong>{t('search.contentSearchingFooter', 'Deep full-disk content search in progress... ({{elapsed}}s)', { elapsed: scanElapsedSeconds.toFixed(1) })}</strong>
+                </span>
+              </div>
+            ) : (
               <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item" title={formatBytes(totalResultSize)}>
-                  <span><strong>{formatBytes(totalResultSize)}</strong></span>
-                </div>
-              </>
-            )}
-
-            {/* 3. 当前选中项序号与单项大小 */}
-            {sortedResults.length > 0 && sortedResults[selectedIndex] && (
-              <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item search-footer-stat-sub" title={sortedResults[selectedIndex].path}>
+                {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
+                <div className="search-footer-stat-item search-footer-stat-item--interactive" title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}>
                   <span>
-                    {t('search.selectedLabel', 'Selected')} <strong>{selectedIndex + 1}</strong> / {sortedResults.length}
-                    {!sortedResults[selectedIndex].isDirectory && sortedResults[selectedIndex].size !== undefined ? (
-                      <> ({formatBytes(sortedResults[selectedIndex].size || 0)})</>
+                    {isServiceStarting ? (
+                      <><strong>{t('search.serviceConnectingStatus', 'Connecting to Index Service...')}</strong></>
+                    ) : isInitialIndexing ? (
+                      <><strong>{t('search.initialIndexingTitle', 'Building and persisting full disk index...')}</strong></>
+                    ) : sortedResults.length > 0 ? (
+                      <><strong>{sortedResults.length.toLocaleString()}</strong> {t('search.objectsCount', 'objects')}</>
                     ) : (
-                      <> ({t('search.folderLabel', 'Folder')})</>
+                      <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> {t('search.objectsCount', 'objects')}</>
                     )}
                   </span>
+                  <button
+                    type="button"
+                    className="search-footer-refresh-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void rebuildIndex();
+                    }}
+                    disabled={isRebuilding || isServiceStarting}
+                    title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}
+                  >
+                    <RefreshCw size={11} className={(isRebuilding || isServiceStarting) ? 'spin-animation' : ''} />
+                  </button>
                 </div>
-              </>
-            )}
 
-            {/* 4. 引擎匹配耗时 */}
-            {searchElapsedMs !== undefined && searchElapsedMs >= 0 && sortedResults.length > 0 && (
-              <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item search-footer-stat-sub" title={t('search.searchTimeTitle', 'MFT memory index match elapsed time')}>
-                  <span>{searchElapsedMs} ms</span>
-                </div>
+                {/* 2. 当前匹配结果总大小 */}
+                {sortedResults.length > 0 && totalResultSize > 0 && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item" title={formatBytes(totalResultSize)}>
+                      <span><strong>{formatBytes(totalResultSize)}</strong></span>
+                    </div>
+                  </>
+                )}
+
+                {/* 3. 当前选中项序号与单项大小 */}
+                {sortedResults.length > 0 && sortedResults[selectedIndex] && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item search-footer-stat-sub" title={sortedResults[selectedIndex].path}>
+                      <span>
+                        {t('search.selectedLabel', 'Selected')} <strong>{selectedIndex + 1}</strong> / {sortedResults.length}
+                        {!sortedResults[selectedIndex].isDirectory && sortedResults[selectedIndex].size !== undefined ? (
+                          <> ({formatBytes(sortedResults[selectedIndex].size || 0)})</>
+                        ) : (
+                          <> ({t('search.folderLabel', 'Folder')})</>
+                        )}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* 4. 引擎匹配耗时 */}
+                {searchElapsedMs !== undefined && searchElapsedMs >= 0 && sortedResults.length > 0 && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item search-footer-stat-sub" title={t('search.searchTimeTitle', 'MFT memory index match elapsed time')}>
+                      <span>{searchElapsedMs} ms</span>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
