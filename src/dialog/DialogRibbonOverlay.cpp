@@ -174,11 +174,7 @@ void DialogRibbonOverlay::hide() {
 void DialogRibbonOverlay::doAttachToDialog() {
     // doUpdatePosition is the single authority that may show the overlay.
     // A queued stale ATTACH must never re-show it after validation failed.
-    if (doUpdatePosition()) {
-        if (m_hwnd && IsWindow(m_hwnd)) {
-            SetTimer(m_hwnd, 1001, 80, nullptr);
-        }
-    }
+    doUpdatePosition();
 }
 
 void DialogRibbonOverlay::doHide() {
@@ -188,7 +184,6 @@ void DialogRibbonOverlay::doHide() {
 
 void DialogRibbonOverlay::doHideLocked() {
     if (m_hwnd && IsWindow(m_hwnd)) {
-        KillTimer(m_hwnd, 1001);
         ShowWindow(m_hwnd, SW_HIDE);
     }
     m_targetDialog = nullptr;
@@ -238,8 +233,9 @@ bool DialogRibbonOverlay::doUpdatePosition() {
             return false;
         }
 
-        // 胶囊只属于文件对话框本身。切回同一 EXE 的主窗口也必须隐藏，
-        // 不能把“同进程”误当作“同一个文件对话框”。
+        // 2. 前台归属硬校验：胶囊只属于文件对话框本身。
+        // 切回同一 EXE 的主窗口（如 VS Code 主编辑器）或其他窗口时必须立刻隐藏，
+        // 绝不能把“同进程”误当作“同一个文件对话框”。
         const HWND foreground = GetForegroundWindow();
         const HWND foregroundRoot = foreground ? GetAncestor(foreground, GA_ROOT) : nullptr;
         if (foreground != m_hwnd && foreground != m_targetDialog &&

@@ -417,7 +417,16 @@ std::string PathMemoryManager::canonicalProcessKey(const std::string& processNam
 
 std::string PathMemoryManager::directoryForSelection(const std::string& selectedPath,
                                                      const std::string& currentFolder) {
-    if (selectedPath.empty()) return {};
+    if (selectedPath.empty()) {
+        if (!currentFolder.empty()) {
+            std::filesystem::path current(
+                easy::core::WinUtils::utf8ToWstring(currentFolder));
+            if (isExistingDirectory(current)) {
+                return easy::core::WinUtils::wstringToUtf8(current.lexically_normal().native());
+            }
+        }
+        return {};
+    }
 
     std::filesystem::path selected(
         easy::core::WinUtils::utf8ToWstring(selectedPath));

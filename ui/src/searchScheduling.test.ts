@@ -36,8 +36,12 @@ describe('isContentSearch', () => {
 
 describe('resolveDebounceMs', () => {
   it('waits longest for content searches, which have to read files', () => {
-    expect(resolveDebounceMs({ query: 'oITT', activeCategory: 'content', searchMode: 'name' }))
-      .toBe(CONTENT_DEBOUNCE_MS);
+    expect(resolveDebounceMs({ query: 'c', activeCategory: 'content', searchMode: 'name' }))
+      .toBe(CONTENT_DEBOUNCE_MS.short);
+    expect(resolveDebounceMs({ query: 'content:cr', activeCategory: 'all', searchMode: 'name' }))
+      .toBe(CONTENT_DEBOUNCE_MS.short);
+    expect(resolveDebounceMs({ query: 'content:create', activeCategory: 'all', searchMode: 'name' }))
+      .toBe(CONTENT_DEBOUNCE_MS.normal);
   });
 
   it('scales the name search delay down as the prefix gets more selective', () => {
@@ -50,7 +54,7 @@ describe('resolveDebounceMs', () => {
   it('never drops below the interval of ordinary typing', () => {
     const scope = { activeCategory: 'all', searchMode: 'name' };
     for (const query of ['a', 'ab', 'abc', 'abcd', 'abcdefghij']) {
-      expect(resolveDebounceMs({ ...scope, query })).toBeGreaterThanOrEqual(100);
+      expect(resolveDebounceMs({ ...scope, query })).toBeGreaterThanOrEqual(150);
     }
   });
 });

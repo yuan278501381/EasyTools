@@ -47,7 +47,7 @@ import { toast } from 'sonner';
 import { bridgeRequest } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
 import { DynamicRowLayout, isSelectedOutsideVirtualRange } from './searchVirtualization';
-import { nextQueryId, resolveDebounceMs } from './searchScheduling';
+import { isEmptyContentSyntax, nextQueryId, resolveDebounceMs } from './searchScheduling';
 import { WindowResizeHandles } from './components/WindowResizeHandles';
 import './SearchApp.css';
 
@@ -1424,6 +1424,12 @@ export default function SearchApp() {
 
     const runQuery = async () => {
       if (sequence !== requestSequence.current) return;
+      if (isEmptyContentSyntax(trimmed)) {
+        startTransition(() => {
+          setResults([]);
+        });
+        return;
+      }
       const loadingTimer = window.setTimeout(() => {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);

@@ -124,8 +124,8 @@ bool KeycastOverlay::init() {
         m_settings.mergeRecentKeys = cfg.get<bool>("/keycast/mergeRecentKeys", true);
         m_settings.mergeTimeoutMs = cfg.get<int>("/keycast/mergeTimeoutMs", 1200);
         m_settings.displayDurationMs = cfg.get<int>("/keycast/displayDurationMs", 2500);
-        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 28);
-        m_settings.opacity = cfg.get<int>("/keycast/opacity", 100);
+        m_settings.fontSize = cfg.get<int>("/keycast/fontSize", 36);
+        m_settings.opacity = cfg.get<int>("/keycast/opacity", 85);
         m_settings.textColor = cfg.get<std::string>("/keycast/textColor", "#ffffff");
         m_settings.backgroundColor = cfg.get<std::string>("/keycast/backgroundColor", "#1c1c22");
         m_settings.modifierKeycapColor = cfg.get<std::string>("/keycast/modifierKeycapColor", "auto");
@@ -1131,7 +1131,7 @@ void KeycastOverlay::render() {
         for (size_t c = 0; c < row.items.size(); ++c) {
             const auto& item = row.items[c];
             float itemAlpha = row.opacity * item.opacity;
-            if (itemAlpha < 0.02f) continue;
+            if (itemAlpha < 0.01f) continue;
 
             float drawX = currentX + item.offsetX * m_dpiScale;
             float drawY = actualY + item.offsetY * m_dpiScale;
@@ -1187,7 +1187,8 @@ void KeycastOverlay::render() {
     HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
     SIZE size = {m_width, m_height};
-    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    const BYTE globalAlpha = static_cast<BYTE>((std::clamp)(settings.opacity, 20, 100) * 255 / 100);
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, globalAlpha, AC_SRC_ALPHA};
     UpdateLayeredWindow(m_hwnd, hdcScreen, nullptr, &size, m_memoryDC, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
 }
