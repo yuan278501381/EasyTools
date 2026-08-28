@@ -1128,10 +1128,11 @@ void KeycastOverlay::render() {
         }
 
         float currentX = startX;
+        const float globalOpacity = (std::max)(0.20f, (std::min)(1.0f, static_cast<float>(settings.opacity) / 100.0f));
         for (size_t c = 0; c < row.items.size(); ++c) {
             const auto& item = row.items[c];
-            float itemAlpha = row.opacity * item.opacity;
-            if (itemAlpha < 0.02f) continue;
+            float itemAlpha = row.opacity * item.opacity * globalOpacity;
+            if (itemAlpha < 0.01f) continue;
 
             float drawX = currentX + item.offsetX * m_dpiScale;
             float drawY = actualY + item.offsetY * m_dpiScale;
