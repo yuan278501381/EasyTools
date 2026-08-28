@@ -2184,8 +2184,9 @@ export default function SearchApp() {
     event.stopPropagation();
     setSelectedIndex(index);
     if (event.shiftKey) {
-      const sx = event.screenX;
-      const sy = event.screenY;
+      const dpr = window.devicePixelRatio || 1;
+      const sx = Math.round(event.screenX * dpr);
+      const sy = Math.round(event.screenY * dpr);
       setTimeout(() => {
         void bridgeRequest('search.showShellContextMenu', {
           filepath: result.path,
@@ -3567,8 +3568,9 @@ export default function SearchApp() {
                 className="search-context-menu-item"
                 onClick={(e) => {
                   const res = contextMenu.result;
-                  const sx = e.screenX;
-                  const sy = e.screenY;
+                  const dpr = window.devicePixelRatio || 1;
+                  const sx = Math.round(e.screenX * dpr);
+                  const sy = Math.round(e.screenY * dpr);
                   setContextMenu({ visible: false, x: 0, y: 0 });
                   if (res) {
                     setTimeout(() => {

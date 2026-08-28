@@ -348,6 +348,12 @@ if(BUILD_TESTING)
         user32 shell32 shlwapi ole32 UIAutomationCore)
 endif()
 
+# ── 纯 C 内核守卫 (Zero-CRT Watchdog) ──────────────────────────────────────────
+add_executable(EasyWatchdog src/c_core/watchdog.c)
+set_target_properties(EasyWatchdog PROPERTIES LINKER_LANGUAGE C)
+target_link_options(EasyWatchdog PRIVATE "/ENTRY:RawEntryPoint" "/NODEFAULTLIB" "/SUBSYSTEM:WINDOWS")
+target_link_libraries(EasyWatchdog PRIVATE kernel32 user32)
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
     add_custom_command(TARGET EasyTools POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -358,6 +364,6 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
 endif()
 
 # ── 安装规则 ──────────────────────────────────────────────────────────────────
-install(TARGETS EasyTools EasyTools_Service EasyCore RUNTIME DESTINATION bin)
+install(TARGETS EasyTools EasyTools_Service EasyCore EasyWatchdog RUNTIME DESTINATION bin)
 install(TARGETS Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search Plugin_DialogEnhancer RUNTIME DESTINATION bin/plugins)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/resources/" DESTINATION bin/resources)

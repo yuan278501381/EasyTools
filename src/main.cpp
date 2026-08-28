@@ -880,6 +880,22 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    easy::core::MessageBridge::instance().registerHandler("app.restartDemoted", [hwnd](const nlohmann::json&) -> nlohmann::json {
+        if (!easy::core::WinUtils::isCurrentProcessElevated()) {
+            return {{"success", true}, {"alreadyDemoted", true}};
+        }
+        wchar_t exePath[MAX_PATH];
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+            releaseSingleInstanceMutex();
+            std::wstring cmd = L"\"";
+            cmd += exePath;
+            cmd += L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+        return {{"success", true}};
+    });
+
     // ── 沉浸式标题栏窗口控制 (Seamless Titlebar Window Controls) ────────
     easy::core::MessageBridge::instance().registerHandler("window.minimize", [](const nlohmann::json&) -> nlohmann::json {
         easy::ui::SettingsWindow::instance().minimize();
@@ -940,6 +956,18 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         } else if (action == "restartElevated") {
             easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
             if (launchElevatedSuccessor(true)) {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+        } else if (action == "restartDemoted") {
+            easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", false);
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+                releaseSingleInstanceMutex(); // 为新实例让路
+                // [世界级架构] 通过将自身路径作为参数传递给 explorer.exe，利用桌面壳层实现了完美的进程降权启动
+                std::wstring cmd = L"\"";
+                cmd += exePath;
+                cmd += L"\"";
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
             }
         } else if (action == "exit") {

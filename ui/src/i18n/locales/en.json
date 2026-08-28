@@ -125,6 +125,7 @@
     "runAsAdminDesc": "Run with Administrator privileges by default to handle gestures, hotkeys and color pickers in all windows.",
     "runAsAdminActive": "Already running as administrator",
     "runAsAdminCancelled": "Administrator approval was cancelled; the next launch will ask again",
+    "runAsAdminDemoteSaved": "Demotion saved. Please exit completely and restart manually to apply.",
     "runAsAdminFailed": "Could not restart as administrator",
     "minimizeToTray": "Minimize to Tray",
     "minimizeToTrayDesc": "Minimize to system tray instead of exiting when window is closed",

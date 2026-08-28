@@ -170,7 +170,8 @@ export const GeneralPage: FC = () => {
 
       if (!checked && settings.elevated) {
         setIsRestartingElevated(true);
-        await bridgeRequest('app.restart');
+        await bridgeRequest('app.restartDemoted');
+        return;
       }
     } catch (error) {
       setSettings(prev => ({ ...prev, runAsAdmin: previous }));
@@ -312,7 +313,7 @@ export const GeneralPage: FC = () => {
             id="runAsAdmin"
             label={t('general.runAsAdmin')}
             description={settings.elevated ? t('general.runAsAdminActive') : t('general.runAsAdminDesc')}
-            checked={settings.runAsAdmin}
+            checked={settings.runAsAdmin || (settings.elevated ?? false)}
             onChange={handleToggleRunAsAdmin}
             disabled={isRestartingElevated}
           />

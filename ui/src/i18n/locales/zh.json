@@ -125,6 +125,7 @@
     "runAsAdminDesc": "默认以管理员特权运行，全局捕获所有特权窗口上的手势、按键与取色操作。",
     "runAsAdminActive": "当前已是管理员权限",
     "runAsAdminCancelled": "已取消管理员授权，下次启动仍会再次请求",
+    "runAsAdminDemoteSaved": "已保存。受 Windows 权限限制，请彻底退出软件后手动重启以完成降级。",
     "runAsAdminFailed": "未能以管理员身份重启",
     "minimizeToTray": "关闭到托盘",
     "minimizeToTrayDesc": "关闭主窗口时最小化到系统托盘，而不是退出程序",
