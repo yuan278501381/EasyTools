@@ -417,7 +417,16 @@ std::string PathMemoryManager::canonicalProcessKey(const std::string& processNam
 
 std::string PathMemoryManager::directoryForSelection(const std::string& selectedPath,
                                                      const std::string& currentFolder) {
-    if (selectedPath.empty()) return {};
+    if (selectedPath.empty()) {
+        if (!currentFolder.empty()) {
+            std::filesystem::path current(
+                easy::core::WinUtils::utf8ToWstring(currentFolder));
+            if (isExistingDirectory(current)) {
+                return easy::core::WinUtils::wstringToUtf8(current.lexically_normal().native());
+            }
+        }
+        return {};
+    }
 
     std::filesystem::path selected(
         easy::core::WinUtils::utf8ToWstring(selectedPath));
@@ -438,14 +447,13 @@ std::string PathMemoryManager::directoryForSelection(const std::string& selected
     std::filesystem::path directory;
     if (attrs != INVALID_FILE_ATTRIBUTES) {
         if ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-            // 无论是选择子文件夹还是选择文件，统一记忆其父目录（包含所有同级项目的容器层级），
-            // 确保下次再次打开时直接停留在父目录（如 D:\Chosen\103-说明文档），同级项目一目了然。
+            // A folder picker confirms a child shown inside currentFolder. The
+            // useful recall location is that containing folder so the next
+            // dialog opens at the same choice level, not inside the old child.
             const std::filesystem::path parent = selected.parent_path().lexically_normal();
-            if (isExistingDirectory(parent) && parent != selected) {
-                directory = parent;
-            } else {
-                directory = selected;
-            }
+            const bool selectedChildOfCurrent = !current.empty() &&
+                _wcsicmp(parent.c_str(), current.c_str()) == 0;
+            directory = selectedChildOfCurrent ? current : selected;
         } else {
             directory = selected.parent_path();
         }

@@ -536,13 +536,19 @@ void DialogEngine::finalizeDialog(HWND hwnd, bool windowStillReadable) {
         selectedPath = session.lastSelection;
     }
 
-    const bool shouldRecord = !session.cancelled &&
-                              (!currentFolder.empty() || !selectedPath.empty());
+    // 核心准则 2：只有当用户明确点击确认（IDOK）且未取消时才记录记忆！
+    // 用户随意浏览文件夹后按 Esc、点击 X 或取消关闭，绝不污染记忆！
+    const bool shouldRecord = !session.cancelled && session.confirmed &&
+                              (!selectedPath.empty() || !currentFolder.empty());
 
     if (shouldRecord) {
-        std::string directory = PathMemoryManager::directoryForSelection(currentFolder);
-        if (directory.empty()) {
+        // 优先根据用户选中的文件（selectedPath）提取其父目录；如果无选中项则使用当前浏览目录
+        std::string directory;
+        if (!selectedPath.empty()) {
             directory = PathMemoryManager::directoryForSelection(selectedPath, currentFolder);
+        }
+        if (directory.empty() && !currentFolder.empty()) {
+            directory = PathMemoryManager::directoryForSelection(currentFolder);
         }
         if (!directory.empty()) {
             PathMemoryManager::instance().recordAppPath(session.processName, directory);

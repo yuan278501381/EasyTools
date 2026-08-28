@@ -4375,10 +4375,10 @@ TEST(PathMemoryManagerTest, SelectionPathNormalization) {
         return easy::core::WinUtils::wstringToUtf8(path.lexically_normal().native());
     };
 
-    // 选择文件夹时，记忆其父级容器目录，确保下次停留在同级选择层级
+    // 没有当前浏览目录上下文时，文件夹本身是唯一可靠结果。
     EXPECT_EQ(asPath(easy::dialog::PathMemoryManager::directoryForSelection(
                   asUtf8(base / "ChosenFolder"))),
-              base.lexically_normal());
+              (base / "ChosenFolder").lexically_normal());
 
     // 文件夹选择器中高亮当前目录的子文件夹时，记忆它所在的当前目录，
     // 下次仍停留在同一选择层级，而不是钻入上次选择的子文件夹。
