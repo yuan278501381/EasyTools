@@ -585,7 +585,10 @@ if ($ISCC) {
 # 7. 全功能端到端生命周期与防死锁自动化审计门禁 (DevOps Lifecycle Gate)
 # ------------------------------------------------------------------------------
 if (-not $SkipTests) {
-    $LifecycleScript = Join-Path $ScriptDir "build\verify_lifecycle.ps1"
+    $LifecycleScript = Join-Path $ScriptDir "scripts\verify_lifecycle.ps1"
+    if (-not (Test-Path $LifecycleScript)) {
+        $LifecycleScript = Join-Path $ScriptDir "build\verify_lifecycle.ps1"
+    }
     if (Test-Path $LifecycleScript) {
         Write-Log "🚀 正在执行全模块生命周期与防死锁自动化端到端审计 (verify_lifecycle.ps1)..." "INFO"
         & pwsh.exe -File $LifecycleScript
