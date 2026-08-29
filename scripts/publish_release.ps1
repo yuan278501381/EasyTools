@@ -48,6 +48,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "构建部署失败，终止发布！"
 }
 
+# 强校验：提取生成 EXE 的二进制版本元数据，必须与 VERSION 文件 100% 精确一致
+$BuiltExe = "deploy_dist\EasyTools.exe"
+if (-not (Test-Path $BuiltExe)) { throw "未找到编译产物: $BuiltExe" }
+$ExeVersion = (Get-Item $BuiltExe).VersionInfo.ProductVersion
+if ($ExeVersion -ne $CleanVersion) {
+    throw "版本强校验失败！编译产物版本 ($ExeVersion) 与发布版本 ($CleanVersion) 不一致！"
+}
+Write-Host "[OK] 版本强校验通过: EasyTools.exe ProductVersion = $ExeVersion" -ForegroundColor Green
+
 $ReleaseDir = "release_assets"
 if (Test-Path $ReleaseDir) {
     Remove-Item -Recurse -Force $ReleaseDir
