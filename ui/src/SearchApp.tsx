@@ -913,7 +913,29 @@ export default function SearchApp() {
     return saved ? Math.max(3.0, parseFloat(saved)) : 14.5;
   });
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
-  const scanElapsedTimerRef = useRef<number | null>(null);
+  const scanTimerHandleRef = useRef<{ sequence: number; intervalId: number; startTime: number } | null>(null);
+
+  const stopScanStopwatch = useCallback((targetSeq?: number) => {
+    if (scanTimerHandleRef.current) {
+      if (targetSeq === undefined || scanTimerHandleRef.current.sequence === targetSeq) {
+        window.clearInterval(scanTimerHandleRef.current.intervalId);
+        scanTimerHandleRef.current = null;
+      }
+    }
+  }, []);
+
+  const startScanStopwatch = useCallback((seq: number) => {
+    stopScanStopwatch();
+    setScanElapsedSeconds(0);
+    const startTime = Date.now();
+    const intervalId = window.setInterval(() => {
+      if (scanTimerHandleRef.current?.sequence === seq) {
+        setScanElapsedSeconds(+((Date.now() - startTime) / 1000).toFixed(1));
+      }
+    }, 100);
+    scanTimerHandleRef.current = { sequence: seq, intervalId, startTime };
+  }, [stopScanStopwatch]);
+
   const heavyQueryCacheRef = useRef<Map<string, {
     results: SearchResult[];
     elapsedMs: number;
@@ -1501,20 +1523,15 @@ export default function SearchApp() {
       }, 80);
 
       // ── 2. 深度扫描实时秒表计时器与陈旧列表清空 (杜绝搜内容却显示旧文件名) ──
-      if (scanElapsedTimerRef.current) {
-        clearInterval(scanElapsedTimerRef.current);
-        scanElapsedTimerRef.current = null;
-      }
-      setScanElapsedSeconds(0);
-      const scanStartTime = Date.now();
       if (isContentSearch) {
         startTransition(() => {
           setResults([]);
           setSelectedIndex(0);
         });
-        scanElapsedTimerRef.current = window.setInterval(() => {
-          setScanElapsedSeconds(+((Date.now() - scanStartTime) / 1000).toFixed(1));
-        }, 100);
+        startScanStopwatch(sequence);
+      } else {
+        stopScanStopwatch(sequence);
+        setScanElapsedSeconds(0);
       }
 
       const excludesList: string[] = [];
@@ -1534,12 +1551,6 @@ export default function SearchApp() {
           contentCustomExts: customContentFormats,
           contentDisabledExts: disabledContentFormats
         });
-
-        // 停止秒表
-        if (scanElapsedTimerRef.current) {
-          clearInterval(scanElapsedTimerRef.current);
-          scanElapsedTimerRef.current = null;
-        }
 
         // ── 3. 结果强制入缓存池 (即使 sequence 已过时，下次呼出也能瞬间命中) ──
         if (response && Array.isArray(response.results) && response.results.length > 0) {
@@ -1574,6 +1585,7 @@ export default function SearchApp() {
               void runQuery();
             }, nextDelay);
           } else {
+            stopScanStopwatch(sequence);
             startTransition(() => {
               setIsServiceStarting(false);
               setServiceAvailable(false);
@@ -1581,6 +1593,9 @@ export default function SearchApp() {
           }
           return;
         }
+
+        // 收到最终就绪结果，安全停止当前 sequence 的秒表
+        stopScanStopwatch(sequence);
 
         // 服务正常就绪并返回数据
         retryCountRef.current = 0;
@@ -1599,22 +1614,18 @@ export default function SearchApp() {
           }
         });
       } catch {
-        if (scanElapsedTimerRef.current) {
-          clearInterval(scanElapsedTimerRef.current);
-          scanElapsedTimerRef.current = null;
-        }
         if (sequence !== requestSequence.current) return;
+        stopScanStopwatch(sequence);
         window.clearTimeout(loadingTimer);
         startTransition(() => {
           setResults([]);
         });
       } finally {
-        if (scanElapsedTimerRef.current) {
-          clearInterval(scanElapsedTimerRef.current);
-          scanElapsedTimerRef.current = null;
-        }
         window.clearTimeout(loadingTimer);
-        if (sequence === requestSequence.current) setLoading(false);
+        if (sequence === requestSequence.current) {
+          stopScanStopwatch(sequence);
+          setLoading(false);
+        }
       }
     };
 
@@ -1635,7 +1646,20 @@ export default function SearchApp() {
         retryTimerRef.current = null;
       }
     };
-  }, [query, isComposing, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
+  }, [
+    query,
+    isComposing,
+    activeCategory,
+    searchMode,
+    enabledDrives,
+    maxResultLimit,
+    excludeGitAndModules,
+    excludeHidden,
+    customContentFormats,
+    disabledContentFormats,
+    startScanStopwatch,
+    stopScanStopwatch
+  ]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
