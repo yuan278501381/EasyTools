@@ -685,7 +685,7 @@
 }
 
 .uikit-field__label {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   font-weight: 500;
   color: var(--text-secondary, var(--text-primary));
 }
@@ -897,7 +897,7 @@
 }
 
 .picker-strategy-card__title {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;

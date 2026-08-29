@@ -593,7 +593,7 @@ export const GeneralPage: FC = () => {
                 )}
               </span>
               {settings.dataDirectory && (
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }} title={settings.dataDirectory}>
+                <span style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }} title={settings.dataDirectory}>
                   {settings.dataDirectory}
                 </span>
               )}

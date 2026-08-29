@@ -305,7 +305,7 @@ export const TargetAppPickerModal: FC<Props> = ({ defaultDisabled = false, onAdd
             <div className="picker-progress-fill" style={{ width: `${((4 - countdown) / 3) * 100}%` }} />
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: 'var(--text-primary)', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.83rem', color: 'var(--text-primary)', zIndex: 1 }}>
           {justPicked ? (
             <CheckCircle2 size={16} style={{ color: 'var(--success, #10b981)' }} className="picker-success-icon" />
           ) : (

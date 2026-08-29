@@ -27,9 +27,9 @@
      - *桌面端旧方案硬伤*：内嵌全量 `@fontsource/noto-sans-sc` 引入 100+ 个 `.woff2` 切片碎片文件，使安装包由 16MB 暴增至 32.4MB（+100% 膨胀）并在打包时产生海量磁盘 I/O 碎片；
      - *方案 B 架构终局标准*：全项目采用 **单字重极简无损思源黑体架构（500 Medium · 仅 1.10MB 单文件 · 0 碎片 I/O）** 并结合 `@font-face` 中的 `local('Source Han Sans SC')` 本地白嫖机制。既彻底消灭 100+ 切片导致的 20MB 膨胀与打包卡顿，又完美呈现中英数字/括号 100% 同源浑然一体的世界级现代几何字面质感！
    - **Single Source of Truth Font Stack**: 界面无衬线统一引用 `--font-sans`（`"Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;`）；现代等宽/类名/代码/快捷键统一引用 `--font-mono`（`"Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;`）。严禁在任何新组件中裸写 `ui-monospace` 或硬编码 `font-family`。
-   - **Legibility & Font Size Floor**: 界面中所有文本（含次级辅助说明、状态徽章、输入框等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，次级文本字重不得低于 500（正文 550，标题 650~700），行高不得低于 `1.4`，保障 ClearType 次像素渲染字字饱满锐利。
+   - **Legibility & Font Size / Weight Floor (字号与字重双重底线)**: 界面中所有文本（含次级辅助说明、状态徽章、输入框、占位符 placeholder 等）字号不得低于 `0.83rem` (`11.8px ~ 12px`)，**字重底线严禁低于 500 Medium**（正文 550，标题 650~700），行高不得低于 `1.4`，保障 ClearType 次像素渲染字字饱满锐利。严禁出现 400/450 细字重导致的笔画发虚与边缘发灰。
    - **Inline Glass Code Badge Standard**: 所有窗口类名、进程名、文件路径等技术标识符必须统一使用 `<CodeBadge />` 微晶代码胶囊封装，严禁粗糙裸露细文本。
-   - **Automated Typography CI Gate**: CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明或低于 11.8px 的微小字号直接阻断构建。
+   - **Automated Typography CI Gate**: CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明、低于 11.8px 的微小字号或低于 500 的细字重直接阻断构建。
 3. **Zero Emoji & Vector Iconography Standard**:
    - **Strict Red Lines**: Strictly prohibit hardcoded Unicode color emojis (e.g., `📦`, `💻`, `🟢`) in UI badges, state indicators, and descriptions.
    - **Vector SVG Consistency**: Uniformly use crisp Lucide vector SVG icons paired with semi-transparent glass capsule badges and ClearType subpixel rendering.

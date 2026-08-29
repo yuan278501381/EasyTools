@@ -73,6 +73,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 if(MSVC)
     add_compile_options(
         /utf-8 /W4 /WX- /permissive- /Zc:__cplusplus /MP /Zi
+        /external:W0 /external:anglebrackets
     )
     add_link_options(/DEBUG)
     add_compile_definitions(

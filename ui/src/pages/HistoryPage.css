@@ -94,7 +94,7 @@
 }
 
 .history-card-info .timestamp {
-  font-size: 0.8rem;
+  font-size: 0.83rem;
   color: var(--text-primary);
   font-weight: 500;
   font-family: var(--font-mono);

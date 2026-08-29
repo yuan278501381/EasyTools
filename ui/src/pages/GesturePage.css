@@ -172,7 +172,7 @@
 }
 
 .gesture-action-desc {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   line-height: 1.45;
 }
@@ -241,7 +241,7 @@
 }
 
 .gesture-toolbar__count {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -321,7 +321,7 @@
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-md);
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.83rem;
 }
 
 .gesture-radial-toolbar__actions,
@@ -392,7 +392,7 @@
 }
 
 .scope-toolbar__count {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
 }
 
@@ -529,7 +529,7 @@
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   font-weight: 500;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -715,7 +715,7 @@
 }
 
 .trigger-strip-title {
-  font-size: 0.80rem;
+  font-size: 0.83rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -913,7 +913,7 @@
 
 .gesture-action-desc {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   margin-top: 2px;
   white-space: nowrap;

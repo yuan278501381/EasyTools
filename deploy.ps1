@@ -375,7 +375,9 @@ if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
 
 $RedistVsPath = $vsPath
 if (-not $RedistVsPath) {
-    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    $pf86 = ${env:ProgramFiles(x86)}
+    if (-not $pf86) { $pf86 = $env:ProgramFiles }
+    $vswhere = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vswhere) {
         $RedistVsPath = & $vswhere -latest -products * `
             -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath

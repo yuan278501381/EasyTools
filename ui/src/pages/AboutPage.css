@@ -213,7 +213,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-secondary);
 }
 
@@ -306,7 +306,7 @@
 }
 
 .about-dep-purpose {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -324,7 +324,7 @@
 
 .about-footer-copyright p {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-secondary);
   letter-spacing: 0.01em;
 }

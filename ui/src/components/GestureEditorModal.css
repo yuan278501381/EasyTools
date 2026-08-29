@@ -188,7 +188,7 @@
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.35);
   color: #d97706;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   line-height: 1.45;
   animation: fadeIn 0.2s ease-out;
 }
@@ -240,7 +240,7 @@
   gap: 8px;
   cursor: pointer;
   user-select: none;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   flex-wrap: wrap;
 }
 

@@ -292,7 +292,7 @@ export const SearchPage: FC = () => {
                             style={{
                               padding: '2px 8px',
                               borderRadius: '4px',
-                              fontSize: '11.5px',
+                              fontSize: '12px',
                               border: isSelected ? '1px solid var(--primary)' : '1px solid var(--search-surface-pill-border, rgba(255, 255, 255, 0.1))',
                               background: isSelected ? 'color-mix(in srgb, var(--primary) 20%, transparent)' : 'transparent',
                               color: isSelected ? 'var(--primary)' : 'inherit',

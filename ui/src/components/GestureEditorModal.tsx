@@ -304,7 +304,7 @@ export const GestureEditorModal: FC<Props> = ({
         />
         {code && (
           <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>
               {t('gestureEditor.recognizedGesture')}:
             </span>
             <GestureStrokePreview code={code} width={64} height={38} autoAnimate />
