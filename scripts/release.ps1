@@ -14,7 +14,8 @@ param(
     [string]$Bump = "Patch",
     [string]$Version = "",
     [string]$NextFeatureBranch = "",
-    [switch]$SkipGitHubPublish = $false
+    [switch]$LocalOnly = $false,             # 仅本地演练发版 (不推送到远端 Git，不发布 GitHub Release)
+    [switch]$SkipGitHubPublish = $false      # 推送 Git 标签但跳过 GitHub Release 网页发布
 )
 
 $ErrorActionPreference = "Stop"
@@ -269,22 +270,27 @@ $ChecksumFile = "$ReleaseDir\SHA256SUMS.txt"
 $Checksums | Out-File -FilePath $ChecksumFile -Encoding utf8
 Write-Host "[OK] 发布资产已就绪并生成 SHA256 校验和" -ForegroundColor Green
 
-# 10. 创建 Tag 并推送到 GitHub
-Write-Host "[GIT] 创建并推送标签 $TargetTag..." -ForegroundColor Cyan
+# 10. 创建 Tag 并推送到 GitHub (若 LocalOnly 则跳过推送)
+Write-Host "[GIT] 创建标签 $TargetTag..." -ForegroundColor Cyan
 git tag -a $TargetTag -m "EasyTools $TargetTag" -f
 if ($LASTEXITCODE -ne 0) { throw "创建标签失败！" }
 
-git push origin main
-git push origin "refs/tags/$TargetTag" --force
-if ($CurrentBranch -ne "main") {
-    git checkout $CurrentBranch
-    git merge main
-    git push origin $CurrentBranch
+if (-not $LocalOnly) {
+    Write-Host "[GIT] 正在推送 main 与标签至远程 GitHub..." -ForegroundColor Cyan
+    git push origin main
+    git push origin "refs/tags/$TargetTag" --force
+    if ($CurrentBranch -ne "main") {
+        git checkout $CurrentBranch
+        git merge main
+        git push origin $CurrentBranch
+    }
+    Write-Host "[OK] Git 分支与 Tag 已全量同步至远程 GitHub" -ForegroundColor Green
+} else {
+    Write-Host "[INFO] [LocalOnly] 跳过 Git 远程推送" -ForegroundColor Yellow
 }
-Write-Host "[OK] Git 分支与 Tag 已全量同步至远程 GitHub" -ForegroundColor Green
 
-# 11. GitHub Release 官方发布
-if (-not $SkipGitHubPublish) {
+# 11. GitHub Release 官方发布 (若 LocalOnly 或 SkipGitHubPublish 则跳过)
+if (-not $LocalOnly -and -not $SkipGitHubPublish) {
     Write-Host "[GITHUB] 发布官方 GitHub Release ($TargetTag)..." -ForegroundColor Cyan
     $ReleaseExists = $false
     try {
@@ -298,6 +304,8 @@ if (-not $SkipGitHubPublish) {
         gh release create $TargetTag $TargetSetup $TargetZip $ChecksumFile --title "EasyTools $TargetTag (Windows x64)" --notes-file $NotesFile --latest
     }
     Write-Host "[OK] GitHub Release 发布成功！" -ForegroundColor Green
+} elseif ($LocalOnly) {
+    Write-Host "[INFO] [LocalOnly] 跳过 GitHub Release 官方发布" -ForegroundColor Yellow
 }
 
 # 12. 检出后续特性分支
@@ -309,7 +317,9 @@ if ([string]::IsNullOrWhiteSpace($NextFeatureBranch)) {
 }
 Write-Host "[GIT] 切换至下一阶段特性分支: $NextFeatureBranch" -ForegroundColor Cyan
 git checkout -B $NextFeatureBranch main
-git push origin -u $NextFeatureBranch
+if (-not $LocalOnly) {
+    git push origin -u $NextFeatureBranch
+}
 
 Write-Host "=======================================================" -ForegroundColor Green
 Write-Host " 🎉 恭喜！EasyTools $TargetTag 全自动化发版流水线执行完毕！" -ForegroundColor Green
