@@ -121,6 +121,8 @@ void SearchWindow::show(HINSTANCE hInstance) {
     };
     m_showTimeTick = GetTickCount64();
     warmUpSearchService();
+    easy::core::MessageBridge::instance().handleMessageAsync(
+        R"({"id":0,"method":"search.windowShown","params":{}})", [](std::string) {});
     if (m_hwnd && IsWindow(m_hwnd)) {
         if (m_visible) {
             updatePlacement();
@@ -172,6 +174,8 @@ void SearchWindow::hide() {
     m_visible = false;
     if (m_controller) m_controller->put_IsVisible(FALSE);
     if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "search");
+    easy::core::MessageBridge::instance().handleMessageAsync(
+        R"({"id":0,"method":"search.windowHidden","params":{}})", [](std::string) {});
     easy::core::WinUtils::trimWorkingSet();
 }
 
@@ -526,6 +530,8 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             inst.hide();
             return 0;
         case WM_SEARCH_VERIFY_DEACTIVATED: {
+            const bool isPinned = inst.m_isPinned.load() || (GetPropW(hwnd, L"EasyTools_SearchPinned") != nullptr);
+            if (isPinned) break; // 启用图钉时，窗口永远显示，绝对不失焦隐藏
             if (!inst.m_visible.load()) break;
             if (inst.isMenuActive()) break;
             if (!inst.m_webViewReady.load()) break; // 渲染就绪前严禁失焦误杀

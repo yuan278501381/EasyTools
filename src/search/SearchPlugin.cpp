@@ -510,9 +510,9 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
         return std::nullopt;
     }
 
-    // 帧头到达即表示服务端已完成计算，因此这一步承担查询本身的等待时间。
+    // 帧头到达即表示服务端已完成计算，因此这一步承担查询本身的等待时间 (支持 2 分钟全盘扫描)。
     char responseHeader[frame::HeaderSize] = {};
-    if (!transfer.readExact(pipe, responseHeader, sizeof(responseHeader), 15000, error)) {
+    if (!transfer.readExact(pipe, responseHeader, sizeof(responseHeader), 120000, error)) {
         return std::nullopt;
     }
 
@@ -523,21 +523,27 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
     }
 
     std::string response(responseBytes, '\0');
-    if (!transfer.readExact(pipe, response.data(), responseBytes, 15000, error)) {
+    if (!transfer.readExact(pipe, response.data(), responseBytes, 120000, error)) {
         return std::nullopt;
     }
     return response;
 }
 
-// 主程序退出时收尾。索引常驻要几百 MB，用户点了"退出 EasyTools"却留着它，
-// 直到重启才释放，这不符合退出的语义；想常驻的人可以在设置里开回来。
+static std::mutex g_idleShutdownMutex;
+static std::jthread g_idleShutdownThread;
+static std::atomic<uint64_t> g_lastActiveTick{0};
+
+static void cancelIdleServiceShutdown() {
+    std::lock_guard lock(g_idleShutdownMutex);
+    g_lastActiveTick.store(GetTickCount64());
+    if (g_idleShutdownThread.joinable()) {
+        g_idleShutdownThread.request_stop();
+    }
+}
+
 static void stopSearchServiceIfOwned() {
-    const easy::search::ServiceOwnership ownership{
-        g_serviceSpawnedByUs.load(),
-        isServiceManagedByScm(),
-        easy::core::ConfigManager::instance().get<bool>("/search/keepServiceRunning", false),
-    };
-    if (!easy::search::shouldStopServiceOnExit(ownership)) return;
+    const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
+    if (resident) return;
 
     nlohmann::json req;
     req["action"] = "shutdown";
@@ -547,6 +553,106 @@ static void stopSearchServiceIfOwned() {
     } else {
         LOG_WARN("SearchPlugin: 索引服务停机请求失败, error={}", error);
     }
+
+    if (isServiceManagedByScm()) {
+        SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+        if (scm) {
+            SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_STOP | SERVICE_QUERY_STATUS);
+            if (service) {
+                SERVICE_STATUS status{};
+                ControlService(service, SERVICE_CONTROL_STOP, &status);
+                CloseServiceHandle(service);
+            }
+            CloseServiceHandle(scm);
+        }
+    }
+}
+
+static void scheduleIdleServiceShutdown(int timeoutSeconds = -1) {
+    std::lock_guard lock(g_idleShutdownMutex);
+    const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
+    if (resident) {
+        return;
+    }
+
+    if (timeoutSeconds < 0) {
+        int minutes = easy::core::ConfigManager::instance().get<int>("/search/idleShutdownMinutes", 1);
+        timeoutSeconds = minutes * 60;
+    }
+
+    if (timeoutSeconds <= 0) {
+        LOG_INFO("SearchPlugin: 搜索窗口已隐藏且空闲超时设置为 0，立即安全休眠索引服务");
+        stopSearchServiceIfOwned();
+        return;
+    }
+
+    g_lastActiveTick.store(GetTickCount64());
+    if (g_idleShutdownThread.joinable()) {
+        g_idleShutdownThread.request_stop();
+        g_idleShutdownThread.join();
+    }
+
+    g_idleShutdownThread = std::jthread([timeoutSeconds](std::stop_token stop) {
+        LOG_INFO("SearchPlugin: 启动空闲索引服务休眠看门狗 (timeout={}s)", timeoutSeconds);
+        const int intervalMs = 500;
+        const int totalChecks = (timeoutSeconds * 1000) / intervalMs;
+        for (int i = 0; i < totalChecks; ++i) {
+            if (stop.stop_requested()) {
+                LOG_INFO("SearchPlugin: 用户重新唤起搜索，已取消索引服务休眠看门狗");
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+        }
+        if (stop.stop_requested()) return;
+
+        LOG_INFO("SearchPlugin: 搜索窗口闲置达到超时时间且未开启常驻后台，自动安全休眠索引服务");
+        stopSearchServiceIfOwned();
+    });
+}
+
+static const std::unordered_map<std::string, std::vector<std::string>> CONTENT_CATEGORY_EXTS = {
+    {"doc", {"doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "txt", "md", "markdown", "rtf", "csv", "tsv", "log", "epub", "tex", "bib", "rst", "adoc"}},
+    {"code", {"c", "cpp", "cc", "cxx", "h", "hpp", "hxx", "cs", "rs", "go", "zig", "nim", "d", "java", "kt", "kts", "scala", "groovy", "dart", "swift", "m", "mm", "js", "jsx", "mjs", "cjs", "ts", "tsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "proto", "graphql", "gql", "thrift", "prisma", "json", "jsonc", "json5", "xml", "xaml", "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties", "env", "reg", "lock", "plist", "prefs", "py", "pyw", "rb", "php", "pl", "pm", "lua", "sh", "bash", "zsh", "ps1", "psm1", "psd1", "bat", "cmd", "vbs", "ahk", "au3", "sql", "prc", "fnc", "trg", "pks", "pkb", "pls", "ch", "pld", "asm", "s", "glsl", "hlsl", "vert", "frag", "geom", "comp", "shader", "wgsl"}},
+    {"design", {"dxf", "psd", "ai"}},
+    {"archive", {"zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso"}}
+};
+
+static std::vector<std::string> getDisabledContentExtsFromConfig() {
+    auto& cfg = easy::core::ConfigManager::instance();
+    std::vector<std::string> disabled;
+    for (const auto& [cat, exts] : CONTENT_CATEGORY_EXTS) {
+        const std::string key = "/search/contentCategory_" + cat;
+        const bool enabled = cfg.get<bool>(key, true);
+        if (!enabled) {
+            disabled.insert(disabled.end(), exts.begin(), exts.end());
+        }
+    }
+    return disabled;
+}
+
+static std::vector<std::pair<std::string, double>> getDialogPriorityPathsFromConfig() {
+    std::vector<std::pair<std::string, double>> result;
+    auto& cfg = easy::core::ConfigManager::instance();
+    auto favs = cfg.get<std::vector<std::string>>("/dialog/favorites", {});
+    for (const auto& path : favs) {
+        if (!path.empty()) result.emplace_back(path, 4500.0);
+    }
+    auto recents = cfg.get<std::vector<std::string>>("/dialog/recentPaths", {});
+    for (const auto& path : recents) {
+        if (!path.empty()) result.emplace_back(path, 3500.0);
+    }
+    auto appMem = cfg.get<nlohmann::json>("/dialog/appMemories", nlohmann::json::object());
+    if (appMem.is_object()) {
+        for (const auto& [_, item] : appMem.items()) {
+            if (item.is_object()) {
+                std::string p = item.value("path", "");
+                if (!p.empty()) result.emplace_back(p, 3000.0);
+                std::string fw = item.value("fixedWorkspace", "");
+                if (!fw.empty()) result.emplace_back(fw, 4000.0);
+            }
+        }
+    }
+    return result;
 }
 
 }  // namespace
@@ -589,6 +695,22 @@ public:
             }
 
             nlohmann::json normalized = params;
+            if (!normalized.contains("contentDisabledExts")) {
+                const auto disabled = getDisabledContentExtsFromConfig();
+                if (!disabled.empty()) {
+                    normalized["contentDisabledExts"] = disabled;
+                }
+            }
+
+            // 智能跨模块联动：将文件对话框增强 (DialogEnhancer) 记录的常用/收藏工作区路径下发给搜索引擎作为 Top 优先扫描源
+            const auto dialogPriorities = getDialogPriorityPathsFromConfig();
+            if (!dialogPriorities.empty()) {
+                nlohmann::json diagArr = nlohmann::json::array();
+                for (const auto& [dpath, score] : dialogPriorities) {
+                    diagArr.push_back({{"path", dpath}, {"score", score}});
+                }
+                normalized["dialogPriorities"] = std::move(diagArr);
+            }
             if (const auto limitIt = normalized.find("limit"); limitIt != normalized.end()) {
                 if (!limitIt->is_number_integer() && !limitIt->is_number_unsigned()) {
                     return invalidSearchRequest("limit must be an integer");
@@ -655,7 +777,7 @@ public:
             nlohmann::json req;
             req["action"] = "catchup";
             DWORD pipeError = ERROR_SUCCESS;
-            auto resp = querySearchService(req.dump(), pipeError);
+            auto resp = querySearchService(req.dump(), pipeError, /*autoStart=*/false);
             if (resp) {
                 try {
                     return nlohmann::json::parse(*resp);
@@ -799,6 +921,27 @@ public:
             return {{"success", true}};
         });
 
+        mb.registerHandler("search.setPinned", [](const nlohmann::json& params) -> nlohmann::json {
+            bool pinned = params.value("pinned", false);
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            if (hwnd && IsWindow(hwnd)) {
+                SetPropW(hwnd, L"EasyTools_SearchPinned", pinned ? reinterpret_cast<HANDLE>(1) : nullptr);
+                if (pinned) {
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+            return {{"success", true}, {"pinned", pinned}};
+        });
+
+        mb.registerHandler("search.isPinned", [](const nlohmann::json&) -> nlohmann::json {
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            bool pinned = false;
+            if (hwnd && IsWindow(hwnd)) {
+                pinned = (GetPropW(hwnd, L"EasyTools_SearchPinned") != nullptr);
+            }
+            return {{"pinned", pinned}};
+        });
+
         // 只报告状态，不再顺手拉起服务：设置页一打开就会查一次状态，那不足以
         // 说明用户要用搜索。需要拉起时走 search.warmup。
         mb.registerHandler("search.getServiceStatus", [](const nlohmann::json&) -> nlohmann::json {
@@ -807,10 +950,25 @@ public:
             };
         });
 
-        // 搜索窗真正呼出时才把索引服务拉起来。用户此刻正在打字，几秒的启动时间
-        // 被输入过程盖掉；而预热 WebView 时不触发，开机静默驻留就不必背这份内存。
         mb.registerHandler("search.warmup", [](const nlohmann::json&) -> nlohmann::json {
-            return {{"available", ensureSearchServiceRunning()}};
+            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+            const bool isVisible = hwnd && IsWindowVisible(hwnd);
+            const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
+            if (resident || isVisible) {
+                cancelIdleServiceShutdown();
+                return {{"available", ensureSearchServiceRunning()}};
+            }
+            return {{"available", false, "sleeping", true}};
+        });
+
+        mb.registerHandler("search.windowShown", [](const nlohmann::json&) -> nlohmann::json {
+            cancelIdleServiceShutdown();
+            return {{"success", true}};
+        });
+
+        mb.registerHandler("search.windowHidden", [](const nlohmann::json&) -> nlohmann::json {
+            scheduleIdleServiceShutdown();
+            return {{"success", true}};
         });
 
         mb.registerHandler("search.getSettings", [](const nlohmann::json&) -> nlohmann::json {
@@ -825,11 +983,18 @@ public:
             std::string excludePatterns = cfg.get<std::string>("/search/excludePatterns", "$Recycle.Bin,System Volume Information,node_modules,.git,__pycache__");
             bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
             bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
-            bool keepServiceRunning = cfg.get<bool>("/search/keepServiceRunning", false);
+            bool residentInBackground = cfg.get<bool>("/search/residentInBackground", true);
+            int idleShutdownMinutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
             bool autoBypassFullscreen = cfg.get<bool>("/search/autoBypassFullscreen", true);
+            bool catDoc = cfg.get<bool>("/search/contentCategory_doc", true);
+            bool catCode = cfg.get<bool>("/search/contentCategory_code", true);
+            bool catDesign = cfg.get<bool>("/search/contentCategory_design", true);
+            bool catArchive = cfg.get<bool>("/search/contentCategory_archive", true);
 
             return {
-                {"keepServiceRunning", keepServiceRunning},
+                {"residentInBackground", residentInBackground},
+                {"keepServiceRunning", residentInBackground},
+                {"idleShutdownMinutes", idleShutdownMinutes},
                 {"hotkey", hotkey},
                 {"maxResults", maxResults},
                 {"defaultCategory", defaultCategory},
@@ -840,7 +1005,11 @@ public:
                 {"excludePatterns", excludePatterns},
                 {"excludeHidden", excludeHidden},
                 {"excludeSystem", excludeSystem},
-                {"autoBypassFullscreen", autoBypassFullscreen}
+                {"autoBypassFullscreen", autoBypassFullscreen},
+                {"contentCategory_doc", catDoc},
+                {"contentCategory_code", catCode},
+                {"contentCategory_design", catDesign},
+                {"contentCategory_archive", catArchive}
             };
         });
 
@@ -876,8 +1045,56 @@ public:
             if (params.contains("excludeSystem") && params["excludeSystem"].is_boolean()) {
                 cfg.set("/search/excludeSystem", params["excludeSystem"].get<bool>());
             }
-            if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
-                cfg.set("/search/keepServiceRunning", params["keepServiceRunning"].get<bool>());
+            if (params.contains("contentCategory_doc") && params["contentCategory_doc"].is_boolean()) {
+                cfg.set("/search/contentCategory_doc", params["contentCategory_doc"].get<bool>());
+            }
+            if (params.contains("contentCategory_code") && params["contentCategory_code"].is_boolean()) {
+                cfg.set("/search/contentCategory_code", params["contentCategory_code"].get<bool>());
+            }
+            if (params.contains("contentCategory_design") && params["contentCategory_design"].is_boolean()) {
+                cfg.set("/search/contentCategory_design", params["contentCategory_design"].get<bool>());
+            }
+            if (params.contains("contentCategory_archive") && params["contentCategory_archive"].is_boolean()) {
+                cfg.set("/search/contentCategory_archive", params["contentCategory_archive"].get<bool>());
+            }
+            if (params.contains("idleShutdownMinutes") && params["idleShutdownMinutes"].is_number()) {
+                int minutes = params["idleShutdownMinutes"].get<int>();
+                cfg.set("/search/idleShutdownMinutes", (std::max)(0, minutes));
+            }
+            if (params.contains("residentInBackground") && params["residentInBackground"].is_boolean()) {
+                bool resident = params["residentInBackground"].get<bool>();
+                cfg.set("/search/residentInBackground", resident);
+                cfg.set("/search/keepServiceRunning", resident);
+                if (resident) {
+                    cancelIdleServiceShutdown();
+                } else {
+                    HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+                    const bool isVisible = hwnd && IsWindowVisible(hwnd);
+                    int minutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
+                    if (!isVisible || minutes <= 0) {
+                        cancelIdleServiceShutdown();
+                        stopSearchServiceIfOwned();
+                    } else {
+                        scheduleIdleServiceShutdown(minutes * 60);
+                    }
+                }
+            } else if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
+                bool resident = params["keepServiceRunning"].get<bool>();
+                cfg.set("/search/residentInBackground", resident);
+                cfg.set("/search/keepServiceRunning", resident);
+                if (resident) {
+                    cancelIdleServiceShutdown();
+                } else {
+                    HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
+                    const bool isVisible = hwnd && IsWindowVisible(hwnd);
+                    int minutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
+                    if (!isVisible || minutes <= 0) {
+                        cancelIdleServiceShutdown();
+                        stopSearchServiceIfOwned();
+                    } else {
+                        scheduleIdleServiceShutdown(minutes * 60);
+                    }
+                }
             }
             if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
                 cfg.set("/search/autoBypassFullscreen", params["autoBypassFullscreen"].get<bool>());

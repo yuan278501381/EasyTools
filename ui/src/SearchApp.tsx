@@ -40,6 +40,7 @@ import {
   Copy,
   Pencil,
   Lightbulb,
+  Pin,
   type LucideIcon
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +50,7 @@ import { useAppearance } from './hooks/useAppearance';
 import { DynamicRowLayout, isSelectedOutsideVirtualRange } from './searchVirtualization';
 import { isEmptyContentSyntax, nextQueryId, resolveDebounceMs } from './searchScheduling';
 import { WindowResizeHandles } from './components/WindowResizeHandles';
+import { Toggle } from './components/UIKit';
 import './SearchApp.css';
 
 export interface DriveInfo {
@@ -832,6 +834,34 @@ export default function SearchApp() {
     newName: string;
   }>({ visible: false, newName: '' });
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    bridgeRequest<{ pinned: boolean }>('search.isPinned')
+      .then(res => {
+        if (res && typeof res.pinned === 'boolean') {
+          setIsPinned(res.pinned);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const togglePin = useCallback(async () => {
+    const next = !isPinned;
+    setIsPinned(next);
+    try {
+      await bridgeRequest('search.setPinned', { pinned: next });
+      if (next) {
+        toast.success(t('search.pinnedToast', 'Search window pinned (Keeps open when clicking outside)'));
+      } else {
+        toast.info(t('search.unpinnedToast', 'Search window unpinned (Auto-hides on blur)'));
+      }
+    } catch {
+      setIsPinned(!next);
+    }
+  }, [isPinned, t]);
+
+  const [totalIndexedFiles, setTotalIndexedFiles] = useState<number>(0);
 
   const filteredSyntaxExamples = useMemo(() => {
     if (syntaxCat === 'all') return SYNTAX_EXAMPLES;
@@ -950,11 +980,6 @@ export default function SearchApp() {
     let active = true;
     let pollTimer: number | undefined;
 
-    // 首次打开或唤醒时，立即异步在后台拉起搜索服务并执行索引增量预热，UI 线程 0 卡顿
-    void bridgeRequest('search.warmup').then(() => {
-      void bridgeRequest('search.sync').catch(() => {});
-    }).catch(() => {});
-
     void bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 })
       .then((res) => {
         if (active && res && res.success && Array.isArray(res.history)) {
@@ -971,15 +996,18 @@ export default function SearchApp() {
       }
     };
 
-    void runPoll();
-
     let lastFocusSyncTick = 0;
     const onFocusEvt = () => {
       const now = Date.now();
-      if (now - lastFocusSyncTick > 5000) {
+      if (now - lastFocusSyncTick > 3000) {
         lastFocusSyncTick = now;
         void bridgeRequest('search.warmup').then(() => {
           void bridgeRequest('search.sync').catch(() => {});
+          void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
+            if (res && res.totalIndexedFiles) {
+              setTotalIndexedFiles(res.totalIndexedFiles);
+            }
+          }).catch(() => {});
         }).catch(() => {});
       }
       void runPoll();
@@ -1145,21 +1173,12 @@ export default function SearchApp() {
   const [searchMode, setSearchMode] = useState<SearchMode>(() => {
     return (localStorage.getItem('easytools_search_default_mode') as SearchMode) || 'name';
   });
-  const [totalIndexedFiles, setTotalIndexedFiles] = useState<number>(0);
   const [searchElapsedMs, setSearchElapsedMs] = useState<number>(0);
 
   const changeSearchMode = (mode: SearchMode) => {
     setSearchMode(mode);
     localStorage.setItem('easytools_search_default_mode', mode);
   };
-
-  useEffect(() => {
-    void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
-      if (res && res.totalIndexedFiles) {
-        setTotalIndexedFiles(res.totalIndexedFiles);
-      }
-    }).catch(() => undefined);
-  }, []);
 
   const [disabledContentFormats, setDisabledContentFormats] = useState<string[]>(() => {
     try {
@@ -1193,6 +1212,17 @@ export default function SearchApp() {
         next = [...prev, cleanExt];
       }
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      heavyQueryCacheRef.current.clear();
+      // 如果是禁用该格式，立即从当前可见列表中剔除对应文件，0 毫秒即时响应
+      if (next.includes(cleanExt)) {
+        startTransition(() => {
+          setResults(currentResults => currentResults.filter(item => {
+            if (!item.path) return true;
+            const itemExt = item.path.split('.').pop()?.toLowerCase() || '';
+            return itemExt !== cleanExt;
+          }));
+        });
+      }
       return next;
     });
   };
@@ -1208,6 +1238,18 @@ export default function SearchApp() {
         }
       }
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      heavyQueryCacheRef.current.clear();
+      // 如果是关闭该大类，立即从当前可见列表中剔除该分类下的全部文件，0 毫秒即时响应
+      if (!enableAll) {
+        const catExtSet = new Set(cat.extensions.map(e => e.toLowerCase()));
+        startTransition(() => {
+          setResults(currentResults => currentResults.filter(item => {
+            if (!item.path) return true;
+            const itemExt = item.path.split('.').pop()?.toLowerCase() || '';
+            return !catExtSet.has(itemExt);
+          }));
+        });
+      }
       return next;
     });
   };
@@ -1231,6 +1273,7 @@ export default function SearchApp() {
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
       return next;
     });
+    heavyQueryCacheRef.current.clear();
     setNewFormatInput('');
     toast.success(t('search.customExtAddedToast', 'Added {{exts}} to content search support list', { exts: parts.map(p => '.' + p).join(', ') }));
   };
@@ -1247,6 +1290,7 @@ export default function SearchApp() {
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
       return next;
     });
+    heavyQueryCacheRef.current.clear();
   };
 
   const resetContentFormats = () => {
@@ -1386,18 +1430,8 @@ export default function SearchApp() {
 
     const onFocusEvt = () => {
       doFocus();
-      void bridgeRequest('search.sync');
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
-    window.addEventListener('focus', onFocusEvt);
-    
-    const onVisibilityChange = () => {
-      if (!document.hidden) {
-        doFocus();
-        void bridgeRequest('search.sync');
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
 
     const handleGlobalClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1414,8 +1448,6 @@ export default function SearchApp() {
       clearTimeout(t3);
       clearTimeout(t4);
       window.removeEventListener('easytools:focusSearch', onFocusEvt);
-      window.removeEventListener('focus', onFocusEvt);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('click', handleGlobalClick);
       window.removeEventListener('pointerdown', handleGlobalClick);
     };
@@ -1447,7 +1479,7 @@ export default function SearchApp() {
 
       const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
       const isContentSearch = effectiveMode === 'content' || trimmed.toLowerCase().startsWith('content:') || trimmed.startsWith('内容:');
-      const cacheKey = `${effectiveMode}:${trimmed}:${enabledDrives.slice().sort().join(',')}:${maxResultLimit}:${excludeGitAndModules ? 'exDev' : 'all'}`;
+      const cacheKey = `${effectiveMode}:${trimmed}:${enabledDrives.slice().sort().join(',')}:${maxResultLimit}:${excludeGitAndModules ? 'exDev' : 'all'}:${disabledContentFormats.slice().sort().join(',')}:${customContentFormats.slice().sort().join(',')}`;
 
       // ── 1. 0ms 瞬间命中会话韧性缓存 (防止用户关开窗口丢失 14s 扫描结果) ──
       const cached = heavyQueryCacheRef.current.get(cacheKey);
@@ -1818,16 +1850,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFile', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFile', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.openFailed', 'Could not open this result'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const openFolderResult = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1835,16 +1867,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFolder', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFolder', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.openFolderFailed'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const copyPathResult = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
@@ -1889,11 +1921,11 @@ export default function SearchApp() {
     }
     try {
       await bridgeRequest('capture.pinImageFile', { path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       toast.error(t('search.toastPinFail', 'Pin failed'));
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const openResultAsAdmin = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1901,16 +1933,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFileAsAdmin', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFileAsAdmin', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.errRunAsAdmin', 'Failed to run as administrator'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const showFileProperties = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1966,16 +1998,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openWithNotepad', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openWithNotepad', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.errOpenNotepad', 'Unable to open file with Notepad'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const startRename = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
@@ -2086,6 +2118,13 @@ export default function SearchApp() {
     if (event.key === 'F1') {
       event.preventDefault();
       setShowSyntaxHelp(prev => !prev);
+      return;
+    }
+
+    // 4. Ctrl+P 全局切换窗口图钉固定状态 (Pin/Unpin)
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'p' || event.key === 'P')) {
+      event.preventDefault();
+      void togglePin();
       return;
     }
 
@@ -2220,7 +2259,7 @@ export default function SearchApp() {
     hide, rebuildIndex, sortedResults, selectedIndex, query, activeCategory,
     renameTarget.visible, contextMenu.visible, showSortMenu, showSyntaxHelp, showViewSettings,
     startRename, openResult, openFolderResult, showFileProperties, pinResult, copyPathResult, exportResultsToCsv,
-    handleSelectSort, selectCategory, categories
+    handleSelectSort, selectCategory, categories, togglePin
   ]);
 
   useEffect(() => {
@@ -2337,6 +2376,15 @@ export default function SearchApp() {
           />
           {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', 'Loading...')} />}
           
+          <button
+            className={`search-help-btn ${isPinned ? 'search-help-btn--pinned' : ''}`}
+            onClick={() => void togglePin()}
+            title={isPinned ? t('search.unpinTitle', 'Unpin Window (Ctrl+P · Restore auto-hide on blur)') : t('search.pinTitle', 'Pin Window (Ctrl+P · Keep always on top & never auto-hide)')}
+            type="button"
+          >
+            <Pin size={17} className="search-pin-icon" />
+          </button>
+
           <button
             className="search-help-btn search-drag-btn"
             onMouseDown={() => void bridgeRequest('search.startDrag')}
@@ -3018,7 +3066,6 @@ export default function SearchApp() {
                 <div className="popover-format-categories">
                   {CONTENT_FORMAT_CATEGORIES.map(cat => {
                     const enabledCount = cat.extensions.filter(ext => !disabledContentFormats.includes(ext)).length;
-                    const allEnabled = enabledCount === cat.extensions.length;
                     return (
                       <div key={cat.id} className="popover-format-cat-block">
                         <div className="popover-format-cat-header">
@@ -3032,13 +3079,12 @@ export default function SearchApp() {
                             <span className="popover-format-cat-name">{t(cat.nameKey)}</span>
                             <span className="popover-format-badge-count">{enabledCount} / {cat.extensions.length}</span>
                           </div>
-                          <button
-                            type="button"
-                            className="popover-cat-toggle-btn"
-                            onClick={() => toggleCategoryFormats(cat, !allEnabled)}
-                          >
-                            {allEnabled ? t('search.disableAll') : t('search.enableAll')}
-                          </button>
+                          <Toggle
+                            id={`format-cat-toggle-${cat.id}`}
+                            checked={enabledCount > 0}
+                            size="sm"
+                            onChange={(checked) => toggleCategoryFormats(cat, checked)}
+                          />
                         </div>
                         <div className="popover-format-chips">
                           {cat.extensions.map(ext => {
@@ -3070,6 +3116,26 @@ export default function SearchApp() {
                         <span className="popover-format-cat-name">{t('search.customFormats')}</span>
                         <span className="popover-format-badge-count">{t('search.customFormatsCount', '{{count}} items', { count: customContentFormats.length })}</span>
                       </div>
+                      {customContentFormats.length > 0 && (
+                        <Toggle
+                          id="format-cat-toggle-custom"
+                          checked={customContentFormats.some(ext => !disabledContentFormats.includes(ext))}
+                          size="sm"
+                          onChange={(checked) => {
+                            setDisabledContentFormats(prev => {
+                              let next: string[];
+                              if (checked) {
+                                next = prev.filter(ext => !customContentFormats.includes(ext));
+                              } else {
+                                const addList = customContentFormats.filter(ext => !prev.includes(ext));
+                                next = [...prev, ...addList];
+                              }
+                              localStorage.setItem('easytools_search_disabled_content_formats', JSON.stringify(next));
+                              return next;
+                            });
+                          }}
+                        />
+                      )}
                     </div>
                     {customContentFormats.length > 0 && (
                       <div className="popover-format-chips">

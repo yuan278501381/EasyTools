@@ -6,9 +6,10 @@
 [Setup]
 AppName=EasyTools
 AppVersion={#EasyToolsVersion}
-AppPublisher=Yy1 (GitHub yuan278501381)
+UninstallDisplayName=EasyTools
+AppPublisher=Yy1 (yuan278501381)
 AppPublisherURL=https://github.com/yuan278501381/easyTools
-AppCopyright=Copyright (c) 2026 Yy1 (GitHub yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
+AppCopyright=Copyright (c) 2026 Yy1 (yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
 AppSupportURL=https://github.com/yuan278501381/easyTools/issues
 AppUpdatesURL=https://github.com/yuan278501381/easyTools/releases
 DefaultDirName={autopf}\EasyTools

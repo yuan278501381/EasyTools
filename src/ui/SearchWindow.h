@@ -25,6 +25,13 @@ public:
     void destroy();
     void setWindowSize(int baseWidth, int baseHeight, bool forceCenter = false);
     std::pair<int, int> getWindowSize() const;
+    void setPinned(bool pinned) {
+        m_isPinned.store(pinned);
+        if (m_hwnd && IsWindow(m_hwnd)) {
+            SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+    bool isPinned() const { return m_isPinned.load(); }
     HWND getHwnd() const { return m_hwnd; }
     void setMenuActive(bool active) {
         m_menuActive.store(active);
@@ -64,6 +71,7 @@ private:
 
     std::atomic<bool> m_visible{false};
     std::atomic<bool> m_webViewReady{false};
+    std::atomic<bool> m_isPinned{false};
     std::atomic<bool> m_menuActive{false};
     std::atomic<bool> m_inSizeMove{false};
     std::atomic<uint64_t> m_lastMenuCloseTick{0};

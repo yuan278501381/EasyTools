@@ -25,6 +25,7 @@ struct RibbonButtonRect {
     D2D1_RECT_F rect;
     std::string text;
     std::string extraData;
+    int badgeCount{0};
     bool hovered{false};
 };
 
@@ -59,6 +60,12 @@ private:
     void onMouseLeave();
     void showRecentMenu(int screenX, int screenY);
     void showFavoritesMenu(int screenX, int screenY);
+    void ensureTextFormats(float dpiScale);
+    void drawFolderIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth);
+    void drawClockIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth);
+    void drawBookmarkIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth);
+    void drawChevron(ID2D1RenderTarget* rt, ID2D1Brush* brush, float centerX, float centerY, float size, float strokeWidth);
+    void drawBadge(ID2D1RenderTarget* rt, ID2D1Brush* bgBrush, ID2D1Brush* textBrush, float x, float y, float w, float h, int count);
 
     HWND m_hwnd{nullptr};
     HWND m_targetDialog{nullptr};
@@ -67,14 +74,16 @@ private:
     std::string m_activeExplorerPath;
 
     int m_width{360};
-    int m_height{38};
+    int m_height{34};
     float m_dpiScale{1.0f};
+    float m_currentFontDpi{0.0f};
 
     Microsoft::WRL::ComPtr<ID2D1Factory> m_d2dFactory;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> m_renderTarget;
     Microsoft::WRL::ComPtr<IDWriteFactory> m_dwriteFactory;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_textFormat;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> m_boldFormat;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> m_badgeFormat;
 
     HDC m_memDC{nullptr};
     HBITMAP m_memBitmap{nullptr};

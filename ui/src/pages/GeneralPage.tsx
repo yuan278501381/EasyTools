@@ -110,6 +110,30 @@ export const GeneralPage: FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 监听顶栏或全局发出的语言、主题与强调色变更事件，保持页面双向数据同步
+  useEffect(() => {
+    const handleThemeEvent = (e: Event) => {
+      const pref = (e as CustomEvent<string>).detail;
+      if (pref) setSettings(prev => ({ ...prev, theme: pref }));
+    };
+    const handleLangEvent = (e: Event) => {
+      const lang = (e as CustomEvent<string>).detail;
+      if (lang) setSettings(prev => ({ ...prev, language: lang }));
+    };
+    const handleAccentEvent = (e: Event) => {
+      const newAccent = (e as CustomEvent<string>).detail;
+      if (newAccent) setAccent(newAccent);
+    };
+    window.addEventListener('easytools:theme-changed', handleThemeEvent);
+    window.addEventListener('easytools:language-changed', handleLangEvent);
+    window.addEventListener('easytools:accent-changed', handleAccentEvent);
+    return () => {
+      window.removeEventListener('easytools:theme-changed', handleThemeEvent);
+      window.removeEventListener('easytools:language-changed', handleLangEvent);
+      window.removeEventListener('easytools:accent-changed', handleAccentEvent);
+    };
+  }, []);
+
   // 保存单个设置项
   const updateSetting = useCallback(async <K extends keyof GeneralSettings,>(key: K, value: GeneralSettings[K]) => {
     const previous = settings[key];

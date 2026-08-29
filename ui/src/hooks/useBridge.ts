@@ -28,6 +28,7 @@ const pendingRequests = new Map<number, {
 }>();
 const eventListeners = new Map<string, Set<MessageHandler>>();
 const LONG_RUNNING_METHODS = new Set(['config.export', 'config.import', 'capture.browseDirectory']);
+const SEARCH_METHODS = new Set(['search.query', 'search.rebuildIndex', 'search.sync', 'search.warmup']);
 
 // 全局消息监听（只注册一次）
 let initialized = false;
@@ -133,10 +134,12 @@ export function bridgeRequest<T = unknown>(
     if (nextId >= Number.MAX_SAFE_INTEGER) nextId = 1;
     while (pendingRequests.has(nextId)) nextId += 1;
     const id = nextId++;
-    // 文件/目录选择器允许用户停留；普通 IPC 仍保持快速失败，避免悬空 Promise。
+    // 搜索请求与长任务允许更长容限，避免海量文件全盘内容扫描被过早误杀；普通 IPC 仍保持快速失败。
     const timeoutMs = LONG_RUNNING_METHODS.has(method)
       ? 5 * 60_000
-      : 10_000;
+      : (SEARCH_METHODS.has(method) || method.startsWith('search.'))
+        ? 120_000
+        : 10_000;
     const timeoutId = setTimeout(() => {
       if (pendingRequests.delete(id)) {
         const error = new Error(`Bridge request timeout: ${method}`);

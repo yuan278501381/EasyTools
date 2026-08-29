@@ -230,29 +230,30 @@ function App() {
 
   return (
     <div className="app">
-      <TitleBar isElevated={isElevated} />
+      <TitleBar
+        isElevated={isElevated}
+        themePreference={themePreference}
+        onSelectThemePreference={(pref) => {
+          setThemePreference(pref);
+          bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
+          window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
+        }}
+        accent={accent}
+        onSelectAccent={(newAccent) => {
+          setAccent(newAccent);
+          try {
+            localStorage.setItem('easytools:accent-color', newAccent);
+          } catch (e) {
+            void e;
+          }
+          bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
+          window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
+        }}
+      />
       <div className="app__body">
         <Sidebar
           activeNav={activeNav}
           onNavigate={handleNavSelect}
-          theme={theme}
-          themePreference={themePreference}
-          onSelectThemePreference={(pref) => {
-            setThemePreference(pref);
-            bridgeRequest<{ success: boolean }>('general.updateSettings', { theme: pref }).catch(console.error);
-            window.dispatchEvent(new CustomEvent('easytools:theme-changed', { detail: pref }));
-          }}
-          accent={accent}
-          onSelectAccent={(newAccent) => {
-            setAccent(newAccent);
-            try {
-              localStorage.setItem('easytools:accent-color', newAccent);
-            } catch (e) {
-              void e;
-            }
-            bridgeRequest<{ success: boolean }>('general.updateSettings', { accentColor: newAccent }).catch(console.error);
-            window.dispatchEvent(new CustomEvent('easytools:accent-changed', { detail: newAccent }));
-          }}
           activePlugins={plugins.length > 0 ? activePlugins : undefined}
           installedExtensionIds={installedExtensionIds}
         />

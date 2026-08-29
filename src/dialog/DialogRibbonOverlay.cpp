@@ -123,6 +123,7 @@ void DialogRibbonOverlay::cleanup() {
     m_renderTarget.Reset();
     m_textFormat.Reset();
     m_boldFormat.Reset();
+    m_badgeFormat.Reset();
     m_dwriteFactory.Reset();
     m_d2dFactory.Reset();
 
@@ -279,20 +280,176 @@ bool DialogRibbonOverlay::doUpdatePosition() {
     return false;
 }
 
+void DialogRibbonOverlay::ensureTextFormats(float dpiScale) {
+    if (m_dwriteFactory && (m_textFormat == nullptr || std::abs(m_currentFontDpi - dpiScale) > 0.001f)) {
+        m_textFormat.Reset();
+        m_boldFormat.Reset();
+        m_badgeFormat.Reset();
+        m_currentFontDpi = dpiScale;
+
+        // 全局单一事实源字体栈优先序列
+        const wchar_t* preferredFonts[] = {
+            L"Segoe UI Variable Text",
+            L"Segoe UI",
+            L"PingFang SC",
+            L"Microsoft YaHei UI",
+            L"Microsoft YaHei"
+        };
+
+        float fontSize = 12.0f * dpiScale;
+        float badgeSize = 10.0f * dpiScale;
+
+        for (const auto* fontName : preferredFonts) {
+            HRESULT hr = m_dwriteFactory->CreateTextFormat(
+                fontName,
+                nullptr,
+                DWRITE_FONT_WEIGHT_MEDIUM,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                fontSize,
+                L"zh-CN",
+                m_textFormat.GetAddressOf()
+            );
+            if (SUCCEEDED(hr) && m_textFormat) {
+                m_dwriteFactory->CreateTextFormat(
+                    fontName,
+                    nullptr,
+                    DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    fontSize,
+                    L"zh-CN",
+                    m_boldFormat.GetAddressOf()
+                );
+                m_dwriteFactory->CreateTextFormat(
+                    fontName,
+                    nullptr,
+                    DWRITE_FONT_WEIGHT_BOLD,
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    badgeSize,
+                    L"zh-CN",
+                    m_badgeFormat.GetAddressOf()
+                );
+                break;
+            }
+        }
+    }
+}
+
+void DialogRibbonOverlay::drawFolderIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth) {
+    if (!rt || !brush) return;
+    float tabW = size * 0.42f;
+    float tabH = size * 0.28f;
+    float corner = size * 0.15f;
+
+    // 绘制极简文件夹轮廓
+    D2D1_RECT_F bodyRect = D2D1::RectF(x, y + tabH * 0.7f, x + size, y + size);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(bodyRect, corner, corner), brush, strokeWidth);
+
+    // 顶部折角标签
+    rt->DrawLine(D2D1::Point2F(x + corner, y + tabH * 0.7f), D2D1::Point2F(x + corner, y + corner), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(x + corner, y + corner), D2D1::Point2F(x + tabW, y + corner), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(x + tabW, y + corner), D2D1::Point2F(x + tabW + tabH * 0.5f, y + tabH * 0.7f), brush, strokeWidth);
+}
+
+void DialogRibbonOverlay::drawClockIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth) {
+    if (!rt || !brush) return;
+    float cx = x + size * 0.5f;
+    float cy = y + size * 0.5f;
+    float r = size * 0.48f;
+
+    rt->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r), brush, strokeWidth);
+    // 时针与分针
+    rt->DrawLine(D2D1::Point2F(cx, cy), D2D1::Point2F(cx, cy - r * 0.58f), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(cx, cy), D2D1::Point2F(cx + r * 0.45f, cy), brush, strokeWidth);
+}
+
+void DialogRibbonOverlay::drawBookmarkIcon(ID2D1RenderTarget* rt, ID2D1Brush* brush, float x, float y, float size, float strokeWidth) {
+    if (!rt || !brush) return;
+    float w = size * 0.75f;
+    float h = size;
+    float left = x + (size - w) * 0.5f;
+    float right = left + w;
+    float bottom = y + h;
+    float notchY = bottom - h * 0.28f;
+    float midX = left + w * 0.5f;
+
+    rt->DrawLine(D2D1::Point2F(left, y), D2D1::Point2F(right, y), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(right, y), D2D1::Point2F(right, bottom), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(right, bottom), D2D1::Point2F(midX, notchY), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(midX, notchY), D2D1::Point2F(left, bottom), brush, strokeWidth);
+    rt->DrawLine(D2D1::Point2F(left, bottom), D2D1::Point2F(left, y), brush, strokeWidth);
+}
+
+void DialogRibbonOverlay::drawChevron(ID2D1RenderTarget* rt, ID2D1Brush* brush, float centerX, float centerY, float size, float strokeWidth) {
+    if (!rt || !brush) return;
+    float halfW = size * 0.5f;
+    float halfH = size * 0.28f;
+    rt->DrawLine(
+        D2D1::Point2F(centerX - halfW, centerY - halfH),
+        D2D1::Point2F(centerX, centerY + halfH),
+        brush, strokeWidth, nullptr
+    );
+    rt->DrawLine(
+        D2D1::Point2F(centerX, centerY + halfH),
+        D2D1::Point2F(centerX + halfW, centerY - halfH),
+        brush, strokeWidth, nullptr
+    );
+}
+
+void DialogRibbonOverlay::drawBadge(ID2D1RenderTarget* rt, ID2D1Brush* bgBrush, ID2D1Brush* textBrush, float x, float y, float w, float h, int count) {
+    if (!rt || !bgBrush || !textBrush || !m_badgeFormat) return;
+    D2D1_RECT_F badgeRect = D2D1::RectF(x, y, x + w, y + h);
+    float radius = h * 0.5f;
+    rt->FillRoundedRectangle(D2D1::RoundedRect(badgeRect, radius, radius), bgBrush);
+
+    std::wstring countStr = std::to_wstring(count);
+    m_badgeFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_badgeFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    rt->DrawText(
+        countStr.c_str(), static_cast<UINT32>(countStr.length()),
+        m_badgeFormat.Get(), badgeRect, textBrush
+    );
+}
+
 void DialogRibbonOverlay::updateButtonsLayout(float dpiScale) {
     m_buttons.clear();
+    ensureTextFormats(dpiScale);
+
     try {
         m_activeExplorerPath = ExplorerTracker::instance().getActiveExplorerPath();
     } catch (...) {
         m_activeExplorerPath.clear();
     }
 
-    float paddingX = 8.0f * dpiScale;
+    auto measureText = [&](const std::string& utf8Text, bool isBold) -> float {
+        std::wstring wText = easy::core::WinUtils::utf8ToWstring(utf8Text);
+        if (wText.empty()) return 0.0f;
+        auto format = isBold ? m_boldFormat.Get() : m_textFormat.Get();
+        if (!format || !m_dwriteFactory) {
+            return static_cast<float>(wText.length()) * 8.0f * dpiScale;
+        }
+        ComPtr<IDWriteTextLayout> layout;
+        HRESULT hr = m_dwriteFactory->CreateTextLayout(
+            wText.c_str(), static_cast<UINT32>(wText.length()),
+            format, 1000.0f, 1000.0f, layout.GetAddressOf()
+        );
+        if (SUCCEEDED(hr) && layout) {
+            DWRITE_TEXT_METRICS metrics{};
+            layout->GetMetrics(&metrics);
+            return metrics.widthIncludingTrailingWhitespace;
+        }
+        return static_cast<float>(wText.length()) * 8.0f * dpiScale;
+    };
+
+    m_height = static_cast<int>(32.0f * dpiScale);
+    float paddingX = 6.0f * dpiScale;
     float currentX = paddingX;
-    float btnH = 26.0f * dpiScale;
+    float btnH = 24.0f * dpiScale;
     float btnY = ((float)m_height - btnH) * 0.5f;
 
-    // 1. 资源管理器同频胶囊
+    // 1. 资源管理器同频胶囊 (左侧矢量文件夹图标 📁 + 目录名称)
     if (PathMemoryManager::instance().isQuickSwitchEnabled() && !m_activeExplorerPath.empty()) {
         std::string folderName = m_activeExplorerPath;
         size_t lastSlash = folderName.find_last_of("\\/");
@@ -302,43 +459,56 @@ void DialogRibbonOverlay::updateButtonsLayout(float dpiScale) {
         if (folderName.empty()) folderName = m_activeExplorerPath;
 
         std::string label = folderName;
-        float btnW = std::clamp(static_cast<float>(label.length()) * 8.5f * dpiScale + 24.0f * dpiScale,
-                                80.0f * dpiScale, 180.0f * dpiScale);
+        float textW = measureText(label, true);
+        float iconW = 12.0f * dpiScale;
+        float btnW = std::clamp(textW + iconW + 22.0f * dpiScale, 70.0f * dpiScale, 185.0f * dpiScale);
 
         m_buttons.push_back({
             RibbonButtonRect::Type::ExplorerSync,
             D2D1::RectF(currentX, btnY, currentX + btnW, btnY + btnH),
             label,
             m_activeExplorerPath,
+            0,
             false
         });
-        currentX += btnW + 6.0f * dpiScale;
+        currentX += btnW + 10.0f * dpiScale; // 预留给微晶垂直分割线的空间
     }
 
-    // 2. 最近使用
+    // 2. 最近使用 (矢量时钟 🕒 + "最近" + 独立微晶数字气泡 + 矢量 Chevron ⌵)
     try {
         auto recentList = PathMemoryManager::instance().getRecentPaths(5);
-        std::string recentLabel = "最近(" + std::to_string(recentList.size()) + ") ▾";
-        float recentW = 76.0f * dpiScale;
+        std::string recentLabel = "最近";
+        float textW = measureText(recentLabel, false);
+        float iconW = 11.5f * dpiScale;
+        float badgeW = 16.0f * dpiScale;
+        float chevronW = 6.0f * dpiScale;
+        float recentW = iconW + textW + badgeW + chevronW + 24.0f * dpiScale;
+
         m_buttons.push_back({
             RibbonButtonRect::Type::Recent,
             D2D1::RectF(currentX, btnY, currentX + recentW, btnY + btnH),
             recentLabel,
             "",
+            static_cast<int>(recentList.size()),
             false
         });
-        currentX += recentW + 6.0f * dpiScale;
+        currentX += recentW + 4.0f * dpiScale;
     } catch (...) {
     }
 
-    // 3. 常用收藏
-    std::string favLabel = "工作区 ▾";
-    float favW = 68.0f * dpiScale;
+    // 3. 常用收藏 (矢量书签 📌 + "工作区" + 矢量 Chevron ⌵)
+    std::string favLabel = "工作区";
+    float textW = measureText(favLabel, false);
+    float iconW = 11.5f * dpiScale;
+    float chevronW = 6.0f * dpiScale;
+    float favW = iconW + textW + chevronW + 22.0f * dpiScale;
+
     m_buttons.push_back({
         RibbonButtonRect::Type::Favorites,
         D2D1::RectF(currentX, btnY, currentX + favW, btnY + btnH),
         favLabel,
         "",
+        0,
         false
     });
     currentX += favW + paddingX;
@@ -387,52 +557,204 @@ void DialogRibbonOverlay::render() {
 
     if (!m_renderTarget) return;
 
+    ensureTextFormats(m_dpiScale);
+
     RECT rc = {0, 0, m_width, m_height};
     m_renderTarget->BindDC(m_memDC, &rc);
     m_renderTarget->BeginDraw();
     m_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
 
-    // 绘制主体毛玻璃背景胶囊
+    // 自适应系统深浅色主题检测
+    bool isDark = easy::core::WinUtils::isSystemDarkMode();
+
     ComPtr<ID2D1SolidColorBrush> bgBrush;
     ComPtr<ID2D1SolidColorBrush> borderBrush;
     ComPtr<ID2D1SolidColorBrush> textBrush;
+    ComPtr<ID2D1SolidColorBrush> textMutedBrush;
     ComPtr<ID2D1SolidColorBrush> highlightBrush;
+    ComPtr<ID2D1SolidColorBrush> highlightBorderBrush;
     ComPtr<ID2D1SolidColorBrush> syncBgBrush;
+    ComPtr<ID2D1SolidColorBrush> syncBorderBrush;
+    ComPtr<ID2D1SolidColorBrush> chevronBrush;
+    ComPtr<ID2D1SolidColorBrush> badgeBgBrush;
+    ComPtr<ID2D1SolidColorBrush> badgeTextBrush;
+    ComPtr<ID2D1SolidColorBrush> dividerBrush;
+    ComPtr<ID2D1SolidColorBrush> whiteBrush;
 
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f), bgBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.18f), borderBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.95f, 0.95f, 1.0f), textBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), highlightBrush.GetAddressOf());
-    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.23f, 0.51f, 0.96f, 0.88f), syncBgBrush.GetAddressOf());
+    m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), whiteBrush.GetAddressOf());
 
+    if (isDark) {
+        // 深色亚克力模式
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.13f, 0.17f, 0.93f), bgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.13f), borderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.97f, 0.98f, 0.96f), textBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.72f, 0.76f, 0.82f, 0.88f), textMutedBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.09f), highlightBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f), highlightBorderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.48f, 0.94f, 0.95f), syncBgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.40f, 0.68f, 1.0f, 0.40f), syncBorderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.70f, 0.74f, 0.82f, 0.75f), chevronBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), badgeBgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.95f, 0.98f, 0.95f), badgeTextBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), dividerBrush.GetAddressOf());
+    } else {
+        // 浅色白雾磨砂模式（与浅色文件对话框 100% 浑然天成）
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.965f, 0.975f, 0.985f, 0.96f), bgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.09f), borderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.10f, 0.12f, 0.16f, 0.95f), textBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.32f, 0.36f, 0.44f, 0.88f), textMutedBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f), highlightBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f), highlightBorderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.44f, 0.90f, 0.95f), syncBgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.55f, 1.0f, 0.50f), syncBorderBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.40f, 0.44f, 0.52f, 0.75f), chevronBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.06f), badgeBgBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.22f, 0.28f, 0.92f), badgeTextBrush.GetAddressOf());
+        m_renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.09f), dividerBrush.GetAddressOf());
+    }
+
+    // 绘制主体全圆角微晶磨砂胶囊 (Full Pill Capsule)
+    float capsuleRadius = static_cast<float>(m_height) * 0.5f;
     D2D1_ROUNDED_RECT mainRRect = D2D1::RoundedRect(
         D2D1::RectF(0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height)),
-        10.0f * m_dpiScale, 10.0f * m_dpiScale
+        capsuleRadius, capsuleRadius
     );
 
     if (bgBrush) m_renderTarget->FillRoundedRectangle(&mainRRect, bgBrush.Get());
     if (borderBrush) m_renderTarget->DrawRoundedRectangle(&mainRRect, borderBrush.Get(), 1.0f * m_dpiScale);
 
-    // 绘制各个按钮
-    for (const auto& btn : m_buttons) {
-        D2D1_ROUNDED_RECT btnRRect = D2D1::RoundedRect(btn.rect, 6.0f * m_dpiScale, 6.0f * m_dpiScale);
+    // 绘制各个按钮与微交互
+    for (size_t i = 0; i < m_buttons.size(); ++i) {
+        const auto& btn = m_buttons[i];
+        float btnRadius = (btn.rect.bottom - btn.rect.top) * 0.5f;
+        D2D1_ROUNDED_RECT btnRRect = D2D1::RoundedRect(btn.rect, btnRadius, btnRadius);
 
         if (btn.type == RibbonButtonRect::Type::ExplorerSync && syncBgBrush) {
-            syncBgBrush->SetOpacity(btn.hovered ? 1.0f : 0.85f);
+            // 1. 同步路径主胶囊
+            syncBgBrush->SetOpacity(btn.hovered ? 1.0f : 0.92f);
             m_renderTarget->FillRoundedRectangle(&btnRRect, syncBgBrush.Get());
-        } else if (btn.hovered && highlightBrush) {
-            m_renderTarget->FillRoundedRectangle(&btnRRect, highlightBrush.Get());
-        }
+            if (syncBorderBrush) {
+                m_renderTarget->DrawRoundedRectangle(&btnRRect, syncBorderBrush.Get(), 1.0f * m_dpiScale);
+            }
 
-        std::wstring wText = easy::core::WinUtils::utf8ToWstring(btn.text);
-        if (textBrush && m_textFormat) {
-            auto format = (btn.type == RibbonButtonRect::Type::ExplorerSync && m_boldFormat)
-                ? m_boldFormat.Get() : m_textFormat.Get();
-            format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            m_renderTarget->DrawText(
-                wText.c_str(), static_cast<UINT32>(wText.length()),
-                format, btn.rect, textBrush.Get()
+            // 矢量文件夹图标 📁 (纯白)
+            float iconSize = 12.0f * m_dpiScale;
+            float iconX = btn.rect.left + 8.0f * m_dpiScale;
+            float iconY = (btn.rect.top + btn.rect.bottom - iconSize) * 0.5f;
+            drawFolderIcon(m_renderTarget.Get(), whiteBrush.Get(), iconX, iconY, iconSize, 1.2f * m_dpiScale);
+
+            // 文字居中偏右
+            std::wstring wText = easy::core::WinUtils::utf8ToWstring(btn.text);
+            if (whiteBrush && m_boldFormat) {
+                D2D1_RECT_F textRect = D2D1::RectF(
+                    iconX + iconSize + 5.0f * m_dpiScale, btn.rect.top,
+                    btn.rect.right - 8.0f * m_dpiScale, btn.rect.bottom
+                );
+                m_boldFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                m_boldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                m_renderTarget->DrawText(
+                    wText.c_str(), static_cast<UINT32>(wText.length()),
+                    m_boldFormat.Get(), textRect, whiteBrush.Get()
+                );
+            }
+
+            // 在同步胶囊右侧绘制垂直微晶分割线
+            if (dividerBrush) {
+                float divX = btn.rect.right + 5.0f * m_dpiScale;
+                float divY1 = (static_cast<float>(m_height) - 14.0f * m_dpiScale) * 0.5f;
+                float divY2 = divY1 + 14.0f * m_dpiScale;
+                m_renderTarget->DrawLine(
+                    D2D1::Point2F(divX, divY1),
+                    D2D1::Point2F(divX, divY2),
+                    dividerBrush.Get(), 1.0f * m_dpiScale
+                );
+            }
+        } else if (btn.type == RibbonButtonRect::Type::Recent) {
+            // 2. 最近使用项 (时钟图标 + 文字 + 独立数字徽章 + Chevron)
+            if (btn.hovered && highlightBrush) {
+                m_renderTarget->FillRoundedRectangle(&btnRRect, highlightBrush.Get());
+                if (highlightBorderBrush) {
+                    m_renderTarget->DrawRoundedRectangle(&btnRRect, highlightBorderBrush.Get(), 1.0f * m_dpiScale);
+                }
+            }
+
+            auto activeTextBrush = btn.hovered ? textBrush.Get() : textMutedBrush.Get();
+            auto activeChevronBrush = btn.hovered ? textBrush.Get() : chevronBrush.Get();
+
+            // 矢量时钟图标 🕒
+            float iconSize = 11.5f * m_dpiScale;
+            float iconX = btn.rect.left + 7.0f * m_dpiScale;
+            float iconY = (btn.rect.top + btn.rect.bottom - iconSize) * 0.5f;
+            drawClockIcon(m_renderTarget.Get(), activeTextBrush, iconX, iconY, iconSize, 1.15f * m_dpiScale);
+
+            // 文字 "最近"
+            std::wstring wText = easy::core::WinUtils::utf8ToWstring(btn.text);
+            float textLeft = iconX + iconSize + 4.5f * m_dpiScale;
+            float textW = 28.0f * m_dpiScale;
+            if (activeTextBrush && m_textFormat) {
+                D2D1_RECT_F textRect = D2D1::RectF(textLeft, btn.rect.top, textLeft + textW, btn.rect.bottom);
+                m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                m_renderTarget->DrawText(
+                    wText.c_str(), static_cast<UINT32>(wText.length()),
+                    m_textFormat.Get(), textRect, activeTextBrush
+                );
+            }
+
+            // 独立数字微晶气泡
+            float badgeW = 16.0f * m_dpiScale;
+            float badgeH = 14.0f * m_dpiScale;
+            float badgeX = textLeft + textW + 3.0f * m_dpiScale;
+            float badgeY = (btn.rect.top + btn.rect.bottom - badgeH) * 0.5f;
+            drawBadge(m_renderTarget.Get(), badgeBgBrush.Get(), badgeTextBrush.Get(), badgeX, badgeY, badgeW, badgeH, btn.badgeCount);
+
+            // 矢量微型 ChevronDown 箭头
+            float chevronCenterX = btn.rect.right - 7.0f * m_dpiScale;
+            float chevronCenterY = (btn.rect.top + btn.rect.bottom) * 0.5f;
+            drawChevron(
+                m_renderTarget.Get(), activeChevronBrush,
+                chevronCenterX, chevronCenterY,
+                5.5f * m_dpiScale, 1.2f * m_dpiScale
+            );
+        } else if (btn.type == RibbonButtonRect::Type::Favorites) {
+            // 3. 工作区收藏项 (书签图标 + 文字 + Chevron)
+            if (btn.hovered && highlightBrush) {
+                m_renderTarget->FillRoundedRectangle(&btnRRect, highlightBrush.Get());
+                if (highlightBorderBrush) {
+                    m_renderTarget->DrawRoundedRectangle(&btnRRect, highlightBorderBrush.Get(), 1.0f * m_dpiScale);
+                }
+            }
+
+            auto activeTextBrush = btn.hovered ? textBrush.Get() : textMutedBrush.Get();
+            auto activeChevronBrush = btn.hovered ? textBrush.Get() : chevronBrush.Get();
+
+            // 矢量书签图标 📌
+            float iconSize = 11.0f * m_dpiScale;
+            float iconX = btn.rect.left + 7.0f * m_dpiScale;
+            float iconY = (btn.rect.top + btn.rect.bottom - iconSize) * 0.5f;
+            drawBookmarkIcon(m_renderTarget.Get(), activeTextBrush, iconX, iconY, iconSize, 1.15f * m_dpiScale);
+
+            // 文字 "工作区"
+            std::wstring wText = easy::core::WinUtils::utf8ToWstring(btn.text);
+            float textLeft = iconX + iconSize + 4.5f * m_dpiScale;
+            float textW = 40.0f * m_dpiScale;
+            if (activeTextBrush && m_textFormat) {
+                D2D1_RECT_F textRect = D2D1::RectF(textLeft, btn.rect.top, textLeft + textW, btn.rect.bottom);
+                m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                m_renderTarget->DrawText(
+                    wText.c_str(), static_cast<UINT32>(wText.length()),
+                    m_textFormat.Get(), textRect, activeTextBrush
+                );
+            }
+
+            // 矢量微型 ChevronDown 箭头
+            float chevronCenterX = btn.rect.right - 7.0f * m_dpiScale;
+            float chevronCenterY = (btn.rect.top + btn.rect.bottom) * 0.5f;
+            drawChevron(
+                m_renderTarget.Get(), activeChevronBrush,
+                chevronCenterX, chevronCenterY,
+                5.5f * m_dpiScale, 1.2f * m_dpiScale
             );
         }
     }

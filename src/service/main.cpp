@@ -254,6 +254,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     SearchExcludeOptions excludeOpts;
     size_t requestedLimit = 100;
     uint64_t queryId = 0;
+    std::vector<std::pair<std::wstring, double>> dialogPriorities;
 
     std::string utf8Input = WStringToString(rawInput);
     if (!g_SearchIndexReady.load(std::memory_order_acquire) ||
@@ -504,6 +505,16 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 }
                 easy::service::content::ContentSearchEngine::instance().configureFormats(customExts, disabledExts);
             }
+            if (reqJson.contains("dialogPriorities") && reqJson["dialogPriorities"].is_array()) {
+                for (const auto& item : reqJson["dialogPriorities"]) {
+                    if (item.is_object() && item.contains("path") && item["path"].is_string()) {
+                        std::wstring wp = StringToWString(item["path"].get<std::string>());
+                        for (auto& c : wp) c = std::towlower(c);
+                        double sc = item.value("score", 3000.0);
+                        if (!wp.empty()) dialogPriorities.emplace_back(std::move(wp), sc);
+                    }
+                }
+            }
         } catch (const std::exception& error) {
             return {{"results", nlohmann::json::array()}, {"error", std::string("invalid request: ") + error.what()}};
         }
@@ -604,11 +615,33 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             textCandidates.push_back(std::move(candidate));
         }
 
-        auto getPathPriority = [](const std::wstring& path) -> int {
+        // 动态获取当前 Windows 系统的用户已知目录 (桌面、文档、下载、用户主目录)
+        std::wstring userProfileDir;
+        std::wstring desktopDir;
+        std::wstring docsDir;
+        std::wstring downloadsDir;
+        {
+            wchar_t pathBuf[MAX_PATH] = {};
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr, 0, pathBuf))) {
+                userProfileDir = pathBuf;
+                for (auto& c : userProfileDir) c = std::towlower(c);
+            }
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, pathBuf))) {
+                desktopDir = pathBuf;
+                for (auto& c : desktopDir) c = std::towlower(c);
+            }
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, pathBuf))) {
+                docsDir = pathBuf;
+                for (auto& c : docsDir) c = std::towlower(c);
+            }
+        }
+
+        auto getPathPriority = [&](const std::wstring& path) -> double {
             std::wstring p;
             p.reserve(path.size());
             for (wchar_t c : path) p.push_back(std::towlower(c));
 
+            // 1. 系统底层垃圾与通用构建缓存沉底 (降至最低优先级，节省全盘物理 I/O)
             if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
@@ -618,45 +651,52 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 p.find(L"\\.git") != std::wstring::npos ||
                 p.find(L"\\$recycle.bin") != std::wstring::npos ||
                 p.find(L"\\windows") != std::wstring::npos ||
-                p.find(L"\\虚拟机共享文件夹") != std::wstring::npos ||
-                p.find(L"\\baidunetdiskdownload") != std::wstring::npos ||
-                p.find(L"\\wxwork") != std::wstring::npos ||
-                p.find(L"\\xwechat_files") != std::wstring::npos ||
-                p.find(L"\\wechat files") != std::wstring::npos ||
                 p.find(L"\\cefcache") != std::wstring::npos ||
                 p.find(L"\\crashpad") != std::wstring::npos ||
-                p.find(L"\\coverage_report") != std::wstring::npos ||
-                p.find(L"\\extensions") != std::wstring::npos) {
-                return 1;
+                p.find(L"\\coverage_report") != std::wstring::npos) {
+                return 1.0;
             }
             if (p.find(L"\\appdata") != std::wstring::npos ||
                 p.find(L"\\program files") != std::wstring::npos ||
                 p.find(L"\\programdata") != std::wstring::npos) {
-                return 20;
+                return 20.0;
             }
-            if (p.find(L"\\chosen") != std::wstring::npos ||
-                p.find(L"\\repo") != std::wstring::npos ||
-                p.find(L"\\sap_b1") != std::wstring::npos ||
-                p.find(L"\\workspace") != std::wstring::npos ||
-                p.find(L"\\projects") != std::wstring::npos ||
-                p.find(L"\\source") != std::wstring::npos ||
-                p.find(L"\\src") != std::wstring::npos) {
-                return 2000;
+
+            double baseScore = 200.0;
+
+            // 2. 基于当前用户真实行为自适应记忆 (Frecency Memory: 历史常开、高频使用的文件赋予顶级权重)
+            double frecency = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(path);
+            if (frecency > 0.0) {
+                baseScore += (std::min)(5000.0, frecency * 100.0);
             }
-            if (p.find(L"\\desktop") != std::wstring::npos ||
-                p.find(L"\\documents") != std::wstring::npos ||
-                p.find(L"\\downloads") != std::wstring::npos) {
-                return 1000;
+
+            // 3. 跨模块智能联动：文件对话框中用户收藏的常用工作区与最近操作目录 (Top 级优先)
+            for (const auto& [dp, score] : dialogPriorities) {
+                if (p.starts_with(dp)) {
+                    baseScore += score;
+                    break;
+                }
             }
-            if (p.size() >= 2 && p[1] == L':' && p[0] != L'c') {
-                return 500;
+
+            // 4. 动态识别当前用户的标准工作目录 (桌面、我的文档、用户主目录)
+            if (!desktopDir.empty() && p.starts_with(desktopDir)) {
+                baseScore += 2000.0;
+            } else if (!docsDir.empty() && p.starts_with(docsDir)) {
+                baseScore += 1800.0;
+            } else if (!userProfileDir.empty() && p.starts_with(userProfileDir)) {
+                baseScore += 1000.0;
             }
-            return 200;
+
+            // 5. 非系统盘根层级文件优先于深层系统盘
+            if (p.size() >= 2 && p[1] == L':' && p[0] != L'c' && p[0] != L'C') {
+                baseScore += 500.0;
+            }
+            return baseScore;
         };
 
         std::stable_sort(textCandidates.begin(), textCandidates.end(), [&](const auto& a, const auto& b) {
-            int pA = getPathPriority(a.fullPath);
-            int pB = getPathPriority(b.fullPath);
+            double pA = getPathPriority(a.fullPath);
+            double pB = getPathPriority(b.fullPath);
             if (pA != pB) return pA > pB;
             return a.lastWriteTime > b.lastWriteTime;
         });
@@ -665,7 +705,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::vector<nlohmann::json> contentResults;
         std::atomic<size_t> matchCount{0};
         const auto startTime = std::chrono::steady_clock::now();
-        const auto deadline = startTime + std::chrono::milliseconds(10000);
+        // 允许长达 110 秒深度全盘内容扫描，绝不在 10 秒硬中断
+        const auto deadline = startTime + std::chrono::milliseconds(110000);
 
         const unsigned int numThreads = (std::max)(2u, (std::min)(16u, std::thread::hardware_concurrency()));
         std::vector<std::thread> workers;
