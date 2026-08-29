@@ -13,6 +13,7 @@
 #include "ui/KeyboardPipeline.h"
 #include <WebView2.h>
 #include <wrl/event.h>
+#include <dwmapi.h>
 #include <filesystem>
 #include <fstream>
 #include <utility>
@@ -234,18 +235,24 @@ bool SearchWindow::createWindow(HINSTANCE hInstance) {
     }
 
     m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         SEARCH_WINDOW_CLASS,
         L"EasyTools Search",
-        WS_POPUP, // Borderless
+        WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN,
         x, y, size.cx, size.cy,
         nullptr, nullptr, hInstance, nullptr
     );
 
     if (!m_hwnd) return false;
 
-    // Use layered window to support transparency
-    SetLayeredWindowAttributes(m_hwnd, RGB(255, 0, 255), 255, LWA_COLORKEY);
+    // 启用 DWM 全客户区扩展与 Windows 11 原生圆角，由系统 DWM 提供纯净硬件抗锯齿圆角与深度投影
+    MARGINS margins = {1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     return true;
 }
@@ -447,7 +454,13 @@ void SearchWindow::initializeWebView2() {
 LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     auto& inst = SearchWindow::instance();
     switch (uMsg) {
-        case WM_SIZE:
+        case WM_NCCALCSIZE: {
+            if (wParam) {
+                return 0; // 消除系统默认边框占用，使 WebView2 客户区占满整个圆角窗口
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
+        case WM_SIZE: {
             if (inst.m_controller) {
                 syncWebViewDpi(inst.m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
@@ -455,6 +468,7 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                 }
             }
             break;
+        }
         case WM_GETMINMAXINFO: {
             LPMINMAXINFO mmi = reinterpret_cast<LPMINMAXINFO>(lParam);
             const HMONITOR monitor = easy::core::dpi::activeMonitor();

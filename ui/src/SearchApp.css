@@ -71,7 +71,8 @@ html[data-surface="search"] #root {
     display: flex;
     justify-content: center;
     align-items: stretch;
-    padding: 8px;
+    padding: 0;
+    margin: 0;
     background: transparent !important;
     font-family: var(--font-sans);
     box-sizing: border-box;
@@ -91,11 +92,11 @@ html[data-surface="search"] #root {
     display: flex;
     flex-direction: column;
     background: var(--search-bg);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid var(--search-border);
-    border-radius: 14px;
-    box-shadow: var(--search-shadow);
+    border-radius: 12px;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
     overflow: hidden;
     animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
