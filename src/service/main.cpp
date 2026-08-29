@@ -641,7 +641,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             p.reserve(path.size());
             for (wchar_t c : path) p.push_back(std::towlower(c));
 
-            // 1. 系统底层垃圾与通用构建缓存沉底 (降至最低优先级，节省全盘物理 I/O)
+            // 1. 系统底层垃圾与通用开发构建临时缓存沉底 (降至最低优先级，节省物理 I/O)
             if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
@@ -653,7 +653,9 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 p.find(L"\\windows") != std::wstring::npos ||
                 p.find(L"\\cefcache") != std::wstring::npos ||
                 p.find(L"\\crashpad") != std::wstring::npos ||
-                p.find(L"\\coverage_report") != std::wstring::npos) {
+                p.find(L"\\coverage_report") != std::wstring::npos ||
+                p.find(L"\\__pycache__") != std::wstring::npos ||
+                p.find(L"\\.vs\\") != std::wstring::npos) {
                 return 1.0;
             }
             if (p.find(L"\\appdata") != std::wstring::npos ||
@@ -664,7 +666,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
             double baseScore = 200.0;
 
-            // 2. 基于当前用户真实行为自适应记忆 (Frecency Memory: 历史常开、高频使用的文件赋予顶级权重)
+            // 2. 基于当前用户真实行为自适应学习记忆 (Frecency Memory: 历史常开、高频使用的文件赋予顶级权重)
             double frecency = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(path);
             if (frecency > 0.0) {
                 baseScore += (std::min)(5000.0, frecency * 100.0);
@@ -687,9 +689,19 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 baseScore += 1000.0;
             }
 
-            // 5. 非系统盘根层级文件优先于深层系统盘
-            if (p.size() >= 2 && p[1] == L':' && p[0] != L'c' && p[0] != L'C') {
-                baseScore += 500.0;
+            // 5. 通用路径浅层深度启发式加权：越靠近根目录的非系统盘文件夹（深度 <= 3），天然是用户的工作区，赋予高优先级
+            if (p.size() >= 2 && p[1] == L':') {
+                if (p[0] != L'c' && p[0] != L'C') {
+                    baseScore += 800.0;
+                }
+                // 计算目录层级深度（斜杠数量）
+                size_t slashCount = 0;
+                for (wchar_t ch : p) {
+                    if (ch == L'\\' || ch == L'/') slashCount++;
+                }
+                if (slashCount <= 4) {
+                    baseScore += (5 - slashCount) * 400.0;
+                }
             }
             return baseScore;
         };
@@ -704,10 +716,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::mutex resultsMutex;
         std::vector<nlohmann::json> contentResults;
         std::atomic<size_t> matchCount{0};
-        const auto startTime = std::chrono::steady_clock::now();
-        // 允许长达 110 秒深度全盘内容扫描，绝不在 10 秒硬中断
-        const auto deadline = startTime + std::chrono::milliseconds(110000);
 
+        // 现代化无限生命周期扫描：不设固定 110s 硬中断，只要用户未改词且未达上限，工作线程持续全盘扫描直至完成
         const unsigned int numThreads = (std::max)(2u, (std::min)(16u, std::thread::hardware_concurrency()));
         std::vector<std::thread> workers;
         std::atomic<size_t> nextIndex{0};
@@ -715,8 +725,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         for (unsigned int t = 0; t < numThreads; ++t) {
             workers.emplace_back([&]() {
                 while (matchCount.load() < maxCount) {
-                    if (std::chrono::steady_clock::now() > deadline) break;
-                    // 用户已经继续打字，本次内容扫描的结果不会再被采用。
+                    // 用户已经继续打字或取消，毫秒级原子退出释放 CPU
                     if (isCancelled()) break;
                     size_t idx = nextIndex.fetch_add(1);
                     if (idx >= textCandidates.size()) break;

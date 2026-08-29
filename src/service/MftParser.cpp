@@ -430,33 +430,35 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         if (parentRef == 0) return 200;
         int priority = (m_DriveLetter != 'C' && m_DriveLetter != 'c') ? 500 : 200;
         DWORDLONG current = parentRef;
+        size_t totalDepth = 0;
         for (size_t depth = 0; depth < 32; ++depth) {
             const auto* node = m_Store.find(current);
             if (!node) break;
             const FileRecord rec = m_Store.view(*node);
             if (rec.fileName.empty()) break;
+            totalDepth++;
             
             std::wstring name = normalize(rec.fileName);
+            // 通用系统构建与临时缓存沉底
             if (name == L"npm-cache" || name == L"pip" || name == L"go-build" ||
                 name == L".gradle" || name == L"temp" || name == L"windows" ||
                 name == L"$recycle.bin" || name == L"node_modules" || name == L".git" ||
-                name == L"虚拟机共享文件夹" || name == L"baidunetdiskdownload" ||
-                name == L"wxwork" || name == L"xwechat_files" || name == L"wechat files" ||
                 name == L"cefcache" || name == L"crashpad" || name == L"coverage_report" ||
+                name == L"__pycache__" || name == L".vs" || name == L"obj" || name == L"bin" ||
                 name == L"extensions") {
                 return 1;
             }
-            if (name == L"appdata" || name == L"program files" || name == L"programdata") {
+            if (name == L"appdata" || name == L"program files" || name == L"programdata" || name == L"program files (x86)") {
                 priority = (std::min)(priority, 20);
-            } else if (name == L"chosen" || name == L"repo" || name == L"sap_b1" ||
-                       name == L"workspace" || name == L"projects" || name == L"source" ||
-                       name == L"src") {
-                priority = (std::max)(priority, 2000);
             } else if (name == L"desktop" || name == L"documents" || name == L"downloads") {
                 priority = (std::max)(priority, 1000);
             }
             if (rec.parentFileReferenceNumber == current || rec.parentFileReferenceNumber == 0) break;
             current = rec.parentFileReferenceNumber;
+        }
+        // 浅层目录启发式加权：越靠近磁盘根目录的非系统文件夹，天然是用户的工作区，赋予高优先级
+        if (priority > 20 && totalDepth <= 3) {
+            priority += static_cast<int>((4 - totalDepth) * 300);
         }
         return priority;
     };

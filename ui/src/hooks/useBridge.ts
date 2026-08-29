@@ -134,11 +134,11 @@ export function bridgeRequest<T = unknown>(
     if (nextId >= Number.MAX_SAFE_INTEGER) nextId = 1;
     while (pendingRequests.has(nextId)) nextId += 1;
     const id = nextId++;
-    // 搜索请求与长任务允许更长容限，避免海量文件全盘内容扫描被过早误杀；普通 IPC 仍保持快速失败。
-    const timeoutMs = LONG_RUNNING_METHODS.has(method)
-      ? 5 * 60_000
-      : (SEARCH_METHODS.has(method) || method.startsWith('search.'))
-        ? 120_000
+    // 搜索请求与长任务允许超长生命周期容限（30分钟），避免海量文件深度内容扫描被提前误杀；普通 IPC 仍保持快速失败。
+    const timeoutMs = (SEARCH_METHODS.has(method) || method.startsWith('search.'))
+      ? 30 * 60_000
+      : LONG_RUNNING_METHODS.has(method)
+        ? 5 * 60_000
         : 10_000;
     const timeoutId = setTimeout(() => {
       if (pendingRequests.delete(id)) {
