@@ -8,6 +8,7 @@
 #include "ui/WebViewSecurity.h"
 #include "ui/KeyboardPipeline.h"
 #include <wrl/event.h>
+#include <dwmapi.h>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -161,18 +162,24 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
     const POINT origin = trayWindowOrigin(x, y, sz.cx, sz.cy);
 
     m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         TRAY_WINDOW_CLASS,
         L"EasyTools TrayMenu",
-        WS_POPUP, // 无边框
+        WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN,
         origin.x, origin.y, sz.cx, sz.cy,
         nullptr, nullptr, hInstance, nullptr
     );
 
     if (!m_hwnd) return false;
 
-    // 启用分层透明，使得毛玻璃边界可以渲染，并避免底色黑块
-    SetLayeredWindowAttributes(m_hwnd, RGB(255, 0, 255), 255, LWA_COLORKEY);
+    // 启用 DWM 全客户区扩展与 Windows 11 原生圆角，由系统 DWM 提供纯净抗锯齿圆角与硬件级柔和阴影
+    MARGINS margins = {1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
+    SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     return true;
 }
@@ -370,6 +377,12 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
     }
     auto& inst = TrayWindow::instance();
     switch (uMsg) {
+        case WM_NCCALCSIZE: {
+            if (wParam) {
+                return 0; // 消除系统默认边框占用，使 WebView2 客户区占满整个圆角窗口
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
         case WM_SIZE:
             if (inst.m_controller) {
                 syncWebViewDpi(inst.m_controller.Get(), hwnd);

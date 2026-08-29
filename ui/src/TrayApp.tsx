@@ -24,8 +24,7 @@ export default function TrayApp() {
     const reportSize = useCallback(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
-    // 加上 #root padding (4px * 2 = 8px) 阴影容差
-    const totalHeight = Math.ceil(rect.height + 8);
+    const totalHeight = Math.ceil(rect.height);
     const fixedWidth = 220;
     if (totalHeight > 20) {
       void bridgeRequest('tray.resize', { width: fixedWidth, height: totalHeight }).catch(() => {});
