@@ -12,6 +12,12 @@
 5. **Overlay Viewport & Focus Assist Avoidance (`FocusAssistAvoidance`)**:
    - **Local Bounding Box First**: For localized transient overlays (mouse ripples, particle trails, gesture strokes), NEVER create or resize windows to full virtual screen size. Compute the dynamic union bounding box of active elements to constrain the layered window to compact local viewports (e.g., 100~300px), reducing memory/GPU cost by 99% and preventing Windows Shell from triggering Focus Assist (`🔔z` Do Not Disturb).
    - **Safe Bounding Geometry**: For full-screen ambient overlays (e.g., Spotlight vignette), shrink physical window dimensions by 1 pixel (e.g., `vw - 1, vh - 1`) to break the exact full-screen exclusive geometric match checked by Windows `SHQueryUserNotificationState`.
+6. **Universal Rounded Corners Dual Insurance Pipeline (`UniversalRoundedCornersDualInsurance`)**:
+   - **Cross-Platform OS Fracture**: Windows 11 DWM hardware rounded corners (`DWMWCP_ROUND`) are ignored or unsupported on Windows 10, Windows Server (2019/2022/2025), Lite OS editions, and Remote Desktop (RDP) sessions, causing frameless popup windows (e.g., Search, Tray) to leak sharp rectangular backdrops or dirty shadow slices.
+   - **Dual-Insurance Standard**: All floating/frameless UI windows (`SearchWindow`, `TrayWindow`, etc.) must route geometry updates through `easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, width, height, radius)`:
+     - *Primary Tier (Win11)*: Sets `DWMWA_WINDOW_CORNER_PREFERENCE` to `DWMWCP_ROUND` for GPU-accelerated subpixel smooth corners and native DWM drop shadows;
+     - *Secondary Tier (Win10 / Server 2022/2025 / RDP)*: Calls Win32 kernel-level `CreateRoundRectRgn` and `SetWindowRgn` to hard-clip outer corner pixels, permanently eliminating square gray backdrops across all Windows environments;
+     - *DPI & Zero-Padding Sync*: Frontend shell container must use 0 padding to seamlessly fit the window boundary, and corner radius must scale proportionally with monitor DPI (`scaleMetric(radius, scale)`).
 
 ## Quality Assurance & Code Coverage (100% Coverage Mandate)
 1. **100% Code Coverage Standard**: All core business logic, utility classes, codecs, parsers, state machines, math/transform algorithms, and plugin contracts must maintain 100% statement and branch test coverage.

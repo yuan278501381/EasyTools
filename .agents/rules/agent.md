@@ -43,3 +43,9 @@ trigger: always_on
    - `main` 分支（生产发版主线）：严禁使用 Fast-Forward 快进合并，必须执行显式非快进合并 `git merge --no-ff dev -m "merge(dev): 合并 dev 分支至 main 分支，发布 vX.Y.Z 正式版"`，确保在 Git Graph 中呈现出独立的开发支线气泡与顶部的双圆环汇聚节点。
    - 标签与发版：在该 `merge(dev)` 节点上打 Tag `vX.Y.Z` 并调用 `publish_release.ps1` 发布 GitHub Release。
    - 发版后分支：基于最新的 `main` 检出下一阶段的 `feature/*` 特性分支开启新工作。
+11、跨系统无缝通用圆角双保险架构标准（UniversalRoundedCornersDualInsurance）：
+   - 跨系统断层机理：Windows 11 的 DWM 硬件圆角（`DWMWCP_ROUND`）在 Windows 10、Windows Server 全系列（如 Server 2019/2022/2025）、精简版系统及远程桌面 (RDP) 下会被 DWM 忽略或关闭，导致无边框弹窗（如搜索中心、托盘菜单）暴露 Win32 直角底衬与粗糙阴影裁切块。
+   - 双保险终局标准：所有无边框弹出窗口（`SearchWindow`, `TrayWindow` 等）几何尺寸变更时必须统一接入 `WinUtils::applyUniversalRoundedCorners(hwnd, width, height, radius)`：
+     * 第一道防线（Win11）：设置 `DWMWA_WINDOW_CORNER_PREFERENCE` 为 `DWMWCP_ROUND` 享受 GPU 硬件加速超平滑圆角与系统原生高斯深度投影；
+     * 第二道防线（Win10 / Server 2022/2025 / RDP）：调用 Win32 内核级 `CreateRoundRectRgn` 与 `SetWindowRgn` 直接在物理像素层强行裁剪剔除四个直角尖角，彻底抹平全版本跨系统视觉断层；
+     * 前端与 DPI 对齐：前端外壳容器必须 0 padding 贴合窗口，圆角半径 `radius` 严格跟随显示器物理 DPI 缩放毫秒级重算。
