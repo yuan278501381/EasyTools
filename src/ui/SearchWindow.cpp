@@ -13,6 +13,7 @@
 #include "ui/KeyboardPipeline.h"
 #include <WebView2.h>
 #include <wrl/event.h>
+#include <windowsx.h>
 #include <dwmapi.h>
 #include <filesystem>
 #include <fstream>
@@ -460,7 +461,37 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             }
             return DefWindowProcW(hwnd, uMsg, wParam, lParam);
         }
+        case WM_NCHITTEST: {
+            if (!IsZoomed(hwnd)) {
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                RECT rc;
+                GetWindowRect(hwnd, &rc);
+                const int border = 8;
+
+                if (pt.y < rc.top + border && pt.x < rc.left + border) return HTTOPLEFT;
+                if (pt.y < rc.top + border && pt.x >= rc.right - border) return HTTOPRIGHT;
+                if (pt.y >= rc.bottom - border && pt.x < rc.left + border) return HTBOTTOMLEFT;
+                if (pt.y >= rc.bottom - border && pt.x >= rc.right - border) return HTBOTTOMRIGHT;
+                if (pt.y < rc.top + border) return HTTOP;
+                if (pt.y >= rc.bottom - border) return HTBOTTOM;
+                if (pt.x < rc.left + border) return HTLEFT;
+                if (pt.x >= rc.right - border) return HTRIGHT;
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
         case WM_SIZE: {
+            const int newW = LOWORD(lParam);
+            const int newH = HIWORD(lParam);
+            if (newW > 0 && newH > 0) {
+                if (IsZoomed(hwnd)) {
+                    SetWindowRgn(hwnd, nullptr, TRUE);
+                } else {
+                    const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+                    const int radius = static_cast<int>(12 * scale);
+                    easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, newW, newH, radius);
+                }
+            }
             if (inst.m_controller) {
                 syncWebViewDpi(inst.m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
@@ -485,11 +516,16 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             inst.m_inSizeMove.store(false);
             RECT rc;
             if (GetWindowRect(hwnd, &rc)) {
+                const int w = rc.right - rc.left;
+                const int h = rc.bottom - rc.top;
                 const HMONITOR monitor = easy::core::dpi::activeMonitor();
                 const unsigned dpi = easy::core::dpi::effectiveDpiForMonitor(monitor);
                 const float scale = easy::core::dpi::scaleForDpi(dpi);
-                int baseW = static_cast<int>((rc.right - rc.left) / scale);
-                int baseH = static_cast<int>((rc.bottom - rc.top) / scale);
+                const int radius = static_cast<int>(12 * scale);
+                easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, w, h, radius);
+
+                int baseW = static_cast<int>(w / scale);
+                int baseH = static_cast<int>(h / scale);
                 if (baseW >= 400 && baseH >= 250) {
                     easy::core::ConfigManager::instance().set<int>("/search/windowWidth", baseW);
                     easy::core::ConfigManager::instance().set<int>("/search/windowHeight", baseH);

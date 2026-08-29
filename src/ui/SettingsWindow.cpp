@@ -318,7 +318,7 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
         return false;
     }
 
-    // 启用 DWM 边框扩展，消除原生黑色顶栏并保留 Windows 11 原生圆角与微阴影
+    // 启用 DWM 全客户区扩展与跨平台通用圆角裁剪，全兼容 Win11、Win10、Server 2022/2025
     MARGINS margins = {1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(m_hwnd, &margins);
 
@@ -326,9 +326,8 @@ bool SettingsWindow::createWindow(HINSTANCE hInstance) {
     SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
-    // 设置 Windows 11 原生圆角偏好
-    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    const int radius = static_cast<int>(12 * scale);
+    easy::core::WinUtils::applyUniversalRoundedCorners(m_hwnd, targetSize.cx, targetSize.cy, radius);
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
@@ -811,6 +810,20 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 const bool maxState = (wParam == SIZE_MAXIMIZED || IsZoomed(hwnd));
                 nlohmann::json data = {{"isMaximized", maxState}};
                 self->pushEventToFrontend("window:maximizedChanged", data.dump());
+
+                const int newW = LOWORD(lParam);
+                const int newH = HIWORD(lParam);
+                if (newW > 0 && newH > 0) {
+                    if (maxState) {
+                        SetWindowRgn(hwnd, nullptr, TRUE);
+                    } else {
+                        const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                        const float scale = easy::core::dpi::scaleForMonitor(monitor);
+                        const int radius = static_cast<int>(12 * scale);
+                        easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, newW, newH, radius);
+                    }
+                }
+
                 if (self->m_controller) {
                     syncWebViewDpi(self->m_controller.Get(), hwnd);
                     hookWebViewChildWindows(hwnd);
@@ -832,7 +845,20 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
 
         case WM_EXITSIZEMOVE: {
-            if (self) self->persistGeometry();
+            if (self) {
+                self->persistGeometry();
+                if (!IsZoomed(hwnd)) {
+                    RECT rc;
+                    if (GetWindowRect(hwnd, &rc)) {
+                        const int w = rc.right - rc.left;
+                        const int h = rc.bottom - rc.top;
+                        const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                        const float scale = easy::core::dpi::scaleForMonitor(monitor);
+                        const int radius = static_cast<int>(12 * scale);
+                        easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, w, h, radius);
+                    }
+                }
+            }
             return 0;
         }
 

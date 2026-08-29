@@ -391,7 +391,15 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             }
             return DefWindowProcW(hwnd, uMsg, wParam, lParam);
         }
-        case WM_SIZE:
+        case WM_SIZE: {
+            const int newW = LOWORD(lParam);
+            const int newH = HIWORD(lParam);
+            if (newW > 0 && newH > 0) {
+                const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                const float scale = easy::core::dpi::scaleForMonitor(monitor);
+                const int radius = static_cast<int>(10 * scale);
+                easy::core::WinUtils::applyUniversalRoundedCorners(hwnd, newW, newH, radius);
+            }
             if (inst.m_controller) {
                 syncWebViewDpi(inst.m_controller.Get(), hwnd);
                 if (IsWindowVisible(hwnd)) {
@@ -399,6 +407,7 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 }
             }
             break;
+        }
         case WM_DPICHANGED:
         case WM_DISPLAYCHANGE:
             if (!inst.m_updatingPlacement && IsWindowVisible(hwnd)) {
