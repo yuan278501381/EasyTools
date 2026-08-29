@@ -131,6 +131,8 @@
     "minimizeToTrayDesc": "关闭主窗口时最小化到系统托盘，而不是退出程序",
     "checkUpdates": "自动检查更新",
     "checkUpdatesDesc": "启动时自动检查是否有新版本",
+    "autoReleaseSettingsMemory": "关闭 1 分钟后自动释放设置页内存",
+    "autoReleaseSettingsMemoryDesc": "关闭设置窗口 1 分钟后彻底销毁 WebView2 渲染器以回收物理内存，下次打开时按需极速重建 (推荐开启)",
     "showOnboarding": "显示新手引导",
     "showOnboardingDesc": "开启后，下次启动时将展示新手引导界面。",
     "portableMode": "便携模式",

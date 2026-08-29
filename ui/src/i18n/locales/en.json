@@ -131,6 +131,8 @@
     "minimizeToTrayDesc": "Minimize to system tray instead of exiting when window is closed",
     "checkUpdates": "Automatic update checks",
     "checkUpdatesDesc": "Check for updates automatically on startup",
+    "autoReleaseSettingsMemory": "Auto-Release Settings Memory After 1 Minute",
+    "autoReleaseSettingsMemoryDesc": "Completely destroy the WebView2 renderer 1 minute after closing the settings window to reclaim RAM. It will be rebuilt on-demand when reopened (Recommended)",
     "showOnboarding": "Show Onboarding",
     "showOnboardingDesc": "When enabled, the onboarding guide will be displayed on the next startup.",
     "portableMode": "Portable Mode",

@@ -20,6 +20,7 @@ interface GeneralSettings {
   elevated?: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
+  autoReleaseSettingsMemory?: boolean;
   showOnboarding?: boolean;
   isPortableMode?: boolean;
   dataDirectory?: string;
@@ -53,6 +54,7 @@ export const GeneralPage: FC = () => {
     elevated: false,
     minimizeToTray: true,
     checkUpdates: true,
+    autoReleaseSettingsMemory: true,
     language: 'auto',
     logLevel: 'info',
     theme: 'dark',
@@ -353,6 +355,13 @@ export const GeneralPage: FC = () => {
             description={t('general.checkUpdatesDesc')}
             checked={settings.checkUpdates}
             onChange={(v) => updateSetting('checkUpdates', v)}
+          />
+          <Toggle
+            id="autoReleaseSettingsMemory"
+            label={t('general.autoReleaseSettingsMemory')}
+            description={t('general.autoReleaseSettingsMemoryDesc')}
+            checked={settings.autoReleaseSettingsMemory ?? true}
+            onChange={(v) => updateSetting('autoReleaseSettingsMemory', v)}
           />
           <Toggle
             id="showOnboarding"

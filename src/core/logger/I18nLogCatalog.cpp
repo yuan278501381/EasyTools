@@ -2085,6 +2085,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 设置窗口已激活（复用已有窗口）",
             "[{}] Settings window activated (reused existing)"
         }},
+        {"设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）", {
+            "[{}] 设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）",
+            "[{}] Settings window activated (reused existing window, idle destroy timer cancelled)"
+        }},
         {"创建设置窗口失败", {
             "[{}] 创建设置窗口失败",
             "[{}] create operationwindow failed"
@@ -2092,6 +2096,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         {"设置窗口已创建并显示", {
             "[{}] 设置窗口已创建并显示",
             "[{}] Settings window created and shown"
+        }},
+        {"设置窗口已按需创建并显示", {
+            "[{}] 设置窗口已按需创建并显示",
+            "[{}] Settings window created on-demand and shown"
         }},
         {"设置窗口后台静默预热完成", {
             "[{}] 设置窗口后台静默预热完成",
@@ -2105,9 +2113,25 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 设置窗口已隐藏",
             "[{}] Settings window hidden"
         }},
+        {"设置窗口已隐藏，已启动 1 分钟闲置自动销毁倒计时", {
+            "[{}] 设置窗口已隐藏，已启动 1 分钟闲置自动销毁倒计时",
+            "[{}] Settings window hidden, 1-minute idle auto-destroy timer started"
+        }},
+        {"设置窗口已隐藏（自动释放内存开关已关闭，保持后台常驻）", {
+            "[{}] 设置窗口已隐藏（自动释放内存开关已关闭，保持后台常驻）",
+            "[{}] Settings window hidden (auto-release disabled, keeping resident in background)"
+        }},
         {"设置窗口已销毁", {
             "[{}] 设置窗口已销毁",
             "[{}] Settings window destroyed"
+        }},
+        {"设置窗口已彻底销毁并释放 WebView2 渲染器", {
+            "[{}] 设置窗口已彻底销毁并释放 WebView2 渲染器",
+            "[{}] Settings window completely destroyed and WebView2 renderer released"
+        }},
+        {"设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存", {
+            "[{}] 设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存",
+            "[{}] Settings window has been idle for 1 minute; auto-destroying Win32 window and releasing WebView2 renderer RAM"
         }},
         {"CreateWindowExW 失败, error={}", {
             "[{}] CreateWindowExW 失败, error={}",
