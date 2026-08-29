@@ -489,7 +489,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         candidates = std::move(filtered);
     } else {
         const size_t totalRecords = m_Store.slotCount();
-        unsigned int numThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
+        const unsigned int hwThreads = std::thread::hardware_concurrency();
+        // 针对单核/双核弱虚拟机自适应调优：当硬件核心数为 1 或 2 时，使用 1~2 线程，杜绝上下文切换风暴
+        unsigned int numThreads = (hwThreads <= 2) ? (std::max)(1u, hwThreads) : (std::min)(hwThreads, 16u);
         if (totalRecords < 10000) numThreads = 1;
 
         std::vector<std::vector<DWORDLONG>> threadCandidates(numThreads);

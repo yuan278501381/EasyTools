@@ -1575,16 +1575,13 @@ export default function SearchApp() {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);
 
-      // ── 2. 深度扫描实时秒表计时器与陈旧列表清空 (杜绝搜内容却显示旧文件名) ──
+      // ── 2. 全场景流式秒表计时器 (无论是搜内容还是弱机搜文件名，统一实时走秒) ──
+      startScanStopwatch(sequence);
       if (isContentSearch) {
         startTransition(() => {
           setResults([]);
           setSelectedIndex(0);
         });
-        startScanStopwatch(sequence);
-      } else {
-        stopScanStopwatch(sequence);
-        setScanElapsedSeconds(0);
       }
 
       const excludesList: string[] = [];
@@ -2521,8 +2518,10 @@ export default function SearchApp() {
               className="search-stats-pill" 
               title={t('search.statsPillTip', 'Indexed {{total}} files across all disks, latest search elapsed {{ms}}ms', { total: totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '1,000,000+', ms: searchElapsedMs })}
             >
-              <span className="search-stats-dot" />
-              {sortedResults.length > 0 ? (
+              <span className={`search-stats-dot ${loading ? 'search-stats-dot--scanning' : ''}`} />
+              {loading && scanElapsedSeconds > 0 ? (
+                <span><strong>{t('search.searchingElapsed', 'Searching... {{elapsed}}s', { elapsed: scanElapsedSeconds.toFixed(1) })}</strong></span>
+              ) : sortedResults.length > 0 ? (
                 <span><strong>{sortedResults.length}</strong> / {t('search.statsFullDisk', 'Total {{total}} · {{ms}}ms', { total: totalIndexedFiles ? (totalIndexedFiles > 10000 ? (totalIndexedFiles / 10000).toFixed(1) + 'w' : totalIndexedFiles.toString()) : '--', ms: searchElapsedMs })}</span>
               ) : (
                 <span>{t('search.totalFilesCount', 'Total {{count}} files', { count: totalIndexedFiles || 0 })}</span>
@@ -3549,11 +3548,15 @@ export default function SearchApp() {
 
         <footer className="search-footer">
           <div className="search-footer-left">
-            {((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) ? (
+            {loading ? (
               <div className="search-footer-stat-item search-footer-stat-item--scanning" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <RefreshCw size={11} className="spin-animation" style={{ color: 'var(--primary)' }} />
                 <span>
-                  <strong>{t('search.contentSearchingFooter', 'Deep full-disk content search in progress... ({{elapsed}}s)', { elapsed: scanElapsedSeconds.toFixed(1) })}</strong>
+                  <strong>
+                    {((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')))
+                      ? t('search.contentSearchingFooter', 'Deep full-disk content search in progress... ({{elapsed}}s)', { elapsed: scanElapsedSeconds.toFixed(1) })
+                      : t('search.nameSearchingFooter', 'Scanning full disk file index... ({{elapsed}}s)', { elapsed: scanElapsedSeconds.toFixed(1) })}
+                  </strong>
                 </span>
               </div>
             ) : (

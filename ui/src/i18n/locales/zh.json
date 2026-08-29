@@ -1067,6 +1067,8 @@
     "contentScanningEstimated": "预估约 {{estimate}} 秒",
     "contentScanningSpeedupTip": "Windows 文件页缓存热身后再次搜索将提速 5 倍以上",
     "contentSearchingFooter": "正在执行全盘内容穿透检索... (已耗时 {{elapsed}} 秒)",
+    "nameSearchingFooter": "正在扫描全盘文件索引... (已耗时 {{elapsed}} 秒)",
+    "searchingElapsed": "检索中 {{elapsed}}s",
     "contentZeroResultTip1": "点击右上角「定制」可添加更多自定义代码/文本扩展名 (如 .vue, .ts, .log)",
     "contentZeroResultTip2": "确认目标文件是否位于已排除的目录 (如 node_modules, .git)",
     "noMatchInCat": "未找到匹配的「{{cat}}」文件",

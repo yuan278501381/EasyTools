@@ -1067,6 +1067,8 @@
     "contentScanningEstimated": "Estimated ~{{estimate}}s",
     "contentScanningSpeedupTip": "Accelerated 5x+ once Windows memory cache warms up",
     "contentSearchingFooter": "Deep full-disk content search in progress... ({{elapsed}}s)",
+    "nameSearchingFooter": "Scanning full disk file index... ({{elapsed}}s)",
+    "searchingElapsed": "Searching... {{elapsed}}s",
     "contentZeroResultTip1": "Click top-right Customize to add custom file extensions (e.g. .vue, .ts, .log)",
     "contentZeroResultTip2": "Ensure target files are not inside excluded directories (e.g. node_modules, .git)",
     "noMatchInCat": "No matching {{cat}} files found",
