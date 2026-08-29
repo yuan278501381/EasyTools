@@ -228,6 +228,7 @@ void SettingsWindow::destroy() {
     }
     m_visible = false;
     m_webViewReady = false;
+    easy::core::WinUtils::trimWorkingSet();
     LOG_INFO("设置窗口已彻底销毁并释放 WebView2 渲染器");
 }
 
@@ -764,7 +765,6 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 if (autoRelease && self && !self->isVisible()) {
                     LOG_INFO("设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存");
                     self->destroy();
-                    easy::core::WinUtils::trimWorkingSet();
                 }
                 return 0;
             }

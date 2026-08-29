@@ -217,6 +217,11 @@ void ScreenCapture::startCapture(const CaptureOptions& options) {
         }
     }
 
+    // 防御性状态自愈：如果底层覆盖层已闲置，强制重置 m_capturing 标志
+    if (CaptureOverlay::instance().state() == OverlayState::Idle) {
+        m_capturing.store(false);
+    }
+
     bool expected = false;
     if (!m_capturing.compare_exchange_strong(expected, true)) {
         LOG_WARN("截图已在进行中");

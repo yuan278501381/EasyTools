@@ -579,6 +579,21 @@ if ($ISCC) {
     Write-Log "未找到 Inno Setup 编译器，跳过安装包生成步骤。" "WARN"
 }
 
+# ------------------------------------------------------------------------------
+# 7. 全功能端到端生命周期与防死锁自动化审计门禁 (DevOps Lifecycle Gate)
+# ------------------------------------------------------------------------------
+if (-not $SkipTests) {
+    $LifecycleScript = Join-Path $ScriptDir "build\verify_lifecycle.ps1"
+    if (Test-Path $LifecycleScript) {
+        Write-Log "🚀 正在执行全模块生命周期与防死锁自动化端到端审计 (verify_lifecycle.ps1)..." "INFO"
+        & pwsh.exe -File $LifecycleScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "全模块生命周期自动化端到端审计未通过！退出码: $LASTEXITCODE"
+        }
+        Write-Log "全模块生命周期自动化审计 100% 通过。" "SUCCESS"
+    }
+}
+
 Write-Log "======================================================="
 Write-Log "EasyTools 一键原子部署成功！" "SUCCESS"
 Write-Log "您的纯净发布版位于: $DeployDir"

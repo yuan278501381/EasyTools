@@ -129,6 +129,11 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     easy::core::TraceId::Scope scope;
     const auto totalStarted = std::chrono::steady_clock::now();
 
+    // 防御性安全重置：若上次截图/录屏覆盖层未正常清理，先执行全量复位
+    if (m_hwnd || m_state.state.load() != OverlayState::Idle) {
+        realCancel();
+    }
+
     // The virtual-desktop overlay is physically pixel-sized. Scale its HUD from
     // the monitor under the pointer before DWrite resources are created, so the
     // very first frame is already correct at 125%/150%/200%.
@@ -395,10 +400,7 @@ void CaptureOverlay::releaseFrozenSurface() {
 }
 
 void CaptureOverlay::cancel() {
-    m_state.isFadingOut = true;
-    m_state.fadeOutStart = GetTickCount();
-    m_renderer.invalidate();
-    ReleaseCapture();
+    realCancel();
 }
 
 void CaptureOverlay::setShortcutHintsEnabled(bool enabled) {
@@ -420,7 +422,6 @@ void CaptureOverlay::setShortcutHintsEnabled(bool enabled) {
 
 void CaptureOverlay::realCancel() {
     ShortcutHintOverlay::instance().hide();
-    const bool wasActive = m_state.state.load() != OverlayState::Idle;
     m_state.state = OverlayState::Idle;
     ReleaseCapture();
 
@@ -437,7 +438,7 @@ void CaptureOverlay::realCancel() {
     m_state.detectedWindowHierarchy.clear();
     m_state.detectedWindow = {};
     releaseFrozenSurface();
-    if (wasActive && m_closedCallback) m_closedCallback();
+    if (m_closedCallback) m_closedCallback();
 
     // 冷路径退场：主动修剪物理内存，将大图/D2D/DirectX 缓存归还系统
     easy::core::WinUtils::trimWorkingSet();

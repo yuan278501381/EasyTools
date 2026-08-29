@@ -107,6 +107,7 @@ private:
     bool updatePlacement();
     void render();
     void tickAnimation();
+    void onAnimationCompleteAndHide();
     void drawKeycapCapsule(const KeycastItem& item, float x, float y, float alpha, float dpiScale);
     void drawWindowsLogo(const D2D1_RECT_F& rect, float alpha);
 

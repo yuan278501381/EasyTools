@@ -1283,6 +1283,15 @@ void KeycastOverlay::tickAnimation() {
     }
 }
 
+void KeycastOverlay::onAnimationCompleteAndHide() {
+    if (m_hwnd) {
+        KillTimer(m_hwnd, ANIMATION_TIMER_ID);
+        m_timerRunning = false;
+        ShowWindow(m_hwnd, SW_HIDE);
+    }
+    easy::core::WinUtils::trimWorkingSet();
+}
+
 LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == START_ANIMATION_MESSAGE) {
         auto& self = KeycastOverlay::instance();
@@ -1312,10 +1321,7 @@ LRESULT CALLBACK KeycastOverlay::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (hasActiveRows) {
             self.render();
         } else {
-            KillTimer(hwnd, ANIMATION_TIMER_ID);
-            self.m_timerRunning = false;
-            ShowWindow(hwnd, SW_HIDE);
-            easy::core::WinUtils::trimWorkingSet();
+            self.onAnimationCompleteAndHide();
         }
         return 0;
     }

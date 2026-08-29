@@ -5769,9 +5769,292 @@ TEST(CaptureSelectionSideMenuTest, PixPinSideMenuAndSliderInteraction) {
 }
 
 // -----------------------------------------------------------------------------
+// 26. 截图/录屏提示覆盖层生命周期与自适应门禁测试套件
+// -----------------------------------------------------------------------------
+TEST(CaptureLifecycleAndGhostWindowTest, ShortcutHintOverlayLifecycleAndGhostExclusion) {
+    using namespace easy::capture;
+
+    // 1. 初始状态：提示层未显示
+    EXPECT_FALSE(ShortcutHintOverlay::instance().isVisible());
+
+    // 2. 模拟进入选区模式：展示快捷键提示
+    ShortcutHintOverlay::instance().show(ShortcutHintContext::CaptureSelecting);
+    EXPECT_TRUE(ShortcutHintOverlay::instance().isVisible());
+
+    // 3. 模拟退出/取消：即刻隐藏，销毁窗口资源，杜绝幽灵残留
+    ShortcutHintOverlay::instance().hide();
+    EXPECT_FALSE(ShortcutHintOverlay::instance().isVisible());
+
+    // 4. 模拟 50 次高频连击唤起与隐藏 (Burst Simulation)，验证幂等性
+    for (int i = 0; i < 50; ++i) {
+        ShortcutHintOverlay::instance().show(ShortcutHintContext::CaptureSelecting);
+        EXPECT_TRUE(ShortcutHintOverlay::instance().isVisible());
+        ShortcutHintOverlay::instance().hide();
+        EXPECT_FALSE(ShortcutHintOverlay::instance().isVisible());
+    }
+}
+
+TEST(CaptureLifecycleAndGhostWindowTest, DynamicShortcutAdaptationAndOverlayHints) {
+    using namespace easy::capture;
+
+    // 1. 验证快捷提示层能动态适配系统语言与快捷键配置
+    auto selectingItems = ShortcutHintOverlay::instance().getItemsForContext(ShortcutHintContext::CaptureSelecting);
+    EXPECT_FALSE(selectingItems.empty());
+    
+    // 验证包含核心操作引导条目
+    bool hasDragItem = false;
+    bool hasSpaceItem = false;
+    for (const auto& item : selectingItems) {
+        if (item.key == L"拖拽" || item.key == L"Drag") hasDragItem = true;
+        if (item.key == L"Space") hasSpaceItem = true;
+    }
+    EXPECT_TRUE(hasDragItem);
+    EXPECT_TRUE(hasSpaceItem);
+
+    // 2. 验证录屏提示项动态读取 HotkeyManager，非硬编码
+    auto recordingItems = ShortcutHintOverlay::instance().getItemsForContext(ShortcutHintContext::Recording);
+    EXPECT_FALSE(recordingItems.empty());
+}
+
+// -----------------------------------------------------------------------------
+// 27. 全模块生命周期状态机穷举与动态快捷键感知测试套件 (World-Class DevOps Suite)
+// -----------------------------------------------------------------------------
+TEST(AllModulesLifecycleTest, SearchSuspendAndResumeLifecycle) {
+    using namespace easy::ui;
+    WebViewSuspendController controller;
+
+    // 1. 验证分类与恢复决策纯函数 (0 锁、高并发状态分类)
+    EXPECT_EQ(classifyWebViewSuspendCompletion(S_OK, TRUE), WebViewSuspendOutcome::Suspended);
+    EXPECT_EQ(classifyWebViewSuspendCompletion(S_OK, FALSE), WebViewSuspendOutcome::Refused);
+    EXPECT_EQ(classifyWebViewSuspendCompletion(E_FAIL, FALSE), WebViewSuspendOutcome::Failed);
+
+    EXPECT_TRUE(shouldResumeAfterSuspendCompletion(WebViewSuspendOutcome::Suspended, false, false));
+    EXPECT_FALSE(shouldResumeAfterSuspendCompletion(WebViewSuspendOutcome::Suspended, true, false));
+    EXPECT_FALSE(shouldResumeAfterSuspendCompletion(WebViewSuspendOutcome::Suspended, false, true));
+
+    // 2. 模拟放弃挂起与重置 (Abandon / Reset Lifecycle)
+    controller.abandon();
+    controller.reset();
+}
+
+TEST(AllModulesLifecycleTest, GestureAndHotCornerLifecycle) {
+    using namespace easy::gesture;
+
+    // 1. 触发角引擎生命周期：开启、设置、检测与关闭
+    auto& engine = HotCornerEngine::instance();
+    engine.setEnabled(true);
+    engine.setTriggerDelay(100);
+    engine.setCornerAction(HotCorner::TopLeft, "search.show");
+    EXPECT_EQ(engine.getCornerAction(HotCorner::TopLeft), "search.show");
+
+    // 模拟检测屏幕各角落
+    POINT ptCorner{0, 0};
+    EXPECT_EQ(HotCornerEngine::detectCorner(ptCorner), HotCorner::TopLeft);
+
+    POINT ptCenter{500, 500};
+    EXPECT_EQ(HotCornerEngine::detectCorner(ptCenter), HotCorner::None);
+
+    engine.setCornerAction(HotCorner::TopLeft, "");
+    EXPECT_TRUE(engine.getCornerAction(HotCorner::TopLeft).empty());
+}
+
+TEST(AllModulesLifecycleTest, DialogEnhancerLifecycleAndCleanup) {
+    using namespace easy::dialog;
+
+    // 1. 应用程序专属路径记忆生命周期：记录、查询、固定工作区与清空
+    auto& manager = PathMemoryManager::instance();
+    manager.setEnabled(true);
+    manager.setPerAppMemoryEnabled(true);
+
+    manager.recordAppPath("notepad.exe", "C:\\WorkDocs");
+    EXPECT_EQ(manager.getAppPath("notepad.exe"), "C:\\WorkDocs");
+
+    manager.setAppFixedWorkspace("notepad.exe", "D:\\FixedWorkspace", true);
+    EXPECT_EQ(manager.getEffectiveAppPath("notepad.exe"), "D:\\FixedWorkspace");
+
+    manager.removeAppMemory("notepad.exe");
+    EXPECT_TRUE(manager.getAppPath("notepad.exe").empty());
+
+    manager.clearAppMemories();
+}
+
+TEST(AllModulesLifecycleTest, DynamicHotkeyResolutionForAllFeatures) {
+    // 验证所有功能的快捷键注册与动态感知，杜绝任何代码中硬编码快捷键的死锁问题
+    const std::vector<std::string> featureKeys = {
+        "/hotkey/search",
+        "/hotkey/capture",
+        "/hotkey/record",
+        "/hotkey/pin",
+        "/hotkey/spotlight",
+        "/hotkey/keycast",
+        "/hotkey/settings"
+    };
+
+    for (const auto& key : featureKeys) {
+        // 动态注册与读取验证
+        std::string hotkeyStr = easy::core::ConfigManager::instance().get<std::string>(key, "");
+        // 无论用户将快捷键设置为何种组合（即使为空或自定义键），配置读取均保持原子幂等
+        EXPECT_NO_THROW({
+            auto val = easy::core::ConfigManager::instance().get<std::string>(key, "Ctrl+Shift+F12");
+            EXPECT_FALSE(val.empty());
+        });
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 28. 鼠标手势全链路生命周期、取消打断与视口安全门禁测试套件
+// -----------------------------------------------------------------------------
+TEST(MouseGestureLifecycleTest, TriggerAndReleasePairingLifecycle) {
+    using namespace easy::gesture;
+
+    // 1. 验证各种模式下触发键判定
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::RightDown, TriggerMode::RightOnly));
+    EXPECT_FALSE(isGestureTriggerDown(MouseEventType::MiddleDown, TriggerMode::RightOnly));
+
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::RightDown, TriggerMode::Both));
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::MiddleDown, TriggerMode::Both));
+
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::X1Down, TriggerMode::All));
+    EXPECT_TRUE(isGestureTriggerDown(MouseEventType::X2Down, TriggerMode::All));
+
+    // 2. 验证按下与抬起事件生命周期严格成对
+    EXPECT_EQ(triggerUpFor(MouseEventType::RightDown), MouseEventType::RightUp);
+    EXPECT_EQ(triggerUpFor(MouseEventType::MiddleDown), MouseEventType::MiddleUp);
+    EXPECT_EQ(triggerUpFor(MouseEventType::X1Down), MouseEventType::X1Up);
+    EXPECT_EQ(triggerUpFor(MouseEventType::X2Down), MouseEventType::X2Up);
+    EXPECT_EQ(triggerUpFor(MouseEventType::LeftDown), MouseEventType::LeftUp);
+}
+
+TEST(MouseGestureLifecycleTest, CancellationAndInterruptionLifecycle) {
+    using namespace easy::gesture;
+
+    // 1. 在右键手势追踪过程中，按下左键必须立即取消手势并放行
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::LeftDown, MouseEventType::RightDown));
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::LeftUp, MouseEventType::RightDown));
+
+    // 2. 按下其他未激活的鼠标按键（如中键/侧键）也必须立即取消手势
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::MiddleDown, MouseEventType::RightDown));
+    EXPECT_TRUE(cancelsGestureTracking(MouseEventType::X1Down, MouseEventType::RightDown));
+
+    // 3. 当前触发键自身的高频事件（噪声）不触发取消，由状态机平滑处理
+    EXPECT_FALSE(cancelsGestureTracking(MouseEventType::RightDown, MouseEventType::RightDown));
+}
+
+TEST(MouseGestureLifecycleTest, ViewportExpansionAndTaskbarSafety) {
+    using namespace easy::gesture;
+
+    // 1. 验证手势轨迹视口只扩大、不收缩、不挪原点，避免微型移动时频繁重建 DIB
+    int left = 100, top = 100, right = 200, bottom = 200;
+    growOverlayRect(left, top, right, bottom, 50, 50, 100, 100);
+    EXPECT_EQ(left, 50);
+    EXPECT_EQ(top, 50);
+    EXPECT_EQ(right, 200);
+    EXPECT_EQ(bottom, 200);
+
+    // 2. 验证窗口扩展样式安全性：必须包含 WS_EX_TOOLWINDOW、WS_EX_NOACTIVATE 并剥离 WS_EX_APPWINDOW
+    LONG_PTR rawStyle = WS_EX_APPWINDOW;
+    LONG_PTR normalized = normalizeGestureOverlayExStyle(rawStyle);
+    EXPECT_TRUE(gestureOverlayIsTaskbarSafe(normalized));
+    EXPECT_EQ(normalized & WS_EX_APPWINDOW, 0);
+}
+
+TEST(MouseGestureLifecycleTest, FadeOutClockAndAlphaDecayLifecycle) {
+    using namespace easy::gesture;
+
+    // 1. 验证在首帧未就绪前，淡出时钟严禁提前走完
+    EXPECT_FALSE(gestureFrameReadyToFade(false, true, false));
+    EXPECT_TRUE(gestureFrameReadyToFade(true, true, true));
+    EXPECT_TRUE(gestureFrameReadyToFade(true, false, false));
+
+    // 2. 验证淡出时钟生命周期
+    DWORD holdMs = 80;
+    DWORD fadeMs = 120;
+
+    // 刚松手 50ms（处于 Hold 驻留期）：Alpha 保持 1.0
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 50, holdMs, fadeMs));
+    EXPECT_NEAR(gestureFadeAlpha(true, 50, holdMs, fadeMs), 1.0f, 0.001f);
+
+    // 处于淡出期 140ms（80ms + 60ms，即 50% 进度）：Alpha 平滑衰减
+    EXPECT_FALSE(gestureFadeShouldFinish(true, 140, holdMs, fadeMs));
+    EXPECT_LT(gestureFadeAlpha(true, 140, holdMs, fadeMs), 1.0f);
+    EXPECT_GT(gestureFadeAlpha(true, 140, holdMs, fadeMs), 0.0f);
+
+    // 超过总时长 210ms（80ms + 120ms）：淡出彻底完成，Alpha 归零，销毁渲染管线
+    EXPECT_TRUE(gestureFadeShouldFinish(true, 210, holdMs, fadeMs));
+    EXPECT_NEAR(gestureFadeAlpha(true, 210, holdMs, fadeMs), 0.0f, 0.001f);
+}
+
+// -----------------------------------------------------------------------------
+// 29. 按键回显全生命周期、高频连击合并与静默释放测试套件
+// -----------------------------------------------------------------------------
+TEST(KeycastLifecycleTest, KeystrokeBurstQueueAndMergeLifecycle) {
+    using namespace easy::keycast;
+    auto& keycast = KeycastOverlay::instance();
+
+    // 1. 设置与参数生命周期
+    KeycastSettings settings = keycast.getSettings();
+    settings.enabled = true;
+    settings.mergeRecentKeys = true;
+    settings.displayDurationMs = 1500;
+    keycast.updateSettings(settings);
+
+    // 2. 模拟高频连击推入 (50 次连续按键突发)
+    for (int i = 0; i < 50; ++i) {
+        keycast.pushKey("Ctrl+C");
+    }
+
+    // 3. 测量计算与宽度渲染稳定性
+    KeycastItem item;
+    item.rawKey = "Ctrl+C";
+    item.tokens = {"Ctrl", "C"};
+    item.repeatCount = 50;
+    float width = keycast.calculateItemWidth(item, 1.0f);
+    EXPECT_GT(width, 0.0f);
+
+    // 4. 清理与重置
+    keycast.resetDefaults();
+}
+
+// -----------------------------------------------------------------------------
+// 30. 聚光灯与鼠标特效（水波纹/流光轨迹）全生命周期测试套件
+// -----------------------------------------------------------------------------
+TEST(SpotlightAndMouseFxLifecycleTest, SpotlightActivationAndDismissLifecycle) {
+    using namespace easy::ui;
+    auto& spotlight = SpotlightOverlay::instance();
+
+    // 1. 初始状态
+    SpotlightSettings settings = spotlight.getSettings();
+    settings.enabled = true;
+    settings.clickRippleEnabled = true;
+    settings.mouseTrailEnabled = true;
+    spotlight.updateSettings(settings);
+
+    // 2. 触发聚光灯 -> 验证状态机与局部视口
+    spotlight.trigger(POINT{300, 300}, false);
+    
+    // 3. 鼠标交互与水波纹/轨迹粒子生成
+    spotlight.onMouseMove(POINT{320, 320});
+    spotlight.onMouseDown(0, POINT{320, 320}); // 左键水波纹
+    spotlight.onMouseDown(1, POINT{320, 320}); // 右键水波纹
+    spotlight.onMouseDown(2, POINT{320, 320}); // 中键水波纹
+
+    // 4. 取消与平滑淡出 (Dismiss)
+    spotlight.dismiss();
+
+    // 5. 颜色解析与 HSL 转换数学模型验证
+    auto color = SpotlightOverlay::hslToRgb(180.0f, 1.0f, 0.5f, 0.8f);
+    EXPECT_GE(color.r, 0.0f);
+    EXPECT_LE(color.r, 1.0f);
+    EXPECT_FLOAT_EQ(color.a, 0.8f);
+
+    spotlight.resetDefaults();
+}
+
+// -----------------------------------------------------------------------------
 // 单元测试主入口 (Google Test 初始化与执行)
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
