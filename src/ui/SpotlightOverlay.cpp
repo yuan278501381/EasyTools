@@ -219,8 +219,10 @@ void SpotlightOverlay::resetDefaults() {
     m_currentAlpha = 0.0f;
     m_ripples.clear();
     m_trail.clear();
-    m_ctrlPressCount = 0;
-    m_lastCtrlDownTime = {};
+    m_ctrlState = CtrlDoubleTapState::Idle;
+    m_firstCtrlDownTime = {};
+    m_firstCtrlUpTime = {};
+    m_ctrlIsPhysicallyDown = false;
 }
 
 bool SpotlightOverlay::isActive() const {
@@ -321,37 +323,88 @@ void SpotlightOverlay::dismiss() {
 }
 
 void SpotlightOverlay::onKeyboardEvent(DWORD vkCode, WPARAM wParam) {
-    if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+    bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+    bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+    bool isCtrl = (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL);
+
+    std::lock_guard lock(m_mutex);
+
+    if (isDown) {
         if (m_animState != AnimState::Idle) {
             dismiss();
             return;
         }
 
-        if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) {
+        if (isCtrl) {
             if (!m_settings.enabled || !m_settings.triggerDoubleCtrl) return;
 
             auto now = std::chrono::steady_clock::now();
-            auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastCtrlDownTime).count();
-            if (diff <= 300) {
-                m_ctrlPressCount++;
-                if (m_ctrlPressCount >= 2) {
-                    m_ctrlPressCount = 0;
-                    m_lastCtrlDownTime = {};
+
+            // 1. 硬件自动连发（Auto-Repeat）静默拦截：按住不放期间收到的重复 KeyDown 绝不当作新按键！
+            if (m_ctrlIsPhysicallyDown) {
+                // 如果单次按住超过 260ms，判定为用户意在长按或准备按快捷键，立即熔断重置
+                if (m_ctrlState == CtrlDoubleTapState::FirstPressed) {
+                    auto holdDuration = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_firstCtrlDownTime).count();
+                    if (holdDuration > 260) {
+                        m_ctrlState = CtrlDoubleTapState::Idle;
+                    }
+                }
+                return;
+            }
+
+            m_ctrlIsPhysicallyDown = true;
+
+            // 2. 状态流转
+            if (m_ctrlState == CtrlDoubleTapState::WaitingSecond) {
+                auto upToDownGap = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_firstCtrlUpTime).count();
+                if (upToDownGap >= 30 && upToDownGap <= 380) {
+                    // 🎉 完美命中「双击 Ctrl」闭环！
+                    m_ctrlState = CtrlDoubleTapState::Idle;
+                    m_firstCtrlDownTime = {};
+                    m_firstCtrlUpTime = {};
                     trigger();
                     return;
+                } else {
+                    // 超出连击时间窗，转为新的第 1 次按下
+                    m_ctrlState = CtrlDoubleTapState::FirstPressed;
+                    m_firstCtrlDownTime = now;
                 }
             } else {
-                m_ctrlPressCount = 1;
+                // 首次按下 (First Down)
+                m_ctrlState = CtrlDoubleTapState::FirstPressed;
+                m_firstCtrlDownTime = now;
             }
-            m_lastCtrlDownTime = now;
         } else {
-            m_ctrlPressCount = 0;
+            // 3. 组合键/杂键污染熔断 (Pollution Abort)：用户按了 C, V, Tab, Space 等，立即取消双击判定
+            m_ctrlState = CtrlDoubleTapState::Idle;
+            m_firstCtrlDownTime = {};
+            m_firstCtrlUpTime = {};
+        }
+    } else if (isUp) {
+        if (isCtrl) {
+            m_ctrlIsPhysicallyDown = false;
+            auto now = std::chrono::steady_clock::now();
+
+            if (m_ctrlState == CtrlDoubleTapState::FirstPressed) {
+                auto holdDuration = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_firstCtrlDownTime).count();
+                if (holdDuration <= 280) {
+                    // 第一次快速敲击并松开（Hold <= 280ms），顺利进入等待第二次按下的时间窗
+                    m_ctrlState = CtrlDoubleTapState::WaitingSecond;
+                    m_firstCtrlUpTime = now;
+                } else {
+                    // 长按后松开，不作为双击的前奏
+                    m_ctrlState = CtrlDoubleTapState::Idle;
+                }
+            }
         }
     }
 }
 
 void SpotlightOverlay::onMouseDown(int button, POINT pt) {
     std::lock_guard lock(m_mutex);
+
+    // 鼠标点击重置双击 Ctrl 状态机（防止边点击鼠标边按 Ctrl 发生误判）
+    m_ctrlState = CtrlDoubleTapState::Idle;
 
     // 演示者模式：聚光灯活跃期间点击鼠标，在当前位置激发全屏水波涟漪并优雅退出
     if (m_animState == AnimState::FadeIn || m_animState == AnimState::Holding) {

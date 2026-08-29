@@ -1247,6 +1247,7 @@ void MessageBridge::registerBuiltinHandlers() {
             {"elevated", WinUtils::isCurrentProcessElevated()},
             {"minimizeToTray", config.get<bool>("/general/minimizeToTray", true)},
             {"checkUpdates", config.get<bool>("/general/checkUpdates", true)},
+            {"autoReleaseSettingsMemory", config.get<bool>("/general/autoReleaseSettingsMemory", true)},
             {"keycastEnabled", config.get<bool>("/general/keycastEnabled", true)},
             {"showOnboarding", config.get<bool>("/general/showOnboarding", !config.get<bool>("/app/onboardingCompleted", false))},
             {"isPortableMode", WinUtils::isPortableMode()},
@@ -1260,7 +1261,7 @@ void MessageBridge::registerBuiltinHandlers() {
     });
     registerHandler("general.updateSettings", [](const json& params) -> json {
         static const std::unordered_set<std::string> boolKeys = {
-            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "keycastEnabled", "showOnboarding"
+            "autoStart", "runAsAdmin", "minimizeToTray", "checkUpdates", "autoReleaseSettingsMemory", "keycastEnabled", "showOnboarding"
         };
         static const std::unordered_set<std::string> themes = {"system", "light", "dark"};
         static const std::unordered_set<std::string> logLevels = {"trace", "debug", "info", "warn", "error"};

@@ -246,7 +246,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
                     startupLanguage = root["general"]["language"].get<std::string>();
                 }
             }
-        } catch (...) {}
+        } catch (const std::exception& ex) {
+            OutputDebugStringA((std::string("[EasyTools Startup] Failed to parse startup language: ") + ex.what() + "\n").c_str());
+        } catch (...) {
+            OutputDebugStringA("[EasyTools Startup] Unknown exception occurred while parsing startup language\n");
+        }
     }
     easy::core::Logger::setLanguage(startupLanguage);
 
@@ -401,14 +405,35 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 // 内部实现
 // ─────────────────────────────────────────────────────────────────────────────
 
+namespace {
+
+struct ParsedCommandLine {
+    std::vector<std::wstring> args;
+
+    static const ParsedCommandLine& instance() {
+        static ParsedCommandLine s_instance = [] {
+            ParsedCommandLine res;
+            int argc = 0;
+            if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
+                res.args.reserve(argc);
+                for (int i = 0; i < argc; ++i) {
+                    res.args.emplace_back(argv[i]);
+                }
+                LocalFree(argv);
+            }
+            return res;
+        }();
+        return s_instance;
+    }
+};
+
+} // namespace
+
 bool parseWindowPos(int& x, int& y, int& w, int& h) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) return false;
-    bool found = false;
-    for (int i = 1; i < argc; ++i) {
-        if (wcsncmp(argv[i], L"--window-pos=", 13) == 0) {
-            std::wstring val = argv[i] + 13;
+    const auto& args = ParsedCommandLine::instance().args;
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (args[i].rfind(L"--window-pos=", 0) == 0) {
+            std::wstring val = args[i].substr(13);
             size_t p1 = val.find(L',');
             size_t p2 = (p1 != std::wstring::npos) ? val.find(L',', p1 + 1) : std::wstring::npos;
             size_t p3 = (p2 != std::wstring::npos) ? val.find(L',', p2 + 1) : std::wstring::npos;
@@ -418,27 +443,22 @@ bool parseWindowPos(int& x, int& y, int& w, int& h) {
                     y = std::stoi(val.substr(p1 + 1, p2 - p1 - 1));
                     w = std::stoi(val.substr(p2 + 1, p3 - p2 - 1));
                     h = std::stoi(val.substr(p3 + 1));
-                    found = true;
+                    return true;
                 } catch (...) {}
             }
             break;
         }
     }
-    LocalFree(argv);
-    return found;
+    return false;
 }
 
 bool checkSingleInstance() {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     DWORD restartPid = 0;
-    if (argv) {
-        for (int i = 1; i < argc; ++i) {
-            if (wcsncmp(argv[i], L"--restart-pid=", 14) == 0) {
-                restartPid = static_cast<DWORD>(_wtoi(argv[i] + 14));
-            }
+    const auto& args = ParsedCommandLine::instance().args;
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (args[i].rfind(L"--restart-pid=", 0) == 0) {
+            restartPid = static_cast<DWORD>(_wtoi(args[i].c_str() + 14));
         }
-        LocalFree(argv);
     }
 
     // 若是热重启拉起的新进程，等待旧进程完全退出并释放所有系统资源
@@ -502,56 +522,42 @@ bool checkSingleInstance() {
 }
 
 bool hasCommandLineFlag(std::wstring_view flag) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) return false;
-
-    bool found = false;
+    const auto& args = ParsedCommandLine::instance().args;
     const std::wstring target(flag);
-    for (int i = 1; i < argc; ++i) {
-        if (_wcsicmp(argv[i], target.c_str()) == 0) {
-            found = true;
-            break;
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (_wcsicmp(args[i].c_str(), target.c_str()) == 0) {
+            return true;
         }
     }
-    LocalFree(argv);
-    return found;
+    return false;
 }
 
 std::optional<std::filesystem::path> commandLinePathValue(std::wstring_view prefix) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) return std::nullopt;
-    std::optional<std::filesystem::path> value;
-    for (int index = 1; index < argc; ++index) {
-        std::wstring_view argument(argv[index]);
+    const auto& args = ParsedCommandLine::instance().args;
+    for (size_t index = 1; index < args.size(); ++index) {
+        std::wstring_view argument(args[index]);
         if (argument.size() >= prefix.size() &&
             _wcsnicmp(argument.data(), prefix.data(), static_cast<int>(prefix.size())) == 0) {
             const auto rawValue = argument.substr(prefix.size());
-            if (!rawValue.empty()) value = std::filesystem::path(rawValue);
+            if (!rawValue.empty()) return std::filesystem::path(rawValue);
             break;
         }
     }
-    LocalFree(argv);
-    return value;
+    return std::nullopt;
 }
 
 std::optional<std::wstring> commandLineStringValue(std::wstring_view prefix) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) return std::nullopt;
-    std::optional<std::wstring> value;
-    for (int index = 1; index < argc; ++index) {
-        std::wstring_view argument(argv[index]);
+    const auto& args = ParsedCommandLine::instance().args;
+    for (size_t index = 1; index < args.size(); ++index) {
+        std::wstring_view argument(args[index]);
         if (argument.size() >= prefix.size() &&
             _wcsnicmp(argument.data(), prefix.data(), static_cast<int>(prefix.size())) == 0) {
             const auto rawValue = argument.substr(prefix.size());
-            if (!rawValue.empty()) value = std::wstring(rawValue);
+            if (!rawValue.empty()) return std::wstring(rawValue);
             break;
         }
     }
-    LocalFree(argv);
-    return value;
+    return std::nullopt;
 }
 
 HWND createMessageWindow(HINSTANCE hInstance) {
@@ -880,6 +886,22 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         return {{"success", true}};
     });
 
+    easy::core::MessageBridge::instance().registerHandler("app.restartDemoted", [hwnd](const nlohmann::json&) -> nlohmann::json {
+        if (!easy::core::WinUtils::isCurrentProcessElevated()) {
+            return {{"success", true}, {"alreadyDemoted", true}};
+        }
+        wchar_t exePath[MAX_PATH];
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+            releaseSingleInstanceMutex();
+            std::wstring cmd = L"\"";
+            cmd += exePath;
+            cmd += L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+        return {{"success", true}};
+    });
+
     // ── 沉浸式标题栏窗口控制 (Seamless Titlebar Window Controls) ────────
     easy::core::MessageBridge::instance().registerHandler("window.minimize", [](const nlohmann::json&) -> nlohmann::json {
         easy::ui::SettingsWindow::instance().minimize();
@@ -940,6 +962,18 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         } else if (action == "restartElevated") {
             easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
             if (launchElevatedSuccessor(true)) {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+        } else if (action == "restartDemoted") {
+            easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", false);
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+                releaseSingleInstanceMutex(); // 为新实例让路
+                // [世界级架构] 通过将自身路径作为参数传递给 explorer.exe，利用桌面壳层实现了完美的进程降权启动
+                std::wstring cmd = L"\"";
+                cmd += exePath;
+                cmd += L"\"";
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
             }
         } else if (action == "exit") {

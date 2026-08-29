@@ -126,7 +126,7 @@
 .dialog-proc-badge {
   display: inline-block;
   padding: 0.2rem 0.55rem;
-  font-size: 0.80rem;
+  font-size: 0.83rem;
   font-family: var(--font-mono);
   font-weight: 600;
   color: var(--primary);
@@ -145,7 +145,7 @@
 }
 
 .dialog-memory-time {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
 }
 

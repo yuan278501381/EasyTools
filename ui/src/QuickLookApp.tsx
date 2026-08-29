@@ -233,6 +233,7 @@ export default function QuickLookApp() {
                 className="ql-btn-sub"
                 onClick={() => setImageScale(Math.max(0.2, imageScale - 0.25))}
                 title={t('quicklook.zoomOut', 'Zoom Out')}
+                aria-label={t('quicklook.zoomOut', 'Zoom Out')}
               >
                 -
               </button>
@@ -242,6 +243,7 @@ export default function QuickLookApp() {
                 className="ql-btn-sub"
                 onClick={() => setImageScale(Math.min(4, imageScale + 0.25))}
                 title={t('quicklook.zoomIn', 'Zoom In')}
+                aria-label={t('quicklook.zoomIn', 'Zoom In')}
               >
                 +
               </button>
@@ -250,6 +252,7 @@ export default function QuickLookApp() {
                 className="ql-btn-sub"
                 onClick={() => setImageScale(1)}
                 title={t('quicklook.resetZoom', 'Reset')}
+                aria-label={t('quicklook.resetZoom', 'Reset')}
               >
                 100%
               </button>

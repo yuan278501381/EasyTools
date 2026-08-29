@@ -750,6 +750,25 @@ public:
         return true;
     }
 
+    /// 判断 Windows 应用是否为深色模式 (AppsUseLightTheme, 0: Dark, 1: Light)
+    static bool isSystemDarkMode() {
+        DWORD data = 0;
+        DWORD dataSize = sizeof(data);
+        LONG res = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &data,
+            &dataSize
+        );
+        if (res == ERROR_SUCCESS) {
+            return (data == 0);
+        }
+        return isSystemTaskbarDark();
+    }
+
     /// 获取/初始化进程级 Job Object (带 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
     static HANDLE getProcessJobObject() {
         static HANDLE s_job = []() -> HANDLE {

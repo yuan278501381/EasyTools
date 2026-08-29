@@ -40,6 +40,7 @@ import {
   Copy,
   Pencil,
   Lightbulb,
+  Pin,
   type LucideIcon
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +50,7 @@ import { useAppearance } from './hooks/useAppearance';
 import { DynamicRowLayout, isSelectedOutsideVirtualRange } from './searchVirtualization';
 import { isEmptyContentSyntax, nextQueryId, resolveDebounceMs } from './searchScheduling';
 import { WindowResizeHandles } from './components/WindowResizeHandles';
+import { Toggle } from './components/UIKit';
 import './SearchApp.css';
 
 export interface DriveInfo {
@@ -101,25 +103,47 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode {
-  if (!text || queryKeywords.length === 0) return text;
+const highlightRegexCache = new Map<string, { regex: RegExp; validKeywords: string[] }>();
+
+function getHighlightRegex(queryKeywords: string[]): { regex: RegExp; validKeywords: string[] } | null {
+  if (!queryKeywords || queryKeywords.length === 0) return null;
+  const key = queryKeywords.join('\u0000');
+  const cached = highlightRegexCache.get(key);
+  if (cached) return cached;
 
   const validKeywords = queryKeywords
     .map(k => k.trim())
     .filter(k => k.length > 0)
     .sort((a, b) => b.length - a.length);
 
-  if (validKeywords.length === 0) return text;
+  if (validKeywords.length === 0) return null;
 
   const escaped = validKeywords
     .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|');
 
-  if (!escaped) return text;
+  if (!escaped) return null;
 
   try {
     const regex = new RegExp(`(${escaped})`, 'gi');
+    const result = { regex, validKeywords };
+    if (highlightRegexCache.size > 100) highlightRegexCache.clear();
+    highlightRegexCache.set(key, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode {
+  if (!text || queryKeywords.length === 0) return text;
+  const compiled = getHighlightRegex(queryKeywords);
+  if (!compiled) return text;
+
+  const { regex, validKeywords } = compiled;
+  try {
     const parts = text.split(regex);
+    if (parts.length <= 1) return text;
     return parts.map((part, idx) => {
       const isMatch = validKeywords.some(k => k.toLowerCase() === part.toLowerCase());
       if (isMatch) {
@@ -650,6 +674,17 @@ const SearchResultRow = memo(function SearchResultRow({
       </div>
     </li>
   );
+}, (prev, next) => {
+  return (
+    prev.selected === next.selected &&
+    prev.index === next.index &&
+    prev.result === next.result &&
+    prev.density === next.density &&
+    prev.columns === next.columns &&
+    prev.queryKeywords === next.queryKeywords &&
+    prev.setSize === next.setSize &&
+    prev.style?.top === next.style?.top
+  );
 });
 
 interface VirtualSearchResultsProps {
@@ -755,13 +790,33 @@ export function VirtualSearchResults({
     else if (itemBottom > visibleBottom) list.scrollTop = itemBottom - list.clientHeight;
   }, [layout, layoutRevision, results.length, selectedIndex]);
 
+  const rafIdRef = useRef<number | null>(null);
+
+  const handleScroll = useCallback((event: React.UIEvent<HTMLUListElement>) => {
+    const currentScrollTop = event.currentTarget.scrollTop;
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = window.requestAnimationFrame(() => {
+      setScrollTop(currentScrollTop);
+      rafIdRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <ul
       id="search-results"
       ref={listRef}
       className={`search-results search-results--virtualized density-${density}`}
       role="listbox"
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={handleScroll}
     >
       <li aria-hidden="true" role="presentation" style={{ height: layout.totalHeight() }} />
       {results.slice(range.start, range.end).map((result, relativeIndex) => {
@@ -832,6 +887,34 @@ export default function SearchApp() {
     newName: string;
   }>({ visible: false, newName: '' });
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    bridgeRequest<{ pinned: boolean }>('search.isPinned')
+      .then(res => {
+        if (res && typeof res.pinned === 'boolean') {
+          setIsPinned(res.pinned);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const togglePin = useCallback(async () => {
+    const next = !isPinned;
+    setIsPinned(next);
+    try {
+      await bridgeRequest('search.setPinned', { pinned: next });
+      if (next) {
+        toast.success(t('search.pinnedToast', 'Search window pinned (Keeps open when clicking outside)'));
+      } else {
+        toast.info(t('search.unpinnedToast', 'Search window unpinned (Auto-hides on blur)'));
+      }
+    } catch {
+      setIsPinned(!next);
+    }
+  }, [isPinned, t]);
+
+  const [totalIndexedFiles, setTotalIndexedFiles] = useState<number>(0);
 
   const filteredSyntaxExamples = useMemo(() => {
     if (syntaxCat === 'all') return SYNTAX_EXAMPLES;
@@ -876,6 +959,42 @@ export default function SearchApp() {
     runHistoryCount: number;
     searchHistoryCount: number;
   } | null>(null);
+  
+  // ── 深度全文搜索冷启动全息感知与会话韧性缓存池 (World-Class Deep Scan Session Cache) ──
+  const [lastColdScanDurationSec, setLastColdScanDurationSec] = useState<number>(() => {
+    const saved = localStorage.getItem('easytools_last_cold_content_scan_sec');
+    return saved ? Math.max(3.0, parseFloat(saved)) : 14.5;
+  });
+  const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
+  const scanTimerHandleRef = useRef<{ sequence: number; intervalId: number; startTime: number } | null>(null);
+
+  const stopScanStopwatch = useCallback((targetSeq?: number) => {
+    if (scanTimerHandleRef.current) {
+      if (targetSeq === undefined || scanTimerHandleRef.current.sequence === targetSeq) {
+        window.clearInterval(scanTimerHandleRef.current.intervalId);
+        scanTimerHandleRef.current = null;
+      }
+    }
+  }, []);
+
+  const startScanStopwatch = useCallback((seq: number) => {
+    stopScanStopwatch();
+    setScanElapsedSeconds(0);
+    const startTime = Date.now();
+    const intervalId = window.setInterval(() => {
+      if (scanTimerHandleRef.current?.sequence === seq) {
+        setScanElapsedSeconds(+((Date.now() - startTime) / 1000).toFixed(1));
+      }
+    }, 100);
+    scanTimerHandleRef.current = { sequence: seq, intervalId, startTime };
+  }, [stopScanStopwatch]);
+
+  const heavyQueryCacheRef = useRef<Map<string, {
+    results: SearchResult[];
+    elapsedMs: number;
+    totalIndexedFiles?: number;
+    timestamp: number;
+  }>>(new Map());
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -936,11 +1055,6 @@ export default function SearchApp() {
     let active = true;
     let pollTimer: number | undefined;
 
-    // 首次打开或唤醒时，立即异步在后台拉起搜索服务并执行索引增量预热，UI 线程 0 卡顿
-    void bridgeRequest('search.warmup').then(() => {
-      void bridgeRequest('search.sync').catch(() => {});
-    }).catch(() => {});
-
     void bridgeRequest<{ success: boolean; history: { search: string; searchCount: number; lastSearchDate: number }[] }>('search.getSearchHistory', { limit: 20 })
       .then((res) => {
         if (active && res && res.success && Array.isArray(res.history)) {
@@ -957,15 +1071,18 @@ export default function SearchApp() {
       }
     };
 
-    void runPoll();
-
     let lastFocusSyncTick = 0;
     const onFocusEvt = () => {
       const now = Date.now();
-      if (now - lastFocusSyncTick > 5000) {
+      if (now - lastFocusSyncTick > 3000) {
         lastFocusSyncTick = now;
         void bridgeRequest('search.warmup').then(() => {
           void bridgeRequest('search.sync').catch(() => {});
+          void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
+            if (res && res.totalIndexedFiles) {
+              setTotalIndexedFiles(res.totalIndexedFiles);
+            }
+          }).catch(() => {});
         }).catch(() => {});
       }
       void runPoll();
@@ -1131,21 +1248,12 @@ export default function SearchApp() {
   const [searchMode, setSearchMode] = useState<SearchMode>(() => {
     return (localStorage.getItem('easytools_search_default_mode') as SearchMode) || 'name';
   });
-  const [totalIndexedFiles, setTotalIndexedFiles] = useState<number>(0);
   const [searchElapsedMs, setSearchElapsedMs] = useState<number>(0);
 
   const changeSearchMode = (mode: SearchMode) => {
     setSearchMode(mode);
     localStorage.setItem('easytools_search_default_mode', mode);
   };
-
-  useEffect(() => {
-    void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
-      if (res && res.totalIndexedFiles) {
-        setTotalIndexedFiles(res.totalIndexedFiles);
-      }
-    }).catch(() => undefined);
-  }, []);
 
   const [disabledContentFormats, setDisabledContentFormats] = useState<string[]>(() => {
     try {
@@ -1179,6 +1287,17 @@ export default function SearchApp() {
         next = [...prev, cleanExt];
       }
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      heavyQueryCacheRef.current.clear();
+      // 如果是禁用该格式，立即从当前可见列表中剔除对应文件，0 毫秒即时响应
+      if (next.includes(cleanExt)) {
+        startTransition(() => {
+          setResults(currentResults => currentResults.filter(item => {
+            if (!item.path) return true;
+            const itemExt = item.path.split('.').pop()?.toLowerCase() || '';
+            return itemExt !== cleanExt;
+          }));
+        });
+      }
       return next;
     });
   };
@@ -1194,6 +1313,18 @@ export default function SearchApp() {
         }
       }
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
+      heavyQueryCacheRef.current.clear();
+      // 如果是关闭该大类，立即从当前可见列表中剔除该分类下的全部文件，0 毫秒即时响应
+      if (!enableAll) {
+        const catExtSet = new Set(cat.extensions.map(e => e.toLowerCase()));
+        startTransition(() => {
+          setResults(currentResults => currentResults.filter(item => {
+            if (!item.path) return true;
+            const itemExt = item.path.split('.').pop()?.toLowerCase() || '';
+            return !catExtSet.has(itemExt);
+          }));
+        });
+      }
       return next;
     });
   };
@@ -1217,6 +1348,7 @@ export default function SearchApp() {
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
       return next;
     });
+    heavyQueryCacheRef.current.clear();
     setNewFormatInput('');
     toast.success(t('search.customExtAddedToast', 'Added {{exts}} to content search support list', { exts: parts.map(p => '.' + p).join(', ') }));
   };
@@ -1233,6 +1365,7 @@ export default function SearchApp() {
       localStorage.setItem('easytools_search_disabled_formats', JSON.stringify(next));
       return next;
     });
+    heavyQueryCacheRef.current.clear();
   };
 
   const resetContentFormats = () => {
@@ -1372,18 +1505,8 @@ export default function SearchApp() {
 
     const onFocusEvt = () => {
       doFocus();
-      void bridgeRequest('search.sync');
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
-    window.addEventListener('focus', onFocusEvt);
-    
-    const onVisibilityChange = () => {
-      if (!document.hidden) {
-        doFocus();
-        void bridgeRequest('search.sync');
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
 
     const handleGlobalClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1400,8 +1523,6 @@ export default function SearchApp() {
       clearTimeout(t3);
       clearTimeout(t4);
       window.removeEventListener('easytools:focusSearch', onFocusEvt);
-      window.removeEventListener('focus', onFocusEvt);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('click', handleGlobalClick);
       window.removeEventListener('pointerdown', handleGlobalClick);
     };
@@ -1430,16 +1551,46 @@ export default function SearchApp() {
         });
         return;
       }
+
+      const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
+      const isContentSearch = effectiveMode === 'content' || trimmed.toLowerCase().startsWith('content:') || trimmed.startsWith('内容:');
+      const cacheKey = `${effectiveMode}:${trimmed}:${enabledDrives.slice().sort().join(',')}:${maxResultLimit}:${excludeGitAndModules ? 'exDev' : 'all'}:${disabledContentFormats.slice().sort().join(',')}:${customContentFormats.slice().sort().join(',')}`;
+
+      // ── 1. 0ms 瞬间命中会话韧性缓存 (防止用户关开窗口丢失 14s 扫描结果) ──
+      const cached = heavyQueryCacheRef.current.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < 45000)) {
+        startTransition(() => {
+          setResults(cached.results);
+          setSelectedIndex(0);
+          setSearchElapsedMs(cached.elapsedMs);
+          if (cached.totalIndexedFiles !== undefined) {
+            setTotalIndexedFiles(cached.totalIndexedFiles);
+          }
+          setLoading(false);
+        });
+        return;
+      }
+
       const loadingTimer = window.setTimeout(() => {
         if (sequence === requestSequence.current) setLoading(true);
       }, 80);
+
+      // ── 2. 深度扫描实时秒表计时器与陈旧列表清空 (杜绝搜内容却显示旧文件名) ──
+      if (isContentSearch) {
+        startTransition(() => {
+          setResults([]);
+          setSelectedIndex(0);
+        });
+        startScanStopwatch(sequence);
+      } else {
+        stopScanStopwatch(sequence);
+        setScanElapsedSeconds(0);
+      }
 
       const excludesList: string[] = [];
       if (excludeGitAndModules) {
         excludesList.push('$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__', 'npm-cache', 'go-build', '.gradle', 'pip\\cache');
       }
-
-      const effectiveMode = (activeCategory === 'content') ? 'content' : searchMode;
 
       try {
         const response = await bridgeRequest<SearchResponse>('search.query', { 
@@ -1453,6 +1604,24 @@ export default function SearchApp() {
           contentCustomExts: customContentFormats,
           contentDisabledExts: disabledContentFormats
         });
+
+        // ── 3. 结果强制入缓存池 (即使 sequence 已过时，下次呼出也能瞬间命中) ──
+        if (response && Array.isArray(response.results) && response.results.length > 0) {
+          heavyQueryCacheRef.current.set(cacheKey, {
+            results: response.results,
+            elapsedMs: response.elapsedMs ?? 0,
+            totalIndexedFiles: response.totalIndexedFiles,
+            timestamp: Date.now(),
+          });
+        }
+
+        // ── 4. 自适应学习用户真实冷扫描耗时基准 ──
+        if (response && response.elapsedMs && response.elapsedMs >= 3500) {
+          const actualColdSec = +(response.elapsedMs / 1000).toFixed(1);
+          setLastColdScanDurationSec(actualColdSec);
+          localStorage.setItem('easytools_last_cold_content_scan_sec', String(actualColdSec));
+        }
+
         if (sequence !== requestSequence.current) return;
         window.clearTimeout(loadingTimer);
 
@@ -1469,6 +1638,7 @@ export default function SearchApp() {
               void runQuery();
             }, nextDelay);
           } else {
+            stopScanStopwatch(sequence);
             startTransition(() => {
               setIsServiceStarting(false);
               setServiceAvailable(false);
@@ -1476,6 +1646,9 @@ export default function SearchApp() {
           }
           return;
         }
+
+        // 收到最终就绪结果，安全停止当前 sequence 的秒表
+        stopScanStopwatch(sequence);
 
         // 服务正常就绪并返回数据
         retryCountRef.current = 0;
@@ -1495,13 +1668,17 @@ export default function SearchApp() {
         });
       } catch {
         if (sequence !== requestSequence.current) return;
+        stopScanStopwatch(sequence);
         window.clearTimeout(loadingTimer);
         startTransition(() => {
           setResults([]);
         });
       } finally {
         window.clearTimeout(loadingTimer);
-        if (sequence === requestSequence.current) setLoading(false);
+        if (sequence === requestSequence.current) {
+          stopScanStopwatch(sequence);
+          setLoading(false);
+        }
       }
     };
 
@@ -1522,7 +1699,20 @@ export default function SearchApp() {
         retryTimerRef.current = null;
       }
     };
-  }, [query, isComposing, activeCategory, searchMode, maxResultLimit, enabledDrives, excludeGitAndModules, excludeHidden, customContentFormats, disabledContentFormats]);
+  }, [
+    query,
+    isComposing,
+    activeCategory,
+    searchMode,
+    enabledDrives,
+    maxResultLimit,
+    excludeGitAndModules,
+    excludeHidden,
+    customContentFormats,
+    disabledContentFormats,
+    startScanStopwatch,
+    stopScanStopwatch
+  ]);
 
   // 组合排序开关
   const toggleFoldersFirst = () => {
@@ -1695,6 +1885,12 @@ export default function SearchApp() {
   }, []);
 
   const selectCategory = useCallback((cat: CategoryFilter) => {
+    if (cat.id === 'content') {
+      startTransition(() => {
+        setResults([]);
+        setSelectedIndex(0);
+      });
+    }
     if (!cat.prefix) {
       let cleaned = query;
       CATEGORY_DEFS.forEach(c => {
@@ -1731,16 +1927,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFile', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFile', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.openFailed', 'Could not open this result'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const openFolderResult = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1748,16 +1944,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFolder', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFolder', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.openFolderFailed'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const copyPathResult = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
@@ -1802,11 +1998,11 @@ export default function SearchApp() {
     }
     try {
       await bridgeRequest('capture.pinImageFile', { path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       toast.error(t('search.toastPinFail', 'Pin failed'));
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const openResultAsAdmin = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1814,16 +2010,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openFileAsAdmin', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openFileAsAdmin', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.errRunAsAdmin', 'Failed to run as administrator'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const showFileProperties = useCallback(async (result: SearchResult | undefined) => {
     if (!result) return;
@@ -1879,16 +2075,16 @@ export default function SearchApp() {
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
       await bridgeRequest('search.openWithNotepad', { filepath: result.path, path: result.path });
-      hide();
+      if (!isPinned) hide();
     } catch {
       try {
         await bridgeRequest('system.openWithNotepad', { path: result.path, filepath: result.path });
-        hide();
+        if (!isPinned) hide();
       } catch {
         setActionError(t('search.errOpenNotepad', 'Unable to open file with Notepad'));
       }
     }
-  }, [hide, t]);
+  }, [hide, isPinned, t]);
 
   const startRename = useCallback((result: SearchResult | undefined) => {
     if (!result) return;
@@ -1999,6 +2195,13 @@ export default function SearchApp() {
     if (event.key === 'F1') {
       event.preventDefault();
       setShowSyntaxHelp(prev => !prev);
+      return;
+    }
+
+    // 4. Ctrl+P 全局切换窗口图钉固定状态 (Pin/Unpin)
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'p' || event.key === 'P')) {
+      event.preventDefault();
+      void togglePin();
       return;
     }
 
@@ -2133,7 +2336,7 @@ export default function SearchApp() {
     hide, rebuildIndex, sortedResults, selectedIndex, query, activeCategory,
     renameTarget.visible, contextMenu.visible, showSortMenu, showSyntaxHelp, showViewSettings,
     startRename, openResult, openFolderResult, showFileProperties, pinResult, copyPathResult, exportResultsToCsv,
-    handleSelectSort, selectCategory, categories
+    handleSelectSort, selectCategory, categories, togglePin
   ]);
 
   useEffect(() => {
@@ -2184,8 +2387,9 @@ export default function SearchApp() {
     event.stopPropagation();
     setSelectedIndex(index);
     if (event.shiftKey) {
-      const sx = event.screenX;
-      const sy = event.screenY;
+      const dpr = window.devicePixelRatio || 1;
+      const sx = Math.round(event.screenX * dpr);
+      const sy = Math.round(event.screenY * dpr);
       setTimeout(() => {
         void bridgeRequest('search.showShellContextMenu', {
           filepath: result.path,
@@ -2240,7 +2444,6 @@ export default function SearchApp() {
               setIsComposing(false);
               updateQuery(event.currentTarget.value);
             }}
-            onKeyDown={handleUnifiedKeyDown}
             role="combobox"
             aria-expanded={results.length > 0}
             aria-controls="search-results"
@@ -2249,6 +2452,15 @@ export default function SearchApp() {
           />
           {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', 'Loading...')} />}
           
+          <button
+            className={`search-help-btn ${isPinned ? 'search-help-btn--pinned' : ''}`}
+            onClick={() => void togglePin()}
+            title={isPinned ? t('search.unpinTitle', 'Unpin Window (Ctrl+P · Restore auto-hide on blur)') : t('search.pinTitle', 'Pin Window (Ctrl+P · Keep always on top & never auto-hide)')}
+            type="button"
+          >
+            <Pin size={17} className="search-pin-icon" />
+          </button>
+
           <button
             className="search-help-btn search-drag-btn"
             onMouseDown={() => void bridgeRequest('search.startDrag')}
@@ -2930,7 +3142,6 @@ export default function SearchApp() {
                 <div className="popover-format-categories">
                   {CONTENT_FORMAT_CATEGORIES.map(cat => {
                     const enabledCount = cat.extensions.filter(ext => !disabledContentFormats.includes(ext)).length;
-                    const allEnabled = enabledCount === cat.extensions.length;
                     return (
                       <div key={cat.id} className="popover-format-cat-block">
                         <div className="popover-format-cat-header">
@@ -2944,13 +3155,12 @@ export default function SearchApp() {
                             <span className="popover-format-cat-name">{t(cat.nameKey)}</span>
                             <span className="popover-format-badge-count">{enabledCount} / {cat.extensions.length}</span>
                           </div>
-                          <button
-                            type="button"
-                            className="popover-cat-toggle-btn"
-                            onClick={() => toggleCategoryFormats(cat, !allEnabled)}
-                          >
-                            {allEnabled ? t('search.disableAll') : t('search.enableAll')}
-                          </button>
+                          <Toggle
+                            id={`format-cat-toggle-${cat.id}`}
+                            checked={enabledCount > 0}
+                            size="sm"
+                            onChange={(checked) => toggleCategoryFormats(cat, checked)}
+                          />
                         </div>
                         <div className="popover-format-chips">
                           {cat.extensions.map(ext => {
@@ -2982,6 +3192,26 @@ export default function SearchApp() {
                         <span className="popover-format-cat-name">{t('search.customFormats')}</span>
                         <span className="popover-format-badge-count">{t('search.customFormatsCount', '{{count}} items', { count: customContentFormats.length })}</span>
                       </div>
+                      {customContentFormats.length > 0 && (
+                        <Toggle
+                          id="format-cat-toggle-custom"
+                          checked={customContentFormats.some(ext => !disabledContentFormats.includes(ext))}
+                          size="sm"
+                          onChange={(checked) => {
+                            setDisabledContentFormats(prev => {
+                              let next: string[];
+                              if (checked) {
+                                next = prev.filter(ext => !customContentFormats.includes(ext));
+                              } else {
+                                const addList = customContentFormats.filter(ext => !prev.includes(ext));
+                                next = [...prev, ...addList];
+                              }
+                              localStorage.setItem('easytools_search_disabled_content_formats', JSON.stringify(next));
+                              return next;
+                            });
+                          }}
+                        />
+                      )}
                     </div>
                     {customContentFormats.length > 0 && (
                       <div className="popover-format-chips">
@@ -3156,6 +3386,53 @@ export default function SearchApp() {
           </div>
         )}
 
+        {/* ── 全息深度内容检索加载舱 (Cold Content Scan Holographic State) ── */}
+        {!isInitialIndexing && !isServiceStarting && loading && ((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) || sortedResults.length === 0) && (
+          <div className="search-empty-container search-empty-container--deep-scan" role="status">
+            <div className="search-deep-scan-radar">
+              <div className="search-deep-scan-radar-wave wave-1" />
+              <div className="search-deep-scan-radar-wave wave-2" />
+              <div className="search-empty-icon-wrap search-empty-icon-wrap--deep-scan">
+                <FileText size={32} className="search-empty-icon" />
+              </div>
+            </div>
+            
+            <div className="search-empty-title search-deep-scan-title">
+              {t('search.contentScanningTitle', 'Deep Full-Disk Content Search in progress...')}
+            </div>
+
+            <div className="search-empty-desc search-deep-scan-desc">
+              {t('search.contentScanningDesc', 'First-time query reads file contents directly from disk sectors (cold cache). Subsequent searches are accelerated by Windows memory page cache (instant).')}
+            </div>
+
+            <div className="search-deep-scan-dashboard">
+              <div className="search-deep-scan-metrics">
+                <div className="search-deep-scan-metric-badge search-deep-scan-metric--elapsed">
+                  <Clock size={13} />
+                  <span>{t('search.contentScanningElapsed', 'Scanned for {{elapsed}}s', { elapsed: scanElapsedSeconds.toFixed(1) })}</span>
+                </div>
+                <div className="search-deep-scan-metric-badge search-deep-scan-metric--bench" title={t('search.contentScanningLastBench', 'Last cold scan took ~{{duration}}s', { duration: lastColdScanDurationSec.toFixed(1) })}>
+                  <Zap size={13} />
+                  <span>{t('search.contentScanningLastBench', 'Last cold scan took ~{{duration}}s', { duration: lastColdScanDurationSec.toFixed(1) })}</span>
+                </div>
+              </div>
+
+              <div className="search-deep-scan-progress-bar-wrap">
+                <div
+                  className="search-deep-scan-progress-bar"
+                  style={{
+                    width: `${Math.min(94, Math.max(8, (scanElapsedSeconds / lastColdScanDurationSec) * 100))}%`
+                  }}
+                />
+              </div>
+
+              <div className="search-deep-scan-tip">
+                <span>{t('search.contentScanningSpeedupTip', 'Accelerated 5x+ once Windows memory cache warms up')}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {(isInitialIndexing || isServiceStarting) && sortedResults.length === 0 && (
           <div className="search-empty-container search-empty-container--indexing" role="status">
             <div className="search-empty-icon-wrap search-empty-icon-wrap--indexing">
@@ -3163,7 +3440,7 @@ export default function SearchApp() {
             </div>
             <div className="search-empty-title">
               {isInitialIndexing
-                ? t('search.initialIndexingTitle', 'Building and persisting full disk index...')
+                 ? t('search.initialIndexingTitle', 'Building and persisting full disk index...')
                 : t('search.serviceStartingTitle', 'Connecting to File Indexing Engine...')}
             </div>
             <div className="search-empty-desc">
@@ -3216,6 +3493,12 @@ export default function SearchApp() {
                 <span>{t('search.searchContentDirectly', { query: query.trim(), defaultValue: `Search full document and code contents for: "${query.trim()}"` })}</span>
               </button>
             )}
+            {(query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:') || activeCategory === 'content') && (
+              <div className="search-empty-content-diagnostic">
+                <span>{t('search.contentZeroResultTip1', 'Click top-right Customize to add custom file extensions (e.g. .vue, .ts, .log)')}</span>
+                <span>{t('search.contentZeroResultTip2', 'Ensure target files are not inside excluded directories (e.g. node_modules, .git)')}</span>
+              </div>
+            )}
             <div className="search-empty-hint">
               <Lightbulb size={12} className="search-empty-hint-icon" />
               <span>{t('search.searchHint', 'Tip: Press Enter to perform full-text search, or press F1 for advanced syntax.')}</span>
@@ -3249,7 +3532,7 @@ export default function SearchApp() {
           </div>
         )}
 
-        {sortedResults.length > 0 && (
+        {!isInitialIndexing && !isServiceStarting && !((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) && sortedResults.length > 0 && (
           <VirtualSearchResults
             key={`${density}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
             results={sortedResults}
@@ -3266,67 +3549,78 @@ export default function SearchApp() {
 
         <footer className="search-footer">
           <div className="search-footer-left">
-            {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
-            <div className="search-footer-stat-item search-footer-stat-item--interactive" title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}>
-              <span>
-                {isServiceStarting ? (
-                  <><strong>{t('search.serviceConnectingStatus', 'Connecting to Index Service...')}</strong></>
-                ) : isInitialIndexing ? (
-                  <><strong>{t('search.initialIndexingTitle', 'Building and persisting full disk index...')}</strong></>
-                ) : sortedResults.length > 0 ? (
-                  <><strong>{sortedResults.length.toLocaleString()}</strong> {t('search.objectsCount', 'objects')}</>
-                ) : (
-                  <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> {t('search.objectsCount', 'objects')}</>
-                )}
-              </span>
-              <button
-                type="button"
-                className="search-footer-refresh-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void rebuildIndex();
-                }}
-                disabled={isRebuilding || isServiceStarting}
-                title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}
-              >
-                <RefreshCw size={11} className={(isRebuilding || isServiceStarting) ? 'spin-animation' : ''} />
-              </button>
-            </div>
-
-            {/* 2. 当前匹配结果总大小 */}
-            {sortedResults.length > 0 && totalResultSize > 0 && (
+            {((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) ? (
+              <div className="search-footer-stat-item search-footer-stat-item--scanning" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RefreshCw size={11} className="spin-animation" style={{ color: 'var(--primary)' }} />
+                <span>
+                  <strong>{t('search.contentSearchingFooter', 'Deep full-disk content search in progress... ({{elapsed}}s)', { elapsed: scanElapsedSeconds.toFixed(1) })}</strong>
+                </span>
+              </div>
+            ) : (
               <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item" title={formatBytes(totalResultSize)}>
-                  <span><strong>{formatBytes(totalResultSize)}</strong></span>
-                </div>
-              </>
-            )}
-
-            {/* 3. 当前选中项序号与单项大小 */}
-            {sortedResults.length > 0 && sortedResults[selectedIndex] && (
-              <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item search-footer-stat-sub" title={sortedResults[selectedIndex].path}>
+                {/* 1. 总对象数显示 (Everything 级核心状态) 与一键刷新微按钮 */}
+                <div className="search-footer-stat-item search-footer-stat-item--interactive" title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}>
                   <span>
-                    {t('search.selectedLabel', 'Selected')} <strong>{selectedIndex + 1}</strong> / {sortedResults.length}
-                    {!sortedResults[selectedIndex].isDirectory && sortedResults[selectedIndex].size !== undefined ? (
-                      <> ({formatBytes(sortedResults[selectedIndex].size || 0)})</>
+                    {isServiceStarting ? (
+                      <><strong>{t('search.serviceConnectingStatus', 'Connecting to Index Service...')}</strong></>
+                    ) : isInitialIndexing ? (
+                      <><strong>{t('search.initialIndexingTitle', 'Building and persisting full disk index...')}</strong></>
+                    ) : sortedResults.length > 0 ? (
+                      <><strong>{sortedResults.length.toLocaleString()}</strong> {t('search.objectsCount', 'objects')}</>
                     ) : (
-                      <> ({t('search.folderLabel', 'Folder')})</>
+                      <><strong>{totalIndexedFiles ? totalIndexedFiles.toLocaleString() : '--'}</strong> {t('search.objectsCount', 'objects')}</>
                     )}
                   </span>
+                  <button
+                    type="button"
+                    className="search-footer-refresh-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void rebuildIndex();
+                    }}
+                    disabled={isRebuilding || isServiceStarting}
+                    title={t('search.rescanIndexTitle', 'Rescan full disk index and save snapshot (F5 / Ctrl+R)')}
+                  >
+                    <RefreshCw size={11} className={(isRebuilding || isServiceStarting) ? 'spin-animation' : ''} />
+                  </button>
                 </div>
-              </>
-            )}
 
-            {/* 4. 引擎匹配耗时 */}
-            {searchElapsedMs !== undefined && searchElapsedMs >= 0 && sortedResults.length > 0 && (
-              <>
-                <span className="search-footer-stat-divider" />
-                <div className="search-footer-stat-item search-footer-stat-sub" title={t('search.searchTimeTitle', 'MFT memory index match elapsed time')}>
-                  <span>{searchElapsedMs} ms</span>
-                </div>
+                {/* 2. 当前匹配结果总大小 */}
+                {sortedResults.length > 0 && totalResultSize > 0 && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item" title={formatBytes(totalResultSize)}>
+                      <span><strong>{formatBytes(totalResultSize)}</strong></span>
+                    </div>
+                  </>
+                )}
+
+                {/* 3. 当前选中项序号与单项大小 */}
+                {sortedResults.length > 0 && sortedResults[selectedIndex] && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item search-footer-stat-sub" title={sortedResults[selectedIndex].path}>
+                      <span>
+                        {t('search.selectedLabel', 'Selected')} <strong>{selectedIndex + 1}</strong> / {sortedResults.length}
+                        {!sortedResults[selectedIndex].isDirectory && sortedResults[selectedIndex].size !== undefined ? (
+                          <> ({formatBytes(sortedResults[selectedIndex].size || 0)})</>
+                        ) : (
+                          <> ({t('search.folderLabel', 'Folder')})</>
+                        )}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* 4. 引擎匹配耗时 */}
+                {searchElapsedMs !== undefined && searchElapsedMs >= 0 && sortedResults.length > 0 && (
+                  <>
+                    <span className="search-footer-stat-divider" />
+                    <div className="search-footer-stat-item search-footer-stat-sub" title={t('search.searchTimeTitle', 'MFT memory index match elapsed time')}>
+                      <span>{searchElapsedMs} ms</span>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -3567,8 +3861,9 @@ export default function SearchApp() {
                 className="search-context-menu-item"
                 onClick={(e) => {
                   const res = contextMenu.result;
-                  const sx = e.screenX;
-                  const sy = e.screenY;
+                  const dpr = window.devicePixelRatio || 1;
+                  const sx = Math.round(e.screenX * dpr);
+                  const sy = Math.round(e.screenY * dpr);
                   setContextMenu({ visible: false, x: 0, y: 0 });
                   if (res) {
                     setTimeout(() => {

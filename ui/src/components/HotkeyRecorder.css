@@ -70,7 +70,7 @@
 
 /* ── 占位与提示文字 ─────────────────────────────────────────────────────── */
 .hotkey-recorder__placeholder {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   padding: 0 6px;
   font-weight: 500;

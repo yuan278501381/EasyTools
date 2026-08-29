@@ -97,9 +97,13 @@ SettingsWindow& SettingsWindow::instance() {
 void SettingsWindow::show(HINSTANCE hInstance) {
     easy::core::TraceId::Scope scope;
     m_showRequestedAt = std::chrono::steady_clock::now();
+    if (hInstance) m_hInstance = hInstance;
+    else if (!m_hInstance) m_hInstance = GetModuleHandleW(nullptr);
 
     if (m_hwnd && IsWindow(m_hwnd)) {
-        // 窗口已存在，直接显示并激活
+        // 用户重新激活设置窗口，立即取消 1 分钟闲置销毁倒计时并复用窗口
+        KillTimer(m_hwnd, IDT_IDLE_DESTROY);
+
         const std::wstring windowTitle = easy::core::WinUtils::isCurrentProcessElevated()
             ? L"EasyTools 设置 (管理员)"
             : L"EasyTools 设置";
@@ -131,11 +135,11 @@ void SettingsWindow::show(HINSTANCE hInstance) {
             m_showRequestedAt = {};
         }
         
-        LOG_INFO("设置窗口已激活（复用已有窗口）");
+        LOG_INFO("设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）");
         return;
     }
 
-    if (!createWindow(hInstance)) {
+    if (!createWindow(m_hInstance)) {
         LOG_ERROR("创建设置窗口失败");
         return;
     }
@@ -150,16 +154,19 @@ void SettingsWindow::show(HINSTANCE hInstance) {
     SetFocus(m_hwnd);
     m_visible = true;
 
-    LOG_INFO("设置窗口已创建并显示");
+    LOG_INFO("设置窗口已按需创建并显示");
 }
 
 void SettingsWindow::preload(HINSTANCE hInstance) {
     easy::core::TraceId::Scope scope;
+    if (hInstance) m_hInstance = hInstance;
+    else if (!m_hInstance) m_hInstance = GetModuleHandleW(nullptr);
+
     if (m_hwnd && IsWindow(m_hwnd)) {
         return; // 已创建
     }
 
-    if (createWindow(hInstance)) {
+    if (createWindow(m_hInstance)) {
         m_initializationStartedAt = std::chrono::steady_clock::now();
         initializeWebView2(); // 初始化 WebView2，但不调用 ShowWindow，实现静默预热
         LOG_INFO("设置窗口后台静默预热完成");
@@ -169,7 +176,7 @@ void SettingsWindow::preload(HINSTANCE hInstance) {
 }
 
 void SettingsWindow::hide() {
-    if (m_hwnd) {
+    if (m_hwnd && IsWindow(m_hwnd)) {
         persistGeometry();
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
@@ -181,10 +188,19 @@ void SettingsWindow::hide() {
         // 挂起 Chromium 渲染管线以释放 GPU/DOM 显存与工作集
         if (m_webView) m_suspendController.requestSuspend(m_webView.Get(), "settings");
 
+        const bool autoRelease = easy::core::ConfigManager::instance().get<bool>(
+            "/general/autoReleaseSettingsMemory", true);
+        if (autoRelease) {
+            // 启动 1 分钟闲置销毁定时器：若用户 60 秒内未再次打开设置，则彻底销毁 WebView2 释放物理内存
+            SetTimer(m_hwnd, IDT_IDLE_DESTROY, IDLE_DESTROY_TIMEOUT_MS, nullptr);
+            LOG_INFO("设置窗口已隐藏，已启动 1 分钟闲置自动销毁倒计时");
+        } else {
+            KillTimer(m_hwnd, IDT_IDLE_DESTROY);
+            LOG_INFO("设置窗口已隐藏（自动释放内存开关已关闭，保持后台常驻）");
+        }
+
         // 冷路径退场：主动释放物理内存工作集
         easy::core::WinUtils::trimWorkingSet();
-
-        LOG_DEBUG("设置窗口已隐藏");
     }
 }
 
@@ -196,6 +212,9 @@ void SettingsWindow::destroy() {
     m_suspendController.abandon();
     ++m_generation;
     easy::core::MessageBridge::instance().setEventPusher({});
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        KillTimer(m_hwnd, IDT_IDLE_DESTROY);
+    }
     if (m_controller) {
         m_controller->Close();
         m_controller = nullptr;
@@ -209,7 +228,8 @@ void SettingsWindow::destroy() {
     }
     m_visible = false;
     m_webViewReady = false;
-    LOG_INFO("设置窗口已销毁");
+    easy::core::WinUtils::trimWorkingSet();
+    LOG_INFO("设置窗口已彻底销毁并释放 WebView2 渲染器");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -737,6 +757,20 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
     auto* self = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (msg) {
+        case WM_TIMER: {
+            if (wParam == IDT_IDLE_DESTROY) {
+                KillTimer(hwnd, IDT_IDLE_DESTROY);
+                const bool autoRelease = easy::core::ConfigManager::instance().get<bool>(
+                    "/general/autoReleaseSettingsMemory", true);
+                if (autoRelease && self && !self->isVisible()) {
+                    LOG_INFO("设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存");
+                    self->destroy();
+                }
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+
         case WM_NCCALCSIZE: {
             if (wParam) {
                 if (IsZoomed(hwnd)) {

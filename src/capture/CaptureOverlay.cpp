@@ -129,6 +129,11 @@ void CaptureOverlay::startSelection(const CaptureOptions& options, OverlayMode m
     easy::core::TraceId::Scope scope;
     const auto totalStarted = std::chrono::steady_clock::now();
 
+    // 防御性安全重置：若上次截图/录屏覆盖层未正常清理，先执行全量复位
+    if (m_hwnd || m_state.state.load() != OverlayState::Idle) {
+        realCancel();
+    }
+
     // The virtual-desktop overlay is physically pixel-sized. Scale its HUD from
     // the monitor under the pointer before DWrite resources are created, so the
     // very first frame is already correct at 125%/150%/200%.
@@ -260,15 +265,31 @@ void CaptureOverlay::startEditPinned(const cv::Mat& image, const CaptureRegion& 
         return;
     }
 
-    // 将贴图原图覆盖至对应选区区域
+    // 将贴图原图覆盖至对应选区区域（确保 3 通道与 4 通道类型严格对齐）
     cv::Rect roi(m_state.dragStart.x, m_state.dragStart.y, region.width, region.height);
     roi &= cv::Rect(0, 0, m_state.frozenScreen.cols, m_state.frozenScreen.rows);
-    if (roi.width == image.cols && roi.height == image.rows) {
-        cv::Mat bgrImage = image;
-        if (image.channels() == 4) {
-            cv::cvtColor(image, bgrImage, cv::COLOR_BGRA2BGR);
+    if (roi.width == image.cols && roi.height == image.rows && !m_state.frozenScreen.empty()) {
+        try {
+            cv::Mat targetImage = image;
+            const int targetChannels = m_state.frozenScreen.channels();
+            if (targetChannels == 4 && image.channels() == 3) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGR2BGRA);
+            } else if (targetChannels == 3 && image.channels() == 4) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGRA2BGR);
+            } else if (targetChannels == 1 && image.channels() != 1) {
+                cv::cvtColor(image, targetImage, cv::COLOR_BGR2GRAY);
+            }
+            if (targetImage.type() == m_state.frozenScreen.type()) {
+                targetImage.copyTo(m_state.frozenScreen(roi));
+            } else {
+                targetImage.convertTo(targetImage, m_state.frozenScreen.type());
+                targetImage.copyTo(m_state.frozenScreen(roi));
+            }
+        } catch (const std::exception& ex) {
+            LOG_ERROR("贴图编辑底图复制异常: {}", ex.what());
+        } catch (...) {
+            LOG_ERROR("贴图编辑底图复制发生未知异常");
         }
-        bgrImage.copyTo(m_state.frozenScreen(roi));
     }
 
     if (!m_renderer.updateScreenBitmap(m_state.frozenScreen)) {
@@ -379,10 +400,7 @@ void CaptureOverlay::releaseFrozenSurface() {
 }
 
 void CaptureOverlay::cancel() {
-    m_state.isFadingOut = true;
-    m_state.fadeOutStart = GetTickCount();
-    m_renderer.invalidate();
-    ReleaseCapture();
+    realCancel();
 }
 
 void CaptureOverlay::setShortcutHintsEnabled(bool enabled) {
@@ -404,7 +422,6 @@ void CaptureOverlay::setShortcutHintsEnabled(bool enabled) {
 
 void CaptureOverlay::realCancel() {
     ShortcutHintOverlay::instance().hide();
-    const bool wasActive = m_state.state.load() != OverlayState::Idle;
     m_state.state = OverlayState::Idle;
     ReleaseCapture();
 
@@ -421,7 +438,7 @@ void CaptureOverlay::realCancel() {
     m_state.detectedWindowHierarchy.clear();
     m_state.detectedWindow = {};
     releaseFrozenSurface();
-    if (wasActive && m_closedCallback) m_closedCallback();
+    if (m_closedCallback) m_closedCallback();
 
     // 冷路径退场：主动修剪物理内存，将大图/D2D/DirectX 缓存归还系统
     easy::core::WinUtils::trimWorkingSet();

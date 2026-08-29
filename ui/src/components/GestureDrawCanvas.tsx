@@ -168,57 +168,63 @@ function pointsToSvgPath(points: Point[]): string {
   return d;
 }
 
-const RIGHT_PRESET_GESTURES = [
-  { code: 'R', label: 'Forward' },
-  { code: 'L', label: 'Back' },
-  { code: 'D-R', label: 'Close Tab' },
-  { code: 'R-D', label: 'Reopen Tab' },
-  { code: 'D-L', label: 'Close Window' },
-  { code: 'U', label: 'Maximize' },
-  { code: 'D', label: 'Minimize' },
-  { code: 'U-R', label: 'Next Tab' },
-  { code: 'U-L', label: 'Previous Tab' },
-  { code: 'L-U-R', label: 'Reload' },
-  { code: 'L-D', label: 'Show Desktop' },
-  { code: 'D-R-D', label: 'Screenshot' },
+interface PresetGestureItem {
+  code: string;
+  labelKey: string;
+  defaultLabel: string;
+}
+
+const RIGHT_PRESET_GESTURES: PresetGestureItem[] = [
+  { code: 'R', labelKey: 'gesture.actions.forward.name', defaultLabel: 'Forward' },
+  { code: 'L', labelKey: 'gesture.actions.back.name', defaultLabel: 'Back' },
+  { code: 'D-R', labelKey: 'gesture.actions.closeTab.name', defaultLabel: 'Close Tab' },
+  { code: 'R-D', labelKey: 'gesture.actions.reopenTab.name', defaultLabel: 'Reopen Tab' },
+  { code: 'D-L', labelKey: 'gesture.actions.closeWindow.name', defaultLabel: 'Close Window' },
+  { code: 'U', labelKey: 'gesture.actions.maxRestore.name', defaultLabel: 'Maximize' },
+  { code: 'D', labelKey: 'gesture.actions.minimize.name', defaultLabel: 'Minimize' },
+  { code: 'U-R', labelKey: 'gesture.actions.nextTab.name', defaultLabel: 'Next Tab' },
+  { code: 'U-L', labelKey: 'gesture.actions.prevTab.name', defaultLabel: 'Previous Tab' },
+  { code: 'L-U-R', labelKey: 'gesture.actions.refresh.name', defaultLabel: 'Reload' },
+  { code: 'L-D', labelKey: 'gesture.actions.showDesktop.name', defaultLabel: 'Show Desktop' },
+  { code: 'D-R-D', labelKey: 'gesture.actions.screenshot.name', defaultLabel: 'Screenshot' },
 ];
 
-const MIDDLE_PRESET_GESTURES = [
-  { code: 'Middle+L', label: 'Previous Track' },
-  { code: 'Middle+R', label: 'Next Track' },
-  { code: 'Middle+U', label: 'Maximize' },
-  { code: 'Middle+D', label: 'Minimize' },
-  { code: 'Middle+D-R', label: 'Close Tab' },
-  { code: 'Middle+R-D', label: 'Reopen Tab' },
-  { code: 'Middle+L-U-R', label: 'Reload' },
-  { code: 'Middle+L-D', label: 'Show Desktop' },
+const MIDDLE_PRESET_GESTURES: PresetGestureItem[] = [
+  { code: 'Middle+L', labelKey: 'gesture.actions.prevTrack.name', defaultLabel: 'Previous Track' },
+  { code: 'Middle+R', labelKey: 'gesture.actions.nextTrack.name', defaultLabel: 'Next Track' },
+  { code: 'Middle+U', labelKey: 'gesture.actions.maxRestore.name', defaultLabel: 'Maximize' },
+  { code: 'Middle+D', labelKey: 'gesture.actions.minimize.name', defaultLabel: 'Minimize' },
+  { code: 'Middle+D-R', labelKey: 'gesture.actions.closeTab.name', defaultLabel: 'Close Tab' },
+  { code: 'Middle+R-D', labelKey: 'gesture.actions.reopenTab.name', defaultLabel: 'Reopen Tab' },
+  { code: 'Middle+L-U-R', labelKey: 'gesture.actions.refresh.name', defaultLabel: 'Reload' },
+  { code: 'Middle+L-D', labelKey: 'gesture.actions.showDesktop.name', defaultLabel: 'Show Desktop' },
 ];
 
-const SIDE1_PRESET_GESTURES = [
-  { code: 'X1+L', label: 'Back' },
-  { code: 'X1+R', label: 'Forward' },
-  { code: 'X1+U', label: 'Next Tab' },
-  { code: 'X1+D', label: 'Previous Tab' },
-  { code: 'X1+D-R', label: 'Close Tab' },
-  { code: 'X1+R-D', label: 'Reopen Tab' },
-  { code: 'X1+L-U-R', label: 'Reload' },
+const SIDE1_PRESET_GESTURES: PresetGestureItem[] = [
+  { code: 'X1+L', labelKey: 'gesture.actions.back.name', defaultLabel: 'Back' },
+  { code: 'X1+R', labelKey: 'gesture.actions.forward.name', defaultLabel: 'Forward' },
+  { code: 'X1+U', labelKey: 'gesture.actions.nextTab.name', defaultLabel: 'Next Tab' },
+  { code: 'X1+D', labelKey: 'gesture.actions.prevTab.name', defaultLabel: 'Previous Tab' },
+  { code: 'X1+D-R', labelKey: 'gesture.actions.closeTab.name', defaultLabel: 'Close Tab' },
+  { code: 'X1+R-D', labelKey: 'gesture.actions.reopenTab.name', defaultLabel: 'Reopen Tab' },
+  { code: 'X1+L-U-R', labelKey: 'gesture.actions.refresh.name', defaultLabel: 'Reload' },
 ];
 
-const SIDE2_PRESET_GESTURES = [
-  { code: 'X2+L', label: 'Previous Track' },
-  { code: 'X2+R', label: 'Next Track' },
-  { code: 'X2+U', label: 'Volume Up' },
-  { code: 'X2+D', label: 'Volume Down' },
-  { code: 'X2+D-R', label: 'Close Window' },
-  { code: 'X2+L-D', label: 'Show Desktop' },
+const SIDE2_PRESET_GESTURES: PresetGestureItem[] = [
+  { code: 'X2+L', labelKey: 'gesture.actions.prevTrack.name', defaultLabel: 'Previous Track' },
+  { code: 'X2+R', labelKey: 'gesture.actions.nextTrack.name', defaultLabel: 'Next Track' },
+  { code: 'X2+U', labelKey: 'gesture.actions.volumeUp.name', defaultLabel: 'Volume Up' },
+  { code: 'X2+D', labelKey: 'gesture.actions.volumeDown.name', defaultLabel: 'Volume Down' },
+  { code: 'X2+D-R', labelKey: 'gesture.actions.closeWindow.name', defaultLabel: 'Close Window' },
+  { code: 'X2+L-D', labelKey: 'gesture.actions.showDesktop.name', defaultLabel: 'Show Desktop' },
 ];
 
-const TOPEDGE_PRESET_GESTURES = [
-  { code: 'TopEdge+D', label: 'Task View / Desktop' },
-  { code: 'TopEdge+L', label: 'Left Desktop' },
-  { code: 'TopEdge+R', label: 'Right Desktop' },
-  { code: 'TopEdge+Left+D', label: 'Left Pull Down Close' },
-  { code: 'TopEdge+Middle+D', label: 'Middle Pull Down Minimize' },
+const TOPEDGE_PRESET_GESTURES: PresetGestureItem[] = [
+  { code: 'TopEdge+D', labelKey: 'gesture.actions.taskView.name', defaultLabel: 'Task View / Desktop' },
+  { code: 'TopEdge+L', labelKey: 'gesture.actions.leftDesktop.name', defaultLabel: 'Left Desktop' },
+  { code: 'TopEdge+R', labelKey: 'gesture.actions.rightDesktop.name', defaultLabel: 'Right Desktop' },
+  { code: 'TopEdge+Left+D', labelKey: 'gesture.actions.pullDownClose.name', defaultLabel: 'Left Pull Down Close' },
+  { code: 'TopEdge+Middle+D', labelKey: 'gesture.actions.pullDownMinimize.name', defaultLabel: 'Middle Pull Down Minimize' },
 ];
 
 interface Props {
@@ -613,18 +619,21 @@ export const GestureDrawCanvas: FC<Props> = ({
       <div className="gesture-preset-tray">
         <span className="gesture-preset-label">{t('components.quickPresets', 'Presets:')}</span>
         <div className="gesture-preset-chips">
-          {presets.map((preset) => (
-            <button
-              key={preset.code}
-              type="button"
-              className={`gesture-preset-chip ${value === preset.code ? 'active' : ''}`}
-              onClick={() => handleSelectPreset(preset.code)}
-              title={preset.label}
-            >
-              <span className="gesture-preset-arrows">{codeToArrows(preset.code)}</span>
-              <span className="gesture-preset-name">{preset.label}</span>
-            </button>
-          ))}
+          {presets.map((preset) => {
+            const labelText = (t as (k: string, d?: string) => string)(preset.labelKey, preset.defaultLabel);
+            return (
+              <button
+                key={preset.code}
+                type="button"
+                className={`gesture-preset-chip ${value === preset.code ? 'active' : ''}`}
+                onClick={() => handleSelectPreset(preset.code)}
+                title={labelText}
+              >
+                <span className="gesture-preset-arrows">{codeToArrows(preset.code)}</span>
+                <span className="gesture-preset-name">{labelText}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

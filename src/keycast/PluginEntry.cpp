@@ -143,7 +143,7 @@ public:
         });
 
         mb.registerHandler("keycast.trigger", [](const nlohmann::json&) -> nlohmann::json {
-            KeycastOverlay::instance().pushKey("Ctrl + Alt + K");
+            KeycastOverlay::instance().pushKey("Win + E");
             return {{"success", true}};
         });
 

@@ -124,21 +124,21 @@
   line-height: 1.5;
 }
 
-/* ── 功能卡片五列 ─────────────────────────────────────────────────────────── */
+/* ── 功能卡片六宫格 (2行 x 3列) ────────────────────────────────────────────── */
 .onboarding__features {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
   width: 100%;
-  max-width: 760px;
+  max-width: 740px;
 }
 
 .onboarding__feature-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 14px 8px;
+  gap: 6px;
+  padding: 12px 10px;
   border-radius: 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--card-border);
@@ -152,19 +152,19 @@
 }
 
 .onboarding__feature-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--primary-dim);
   color: var(--primary);
 }
 
 .onboarding__feature-name {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: var(--text-sm, 0.88rem);
+  font-weight: 650;
   color: var(--text-primary);
 }
 
@@ -174,20 +174,20 @@
   line-height: 1.4;
 }
 
-/* ── 快捷键列表 ───────────────────────────────────────────────────────────── */
+/* ── 核心快捷键双列网格 ─────────────────────────────────────────────────── */
 .onboarding__shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
   width: 100%;
-  max-width: 380px;
+  max-width: 640px;
 }
 
 .onboarding__shortcut-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 10px;
   background: var(--bg-elevated);
   border: 1px solid var(--card-border);
@@ -200,64 +200,124 @@
 }
 
 .onboarding__shortcut-name {
-  font-size: 0.88rem;
-  font-weight: 500;
+  font-size: var(--text-sm, 0.88rem);
+  font-weight: 550;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
 }
 
 .onboarding__shortcut-kbd {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 6px;
   background: var(--bg-primary);
   border: 1px solid var(--card-border);
   font-family: var(--font-mono);
-  font-size: var(--text-sm, 0.86rem);
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 600;
   color: var(--text-secondary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-/* ── 手势入门 ─────────────────────────────────────────────────────────────── */
+/* ── 手势与屏幕演示双翼展厅 ──────────────────────────────────────────────── */
+.onboarding__showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  width: 100%;
+  max-width: 680px;
+  text-align: left;
+}
+
+.onboarding__showcase-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.onboarding__showcase-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm, 0.88rem);
+  font-weight: 650;
+  color: var(--text-primary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light, rgba(255, 255, 255, 0.06));
+}
+
 .onboarding__gestures {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  width: 100%;
-  max-width: 380px;
+  gap: 8px;
 }
 
 .onboarding__gesture-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: var(--bg-elevated);
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-primary);
   border: 1px solid var(--card-border);
   transition: all 0.2s ease;
 }
 
 .onboarding__gesture-card:hover {
   border-color: var(--primary);
-  transform: translateY(-1px);
 }
 
 .onboarding__gesture-arrow {
-  font-size: 1.5rem;
-  width: 40px;
-  height: 40px;
+  font-size: var(--text-sm, 0.88rem);
+  font-weight: 700;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--primary-dim);
   color: var(--primary);
   flex-shrink: 0;
 }
 
 .onboarding__gesture-label {
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 550;
   color: var(--text-primary);
+}
+
+.onboarding__spotlight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.onboarding__spotlight-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--card-border);
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 550;
+  color: var(--text-primary);
+}
+
+.onboarding__spotlight-icon-wrap {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 
 /* ── 完成页 ───────────────────────────────────────────────────────────────── */
@@ -327,7 +387,8 @@
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: var(--text-xs, 0.84rem);
+  font-weight: 500;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
@@ -342,27 +403,26 @@
 /* ── 响应式 ───────────────────────────────────────────────────────────────── */
 @media (max-width: 840px) {
   .onboarding__features {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(2, 1fr);
     max-width: 520px;
+  }
+  .onboarding__showcase-grid {
+    grid-template-columns: 1fr;
+    max-width: 480px;
   }
 }
 
 @media (max-width: 600px) {
   .onboarding__features {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    grid-template-columns: 1fr;
     max-width: 360px;
+  }
+  .onboarding__shortcuts {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 480px) {
-  .onboarding__features {
-    grid-template-columns: 1fr;
-  }
-  .onboarding__gestures {
-    grid-template-columns: 1fr;
-  }
   .onboarding__card {
     min-height: 380px;
   }
@@ -370,3 +430,4 @@
     padding: 32px 20px 16px;
   }
 }
+

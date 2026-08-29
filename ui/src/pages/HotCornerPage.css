@@ -74,7 +74,7 @@
 }
 
 .hotcorner-page__monitor-label-text {
-  font-size: 0.8rem;
+  font-size: 0.83rem;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -131,7 +131,7 @@
 
 /* 角落标签 */
 .hotcorner-page__corner-label {
-  font-size: 0.8rem;
+  font-size: 0.83rem;
   color: var(--text-muted);
   font-weight: 600;
   letter-spacing: 0.02em;

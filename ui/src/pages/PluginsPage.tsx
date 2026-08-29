@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Toggle, Tabs, type TabItem } from '../components/UIKit';
+import { Badge, Button, Toggle, Tabs, CodeBadge, type TabItem } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import './PluginsPage.css';
 
@@ -329,7 +329,10 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                         <Badge text={t(`plugins.state.${plugin.state}`)} variant={badgeVariant} />
                       </div>
                     </div>
-                    <span className="plugin-card__version">v{plugin.version || '—'} · {plugin.fileName}</span>
+                    <div className="plugin-card__version">
+                      <span>v{plugin.version || '—'} · </span>
+                      <CodeBadge>{plugin.fileName}</CodeBadge>
+                    </div>
                   </div>
                 </div>
                 <p className="plugin-card__description">
@@ -338,7 +341,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                 <div className="plugin-card__manifest" aria-label={t('plugins.capabilities')}>
                   <span>{t('plugins.abi', { version: plugin.abiVersion || '—' })}</span>
                   {(plugin.capabilities || []).slice(0, 4).map((capability) => (
-                    <code key={capability}>{capability}</code>
+                    <CodeBadge key={capability}>{capability}</CodeBadge>
                   ))}
                   {(plugin.capabilities || []).length > 4 && (
                     <span>+{plugin.capabilities.length - 4}</span>
@@ -351,7 +354,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                       {plugin.executionModel === 'trusted-native-in-process' && (
                         <span>{t('plugins.fullTrustWarning')}</span>
                       )}
-                      {plugin.permissions.map((permission) => <code key={permission}>{permission}</code>)}
+                      {plugin.permissions.map((permission) => <CodeBadge key={permission}>{permission}</CodeBadge>)}
                     </div>
                   </details>
                 )}

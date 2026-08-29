@@ -123,7 +123,6 @@ void TrayWindow::hide() {
         if (m_controller) {
             m_controller->put_IsVisible(FALSE);
         }
-        easy::core::WinUtils::trimWorkingSet();
     }
 }
 

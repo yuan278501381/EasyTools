@@ -77,7 +77,7 @@ if (Test-Path "ui/package.json") {
             Write-Log "⚡ 极速模式: 复用本地 node_modules 依赖" "INFO"
         }
 
-        foreach ($Command in @("lint", "i18n-check", "css-check", "typography-check", "test", "build")) {
+        foreach ($Command in @("lint", "i18n-check", "css-check", "typography-check", "trim-workingset-check", "test", "build")) {
             Write-Log "执行 npm run $Command..."
             npm run $Command
             if ($LASTEXITCODE -ne 0) {
@@ -375,7 +375,9 @@ if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
 
 $RedistVsPath = $vsPath
 if (-not $RedistVsPath) {
-    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    $pf86 = ${env:ProgramFiles(x86)}
+    if (-not $pf86) { $pf86 = $env:ProgramFiles }
+    $vswhere = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vswhere) {
         $RedistVsPath = & $vswhere -latest -products * `
             -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
@@ -577,6 +579,24 @@ if ($ISCC) {
     }
 } else {
     Write-Log "未找到 Inno Setup 编译器，跳过安装包生成步骤。" "WARN"
+}
+
+# ------------------------------------------------------------------------------
+# 7. 全功能端到端生命周期与防死锁自动化审计门禁 (DevOps Lifecycle Gate)
+# ------------------------------------------------------------------------------
+if (-not $SkipTests) {
+    $LifecycleScript = Join-Path $ScriptDir "scripts\verify_lifecycle.ps1"
+    if (-not (Test-Path $LifecycleScript)) {
+        $LifecycleScript = Join-Path $ScriptDir "build\verify_lifecycle.ps1"
+    }
+    if (Test-Path $LifecycleScript) {
+        Write-Log "🚀 正在执行全模块生命周期与防死锁自动化端到端审计 (verify_lifecycle.ps1)..." "INFO"
+        & pwsh.exe -File $LifecycleScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "全模块生命周期自动化端到端审计未通过！退出码: $LASTEXITCODE"
+        }
+        Write-Log "全模块生命周期自动化审计 100% 通过。" "SUCCESS"
+    }
 }
 
 Write-Log "======================================================="

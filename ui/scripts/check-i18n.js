@@ -258,6 +258,25 @@ function checkSourceCodeFallbacksAndNakedChinese() {
 
 console.log('🔍 [i18n Gate] 正在执行 EasyTools 世界级可扩展 N 语言同构矩阵与全链路多语言防线审查...');
 
+// ── 防线 7：常量配置与预设 UI 实体 labelKey / nameKey 100% 国际化对齐防线 ──
+function checkPresetAndOptionEntityInternationalization() {
+  const files = getFiles(path.resolve('./src'), ['.ts', '.tsx']);
+  const presetPillRegex = /\{\s*code:\s*['"`][^'"`]+['"`],\s*label:\s*['"`][^'"`]+['"`]\s*\}/g;
+
+  for (const file of files) {
+    if (file.endsWith('.test.tsx') || file.endsWith('.spec.tsx') || file.endsWith('.test.ts')) continue;
+    const content = fs.readFileSync(file, 'utf8');
+
+    let match;
+    while ((match = presetPillRegex.exec(content)) !== null) {
+      console.error(`❌ [Missing labelKey Gate Violation] 发现未定义 labelKey 的裸预设/选项对象: ${path.relative('./', file)}`);
+      console.error(`   匹配代码: "${match[0]}"`);
+      console.error(`   [Rule] 所有向用户展示的预设或选项对象，必须包含 labelKey/nameKey 并经由 t() 进行多语言转换！`);
+      hasError = true;
+    }
+  }
+}
+
 // 对所有已注册的语言包执行矩阵比对
 for (const [file, data] of allLocalesData.entries()) {
   checkLocaleMatrix(file, data);
@@ -265,16 +284,18 @@ for (const [file, data] of allLocalesData.entries()) {
 
 checkCodeReferences();
 checkSourceCodeFallbacksAndNakedChinese();
+checkPresetAndOptionEntityInternationalization();
 
 if (hasError) {
-  console.error('\n❌ i18n 门禁审查失败！请修复上述键位缺失、英文泄漏、断裂引用或裸中文问题。');
+  console.error('\n❌ i18n 门禁审查失败！请修复上述键位缺失、英文泄漏、断裂引用、裸中文或裸配置 Label 问题。');
   process.exit(1);
 } else {
-  console.log('✅ i18n 世界级 6 重防护门禁全部通过！');
+  console.log('✅ i18n 世界级 7 重防护门禁全部通过！');
   console.log('   1. 中英文字典 100% 同构双向对齐');
   console.log('   2. 英文包绝对 0 汉字污染');
   console.log('   3. 中文包 0 未翻译英文泄漏 (智能专有名词与混排合规)');
   console.log('   4. 动态变量插值 {{param}} 100% 双向对齐');
   console.log('   5. 全库源码所有 labelKey/t() 引用 100% 在字典中真实存在');
   console.log('   6. 全库源码 0 裸中文硬编码与 100% 英文 Fallback');
+  console.log('   7. 全库 UI 预设与选项实体 100% 接入 labelKey/nameKey 国际化管线');
 }

@@ -12,15 +12,16 @@ import {
   Play,
   Sparkles,
   Palette,
-  LayoutGrid,
   Filter,
   Layers,
   ArrowDownLeft,
   ArrowDown,
   ArrowDownRight,
   ArrowUpLeft,
+  ArrowUp,
   ArrowUpRight,
   Check,
+  Monitor,
 } from 'lucide-react';
 import './KeycastPage.css';
 
@@ -30,7 +31,7 @@ interface KeycastSettings {
   showKeyboard: boolean;
   filterMode: 'smart_shortcuts' | 'with_single_modifiers' | 'all_keys';
   includeFunctionKeys: boolean;
-  position: 'bottom_left' | 'bottom_center' | 'bottom_right' | 'top_left' | 'top_right';
+  position: 'bottom_left' | 'bottom_center' | 'bottom_right' | 'top_left' | 'top_center' | 'top_right';
   mergeRecentKeys: boolean;
   mergeTimeoutMs: number;
   displayDurationMs: number;
@@ -58,11 +59,11 @@ const DEFAULT_SETTINGS: KeycastSettings = {
   mergeTimeoutMs: 1200,
   displayDurationMs: 2500,
   fontSize: 36,
-  opacity: 85,
+  opacity: 80,
   textColor: '#ffffff',
   backgroundColor: '#1c1c22',
   modifierKeycapColor: 'auto',
-  modifierKeycapOpacity: 40,
+  modifierKeycapOpacity: 50,
   modifierTextColor: '#000000',
   firstKeyAnim: 'slide',
   subsequentKeyAnim: 'fade',
@@ -243,11 +244,25 @@ export const KeycastPage: FC = () => {
     return <div style={{ padding: '2rem', opacity: 0.5 }}>{t('common.loading', 'Loading...')}</div>;
   }
 
+const WindowsLogoIcon: FC<{ size?: number; className?: string }> = ({ size = 11, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+    className={className}
+    style={{ display: 'inline-block', verticalAlign: 'middle' }}
+  >
+    <path d="M0 2.276L6.545 1.38v6.177H0V2.276zm0 5.869h6.545v6.178L0 13.447V8.145zm7.455-6.848L16 0v7.557H7.455V1.297zm8.545 7.424V16l-8.545-1.297V8.721H16z" />
+  </svg>
+);
+
   const POSITIONS: Array<{ id: KeycastSettings['position']; labelKey: string; icon: typeof ArrowDownLeft }> = [
     { id: 'top_left',      labelKey: 'keycast.posTopLeft',      icon: ArrowUpLeft },
-    { id: 'top_right',     labelKey: 'keycast.posTopRight',     icon: ArrowUpRight },
     { id: 'bottom_left',   labelKey: 'keycast.posBottomLeft',   icon: ArrowDownLeft },
+    { id: 'top_center',    labelKey: 'keycast.posTopCenter',    icon: ArrowUp },
     { id: 'bottom_center', labelKey: 'keycast.posBottomCenter', icon: ArrowDown },
+    { id: 'top_right',     labelKey: 'keycast.posTopRight',     icon: ArrowUpRight },
     { id: 'bottom_right',  labelKey: 'keycast.posBottomRight',  icon: ArrowDownRight },
   ];
 
@@ -300,27 +315,79 @@ export const KeycastPage: FC = () => {
         />
       </Card>
 
-      {/* ── 2. 屏幕显示位置 ─────────────────────────────────────────── */}
-      <SettingGroup title={t('keycast.positionSection', 'Screen Position')} icon={<LayoutGrid size={18} />}>
-        <div className="keycast-page__position-grid">
-          {POSITIONS.map((pos) => {
-            const isSelected = settings.position === pos.id;
-            const Icon = pos.icon;
-            return (
-              <button
-                key={pos.id}
-                type="button"
-                className={`keycast-page__pos-card ${isSelected ? 'active' : ''}`}
-                onClick={() => saveSetting('position', pos.id)}
-              >
-                <div className="keycast-page__pos-icon-wrap">
-                  <Icon size={18} />
+      {/* ── 2. 屏幕显示位置 (拟真交互式虚拟显示器沙盘) ─────────────────── */}
+      <SettingGroup title={t('keycast.positionSection', 'Screen Position')} icon={<Monitor size={18} />}>
+        <div className="keycast-page__monitor-wrapper">
+          {/* 拟真显示器视口 */}
+          <div className="keycast-page__monitor-screen">
+            <div className="keycast-page__monitor-cam" />
+
+            {/* 屏幕桌面视口 (带壁纸与极客光晕) */}
+            <div className="keycast-page__monitor-desktop">
+              {/* 5 个物理空间热区与实时按键胶囊 */}
+              {POSITIONS.map((pos) => {
+                const isSelected = settings.position === pos.id;
+                return (
+                  <button
+                    key={pos.id}
+                    type="button"
+                    className={`keycast-page__monitor-hotspot pos-${pos.id} ${isSelected ? 'active' : ''}`}
+                    onClick={() => saveSetting('position', pos.id)}
+                    title={t(pos.labelKey as unknown as TemplateStringsArray)}
+                  >
+                    <span className="keycast-page__monitor-hotspot-indicator" />
+                    {isSelected ? (
+                      <div className="keycast-page__monitor-capsule">
+                        <span className="keycast-page__monitor-capsule-key key-win">
+                          <WindowsLogoIcon size={11} />
+                          <span>Win</span>
+                        </span>
+                        <span className="keycast-page__monitor-capsule-plus">+</span>
+                        <span className="keycast-page__monitor-capsule-key">E</span>
+                      </div>
+                    ) : (
+                      <span className="keycast-page__monitor-hotspot-hint">{t(pos.labelKey as unknown as TemplateStringsArray)}</span>
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* 底部虚拟任务栏 */}
+              <div className="keycast-page__monitor-taskbar">
+                <div className="keycast-page__monitor-taskbar-start" />
+                <div className="keycast-page__monitor-taskbar-icons">
+                  <div className="keycast-page__monitor-taskbar-app" />
+                  <div className="keycast-page__monitor-taskbar-app active" />
+                  <div className="keycast-page__monitor-taskbar-app" />
                 </div>
-                <span className="keycast-page__pos-label">{t(pos.labelKey as unknown as TemplateStringsArray)}</span>
-                {isSelected && <span className="keycast-page__pos-check"><Check size={12} strokeWidth={3} /></span>}
-              </button>
-            );
-          })}
+                <div className="keycast-page__monitor-taskbar-tray" />
+              </div>
+            </div>
+          </div>
+
+          {/* 显示器支架与底座 */}
+          <div className="keycast-page__monitor-stand" />
+          <div className="keycast-page__monitor-base" />
+
+          {/* 底部快速切换药丸胶囊 */}
+          <div className="keycast-page__monitor-pills">
+            {POSITIONS.map((pos) => {
+              const isSelected = settings.position === pos.id;
+              const Icon = pos.icon;
+              return (
+                <button
+                  key={pos.id}
+                  type="button"
+                  className={`keycast-page__monitor-pill ${isSelected ? 'active' : ''}`}
+                  onClick={() => saveSetting('position', pos.id)}
+                >
+                  <Icon size={14} />
+                  <span>{t(pos.labelKey as unknown as TemplateStringsArray)}</span>
+                  {isSelected && <Check size={12} strokeWidth={3} className="keycast-page__pos-check-icon" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </SettingGroup>
 
@@ -478,11 +545,11 @@ export const KeycastPage: FC = () => {
           </div>
 
           
-          {/* 整体不透明度 */}
+          {/* 胶囊背景透明度 */}
           <div className="keycast-page__prop-card">
             <div className="keycast-page__prop-header">
-              <span className="keycast-page__prop-title">{t('keycast.opacity', 'Overall Opacity')}</span>
-              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', 'Global opacity of the keycast capsule (20%~100%). Lower values provide a more translucent ambient overlay.')}</span>
+              <span className="keycast-page__prop-title">{t('keycast.opacity', 'Background Opacity')}</span>
+              <span className="keycast-page__prop-desc">{t('keycast.opacityDesc', 'Opacity of the keycast capsule background (20%~100%). Lower values create a translucent ambient glass effect while keycap text remains 100% crisp and clear.')}</span>
             </div>
             <div className="keycast-page__prop-body">
               <NumberInput
@@ -490,9 +557,9 @@ export const KeycastPage: FC = () => {
                 max={100}
                 step={5}
                 unit="%"
-                value={settings.opacity ?? 85}
+                value={settings.opacity ?? 80}
                 onChange={(v) => saveSetting('opacity', v)}
-                ariaLabel={t('keycast.opacity', 'Overall Opacity')}
+                ariaLabel={t('keycast.opacity', 'Background Opacity')}
               />
             </div>
           </div>
@@ -557,7 +624,7 @@ export const KeycastPage: FC = () => {
                 max={100}
                 step={2}
                 unit="%"
-                value={settings.modifierKeycapOpacity ?? 65}
+                value={settings.modifierKeycapOpacity ?? 50}
                 onChange={(v) => saveSetting('modifierKeycapOpacity', v)}
                 ariaLabel={t('keycast.modifierKeycapOpacity', 'Modifier Base Opacity')}
               />

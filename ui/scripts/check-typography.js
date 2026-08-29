@@ -73,9 +73,32 @@ for (const file of allFiles) {
   const content = fs.readFileSync(file, 'utf8');
   const lines = content.split('\n');
   lines.forEach((line, idx) => {
-    if (/font-size:\s*(?:0\.[567][0-9]?rem|[89]px|10px|11px)\b/i.test(line) ||
-        /fontSize:\s*['"](?:0\.[567][0-9]?rem|[89]px|10px|11px)['"]/i.test(line)) {
-      errors.push(`[${path.relative(srcDir, file)}:${idx + 1}] 违规使用了低于 12px 的过小字号: "${line.trim()}". 严禁低于 0.83rem (11.8px)，保障 ClearType 次像素渲染清晰度.`);
+    const pxMatch = line.match(/(?:font-size:\s*|fontSize:\s*['"])([0-9]+(?:\.[0-9]+)?)\s*px/i);
+    if (pxMatch) {
+      const pxVal = parseFloat(pxMatch[1]);
+      if (pxVal < 11.8) {
+        errors.push(`[${path.relative(srcDir, file)}:${idx + 1}] 违规使用了低于 12px 的过小字号: "${line.trim()}". 严禁低于 0.83rem (11.8px)，保障 ClearType 次像素渲染清晰度.`);
+      }
+    }
+    const remMatch = line.match(/(?:font-size:\s*|fontSize:\s*['"])([0-9]+(?:\.[0-9]+)?)\s*rem/i);
+    if (remMatch) {
+      const remVal = parseFloat(remMatch[1]);
+      if (remVal < 0.83) {
+        errors.push(`[${path.relative(srcDir, file)}:${idx + 1}] 违规使用了低于 0.83rem 的过小字号: "${line.trim()}". 严禁低于 0.83rem (11.8px)，保障 ClearType 次像素渲染清晰度.`);
+      }
+    }
+
+    // 4. 检查低于 500 的细字重 (保障方案 B 黄金准则与中文字形饱满度)
+    if (file.endsWith('index.css') && idx < 20) {
+      // @font-face 声明放行
+    } else {
+      const weightMatch = line.match(/(?:font-weight:\s*|fontWeight:\s*['"]?)([0-9]{3}|normal|lighter)\b/i);
+      if (weightMatch) {
+        const wVal = weightMatch[1].toLowerCase();
+        if (wVal === 'normal' || wVal === 'lighter' || (parseInt(wVal, 10) < 500)) {
+          errors.push(`[${path.relative(srcDir, file)}:${idx + 1}] 违规使用了低于 500 的字重: "${line.trim()}". 严禁低于 500 Medium，保障 ClearType 次像素文字字面饱满.`);
+        }
+      }
     }
   });
 }

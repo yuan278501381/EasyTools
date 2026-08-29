@@ -221,32 +221,6 @@ html[data-surface="tray"] #root {
 /* ─────────────────────────────────────────────────────────────────────────────
  * Administrator Privilege Item (Emerald Green Aesthetic)
  * ───────────────────────────────────────────────────────────────────────────── */
-.tray-menu__item--admin {
-  color: #059669;
-}
-
-.tray-menu__item--admin .tray-menu__icon--admin {
-  color: #10b981;
-}
-
-[data-theme="dark"] .tray-menu__item--admin {
-  color: #34d399;
-}
-
-[data-theme="dark"] .tray-menu__item--admin .tray-menu__icon--admin {
-  color: #34d399;
-}
-
-.tray-menu__item--admin:hover {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669 !important;
-}
-
-[data-theme="dark"] .tray-menu__item--admin:hover {
-  background: rgba(16, 185, 129, 0.16);
-  color: #34d399 !important;
-}
-
 .tray-menu__item--admin-active {
   color: #059669 !important;
   opacity: 0.95 !important;
@@ -267,12 +241,12 @@ html[data-surface="tray"] #root {
 }
 
 .tray-menu__item--admin-active:hover {
-  background: rgba(16, 185, 129, 0.12);
+  background: rgba(16, 185, 129, 0.12) !important;
   color: #059669 !important;
 }
 
 [data-theme="dark"] .tray-menu__item--admin-active:hover {
-  background: rgba(16, 185, 129, 0.16);
+  background: rgba(16, 185, 129, 0.16) !important;
   color: #34d399 !important;
 }
 

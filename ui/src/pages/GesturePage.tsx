@@ -1063,17 +1063,18 @@ export const GesturePage: FC = () => {
                       const st = getTriggerState(item.key);
                       const isDefaultEnabled = item.key === 'right' || item.key === 'edge_top_slide';
                       const isEffectiveEnabled = st === 'enabled' || (st === 'default' && isDefaultEnabled);
+                      const itemName = item.nameKey ? tr(item.nameKey) : item.name;
 
                       return (
                         <button
                           key={item.key}
                           type="button"
                           className={`trigger-pill-btn trigger-pill-btn--${isEffectiveEnabled ? 'active' : 'inactive'}`}
-                          title={t('gesture.triggerPillTip', '{{name}} ({{cat}}) - Click to {{action}}', { name: item.name, cat: item.category === 'mouse' ? t('gesture.catTrack', 'Mouse Track') : t('gesture.catEdge', 'Screen Edge'), action: isEffectiveEnabled ? t('common.disable', 'Disable') : t('common.enable', 'Enable') })}
+                          title={t('gesture.triggerPillTip', '{{name}} ({{cat}}) - Click to {{action}}', { name: itemName, cat: item.category === 'mouse' ? t('gesture.catTrack', 'Mouse Track') : t('gesture.catEdge', 'Screen Edge'), action: isEffectiveEnabled ? t('common.disable', 'Disable') : t('common.enable', 'Enable') })}
                           onClick={() => void handleSetTriggerState(item.key, isEffectiveEnabled ? 'disabled' : 'enabled')}
                         >
                           {isEffectiveEnabled ? <CheckCircle2 size={12} className="trigger-pill-icon" /> : null}
-                          <span>{item.name}</span>
+                          <span>{itemName}</span>
                         </button>
                       );
                     })}

@@ -53,11 +53,12 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
         (easy::core::WinUtils::getAppDataDirectory() / L"webview2_data").wstring();
     auto options = Make<CoreWebView2EnvironmentOptions>();
     options->put_AdditionalBrowserArguments(
-        L"--enable-features=OverlayScrollbar "
+        L"--js-flags=--optimize-for-size "
+        L"--enable-features=OverlayScrollbar,ResourcePriorityPolicy "
+        L"--disable-features=RendererCodeIntegrity,Translate,InterestFeedContentSuggestions "
         L"--disable-background-networking "
         L"--disable-component-update "
-        L"--allow-no-sandbox-job "
-        L"--disable-features=RendererCodeIntegrity");
+        L"--allow-no-sandbox-job");
 
     const HRESULT startResult = CreateCoreWebView2EnvironmentWithOptions(
         nullptr, userDataPath.c_str(), options.Get(),

@@ -55,7 +55,7 @@
 
 .plugins-page__restart-content span {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.83rem;
 }
 
 .plugins-restart-now-btn {
@@ -342,7 +342,7 @@
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.83rem;
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);

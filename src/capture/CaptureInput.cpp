@@ -1563,6 +1563,8 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 updateMarkup(m_state->currentCursor);
                 m_renderer->invalidate();        // 拖拽预览走 D2D，合成图不变
             } else if (m_state->dragging) {
+                // 拖拽框选过程中立即隐藏快捷键提示层，把全屏视野还给用户
+                ShortcutHintOverlay::instance().hide();
                 const bool spaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
                 if (spaceDown) {
                     // Space 键按住时：平移当前选区（Snipaste 核心交互机制）
@@ -1735,10 +1737,17 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 m_state->dragEnd = {0, 0};
                 m_state->markup.clearAll();
                 m_renderer->invalidate();
+                if (m_state->options.showShortcutHints) {
+                    ShortcutHintOverlay::instance().show(
+                        m_state->mode == OverlayMode::RecordRegion
+                            ? ShortcutHintContext::RecordSelecting
+                            : ShortcutHintContext::CaptureSelecting);
+                }
                 return 0;
             }
 
             // 5. 无选区状态下：鼠标右键直接退出截图
+            ShortcutHintOverlay::instance().hide();
             if (m_cancelCb) {
                 m_cancelCb();
             }
@@ -2013,7 +2022,14 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     m_state->dragEnd = {0, 0};
                     m_state->markup.clearAll();
                     m_renderer->invalidate();
+                    if (m_state->options.showShortcutHints) {
+                        ShortcutHintOverlay::instance().show(
+                            m_state->mode == OverlayMode::RecordRegion
+                                ? ShortcutHintContext::RecordSelecting
+                                : ShortcutHintContext::CaptureSelecting);
+                    }
                 } else {
+                    ShortcutHintOverlay::instance().hide();
                     if (m_cancelCb) m_cancelCb();
                 }
                 return 0;

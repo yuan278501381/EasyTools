@@ -112,7 +112,12 @@ private:
     /// 窗口过程
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    // 闲置自动销毁定时器 (用户关闭 1 分钟后彻底销毁 WebView2 渲染器并释放物理内存)
+    static constexpr UINT_PTR IDT_IDLE_DESTROY = 1001;
+    static constexpr UINT IDLE_DESTROY_TIMEOUT_MS = 60000;
+
     HWND m_hwnd = nullptr;
+    HINSTANCE m_hInstance = nullptr;
     SettingsWindowConfig m_config;
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;

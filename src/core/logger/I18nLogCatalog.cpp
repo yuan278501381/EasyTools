@@ -2035,7 +2035,31 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         }},
         {"SearchPlugin: 关闭", {
             "[{}] SearchPlugin: 关闭",
-            "[{}] SearchPlugin: operation"
+            "[{}] SearchPlugin: Stopped"
+        }},
+        {"SearchPlugin: 启动 2 分钟空闲索引服务休眠看门狗 (timeout={}s)", {
+            "[{}] SearchPlugin: 启动 2 分钟空闲索引服务休眠看门狗 (timeout={}s)",
+            "[{}] SearchPlugin: Starting 2-minute idle index service shutdown watchdog (timeout={}s)"
+        }},
+        {"SearchPlugin: 启动空闲索引服务休眠看门狗 (timeout={}s)", {
+            "[{}] SearchPlugin: 启动空闲索引服务休眠看门狗 (timeout={}s)",
+            "[{}] SearchPlugin: Starting idle index service shutdown watchdog (timeout={}s)"
+        }},
+        {"SearchPlugin: 用户重新唤起搜索，已取消索引服务休眠看门狗", {
+            "[{}] SearchPlugin: 用户重新唤起搜索，已取消索引服务休眠看门狗",
+            "[{}] SearchPlugin: Search summoned by user, cancelled idle index service shutdown watchdog"
+        }},
+        {"SearchPlugin: 搜索窗口闲置达到 2 分钟且未开启常驻后台，自动安全休眠索引服务", {
+            "[{}] SearchPlugin: 搜索窗口闲置达到 2 分钟且未开启常驻后台，自动安全休眠索引服务",
+            "[{}] SearchPlugin: Search window idle for 2 minutes and background residency disabled, shutting down index service safely"
+        }},
+        {"SearchPlugin: 搜索窗口闲置达到超时时间且未开启常驻后台，自动安全休眠索引服务", {
+            "[{}] SearchPlugin: 搜索窗口闲置达到超时时间且未开启常驻后台，自动安全休眠索引服务",
+            "[{}] SearchPlugin: Search window idle reached timeout and background residency disabled, shutting down index service safely"
+        }},
+        {"SearchPlugin: 搜索窗口已隐藏且空闲超时设置为 0，立即安全休眠索引服务", {
+            "[{}] SearchPlugin: 搜索窗口已隐藏且空闲超时设置为 0，立即安全休眠索引服务",
+            "[{}] SearchPlugin: Search window hidden with 0-timeout, shutting down index service immediately"
         }},
         {"创建/更新托盘图标未成功，启动自愈定时器, error={}", {
             "[{}] 创建/更新托盘图标未成功，启动自愈定时器, error={}",
@@ -2061,6 +2085,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 设置窗口已激活（复用已有窗口）",
             "[{}] Settings window activated (reused existing)"
         }},
+        {"设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）", {
+            "[{}] 设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）",
+            "[{}] Settings window activated (reused existing window, idle destroy timer cancelled)"
+        }},
         {"创建设置窗口失败", {
             "[{}] 创建设置窗口失败",
             "[{}] create operationwindow failed"
@@ -2068,6 +2096,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         {"设置窗口已创建并显示", {
             "[{}] 设置窗口已创建并显示",
             "[{}] Settings window created and shown"
+        }},
+        {"设置窗口已按需创建并显示", {
+            "[{}] 设置窗口已按需创建并显示",
+            "[{}] Settings window created on-demand and shown"
         }},
         {"设置窗口后台静默预热完成", {
             "[{}] 设置窗口后台静默预热完成",
@@ -2081,9 +2113,25 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 设置窗口已隐藏",
             "[{}] Settings window hidden"
         }},
+        {"设置窗口已隐藏，已启动 1 分钟闲置自动销毁倒计时", {
+            "[{}] 设置窗口已隐藏，已启动 1 分钟闲置自动销毁倒计时",
+            "[{}] Settings window hidden, 1-minute idle auto-destroy timer started"
+        }},
+        {"设置窗口已隐藏（自动释放内存开关已关闭，保持后台常驻）", {
+            "[{}] 设置窗口已隐藏（自动释放内存开关已关闭，保持后台常驻）",
+            "[{}] Settings window hidden (auto-release disabled, keeping resident in background)"
+        }},
         {"设置窗口已销毁", {
             "[{}] 设置窗口已销毁",
             "[{}] Settings window destroyed"
+        }},
+        {"设置窗口已彻底销毁并释放 WebView2 渲染器", {
+            "[{}] 设置窗口已彻底销毁并释放 WebView2 渲染器",
+            "[{}] Settings window completely destroyed and WebView2 renderer released"
+        }},
+        {"设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存", {
+            "[{}] 设置窗口已闲置 1 分钟，自动销毁 Win32 窗口并释放 WebView2 渲染进程物理内存",
+            "[{}] Settings window has been idle for 1 minute; auto-destroying Win32 window and releasing WebView2 renderer RAM"
         }},
         {"CreateWindowExW 失败, error={}", {
             "[{}] CreateWindowExW 失败, error={}",
@@ -2204,6 +2252,14 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         {"已阻止 WebView 导航到非可信来源", {
             "[{}] 已阻止 WebView 导航到非可信来源",
             "[{}] operation WebView operation"
+        }},
+        {"贴图编辑底图复制异常: {}", {
+            "[{}] 贴图编辑底图复制异常: {}",
+            "[{}] Exception copying pinned screenshot background: {}"
+        }},
+        {"贴图编辑底图复制发生未知异常", {
+            "[{}] 贴图编辑底图复制发生未知异常",
+            "[{}] Unknown exception copying pinned screenshot background"
         }},
     };
     return catalog;

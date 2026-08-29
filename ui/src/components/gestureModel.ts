@@ -3,6 +3,8 @@
  * (与组件分离, 以满足 react-refresh 的「文件仅导出组件」约束)
  * ───────────────────────────────────────────────────────────────────────────── */
 
+import i18n from '../i18n/config';
+
 export type TriggerState = 'default' | 'enabled' | 'disabled';
 
 export interface TriggerItemDef {
@@ -16,8 +18,8 @@ export interface TriggerItemDef {
 export const TRIGGER_ITEM_DEFINITIONS: TriggerItemDef[] = [
   { key: 'right', name: 'Right Mouse Button', nameKey: 'gesture.triggerRightMouse', category: 'mouse', iconType: 'rclick' },
   { key: 'middle', name: 'Middle Mouse Button', nameKey: 'gesture.triggerMiddleMouse', category: 'mouse', iconType: 'mclick' },
-  { key: 'xbutton1', name: 'Mouse Side Button 1', category: 'mouse', iconType: 'xbutton1' },
-  { key: 'xbutton2', name: 'Mouse Side Button 2', category: 'mouse', iconType: 'xbutton2' },
+  { key: 'xbutton1', name: 'Mouse Side Button 1', nameKey: 'gesture.triggerX1Mouse', category: 'mouse', iconType: 'xbutton1' },
+  { key: 'xbutton2', name: 'Mouse Side Button 2', nameKey: 'gesture.triggerX2Mouse', category: 'mouse', iconType: 'xbutton2' },
   { key: 'left', name: 'Left Mouse Button', nameKey: 'gesture.triggerLeftMouse', category: 'mouse', iconType: 'lclick' },
   { key: 'edge_top_slide', name: 'Top Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeTopSlide', category: 'edge', iconType: 'edge_slide' },
   { key: 'edge_bottom_slide', name: 'Bottom Screen Edge + Mouse Slide', nameKey: 'gesture.triggerEdgeBottomSlide', category: 'edge', iconType: 'edge_slide' },
@@ -207,25 +209,34 @@ export function assembleGestureCode(params: {
   return prefix + (params.bareCode || '').toUpperCase();
 }
 
-/** 把完整手势编码渲染为箭头与文字提示串, 用于实时预览与列表清晰展示。 */
-export function codeToArrows(code: string): string {
+/** 把完整手势编码渲染为箭头与文字提示串, 用于实时预览与列表清晰展示。支持多语言自适应前缀 */
+export function codeToArrows(code: string, customTranslator?: (key: string) => string): string {
   if (!code) return '';
   const parsed = parseGestureCode(code);
   let prefix = '';
 
-  if (parsed.edge === 'top') prefix += '[Top Edge] ';
-  else if (parsed.edge === 'bottom') prefix += '[Bottom Edge] ';
-  else if (parsed.edge === 'left') prefix += '[Left Edge] ';
-  else if (parsed.edge === 'right') prefix += '[Right Edge] ';
+  const tr = (k: string, fallback: string): string => {
+    if (customTranslator) return customTranslator(k);
+    if (i18n?.t) {
+      const res = (i18n.t as (key: string, opt?: { defaultValue?: string }) => string)(k, { defaultValue: fallback });
+      return (typeof res === 'string' && res) ? res : fallback;
+    }
+    return fallback;
+  };
+
+  if (parsed.edge === 'top') prefix += tr('gesture.prefixTopEdge', '[Top Edge] ');
+  else if (parsed.edge === 'bottom') prefix += tr('gesture.prefixBottomEdge', '[Bottom Edge] ');
+  else if (parsed.edge === 'left') prefix += tr('gesture.prefixLeftEdge', '[Left Edge] ');
+  else if (parsed.edge === 'right') prefix += tr('gesture.prefixRightEdge', '[Right Edge] ');
 
   if (parsed.hasCtrl) prefix += 'Ctrl+';
   if (parsed.hasAlt) prefix += 'Alt+';
   if (parsed.hasShift) prefix += 'Shift+';
 
-  if (parsed.triggerButton === 'middle') prefix += '[Middle] ';
-  else if (parsed.triggerButton === 'x1') prefix += '[X1] ';
-  else if (parsed.triggerButton === 'x2') prefix += '[X2] ';
-  else if (parsed.triggerButton === 'left') prefix += '[Left] ';
+  if (parsed.triggerButton === 'middle') prefix += tr('gesture.prefixMiddleButton', '[Middle] ');
+  else if (parsed.triggerButton === 'x1') prefix += tr('gesture.prefixX1Button', '[X1] ');
+  else if (parsed.triggerButton === 'x2') prefix += tr('gesture.prefixX2Button', '[X2] ');
+  else if (parsed.triggerButton === 'left') prefix += tr('gesture.prefixLeftButton', '[Left] ');
 
   const bareCode = parsed.bareCode;
   if (!bareCode) return prefix.trim();

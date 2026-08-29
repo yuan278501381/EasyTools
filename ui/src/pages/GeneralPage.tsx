@@ -11,7 +11,7 @@ import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusB
 import { bridgeRequest } from '../hooks/useBridge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive, ShieldCheck } from 'lucide-react';
+import { Settings, Zap, Globe, Database, Keyboard, Download, Upload, RotateCcw, RefreshCw, CheckCircle2, AlertTriangle, AlertOctagon, FolderOpen, Disc, MinusCircle, Package, HardDrive } from 'lucide-react';
 import './GeneralPage.css';
 
 interface GeneralSettings {
@@ -20,13 +20,13 @@ interface GeneralSettings {
   elevated?: boolean;
   minimizeToTray: boolean;
   checkUpdates: boolean;
+  autoReleaseSettingsMemory?: boolean;
   showOnboarding?: boolean;
   isPortableMode?: boolean;
   dataDirectory?: string;
   language: string;
   logLevel: string;
   theme: string;
-  fontFamily?: string;
 }
 
 interface OperationResult {
@@ -54,6 +54,7 @@ export const GeneralPage: FC = () => {
     elevated: false,
     minimizeToTray: true,
     checkUpdates: true,
+    autoReleaseSettingsMemory: true,
     language: 'auto',
     logLevel: 'info',
     theme: 'dark',
@@ -109,6 +110,30 @@ export const GeneralPage: FC = () => {
     return () => { cancelled = true; };
     // i18n.changeLanguage 会换掉 t/i18n 引用；放进依赖会把 IPC 打成几百 Hz，卡死主线程钩子。
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 监听顶栏或全局发出的语言、主题与强调色变更事件，保持页面双向数据同步
+  useEffect(() => {
+    const handleThemeEvent = (e: Event) => {
+      const pref = (e as CustomEvent<string>).detail;
+      if (pref) setSettings(prev => ({ ...prev, theme: pref }));
+    };
+    const handleLangEvent = (e: Event) => {
+      const lang = (e as CustomEvent<string>).detail;
+      if (lang) setSettings(prev => ({ ...prev, language: lang }));
+    };
+    const handleAccentEvent = (e: Event) => {
+      const newAccent = (e as CustomEvent<string>).detail;
+      if (newAccent) setAccent(newAccent);
+    };
+    window.addEventListener('easytools:theme-changed', handleThemeEvent);
+    window.addEventListener('easytools:language-changed', handleLangEvent);
+    window.addEventListener('easytools:accent-changed', handleAccentEvent);
+    return () => {
+      window.removeEventListener('easytools:theme-changed', handleThemeEvent);
+      window.removeEventListener('easytools:language-changed', handleLangEvent);
+      window.removeEventListener('easytools:accent-changed', handleAccentEvent);
+    };
   }, []);
 
   // 保存单个设置项
@@ -170,7 +195,8 @@ export const GeneralPage: FC = () => {
 
       if (!checked && settings.elevated) {
         setIsRestartingElevated(true);
-        await bridgeRequest('app.restart');
+        await bridgeRequest('app.restartDemoted');
+        return;
       }
     } catch (error) {
       setSettings(prev => ({ ...prev, runAsAdmin: previous }));
@@ -312,7 +338,7 @@ export const GeneralPage: FC = () => {
             id="runAsAdmin"
             label={t('general.runAsAdmin')}
             description={settings.elevated ? t('general.runAsAdminActive') : t('general.runAsAdminDesc')}
-            checked={settings.runAsAdmin}
+            checked={settings.runAsAdmin || (settings.elevated ?? false)}
             onChange={handleToggleRunAsAdmin}
             disabled={isRestartingElevated}
           />
@@ -329,6 +355,13 @@ export const GeneralPage: FC = () => {
             description={t('general.checkUpdatesDesc')}
             checked={settings.checkUpdates}
             onChange={(v) => updateSetting('checkUpdates', v)}
+          />
+          <Toggle
+            id="autoReleaseSettingsMemory"
+            label={t('general.autoReleaseSettingsMemory')}
+            description={t('general.autoReleaseSettingsMemoryDesc')}
+            checked={settings.autoReleaseSettingsMemory ?? true}
+            onChange={(v) => updateSetting('autoReleaseSettingsMemory', v)}
           />
           <Toggle
             id="showOnboarding"
@@ -354,41 +387,6 @@ export const GeneralPage: FC = () => {
               ]}
             />
           </SettingRow>
-
-          <SettingRow label={t('general.fontFamily', 'Interface Font Family')} description={t('general.fontFamilyDesc', 'Customize UI typography. All fonts are app-scoped with zero system directory pollution and zero uninstaller leftovers.')}>
-            <Select
-              id="fontFamily"
-              value={settings.fontFamily || 'auto'}
-              onChange={(v) => updateSetting('fontFamily', v)}
-              options={[
-                { value: 'auto', label: t('general.fontFamilyAuto', 'Smart Adaptive (Recommended · Native High-DPI)') },
-                { value: 'noto-sans-sc', label: t('general.fontFamilyNotoSans', 'Ultra-Clear Noto Sans SC (Crisp & Solid)') },
-                { value: 'harmony-sans', label: t('general.fontFamilyHarmony', 'HarmonyOS / MiSans Style') },
-                { value: 'yahei', label: t('general.fontFamilyYahei', 'Microsoft YaHei UI (Classic Windows)') },
-                { value: 'pingfang', label: t('general.fontFamilyPingfang', 'Apple PingFang SC Style') },
-                { value: 'system', label: t('general.fontFamilySystem', 'System Default (System UI)') },
-              ]}
-            />
-          </SettingRow>
-
-          <div style={{
-            margin: '4px 0 14px 0',
-            padding: '12px 14px',
-            background: 'var(--bg-elevated, rgba(255, 255, 255, 0.03))',
-            border: '1px solid var(--border-light, rgba(255, 255, 255, 0.06))',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 'var(--text-xs, 0.84rem)',
-            color: 'var(--text-secondary)',
-            lineHeight: 1.55,
-          }}>
-            <div style={{ fontWeight: 650, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShieldCheck size={14} style={{ color: 'var(--primary)' }} />
-              <span>{t('general.fontFallbackTitle', 'Intelligent Polyglot Cascading & Fallback Pipeline')}</span>
-            </div>
-            <div>
-              {t('general.fontFallbackDesc', '1. Primary glyphs are rendered with the preferred font family; 2. Automatically triggers Glyph-Level Fallback to native flagship fonts (YaHei UI / PingFang / Segoe UI) whenever missing glyphs or unsupported characters occur, completely preventing square tofu (□) and rendering glitches; 3. Zero system directory pollution with 100% clean portability.')}
-            </div>
-          </div>
 
           <SettingRow label={t('general.theme')} description={t('general.themeDesc')}>
             <Select
@@ -595,7 +593,7 @@ export const GeneralPage: FC = () => {
                 )}
               </span>
               {settings.dataDirectory && (
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }} title={settings.dataDirectory}>
+                <span style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }} title={settings.dataDirectory}>
                   {settings.dataDirectory}
                 </span>
               )}

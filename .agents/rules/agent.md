@@ -20,10 +20,14 @@ trigger: always_on
    - 录制态全局热键防误触：进入快捷键录制时底层热键自动静默（`hotkey.setPaused(true)`），防止录入时在后台误触发已有功能。
 6、字体排版与清晰度标准（方案 B & C 黄金准则 & 排版单一事实源）：
    - 零系统字体污染（Zero System Font Pollution）：严禁在安装包中向 Windows `C:\Windows\Fonts` 写入字体或修改系统注册表，杜绝管理员权限受限、DirectWrite 进程锁定导致的卸载残留以及字体分发版权合规风险。
-   - 应用级单一事实源字体栈体系：界面无衬线统一引用 `--font-sans`（`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;`）；现代等宽/类名/代码/快捷键统一引用 `--font-mono`（`"Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;`）。严禁在任何新组件中裸写 `ui-monospace` 或硬编码 `font-family`。
-   - 字号底线与字重加权红线：界面中所有文本（含次级辅助说明、状态徽章、输入控件、提示语等）字号不得低于 0.83rem（11.8px~12px），次级文本字重不得低于 500（正文 550，标题 650~700），行高不得低于 1.4，保障 ClearType 次像素物理渲染字字饱满锐利。
+   - WebFont 选型权衡架构记忆 (WebFont vs Native Font Stack Trade-offs & 方案 B 黄金准则)：
+     * 视觉评估：思源黑体（Noto Sans SC）在中文字形饱满度、大中宫与现代几何字面表现力上明显优于系统默认微软雅黑；
+     * 桌面端旧方案硬伤：内嵌全量 `@fontsource/noto-sans-sc` 引入 100+ 个 `.woff2` 碎片切片，使安装包从 16MB 暴增至 32.4MB（+100% 膨胀）并在打包时产生海量磁盘 I/O 碎片；
+     * 方案 B 架构终局标准：全项目采用 **单字重极简无损思源黑体架构（500 Medium · 仅 1.10MB 单文件 · 0 碎片 I/O）** 并结合 `@font-face` 中的 `local('Source Han Sans SC')` 本地白嫖机制。既彻底消灭 100+ 切片导致的 20MB 膨胀与打包卡顿，又完美呈现中英数字/括号 100% 同源浑然一体的世界级现代几何字面质感！
+   - 应用级单一事实源字体栈体系：界面无衬线统一引用 `--font-sans`（`"Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;`）；现代等宽/类名/代码/快捷键统一引用 `--font-mono`（`"Cascadia Code", "Cascadia Mono", "Segoe UI Mono", "Consolas", "PingFang SC", "Microsoft YaHei UI", monospace;`）。严禁在任何新组件中裸写 `ui-monospace` 或硬编码 `font-family`。
+   - 字号底线与字重加权红线（字号与字重双重底线）：界面中所有文本（含次级辅助说明、状态徽章、输入控件、占位符 placeholder 等）字号不得低于 0.83rem（11.8px~12px），**字重底线严禁低于 500 Medium**（正文 550，标题 650~700），行高不得低于 1.4，保障 ClearType 次像素物理渲染字字饱满锐利。严禁出现 400/450 细字重导致笔画发虚发灰。
    - 技术标识符微晶胶囊标准：所有窗口类名、进程名、文件路径等元数据严禁以粗糙细文本直接裸露，必须统一使用 `<CodeBadge />` 微晶等宽代码胶囊封装。
-   - 自动化排版 CI 门禁：CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明或低于 11.8px 的微小字号直接阻断构建。
+   - 自动化排版 CI 门禁：CI 流水线强制执行 `npm run typography-check`，一旦发现孤立字体声明、低于 11.8px 的微小字号或低于 500 的细字重直接阻断构建。
 7、开源版权与原作者署名基准：
    - 原作者官方署名：`Yy1 (yuan278501381)`（展示格式 `Yy1 (@yuan278501381)`）。
    - GitHub 官方主页：`https://github.com/yuan278501381`。

@@ -12,8 +12,8 @@ import { useEffect, useRef, useState, type FC } from 'react';
 import { Button } from './UIKit';
 import { useTranslation } from 'react-i18next';
 import {
-  Search, Camera, Mouse, Keyboard, Sparkles, FolderSymlink,
-  ChevronRight, ChevronLeft, Check,
+  Search, Camera, Mouse, Sparkles, FolderSymlink,
+  Keyboard, Highlighter, ChevronRight, ChevronLeft, Check, Zap,
 } from 'lucide-react';
 import './OnboardingModal.css';
 
@@ -101,93 +101,170 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
         </button>
 
         <div className="onboarding__body">
-          {/* ── Step 0: 欢迎 ──────────────────────────────────── */}
+          {/* ── Step 0: 欢迎 (6 宫格全旗舰功能矩阵) ───────────────── */}
           <div className={getStepClass(0)} aria-hidden={step !== 0}>
             <h2 id="onboarding-step-0-title" ref={(node) => { titleRefs.current[0] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.welcomeTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.welcomeSubtitle')}</p>
             <div className="onboarding__features">
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <Search size={22} />
+                  <Search size={20} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureSearch')}</span>
                 <span className="onboarding__feature-desc">{t('onboarding.featureSearchDesc')}</span>
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <Mouse size={22} />
+                  <Mouse size={20} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureGesture')}</span>
                 <span className="onboarding__feature-desc">{t('onboarding.featureGestureDesc')}</span>
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <Camera size={22} />
+                  <Camera size={20} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureCapture')}</span>
                 <span className="onboarding__feature-desc">{t('onboarding.featureCaptureDesc')}</span>
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <FolderSymlink size={22} />
+                  <Highlighter size={20} />
                 </div>
-                <span className="onboarding__feature-name">{t('onboarding.featureDialogEnhancer')}</span>
-                <span className="onboarding__feature-desc">{t('onboarding.featureDialogEnhancerDesc')}</span>
+                <span className="onboarding__feature-name">{t('onboarding.featureSpotlight')}</span>
+                <span className="onboarding__feature-desc">{t('onboarding.featureSpotlightDesc')}</span>
               </div>
               <div className="onboarding__feature-card">
                 <div className="onboarding__feature-icon">
-                  <Keyboard size={22} />
+                  <Keyboard size={20} />
                 </div>
                 <span className="onboarding__feature-name">{t('onboarding.featureKeycast')}</span>
                 <span className="onboarding__feature-desc">{t('onboarding.featureKeycastDesc')}</span>
               </div>
+              <div className="onboarding__feature-card">
+                <div className="onboarding__feature-icon">
+                  <FolderSymlink size={20} />
+                </div>
+                <span className="onboarding__feature-name">{t('onboarding.featureDialogEnhancer')}</span>
+                <span className="onboarding__feature-desc">{t('onboarding.featureDialogEnhancerDesc')}</span>
+              </div>
             </div>
           </div>
 
-          {/* ── Step 1: 核心快捷键 ───────────────────────────── */}
+          {/* ── Step 1: 核心快捷键矩阵 ───────────────────────── */}
           <div className={getStepClass(1)} aria-hidden={step !== 1}>
             <h2 id="onboarding-step-1-title" ref={(node) => { titleRefs.current[1] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.shortcutsTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.shortcutsSubtitle')}</p>
             <div className="onboarding__shortcuts">
               <div className="onboarding__shortcut-row">
-                <span className="onboarding__shortcut-name">{t('onboarding.shortcutSearch')}</span>
-                <kbd className="onboarding__shortcut-kbd">Alt+Space</kbd>
+                <span className="onboarding__shortcut-name">
+                  <Search size={14} style={{ color: 'var(--primary)', marginRight: 6 }} />
+                  {t('onboarding.shortcutSearch')}
+                </span>
+                <kbd className="onboarding__shortcut-kbd">Alt + Space</kbd>
               </div>
               <div className="onboarding__shortcut-row">
-                <span className="onboarding__shortcut-name">{t('onboarding.shortcutCapture')}</span>
-                <kbd className="onboarding__shortcut-kbd">Ctrl+Shift+A</kbd>
+                <span className="onboarding__shortcut-name">
+                  <Camera size={14} style={{ color: 'var(--success, #34d399)', marginRight: 6 }} />
+                  {t('onboarding.shortcutCapture')}
+                </span>
+                <kbd className="onboarding__shortcut-kbd">Ctrl + Shift + A</kbd>
               </div>
               <div className="onboarding__shortcut-row">
-                <span className="onboarding__shortcut-name">{t('onboarding.shortcutRecord')}</span>
-                <kbd className="onboarding__shortcut-kbd">Ctrl+Shift+R</kbd>
+                <span className="onboarding__shortcut-name">
+                  <Zap size={14} style={{ color: '#fbbf24', marginRight: 6 }} />
+                  {t('onboarding.shortcutRecord')}
+                </span>
+                <kbd className="onboarding__shortcut-kbd">Ctrl + Shift + R</kbd>
               </div>
               <div className="onboarding__shortcut-row">
-                <span className="onboarding__shortcut-name">{t('onboarding.shortcutOcr')}</span>
-                <kbd className="onboarding__shortcut-kbd">Ctrl+Shift+O</kbd>
+                <span className="onboarding__shortcut-name">
+                  <Highlighter size={14} style={{ color: '#38bdf8', marginRight: 6 }} />
+                  {t('onboarding.shortcutSpotlight')}
+                </span>
+                <kbd className="onboarding__shortcut-kbd">F2</kbd>
+              </div>
+              <div className="onboarding__shortcut-row">
+                <span className="onboarding__shortcut-name">
+                  <Sparkles size={14} style={{ color: '#ec4899', marginRight: 6 }} />
+                  {t('onboarding.shortcutOcr')}
+                </span>
+                <kbd className="onboarding__shortcut-kbd">Ctrl + Shift + O</kbd>
               </div>
             </div>
           </div>
 
-          {/* ── Step 2: 手势入门 ──────────────────────────────── */}
+          {/* ── Step 2: 手势与屏幕演示特效入门 ───────────────── */}
           <div className={getStepClass(2)} aria-hidden={step !== 2}>
             <h2 id="onboarding-step-2-title" ref={(node) => { titleRefs.current[2] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.gestureTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.gestureSubtitle')}</p>
-            <div className="onboarding__gestures">
-              <div className="onboarding__gesture-card">
-                <span className="onboarding__gesture-arrow">↓</span>
-                <span className="onboarding__gesture-label">{t('onboarding.gestureDown')}</span>
+            <div className="onboarding__showcase-grid">
+              {/* 左侧：鼠标常用手势 */}
+              <div className="onboarding__showcase-col">
+                <div className="onboarding__showcase-col-header">
+                  <Mouse size={16} />
+                  <span>{t('onboarding.featureGesture')}</span>
+                </div>
+                <div className="onboarding__gestures">
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">↓</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureDown')}</span>
+                  </div>
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">↑</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureUp')}</span>
+                  </div>
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">←</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureLeft')}</span>
+                  </div>
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">→</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureRight')}</span>
+                  </div>
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">↓ →</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureCloseTab')}</span>
+                  </div>
+                  <div className="onboarding__gesture-card">
+                    <span className="onboarding__gesture-arrow">→ ↓</span>
+                    <span className="onboarding__gesture-label">{t('onboarding.gestureReopenTab')}</span>
+                  </div>
+                </div>
               </div>
-              <div className="onboarding__gesture-card">
-                <span className="onboarding__gesture-arrow">↑</span>
-                <span className="onboarding__gesture-label">{t('onboarding.gestureUp')}</span>
-              </div>
-              <div className="onboarding__gesture-card">
-                <span className="onboarding__gesture-arrow">←</span>
-                <span className="onboarding__gesture-label">{t('onboarding.gestureLeft')}</span>
-              </div>
-              <div className="onboarding__gesture-card">
-                <span className="onboarding__gesture-arrow">→</span>
-                <span className="onboarding__gesture-label">{t('onboarding.gestureRight')}</span>
+
+              {/* 右侧：屏幕演示特效 */}
+              <div className="onboarding__showcase-col">
+                <div className="onboarding__showcase-col-header">
+                  <Highlighter size={16} />
+                  <span>{t('onboarding.featureSpotlight')}</span>
+                </div>
+                <div className="onboarding__spotlight-list">
+                  <div className="onboarding__spotlight-item">
+                    <div className="onboarding__spotlight-icon-wrap" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                      <Zap size={14} />
+                    </div>
+                    <span>{t('onboarding.spotlightItem1')}</span>
+                  </div>
+                  <div className="onboarding__spotlight-item">
+                    <div className="onboarding__spotlight-icon-wrap" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                      <Highlighter size={14} />
+                    </div>
+                    <span>{t('onboarding.spotlightItem2')}</span>
+                  </div>
+                  <div className="onboarding__spotlight-item">
+                    <div className="onboarding__spotlight-icon-wrap" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
+                      <Sparkles size={14} />
+                    </div>
+                    <span>{t('onboarding.spotlightItem3')}</span>
+                  </div>
+                  <div className="onboarding__spotlight-item">
+                    <div className="onboarding__spotlight-icon-wrap" style={{ background: 'rgba(167, 139, 250, 0.15)', color: '#a78bfa' }}>
+                      <Keyboard size={14} />
+                    </div>
+                    <span>{t('onboarding.spotlightItem4')}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -195,7 +272,7 @@ export const OnboardingModal: FC<Props> = ({ onComplete }) => {
           {/* ── Step 3: 完成 ──────────────────────────────────── */}
           <div className={getStepClass(3)} aria-hidden={step !== 3}>
             <div className="onboarding__complete-icon">
-              <Sparkles size={32} />
+              <Sparkles size={34} />
             </div>
             <h2 id="onboarding-step-3-title" ref={(node) => { titleRefs.current[3] = node; }} tabIndex={-1} className="onboarding__title">{t('onboarding.completeTitle')}</h2>
             <p className="onboarding__subtitle">{t('onboarding.completeSubtitle')}</p>

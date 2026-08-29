@@ -18,7 +18,9 @@ bool SearchExpression::matchWildcard(std::wstring_view pattern, std::wstring_vie
     size_t p = 0, t = 0;
     size_t starP = std::wstring_view::npos, starT = 0;
     while (t < text.size()) {
-        if (p < pattern.size() && (pattern[p] == L'?' || pattern[p] == text[t])) {
+        const wchar_t cp = (p < pattern.size()) ? static_cast<wchar_t>(std::towlower(pattern[p])) : L'\0';
+        const wchar_t ct = static_cast<wchar_t>(std::towlower(text[t]));
+        if (p < pattern.size() && (pattern[p] == L'?' || cp == ct)) {
             p++;
             t++;
         } else if (p < pattern.size() && pattern[p] == L'*') {
@@ -317,9 +319,9 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             else if (clause.pattern.empty()) matched = true;
             else {
                 if (clause.hasWildcard) {
-                    matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
+                    matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName.empty() ? record.fileName : record.normalizedName);
                 } else {
-                    matched = containsIgnoreCase(record.fileName, clause.pattern);
+                    matched = containsIgnoreCase(record.normalizedName.empty() ? record.fileName : record.normalizedName, clause.pattern);
                 }
             }
             break;
@@ -329,9 +331,9 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
             else if (clause.pattern.empty()) matched = true;
             else {
                 if (clause.hasWildcard) {
-                    matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
+                    matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName.empty() ? record.fileName : record.normalizedName);
                 } else {
-                    matched = containsIgnoreCase(record.fileName, clause.pattern);
+                    matched = containsIgnoreCase(record.normalizedName.empty() ? record.fileName : record.normalizedName, clause.pattern);
                 }
             }
             break;
@@ -432,9 +434,9 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
 
         case SearchFilterType::NoPinyin:
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
+                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName.empty() ? record.fileName : record.normalizedName);
             } else {
-                matched = containsIgnoreCase(record.fileName, clause.pattern);
+                matched = containsIgnoreCase(record.normalizedName.empty() ? record.fileName : record.normalizedName, clause.pattern);
             }
             if (!matched && requiresFullPath) {
                 const std::wstring& fullPath = getPath();
@@ -458,14 +460,14 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
         default:
             // 1. 优先在文件名中匹配 (零路径回溯，极致毫秒级热路径)
             if (clause.hasWildcard) {
-                matched = SearchExpression::matchWildcard(clause.pattern, record.fileName);
+                matched = SearchExpression::matchWildcard(clause.pattern, record.normalizedName.empty() ? record.fileName : record.normalizedName);
                 if (!matched && clause.isAsciiOnly) {
                     const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;
                     matched = SearchExpression::matchWildcard(pat, record.pinyinFull) ||
                               SearchExpression::matchWildcard(pat, record.pinyinInitials);
                 }
             } else {
-                if (containsIgnoreCase(record.fileName, clause.pattern)) {
+                if (containsIgnoreCase(record.normalizedName.empty() ? record.fileName : record.normalizedName, clause.pattern)) {
                     matched = true;
                 } else if (clause.isAsciiOnly) {
                     const auto& pat = clause.pinyinPattern.empty() ? clause.pattern : clause.pinyinPattern;

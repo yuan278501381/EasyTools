@@ -246,8 +246,7 @@ export default function TrayApp() {
           setElevating(false);
         }
       } else {
-        await bridgeRequest('general.updateSettings', { runAsAdmin: false });
-        await bridgeRequest('app.restart');
+        await bridgeRequest('tray.action', { action: 'restartDemoted' });
       }
     } catch {
       setElevating(false);
@@ -332,7 +331,7 @@ export default function TrayApp() {
 
       <button
         type="button"
-        className={`tray-menu__item tray-menu__item--admin ${elevated ? 'tray-menu__item--admin-active' : ''} ${elevating ? 'tray-menu__item--elevating' : ''}`}
+        className={`tray-menu__item ${elevated ? 'tray-menu__item--admin-active' : ''} ${elevating ? 'tray-menu__item--elevating' : ''}`}
         disabled={busy || elevating}
         onClick={() => void handleToggleElevated()}
         title={elevated ? t('tray.adminActiveDesc', 'Running with highest privileges') : t('tray.restartElevated', 'Run as Administrator')}
@@ -340,7 +339,7 @@ export default function TrayApp() {
         {elevated ? (
           <ShieldCheck size={15} className="tray-menu__icon tray-menu__icon--admin" />
         ) : (
-          <Shield size={15} className="tray-menu__icon tray-menu__icon--admin" />
+          <Shield size={15} className="tray-menu__icon" />
         )}
         <span className="tray-menu__label">{t('tray.restartElevated', 'Run as Administrator')}</span>
         <span className={`tray-menu__dot ${elevated ? 'tray-menu__dot--active' : ''}`} />

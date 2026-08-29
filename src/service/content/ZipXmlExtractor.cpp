@@ -5,17 +5,50 @@
 #include <cwctype>
 #include <vector>
 #include <sstream>
+#include <string>
+#include <string_view>
 
 namespace easy::service::content {
 
 namespace {
 
 #pragma pack(push, 1)
-struct ZipLocalHeader {
-    uint32_t signature;        // 0x04034b50
+struct ZipEocd {
+    uint32_t signature;           // 0x06054b50
+    uint16_t diskNumber;
+    uint16_t cdDiskNumber;
+    uint16_t numEntriesThisDisk;
+    uint16_t totalEntries;
+    uint32_t cdSize;
+    uint32_t cdOffset;
+    uint16_t commentLength;
+};
+
+struct ZipCdHeader {
+    uint32_t signature;           // 0x02014b50
+    uint16_t versionMadeBy;
     uint16_t versionNeeded;
     uint16_t bitFlag;
-    uint16_t compressionMethod; // 0 = stored, 8 = deflated
+    uint16_t compressionMethod;   // 0 = stored, 8 = deflated
+    uint16_t lastModTime;
+    uint16_t lastModDate;
+    uint32_t crc32;
+    uint32_t compressedSize;
+    uint32_t uncompressedSize;
+    uint16_t filenameLength;
+    uint16_t extraFieldLength;
+    uint16_t commentLength;
+    uint16_t diskNumberStart;
+    uint16_t internalFileAttr;
+    uint32_t externalFileAttr;
+    uint32_t localHeaderOffset;
+};
+
+struct ZipLocalHeader {
+    uint32_t signature;           // 0x04034b50
+    uint16_t versionNeeded;
+    uint16_t bitFlag;
+    uint16_t compressionMethod;   // 0 = stored, 8 = deflated
     uint16_t lastModTime;
     uint16_t lastModDate;
     uint32_t crc32;
@@ -27,21 +60,56 @@ struct ZipLocalHeader {
 #pragma pack(pop)
 
 std::wstring stripXmlTags(const std::string& xml) {
-    std::wstring result;
-    result.reserve(xml.size() / 2);
-
-    bool insideTag = false;
     std::string currentText;
     currentText.reserve(xml.size() / 2);
+
+    bool insideTag = false;
+    std::string tagBuffer;
 
     for (size_t i = 0; i < xml.size(); ++i) {
         char c = xml[i];
         if (c == '<') {
             insideTag = true;
-            currentText.push_back(' '); // 替换标签为分词空格
+            tagBuffer.clear();
         } else if (c == '>') {
             insideTag = false;
-        } else if (!insideTag) {
+            // 识别段落、换行或表格单元格闭合标签，转换为自然换行符
+            if (tagBuffer == "/w:p" || tagBuffer == "w:br" || tagBuffer == "w:br/" ||
+                tagBuffer == "w:cr" || tagBuffer == "w:cr/" || tagBuffer == "/w:tc" ||
+                tagBuffer == "/p:sp" || tagBuffer == "/row" || tagBuffer == "/table:table-row") {
+                currentText.push_back('\n');
+            } else {
+                currentText.push_back(' '); // 替换普通标签为分词空格
+            }
+        } else if (insideTag) {
+            if (tagBuffer.size() < 32 && !isspace(static_cast<unsigned char>(c))) {
+                tagBuffer.push_back(static_cast<char>(tolower(static_cast<unsigned char>(c))));
+            }
+        } else {
+            // 处理常见的 XML 实体
+            if (c == '&' && i + 3 < xml.size()) {
+                if (xml.compare(i, 4, "&lt;") == 0) {
+                    currentText.push_back('<');
+                    i += 3;
+                    continue;
+                } else if (xml.compare(i, 4, "&gt;") == 0) {
+                    currentText.push_back('>');
+                    i += 3;
+                    continue;
+                } else if (i + 4 < xml.size() && xml.compare(i, 5, "&amp;") == 0) {
+                    currentText.push_back('&');
+                    i += 4;
+                    continue;
+                } else if (i + 5 < xml.size() && xml.compare(i, 6, "&quot;") == 0) {
+                    currentText.push_back('"');
+                    i += 5;
+                    continue;
+                } else if (i + 5 < xml.size() && xml.compare(i, 6, "&apos;") == 0) {
+                    currentText.push_back('\'');
+                    i += 5;
+                    continue;
+                }
+            }
             currentText.push_back(c);
         }
     }
@@ -50,18 +118,18 @@ std::wstring stripXmlTags(const std::string& xml) {
 
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, currentText.data(), static_cast<int>(currentText.size()), nullptr, 0);
     if (wideLen <= 0) return {};
-    result.resize(wideLen);
+    std::wstring result(wideLen, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, currentText.data(), static_cast<int>(currentText.size()), result.data(), wideLen);
 
     return result;
 }
 
 bool decompressRawDeflate(const uint8_t* compressed, size_t compSize, size_t uncompSize, std::string& out) {
-    if (uncompSize == 0 || compSize == 0) return false;
+    if (compSize == 0) return false;
     
     // 限制单 XML 解压上限为 30MB
     constexpr size_t MAX_UNCOMP_SIZE = 30 * 1024 * 1024;
-    size_t targetSize = std::min(uncompSize, MAX_UNCOMP_SIZE);
+    size_t targetSize = uncompSize > 0 ? (std::min)(uncompSize, MAX_UNCOMP_SIZE) : (std::min)(compSize * 10, MAX_UNCOMP_SIZE);
 
     out.resize(targetSize);
 
@@ -90,6 +158,40 @@ bool decompressRawDeflate(const uint8_t* compressed, size_t compSize, size_t unc
     return true;
 }
 
+bool isMatchingZipEntry(std::string_view entryName, std::wstring_view lowerExt) {
+    std::string lowerName;
+    lowerName.reserve(entryName.size());
+    for (char c : entryName) {
+        lowerName.push_back(c == '\\' ? '/' : static_cast<char>(tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (lowerExt == L"docx" || lowerExt == L"wps" || lowerExt == L"dotx" || lowerExt == L"docm") {
+        if (lowerName.find("word/") != std::string::npos || lowerName.find("wps/") != std::string::npos) {
+            if (lowerName.ends_with(".xml")) return true;
+        }
+    } else if (lowerExt == L"xlsx" || lowerExt == L"et" || lowerExt == L"xlsm" || lowerExt == L"xltx") {
+        if (lowerName.find("xl/") != std::string::npos || lowerName.find("et/") != std::string::npos) {
+            if (lowerName.ends_with(".xml")) return true;
+        }
+    } else if (lowerExt == L"pptx" || lowerExt == L"dps" || lowerExt == L"pptm" || lowerExt == L"potx") {
+        if (lowerName.find("ppt/") != std::string::npos || lowerName.find("dps/") != std::string::npos) {
+            if (lowerName.ends_with(".xml")) return true;
+        }
+    } else if (lowerExt == L"cdr") {
+        if (lowerName.find("content/") != std::string::npos || lowerName == "metadata.xml") {
+            return true;
+        }
+    } else if (lowerExt == L"xmind") {
+        if (lowerName == "content.json" || lowerName == "content.xml" || lowerName == "comments.xml") {
+            return true;
+        }
+    } else if (lowerExt == L"odt" || lowerExt == L"ods" || lowerExt == L"odp") {
+        if (lowerName == "content.xml") return true;
+    }
+
+    return false;
+}
+
 } // namespace
 
 ZipXmlExtractor::ZipXmlExtractor() {
@@ -97,7 +199,7 @@ ZipXmlExtractor::ZipXmlExtractor() {
         L"docx", L"dotx", L"docm", L"wps",
         L"xlsx", L"xltx", L"xlsm", L"et",
         L"pptx", L"potx", L"pptm", L"dps",
-        L"cdr", L"xmind"
+        L"cdr", L"xmind", L"odt", L"ods", L"odp"
     };
     for (const auto* ext : exts) {
         m_supportedExts.insert(ext);
@@ -119,15 +221,69 @@ bool ZipXmlExtractor::extractZipEntriesText(
     std::wstring_view extension,
     std::wstring& outExtractedText
 ) const {
-    size_t offset = 0;
+    if (zipSize < sizeof(ZipEocd)) return false;
+
     std::wstring lowerExt;
     for (wchar_t c : extension) lowerExt.push_back(std::towlower(c));
 
+    // ── 1. 优先通过 Central Directory (中央目录) 解析 (工业级防 Data Descriptor 零长度硬伤) ──
+    const ZipEocd* pEocd = nullptr;
+    const size_t maxSearch = (std::min)(zipSize, static_cast<size_t>(65535 + sizeof(ZipEocd)));
+    const size_t searchStart = zipSize - maxSearch;
+
+    for (size_t i = zipSize - sizeof(ZipEocd); i >= searchStart; --i) {
+        if (*reinterpret_cast<const uint32_t*>(pZipData + i) == 0x06054b50) {
+            pEocd = reinterpret_cast<const ZipEocd*>(pZipData + i);
+            break;
+        }
+        if (i == 0) break;
+    }
+
+    if (pEocd && pEocd->cdOffset < zipSize && (pEocd->cdOffset + pEocd->cdSize <= zipSize)) {
+        size_t cdOffset = pEocd->cdOffset;
+        for (uint16_t entryIdx = 0; entryIdx < pEocd->totalEntries && cdOffset + sizeof(ZipCdHeader) <= zipSize; ++entryIdx) {
+            const auto* cdHeader = reinterpret_cast<const ZipCdHeader*>(pZipData + cdOffset);
+            if (cdHeader->signature != 0x02014b50) break;
+
+            size_t nameOffset = cdOffset + sizeof(ZipCdHeader);
+            if (nameOffset + cdHeader->filenameLength > zipSize) break;
+
+            std::string filename(reinterpret_cast<const char*>(pZipData + nameOffset), cdHeader->filenameLength);
+            cdOffset += sizeof(ZipCdHeader) + cdHeader->filenameLength + cdHeader->extraFieldLength + cdHeader->commentLength;
+
+            if (!isMatchingZipEntry(filename, lowerExt)) continue;
+
+            // 定位到该 Entry 对应的 Local Header 读取压缩数据
+            if (cdHeader->localHeaderOffset + sizeof(ZipLocalHeader) > zipSize) continue;
+            const auto* localHeader = reinterpret_cast<const ZipLocalHeader*>(pZipData + cdHeader->localHeaderOffset);
+            if (localHeader->signature != 0x04034b50) continue;
+
+            size_t dataOffset = cdHeader->localHeaderOffset + sizeof(ZipLocalHeader) + localHeader->filenameLength + localHeader->extraFieldLength;
+            if (dataOffset + cdHeader->compressedSize > zipSize) continue;
+
+            std::string uncompData;
+            if (cdHeader->compressionMethod == 0) {
+                uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), cdHeader->compressedSize);
+            } else if (cdHeader->compressionMethod == 8) {
+                decompressRawDeflate(pZipData + dataOffset, cdHeader->compressedSize, cdHeader->uncompressedSize, uncompData);
+            }
+
+            if (!uncompData.empty()) {
+                std::wstring plain = stripXmlTags(uncompData);
+                if (!plain.empty()) {
+                    outExtractedText += plain;
+                    outExtractedText += L"\n";
+                }
+            }
+        }
+        if (!outExtractedText.empty()) return true;
+    }
+
+    // ── 2. Fallback: 遍历 Local Header 兜底 (针对截断或非标准 ZIP 文件) ──
+    size_t offset = 0;
     while (offset + sizeof(ZipLocalHeader) <= zipSize) {
         const auto* header = reinterpret_cast<const ZipLocalHeader*>(pZipData + offset);
-        if (header->signature != 0x04034b50) {
-            break; // 结束或到达中央目录区
-        }
+        if (header->signature != 0x04034b50) break;
 
         size_t nameOffset = offset + sizeof(ZipLocalHeader);
         if (nameOffset + header->filenameLength > zipSize) break;
@@ -136,34 +292,11 @@ bool ZipXmlExtractor::extractZipEntriesText(
         size_t dataOffset = nameOffset + header->filenameLength + header->extraFieldLength;
         if (dataOffset + header->compressedSize > zipSize) break;
 
-        bool shouldExtract = false;
-        if (lowerExt == L"docx" || lowerExt == L"wps" || lowerExt == L"dotx") {
-            if (filename == "word/document.xml" || filename == "word/header1.xml" || filename == "word/footer1.xml") {
-                shouldExtract = true;
-            }
-        } else if (lowerExt == L"xlsx" || lowerExt == L"et" || lowerExt == L"xlsm") {
-            if (filename == "xl/sharedStrings.xml" || filename.rfind("xl/worksheets/sheet", 0) == 0) {
-                shouldExtract = true;
-            }
-        } else if (lowerExt == L"pptx" || lowerExt == L"dps") {
-            if (filename.rfind("ppt/slides/slide", 0) == 0 || filename == "ppt/presentation.xml") {
-                shouldExtract = true;
-            }
-        } else if (lowerExt == L"cdr") {
-            if (filename == "content/root.xml" || filename == "content/riff.cdr") {
-                shouldExtract = true;
-            }
-        } else if (lowerExt == L"xmind") {
-            if (filename == "content.json" || filename == "content.xml") {
-                shouldExtract = true;
-            }
-        }
-
-        if (shouldExtract) {
+        if (isMatchingZipEntry(filename, lowerExt)) {
             std::string uncompData;
-            if (header->compressionMethod == 0) {
+            if (header->compressionMethod == 0 && header->compressedSize > 0) {
                 uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), header->compressedSize);
-            } else if (header->compressionMethod == 8) {
+            } else if (header->compressionMethod == 8 && header->compressedSize > 0) {
                 decompressRawDeflate(pZipData + dataOffset, header->compressedSize, header->uncompressedSize, uncompData);
             }
 
@@ -176,6 +309,7 @@ bool ZipXmlExtractor::extractZipEntriesText(
             }
         }
 
+        if (header->compressedSize == 0) break; // 遇到流式 Data Descriptor，无法通过本地 Header 单向步进
         offset = dataOffset + header->compressedSize;
     }
 
@@ -302,7 +436,7 @@ bool ZipXmlExtractor::searchContent(
 
             if (snippetLine.size() > MAX_SNIPPET_LEN) {
                 size_t start = (pos > CONTEXT_PADDING) ? (pos - CONTEXT_PADDING) : 0;
-                size_t end = std::min(snippetLine.size(), pos + matchLen + CONTEXT_PADDING);
+                size_t end = (std::min)(snippetLine.size(), pos + matchLen + CONTEXT_PADDING);
                 std::wstring truncated;
                 if (start > 0) truncated += L"...";
                 snippetOffset = static_cast<uint32_t>(truncated.size() + (pos - start));
