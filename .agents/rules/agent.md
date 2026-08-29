@@ -39,10 +39,8 @@ trigger: always_on
    - 严禁在 UI 状态徽章、提示标签及正文中内嵌 Unicode 彩色 Emoji 字符。
    - 全面采用 Lucide 高精度矢量 SVG 图标与玻璃拟态胶囊微徽章，保障世界级桌面软件原生设计质感。
 10、Git 分支管理与非快进显式合并发版标准（GitFlowReleasePipeline）：
-   - `dev` 分支（日常研发试验田）：保留所有细粒度提交，发版前在 `dev` 上提交版本升级与发布说明（`chore(release): 升级项目版本至 vX.Y.Z 并同步官方发布日志与版本元数据`）。
-   - `main` 分支（生产发版主线）：严禁使用 Fast-Forward 快进合并，必须执行显式非快进合并 `git merge --no-ff dev -m "merge(dev): 合并 dev 分支至 main 分支，发布 vX.Y.Z 正式版"`，确保在 Git Graph 中呈现出独立的开发支线气泡与顶部的双圆环汇聚节点。
-   - 标签与发版：在该 `merge(dev)` 节点上打 Tag `vX.Y.Z` 并调用 `publish_release.ps1` 发布 GitHub Release。
-   - 发版后分支：基于最新的 `main` 检出下一阶段的 `feature/*` 特性分支开启新工作。
+   - 一键全自动 DevOps 发版总控（`pwsh scripts/release.ps1`）：全链路 100% 自动化闭环：工作区纯净检查 -> VERSION 事实源自增 (+1) -> Release Notes 模板生成 -> 开发分支提交 -> main 显式非快进合并 (`--no-ff`) -> 零缓存编译打包 -> 7 重生命周期端到端门禁 -> 二进制 ProductVersion 强校验 -> 生成安装包/便携包/SHA256SUMS -> 创建推送 Tag -> GitHub Release 官方发布 -> 自动检出下一阶段特性分支。
+   - 双圆环拓扑美学：确保在 Git Graph 中呈现出独立的开发支线气泡与顶部的双圆环汇聚节点（`merge(dev)`）。
 11、跨系统无缝通用圆角双保险架构标准（UniversalRoundedCornersDualInsurance）：
    - 跨系统断层机理：Windows 11 的 DWM 硬件圆角（`DWMWCP_ROUND`）在 Windows 10、Windows Server 全系列（如 Server 2019/2022/2025）、精简版系统及远程桌面 (RDP) 下会被 DWM 忽略或关闭，导致无边框弹窗（如搜索中心、托盘菜单）暴露 Win32 直角底衬与粗糙阴影裁切块。
    - 双保险终局标准：所有无边框弹出窗口（`SearchWindow`, `TrayWindow` 等）几何尺寸变更时必须统一接入 `WinUtils::applyUniversalRoundedCorners(hwnd, width, height, radius)`：

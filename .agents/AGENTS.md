@@ -46,20 +46,8 @@
 3. **License & Notice Enforcement**: The project is licensed under **MIT License**. All `LICENSE` files, UI About pages, Inno Setup `AppPublisher` metadata, and documentation must uniformly attribute `Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors`.
 
 ## Git Branch Management & Non-Fast-Forward Release Pipeline (`GitFlowReleasePipeline`)
-1. **`dev` Branch (Daily R&D Arena)**: Holds all granular exploration, feature iterations, and tuning commits. Before releasing, commit version bumping and notes on `dev`: `chore(release): 升级项目版本至 vX.Y.Z 并同步官方发布日志与版本元数据`.
-2. **`main` Branch (Production Release Line & `--no-ff` Merge Mandate)**:
-   - **Strict Non-Fast-Forward Rule**: NEVER fast-forward `dev` into `main`. ALWAYS execute explicit non-fast-forward merge:
-     ```bash
-     git checkout main
-     git merge --no-ff dev -m "merge(dev): 合并 dev 分支至 main 分支，发布 vX.Y.Z 正式版"
-     ```
-   - **Visual Graph Integrity**: Ensures the Git Graph visually retains the independent development branch line and a dual-parent milestone convergence node (`merge(dev)`).
-3. **Tagging & GitHub Release Automation**:
-   - Create and push signed/annotated tag `vX.Y.Z` directly on the `merge(dev)` commit:
-     ```bash
-     git tag -a vX.Y.Z -m "EasyTools vX.Y.Z"
-     git push origin refs/tags/vX.Y.Z
-     ```
-   - Execute `pwsh scripts/publish_release.ps1 -Tag vX.Y.Z` to build setup installers, generate SHA256 checksums, and publish release notes.
-4. **Post-Release Feature Branching**: Immediately branch off from the latest `main` commit to create dedicated feature branches (e.g., `git checkout -b feature/optimize-capture-recorder-gestures main`).
+1. **One-Command DevOps Master Release (`scripts/release.ps1`)**:
+   - The entire release workflow is 100% automated via `pwsh scripts/release.ps1` (or `pwsh scripts/release.ps1 -Bump Minor/Major`, or `pwsh scripts/release.ps1 -Version X.Y.Z`).
+   - Automatically executes: Working tree hygiene check -> `VERSION` single-source-of-truth bump (+1) -> Release notes template generation -> Dev commit -> Non-fast-forward `--no-ff` merge to `main` -> Zero-cache clean build & package (`deploy.ps1`) -> 7-tier E2E lifecycle test gate -> Binary `ProductVersion` strict assertion -> Asset packaging (Setup EXE, Portable ZIP, SHA256SUMS) -> Git annotated Tag creation -> Remote push -> `gh release create` publication -> Automatic checkout of next feature branch.
+2. **Visual Graph Integrity**: Ensures the Git Graph visually retains the independent development branch line and a dual-parent milestone convergence node (`merge(dev)`).
 
