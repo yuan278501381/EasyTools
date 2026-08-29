@@ -2391,7 +2391,6 @@ export default function SearchApp() {
               setIsComposing(false);
               updateQuery(event.currentTarget.value);
             }}
-            onKeyDown={handleUnifiedKeyDown}
             role="combobox"
             aria-expanded={results.length > 0}
             aria-controls="search-results"
