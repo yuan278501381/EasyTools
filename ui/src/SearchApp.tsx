@@ -103,25 +103,47 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode {
-  if (!text || queryKeywords.length === 0) return text;
+const highlightRegexCache = new Map<string, { regex: RegExp; validKeywords: string[] }>();
+
+function getHighlightRegex(queryKeywords: string[]): { regex: RegExp; validKeywords: string[] } | null {
+  if (!queryKeywords || queryKeywords.length === 0) return null;
+  const key = queryKeywords.join('\u0000');
+  const cached = highlightRegexCache.get(key);
+  if (cached) return cached;
 
   const validKeywords = queryKeywords
     .map(k => k.trim())
     .filter(k => k.length > 0)
     .sort((a, b) => b.length - a.length);
 
-  if (validKeywords.length === 0) return text;
+  if (validKeywords.length === 0) return null;
 
   const escaped = validKeywords
     .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|');
 
-  if (!escaped) return text;
+  if (!escaped) return null;
 
   try {
     const regex = new RegExp(`(${escaped})`, 'gi');
+    const result = { regex, validKeywords };
+    if (highlightRegexCache.size > 100) highlightRegexCache.clear();
+    highlightRegexCache.set(key, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode {
+  if (!text || queryKeywords.length === 0) return text;
+  const compiled = getHighlightRegex(queryKeywords);
+  if (!compiled) return text;
+
+  const { regex, validKeywords } = compiled;
+  try {
     const parts = text.split(regex);
+    if (parts.length <= 1) return text;
     return parts.map((part, idx) => {
       const isMatch = validKeywords.some(k => k.toLowerCase() === part.toLowerCase());
       if (isMatch) {
@@ -652,6 +674,17 @@ const SearchResultRow = memo(function SearchResultRow({
       </div>
     </li>
   );
+}, (prev, next) => {
+  return (
+    prev.selected === next.selected &&
+    prev.index === next.index &&
+    prev.result === next.result &&
+    prev.density === next.density &&
+    prev.columns === next.columns &&
+    prev.queryKeywords === next.queryKeywords &&
+    prev.setSize === next.setSize &&
+    prev.style?.top === next.style?.top
+  );
 });
 
 interface VirtualSearchResultsProps {
@@ -757,13 +790,33 @@ export function VirtualSearchResults({
     else if (itemBottom > visibleBottom) list.scrollTop = itemBottom - list.clientHeight;
   }, [layout, layoutRevision, results.length, selectedIndex]);
 
+  const rafIdRef = useRef<number | null>(null);
+
+  const handleScroll = useCallback((event: React.UIEvent<HTMLUListElement>) => {
+    const currentScrollTop = event.currentTarget.scrollTop;
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = window.requestAnimationFrame(() => {
+      setScrollTop(currentScrollTop);
+      rafIdRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <ul
       id="search-results"
       ref={listRef}
       className={`search-results search-results--virtualized density-${density}`}
       role="listbox"
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={handleScroll}
     >
       <li aria-hidden="true" role="presentation" style={{ height: layout.totalHeight() }} />
       {results.slice(range.start, range.end).map((result, relativeIndex) => {
