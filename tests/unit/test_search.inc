@@ -884,6 +884,15 @@ TEST(QueryEpochTrackerTest, ResetClearsGeneration) {
     EXPECT_FALSE(tracker.isStale(1));
 }
 
+TEST(QueryEpochTrackerTest, CancelAllBumpsEpochAndMarksActiveQueriesStale) {
+    easy::service::query::QueryEpochTracker tracker;
+    EXPECT_TRUE(tracker.observe(100));
+    EXPECT_FALSE(tracker.isStale(100));
+    tracker.cancelAll();
+    EXPECT_GT(tracker.latest(), 100u);
+    EXPECT_TRUE(tracker.isStale(100));
+}
+
 TEST(QueryEpochTrackerTest, ConcurrentObserversAgreeOnASingleWinner) {
     easy::service::query::QueryEpochTracker tracker;
     constexpr uint64_t highest = 512;

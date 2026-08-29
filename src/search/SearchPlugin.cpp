@@ -967,6 +967,8 @@ public:
         });
 
         mb.registerHandler("search.windowHidden", [](const nlohmann::json&) -> nlohmann::json {
+            DWORD error = 0;
+            querySearchService(R"({"action":"cancel"})", error, false);
             scheduleIdleServiceShutdown();
             return {{"success", true}};
         });

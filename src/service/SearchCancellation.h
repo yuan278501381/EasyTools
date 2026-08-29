@@ -48,6 +48,11 @@ public:
         return m_latest.load(std::memory_order_acquire);
     }
 
+    /// 取消当前所有进行中的查询。使代际递增并标记之前所有的 queryId 为过期。
+    void cancelAll() noexcept {
+        m_latest.fetch_add(1, std::memory_order_acq_rel);
+    }
+
     void reset() noexcept { m_latest.store(0, std::memory_order_release); }
 
 private:

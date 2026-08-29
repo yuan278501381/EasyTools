@@ -277,11 +277,12 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
     if (!utf8Input.empty() && utf8Input.front() == '{') {
         try {
             auto reqJson = nlohmann::json::parse(utf8Input);
-            if (!reqJson.is_object()) {
-                return {{"results", nlohmann::json::array()}, {"error", "request must be a JSON object"}};
-            }
             if (reqJson.contains("action") && reqJson["action"].is_string()) {
                 std::string act = reqJson["action"].get<std::string>();
+                if (act == "cancel") {
+                    easy::service::query::sharedEpochTracker().cancelAll();
+                    return {{"success", true}, {"cancelled", true}};
+                }
                 if (act == "rebuild" || act == "reindex") {
                     const bool started = scheduleRebuild();
                     return {{"success", started}, {"rebuilding", started},
@@ -898,6 +899,8 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
                 if (!frame::writeExact(hPipe, response.data(), response.size())) break;
             }
         }
+        // 客户端断开连接或进程退出时，毫秒级原子取消当前所有正在运行的内容扫描，杜绝后台空转
+        easy::service::query::sharedEpochTracker().cancelAll();
         FlushFileBuffers(hPipe);
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
