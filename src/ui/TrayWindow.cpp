@@ -172,14 +172,16 @@ bool TrayWindow::createWindow(HINSTANCE hInstance, int x, int y) {
 
     if (!m_hwnd) return false;
 
-    // 启用 DWM 全客户区扩展与 Windows 11 原生圆角，由系统 DWM 提供纯净抗锯齿圆角与硬件级柔和阴影
+    // 启用 DWM 全客户区扩展与跨平台通用圆角裁剪，全兼容 Win11、Win10、Server 2022/2025
     MARGINS margins = {1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(m_hwnd, &margins);
     SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
-    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-    DwmSetWindowAttribute(m_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    const int radius = static_cast<int>(10 * scale);
+    easy::core::WinUtils::applyUniversalRoundedCorners(m_hwnd, sz.cx, sz.cy, radius);
 
     return true;
 }
@@ -192,6 +194,10 @@ void TrayWindow::updatePlacement() {
         m_anchor.x, m_anchor.y, size.cx, size.cy);
     SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, size.cx, size.cy,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
+    const float scale = easy::core::dpi::scaleForMonitor(monitor);
+    const int radius = static_cast<int>(10 * scale);
+    easy::core::WinUtils::applyUniversalRoundedCorners(m_hwnd, size.cx, size.cy, radius);
     m_updatingPlacement = false;
 }
 
@@ -210,6 +216,8 @@ void TrayWindow::setContentSize(int width, int height) {
     const POINT origin = trayWindowOrigin(m_anchor.x, m_anchor.y, scaledW, scaledH);
     SetWindowPos(m_hwnd, HWND_TOPMOST, origin.x, origin.y, scaledW, scaledH,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    const int radius = static_cast<int>(10 * scale);
+    easy::core::WinUtils::applyUniversalRoundedCorners(m_hwnd, scaledW, scaledH, radius);
     if (m_controller) {
         syncWebViewDpi(m_controller.Get(), m_hwnd);
     }

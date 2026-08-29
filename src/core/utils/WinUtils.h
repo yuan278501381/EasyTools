@@ -846,6 +846,22 @@ public:
             SetWindowDisplayAffinity(hwnd, WDA_NONE);
         }
     }
+
+    /// 为任意 Win32 / WebView2 宿主窗口赋予跨平台通用圆角 (全兼容 Windows 10/11/Server 2019/2022/2025)
+    static void applyUniversalRoundedCorners(HWND hwnd, int width, int height, int radius) {
+        if (!hwnd || !IsWindow(hwnd) || width <= 0 || height <= 0 || radius <= 0) return;
+
+        // 1. Windows 11 DWM 硬件级超平滑圆角首选
+        const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+
+        // 2. Win32 硬件级 RGN 裁剪兜底 (确保在 Win10、Windows Server 2022/2025、虚拟机与 RDP 下 100% 绝对圆角)
+        const HRGN hRgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
+        if (hRgn) {
+            SetWindowRgn(hwnd, hRgn, TRUE);
+            // SetWindowRgn 成功后系统接管 hRgn 句柄的所有权，无需手动 DeleteObject
+        }
+    }
 };
 
 }  // namespace easy::core
