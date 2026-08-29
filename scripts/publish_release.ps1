@@ -38,14 +38,14 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "发布 EasyTools $Tag (版本号: $CleanVersion) 到 GitHub Releases" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
-# VERSION 是唯一产品版本源。发布过程只读取和校验，绝不在构建中改写源码。
-# 如果强制重构或尚无安装包，触发 deploy.ps1 重新打包。
-if ($ForceRebuild -or -not (Test-Path "Output\EasyTools-Setup.exe")) {
-    Write-Host "[BUILD] 触发全量一键构建部署流水线..." -ForegroundColor Cyan
-    & pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick
-    if ($LASTEXITCODE -ne 0) {
-        throw "构建部署失败，终止发布！"
-    }
+# VERSION 是唯一产品版本源。为彻底杜绝旧安装包缓存混淆，发布过程必须无条件清理旧产物并触发全量一键编译与打包。
+Write-Host "[BUILD] 正在清理旧产物并触发全量一键构建部署流水线 (VERSION: $CleanVersion)..." -ForegroundColor Cyan
+if (Test-Path "Output\EasyTools-Setup.exe") {
+    Remove-Item -Force "Output\EasyTools-Setup.exe"
+}
+& pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick
+if ($LASTEXITCODE -ne 0) {
+    throw "构建部署失败，终止发布！"
 }
 
 $ReleaseDir = "release_assets"
