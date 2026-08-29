@@ -71,27 +71,136 @@ $TargetTag = "v$TargetVersion"
 Write-Host "[INFO] 当前版本: v$CurrentVersion" -ForegroundColor Yellow
 Write-Host "[INFO] 发行版本: $TargetTag (版本号: $TargetVersion)" -ForegroundColor Green
 
-# 3. 检查并生成 Release Notes 模板
+function Generate-UserCentricReleaseNotes {
+    param(
+        [string]$BaseBranch = "main",
+        [string]$CurrentBranch = "dev",
+        [string]$TargetTag = "v1.0.6"
+    )
+
+    $features = [System.Collections.Generic.List[string]]::new()
+    $fixes = [System.Collections.Generic.List[string]]::new()
+    $improvements = [System.Collections.Generic.List[string]]::new()
+
+    # 提取当前分支与主分支之间的真实差异提交
+    $diffCommits = @(git log "$BaseBranch..$CurrentBranch" --no-merges --pretty=format:"%H")
+    foreach ($commitHash in $diffCommits) {
+        if ([string]::IsNullOrWhiteSpace($commitHash)) { continue }
+        $commitMsg = git log -n 1 --pretty=format:"%B" $commitHash
+        if ([string]::IsNullOrWhiteSpace($commitMsg)) { continue }
+
+        $lines = $commitMsg -split '\r?\n'
+        $subj = $lines[0].Trim()
+
+        # 忽略发布自增与合并元数据提交
+        if ($subj -match '^chore\(release\):' -or $subj -match '^merge\(') {
+            continue
+        }
+
+        # 尝试提取 "💼 业务角度" 中针对用户体感的描述清单
+        $bizItems = [System.Collections.Generic.List[string]]::new()
+        if ($commitMsg -match '(?s)💼\s*业务角度[：:]\s*(.*?)(?=\n\s*(?:🔧|💻|⚙️|##|\z))') {
+            $bizBlock = $Matches[1].Trim()
+            $bizLines = $bizBlock -split '\r?\n'
+            foreach ($bLine in $bizLines) {
+                $trimmed = $bLine.Trim()
+                if ($trimmed.StartsWith('-') -or $trimmed.StartsWith('*')) {
+                    $item = $trimmed.Substring(1).Trim()
+                    if ($item.EndsWith(';') -or $item.EndsWith('；')) {
+                        $item = $item.Substring(0, $item.Length - 1)
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($item)) {
+                        $bizItems.Add($item)
+                    }
+                }
+            }
+        }
+
+        # 按照用户体感类型归类
+        if ($subj -match '^feat(\(.*\))?:') {
+            if ($bizItems.Count -gt 0) {
+                $bizItems | ForEach-Object { if (-not $features.Contains($_)) { $features.Add($_) } }
+            } else {
+                $clean = ($subj -replace '^feat(\(.*\))?:\s*', '').Trim()
+                if (-not $features.Contains($clean)) { $features.Add($clean) }
+            }
+        } elseif ($subj -match '^fix(\(.*\))?:') {
+            if ($bizItems.Count -gt 0) {
+                $bizItems | ForEach-Object { if (-not $fixes.Contains($_)) { $fixes.Add($_) } }
+            } else {
+                $clean = ($subj -replace '^fix(\(.*\))?:\s*', '').Trim()
+                if (-not $fixes.Contains($clean)) { $fixes.Add($clean) }
+            }
+        } else {
+            if ($bizItems.Count -gt 0) {
+                $bizItems | ForEach-Object { if (-not $improvements.Contains($_)) { $improvements.Add($_) } }
+            } else {
+                $clean = ($subj -replace '^[a-zA-Z]+(\(.*\))?:\s*', '').Trim()
+                if (-not $improvements.Contains($clean)) { $improvements.Add($clean) }
+            }
+        }
+    }
+
+    $sb = [System.Text.StringBuilder]::new()
+    $sb.AppendLine("# EasyTools $TargetTag 官方正式版发布说明") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("欢迎体验 **EasyTools $TargetTag**！本次更新专注于解决日常使用中的体感痛点，带来更稳定、丝滑的极客桌面效率体验。") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("---") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("## 🌟 本次重点更新与体验改进") | Out-Null
+    $sb.AppendLine() | Out-Null
+
+    if ($features.Count -gt 0) {
+        $sb.AppendLine("### 🚀 新增功能与体验进化") | Out-Null
+        foreach ($f in $features) {
+            $sb.AppendLine("- $f") | Out-Null
+        }
+        $sb.AppendLine() | Out-Null
+    }
+
+    if ($fixes.Count -gt 0) {
+        $sb.AppendLine("### 🛠️ 痛点修复与体验优化") | Out-Null
+        foreach ($fx in $fixes) {
+            $sb.AppendLine("- $fx") | Out-Null
+        }
+        $sb.AppendLine() | Out-Null
+    }
+
+    if ($improvements.Count -gt 0) {
+        $sb.AppendLine("### ⚡ 稳定性与底层演进") | Out-Null
+        foreach ($imp in $improvements) {
+            $sb.AppendLine("- $imp") | Out-Null
+        }
+        $sb.AppendLine() | Out-Null
+    }
+
+    if ($features.Count -eq 0 -and $fixes.Count -eq 0 -and $improvements.Count -eq 0) {
+        $sb.AppendLine("### 1. 核心功能演进与体验提升") | Out-Null
+        $sb.AppendLine("- 优化日常使用体感与操作响应速度；") | Out-Null
+        $sb.AppendLine("- 修复已知使用问题与边缘交互缺陷。") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("### 2. 系统稳定性与架构加固") | Out-Null
+        $sb.AppendLine("- 全模块生命周期与防死锁端到端保障；") | Out-Null
+        $sb.AppendLine("- 跨系统（Windows 10/11/Server 2025）通用圆角与纯净渲染支持。") | Out-Null
+        $sb.AppendLine() | Out-Null
+    }
+
+    return $sb.ToString()
+}
+
+# 3. 智能提炼 Git 差异并生成以用户体感为核心的 Release Notes
 $NotesFile = Join-Path $ScriptDir "docs\RELEASE_NOTES_$TargetTag.md"
 if (-not (Test-Path $NotesFile)) {
-    Write-Host "[INFO] 生成 Release Notes 模板: $NotesFile" -ForegroundColor Cyan
-    @"
-# EasyTools $TargetTag 官方正式版发布说明
-
-欢迎体验 **EasyTools $TargetTag**！本次更新专注于解决日常使用中的体感痛点，带来更稳定、丝滑的极客桌面效率体验。
-
----
-
-## 🌟 本次重点更新与体验改进
-
-### 1. 核心功能演进与体验提升
-- 优化日常使用体感与操作响应速度；
-- 修复已知使用问题与边缘交互缺陷。
-
-### 2. 系统稳定性与架构加固
-- 全模块生命周期与防死锁端到端保障；
-- 跨系统（Windows 10/11/Server 2025）通用圆角与纯净渲染支持。
-"@ | Set-Content -Path $NotesFile -Encoding utf8
+    Write-Host "[INFO] 正在分析与主分支的差异，智能生成用户体感 Release Notes: $NotesFile..." -ForegroundColor Cyan
+    $GeneratedNotes = Generate-UserCentricReleaseNotes -BaseBranch "main" -CurrentBranch $CurrentBranch -TargetTag $TargetTag
+    $GeneratedNotes | Set-Content -Path $NotesFile -Encoding utf8
+    Write-Host "[OK] Release Notes 已智能生成！预览如下：" -ForegroundColor Green
+    Write-Host "-------------------------------------------------------" -ForegroundColor Gray
+    Write-Host $GeneratedNotes -ForegroundColor Gray
+    Write-Host "-------------------------------------------------------" -ForegroundColor Gray
+} else {
+    Write-Host "[INFO] 使用已存在的 Release Notes: $NotesFile" -ForegroundColor Cyan
 }
 
 # 4. 更新 VERSION 文件
