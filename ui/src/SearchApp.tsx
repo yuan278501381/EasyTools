@@ -163,6 +163,7 @@ function highlightMatch(text: string, queryKeywords: string[]): React.ReactNode 
 
 
 export type SearchDensity = 'compact' | 'standard' | 'comfortable';
+export type SearchIconStyle = 'native' | 'vector';
 export type SortField = 'relevance' | 'modified' | 'name' | 'size' | 'created';
 export type SortDirection = 'asc' | 'desc';
 
@@ -416,8 +417,37 @@ function formatWindowsTime(ft?: number | string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function renderFileIcon(name: string, isDirectory: boolean, density: SearchDensity = 'standard') {
+function renderFileIcon(
+  name: string,
+  isDirectory: boolean,
+  density: SearchDensity = 'standard',
+  iconStyle: SearchIconStyle = 'native',
+  iconBase64?: string
+) {
   const iconSize = density === 'compact' ? 14 : density === 'comfortable' ? 22 : 18;
+  if (iconStyle === 'native' && iconBase64) {
+    return (
+      <img
+        src={iconBase64}
+        alt=""
+        className="file-icon file-icon--native"
+        style={{
+          width: iconSize,
+          height: iconSize,
+          minWidth: iconSize,
+          minHeight: iconSize,
+          objectFit: 'contain',
+          display: 'inline-block',
+          verticalAlign: 'middle',
+          userSelect: 'none',
+          pointerEvents: 'none',
+        }}
+        aria-hidden="true"
+        draggable={false}
+      />
+    );
+  }
+
   if (isDirectory) {
     return <Folder className="file-icon file-icon--folder" size={iconSize} aria-hidden="true" />;
   }
@@ -518,6 +548,8 @@ interface SearchResultRowProps {
   index: number;
   selected: boolean;
   density: SearchDensity;
+  iconStyle: SearchIconStyle;
+  iconBase64?: string;
   columns: ColumnLayout;
   queryKeywords: string[];
   onHover: (index: number) => void;
@@ -541,6 +573,8 @@ const SearchResultRow = memo(function SearchResultRow({
   index,
   selected,
   density,
+  iconStyle,
+  iconBase64,
   columns,
   queryKeywords,
   onHover,
@@ -575,7 +609,7 @@ const SearchResultRow = memo(function SearchResultRow({
       onDoubleClick={() => onOpen(result)}
       onContextMenu={(event) => onContextMenu(event, index, result)}
     >
-      {renderFileIcon(result.name, result.isDirectory, density)}
+      {renderFileIcon(result.name, result.isDirectory, density, iconStyle, iconBase64)}
       <div className="file-info">
         {density === 'compact' ? (
           <div className="file-row-main">
@@ -680,6 +714,8 @@ const SearchResultRow = memo(function SearchResultRow({
     prev.index === next.index &&
     prev.result === next.result &&
     prev.density === next.density &&
+    prev.iconStyle === next.iconStyle &&
+    prev.iconBase64 === next.iconBase64 &&
     prev.columns === next.columns &&
     prev.queryKeywords === next.queryKeywords &&
     prev.setSize === next.setSize &&
@@ -691,6 +727,9 @@ interface VirtualSearchResultsProps {
   results: SearchResult[];
   selectedIndex: number;
   density: SearchDensity;
+  iconStyle?: SearchIconStyle;
+  iconCache?: Record<string, string>;
+  onRequestIcon?: (ext: string, isDirectory: boolean) => void;
   columns: ColumnLayout;
   queryKeywords: string[];
   onHover: (index: number) => void;
@@ -704,7 +743,18 @@ interface VirtualSearchResultsProps {
  * ResizeObserver 只测量视口附近真实行，其余行使用密度估算值并在滚动时逐步校准。
  */
 export function VirtualSearchResults({
-  results, selectedIndex, density, columns, queryKeywords, onHover, onSelect, onOpen, onContextMenu,
+  results,
+  selectedIndex,
+  density,
+  iconStyle = 'native',
+  iconCache = {},
+  onRequestIcon,
+  columns,
+  queryKeywords,
+  onHover,
+  onSelect,
+  onOpen,
+  onContextMenu,
 }: VirtualSearchResultsProps) {
   const listRef = useRef<HTMLUListElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -810,6 +860,17 @@ export function VirtualSearchResults({
     };
   }, []);
 
+  const getIconBase64 = useCallback((item: SearchResult) => {
+    const dotIdx = item.name.lastIndexOf('.');
+    const ext = !item.isDirectory && dotIdx >= 0 ? item.name.slice(dotIdx).toLowerCase() : '';
+    const cacheKey = item.isDirectory ? '::dir::' : ext;
+    const icon = iconCache?.[cacheKey];
+    if (iconStyle === 'native' && !icon && onRequestIcon) {
+      onRequestIcon(ext, item.isDirectory);
+    }
+    return icon;
+  }, [iconStyle, iconCache, onRequestIcon]);
+
   return (
     <ul
       id="search-results"
@@ -821,6 +882,7 @@ export function VirtualSearchResults({
       <li aria-hidden="true" role="presentation" style={{ height: layout.totalHeight() }} />
       {results.slice(range.start, range.end).map((result, relativeIndex) => {
         const index = range.start + relativeIndex;
+        const iconBase64 = getIconBase64(result);
         return (
           <SearchResultRow
             key={result.path}
@@ -828,6 +890,8 @@ export function VirtualSearchResults({
             index={index}
             selected={index === selectedIndex}
             density={density}
+            iconStyle={iconStyle}
+            iconBase64={iconBase64}
             columns={columns}
             queryKeywords={queryKeywords}
             onHover={onHover}
@@ -847,6 +911,8 @@ export function VirtualSearchResults({
           index={selectedIndex}
           selected
           density={density}
+          iconStyle={iconStyle}
+          iconBase64={getIconBase64(results[selectedIndex])}
           columns={columns}
           queryKeywords={queryKeywords}
           onHover={onHover}
@@ -1146,6 +1212,66 @@ export default function SearchApp() {
     }
     return 'standard';
   });
+
+  const [iconStyle, setIconStyle] = useState<SearchIconStyle>(() => {
+    const saved = localStorage.getItem('easytools_search_icon_style');
+    if (saved === 'native' || saved === 'vector') return saved;
+    return 'native';
+  });
+  const [nativeIconCache, setNativeIconCache] = useState<Record<string, string>>({});
+
+  const fetchNativeIcon = useCallback(async (ext: string, isDirectory: boolean) => {
+    const key = isDirectory ? '::dir::' : ext.toLowerCase();
+    if (nativeIconCache[key]) return nativeIconCache[key];
+    try {
+      const resp = await bridgeRequest<{ success: boolean; iconBase64?: string }>('search.getFileIcon', {
+        ext: isDirectory ? '' : ext,
+        isDirectory,
+      });
+      if (resp?.success && resp.iconBase64) {
+        setNativeIconCache(prev => ({ ...prev, [key]: resp.iconBase64! }));
+        return resp.iconBase64;
+      }
+    } catch {
+      // fallback
+    }
+    return undefined;
+  }, [nativeIconCache]);
+
+  const prefetchIcons = useCallback(async (list: SearchResult[]) => {
+    if (iconStyle !== 'native') return;
+    const missing = new Set<string>();
+    const items: Array<{ ext: string; isDirectory: boolean }> = [];
+    for (const item of list.slice(0, 100)) {
+      const dotIdx = item.name.lastIndexOf('.');
+      const ext = !item.isDirectory && dotIdx >= 0 ? item.name.slice(dotIdx).toLowerCase() : '';
+      const key = item.isDirectory ? '::dir::' : ext;
+      if (!nativeIconCache[key] && !missing.has(key)) {
+        missing.add(key);
+        items.push({ ext, isDirectory: item.isDirectory });
+      }
+    }
+    if (items.length === 0) return;
+    try {
+      const resp = await bridgeRequest<{ success: boolean; icons: Record<string, string> }>('search.batchGetIcons', { items });
+      if (resp?.success && resp.icons) {
+        setNativeIconCache(prev => ({ ...prev, ...resp.icons }));
+      }
+    } catch {
+      // fallback
+    }
+  }, [iconStyle, nativeIconCache]);
+
+  const prefetchIconsRef = useRef(prefetchIcons);
+  useEffect(() => {
+    prefetchIconsRef.current = prefetchIcons;
+  }, [prefetchIcons]);
+
+  const changeIconStyle = (newStyle: SearchIconStyle) => {
+    setIconStyle(newStyle);
+    localStorage.setItem('easytools_search_icon_style', newStyle);
+    void bridgeRequest('search.saveSettings', { iconStyle: newStyle });
+  };
 
   const [columns, setColumns] = useState<ColumnSetting[]>(() => {
     try {
@@ -1651,7 +1777,9 @@ export default function SearchApp() {
         retryCountRef.current = 0;
         startTransition(() => {
           setIsServiceStarting(false);
-          setResults(Array.isArray(response.results) ? response.results : []);
+          const list = Array.isArray(response.results) ? response.results : [];
+          setResults(list);
+          void prefetchIconsRef.current(list);
           setSelectedIndex(0);
           if (response.totalIndexedFiles !== undefined) {
             setTotalIndexedFiles(response.totalIndexedFiles);
@@ -2910,6 +3038,32 @@ export default function SearchApp() {
                 </div>
               </div>
 
+              {/* 1.1 图标风格 */}
+              <div className="popover-section">
+                <div className="popover-section-title">
+                  <span>{t('search.iconStyle', 'Icon Display Style')}</span>
+                  <span className="popover-badge-curr">
+                    {iconStyle === 'native' ? t('search.iconStyleNative', 'Windows Native') : t('search.iconStyleVector', 'Minimalist Vector')}
+                  </span>
+                </div>
+                <div className="popover-segmented-control">
+                  <button
+                    type="button"
+                    className={`popover-segment ${iconStyle === 'native' ? 'popover-segment--active' : ''}`}
+                    onClick={() => changeIconStyle('native')}
+                  >
+                    {t('search.iconStyleNative', 'Windows Native')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`popover-segment ${iconStyle === 'vector' ? 'popover-segment--active' : ''}`}
+                    onClick={() => changeIconStyle('vector')}
+                  >
+                    {t('search.iconStyleVector', 'Minimalist Vector')}
+                  </button>
+                </div>
+              </div>
+
               {/* 2. 检索结果数量上限 (支持全部返回) */}
               <div className="popover-section">
                 <div className="popover-section-title">
@@ -3533,10 +3687,13 @@ export default function SearchApp() {
 
         {!isInitialIndexing && !isServiceStarting && !((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) && sortedResults.length > 0 && (
           <VirtualSearchResults
-            key={`${density}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
+            key={`${density}:${iconStyle}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
             results={sortedResults}
             selectedIndex={selectedIndex}
             density={density}
+            iconStyle={iconStyle}
+            iconCache={nativeIconCache}
+            onRequestIcon={fetchNativeIcon}
             columns={columnLayout}
             queryKeywords={queryKeywords}
             onHover={handleRowHover}

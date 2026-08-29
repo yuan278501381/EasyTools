@@ -677,6 +677,19 @@ TEST(WinUtilsTest, ClipboardAndEncoding) {
     std::vector<uint8_t> raw = {0x45, 0x61, 0x73, 0x79}; // "Easy"
     std::string b64 = easy::core::WinUtils::base64Encode(raw);
     EXPECT_EQ(b64, "RWFzeQ==");
+
+    // 验证 Windows 原生高清图标 Base64 提取与缓存
+    std::string iconFolder = easy::core::WinUtils::getFileTypeIconBase64(L"", true);
+    EXPECT_TRUE(iconFolder.rfind("data:image/png;base64,", 0) == 0);
+
+    std::string iconExe = easy::core::WinUtils::getFileTypeIconBase64(L".exe", false);
+    EXPECT_TRUE(iconExe.rfind("data:image/png;base64,", 0) == 0);
+
+    std::string iconDoc = easy::core::WinUtils::getFileTypeIconBase64(L"docx", false);
+    EXPECT_TRUE(iconDoc.rfind("data:image/png;base64,", 0) == 0);
+
+    // 验证大小写容错与内存单例缓存一致性
+    EXPECT_EQ(easy::core::WinUtils::getFileTypeIconBase64(L"DOCX", false), iconDoc);
 }
 
 // -----------------------------------------------------------------------------

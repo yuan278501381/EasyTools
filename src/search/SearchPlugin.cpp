@@ -992,6 +992,7 @@ public:
             bool catCode = cfg.get<bool>("/search/contentCategory_code", true);
             bool catDesign = cfg.get<bool>("/search/contentCategory_design", true);
             bool catArchive = cfg.get<bool>("/search/contentCategory_archive", true);
+            std::string iconStyle = cfg.get<std::string>("/search/iconStyle", "native");
 
             return {
                 {"residentInBackground", residentInBackground},
@@ -1008,6 +1009,7 @@ public:
                 {"excludeHidden", excludeHidden},
                 {"excludeSystem", excludeSystem},
                 {"autoBypassFullscreen", autoBypassFullscreen},
+                {"iconStyle", iconStyle},
                 {"contentCategory_doc", catDoc},
                 {"contentCategory_code", catCode},
                 {"contentCategory_design", catDesign},
@@ -1101,7 +1103,32 @@ public:
             if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
                 cfg.set("/search/autoBypassFullscreen", params["autoBypassFullscreen"].get<bool>());
             }
+            if (params.contains("iconStyle") && params["iconStyle"].is_string()) {
+                cfg.set("/search/iconStyle", params["iconStyle"].get<std::string>());
+            }
             return {{"success", true}};
+        });
+
+        mb.registerHandler("search.getFileIcon", [](const nlohmann::json& params) -> nlohmann::json {
+            std::string ext = params.value("ext", "");
+            bool isDir = params.value("isDirectory", false);
+            std::string base64 = easy::core::WinUtils::getFileTypeIconBase64(easy::core::WinUtils::utf8ToWstring(ext), isDir);
+            return {{"success", true}, {"iconBase64", base64}};
+        });
+
+        mb.registerHandler("search.batchGetIcons", [](const nlohmann::json& params) -> nlohmann::json {
+            nlohmann::json result = nlohmann::json::object();
+            if (params.contains("items") && params["items"].is_array()) {
+                for (const auto& item : params["items"]) {
+                    std::string ext = item.value("ext", "");
+                    bool isDir = item.value("isDirectory", false);
+                    std::string key = isDir ? "::dir::" : ext;
+                    if (!result.contains(key)) {
+                        result[key] = easy::core::WinUtils::getFileTypeIconBase64(easy::core::WinUtils::utf8ToWstring(ext), isDir);
+                    }
+                }
+            }
+            return {{"success", true}, {"icons", result}};
         });
 
         mb.registerHandler("search.recordRun", [](const nlohmann::json& params) -> nlohmann::json {

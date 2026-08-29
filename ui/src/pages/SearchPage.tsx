@@ -30,6 +30,7 @@ interface SearchSettings {
   caseSensitive: boolean;
   matchPath: boolean;
   pinyinEnabled: boolean;
+  iconStyle?: 'native' | 'vector';
   residentInBackground?: boolean;
   keepServiceRunning?: boolean;
   idleShutdownMinutes?: number;
@@ -52,6 +53,7 @@ export const SearchPage: FC = () => {
     caseSensitive: false,
     matchPath: false,
     pinyinEnabled: true,
+    iconStyle: 'native',
     residentInBackground: true,
     keepServiceRunning: true,
     idleShutdownMinutes: 1,
@@ -226,6 +228,48 @@ export const SearchPage: FC = () => {
                   checked={settings.caseSensitive}
                   onChange={v => saveSetting('caseSensitive', v)}
                 />
+              </SettingRow>
+
+              <SettingRow
+                label={t('searchPage.iconStyleTitle', 'Result Icon Style')}
+                description={t('searchPage.iconStyleDesc', 'Choose between Windows native associated file icons (familiar system look with 0 cognitive overhead) and minimalist vector icons')}
+              >
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={`popover-segment ${(settings.iconStyle ?? 'native') === 'native' ? 'popover-segment--active' : ''}`}
+                    onClick={() => void saveSetting('iconStyle', 'native')}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--search-surface-pill-border, rgba(255, 255, 255, 0.12))',
+                      background: (settings.iconStyle ?? 'native') === 'native' ? 'var(--accent-color, #3b82f6)' : 'var(--search-surface-pill, rgba(255, 255, 255, 0.06))',
+                      color: (settings.iconStyle ?? 'native') === 'native' ? '#fff' : 'inherit',
+                      fontSize: '12.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {t('searchPage.iconStyleNative', 'Windows Native')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`popover-segment ${settings.iconStyle === 'vector' ? 'popover-segment--active' : ''}`}
+                    onClick={() => void saveSetting('iconStyle', 'vector')}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--search-surface-pill-border, rgba(255, 255, 255, 0.12))',
+                      background: settings.iconStyle === 'vector' ? 'var(--accent-color, #3b82f6)' : 'var(--search-surface-pill, rgba(255, 255, 255, 0.06))',
+                      color: settings.iconStyle === 'vector' ? '#fff' : 'inherit',
+                      fontSize: '12.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {t('searchPage.iconStyleVector', 'Vector Minimalist')}
+                  </button>
+                </div>
               </SettingRow>
 
               <SettingRow

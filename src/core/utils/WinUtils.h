@@ -16,6 +16,8 @@
 #include <shldisp.h>
 #include <exdisp.h>
 #include <dwmapi.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #include <wrl/client.h>
 #include <string>
 #include <filesystem>
@@ -25,6 +27,9 @@
 #include <cctype>
 #include <vector>
 #include <thread>
+#include <unordered_map>
+#include <mutex>
+#include <memory>
 
 namespace easy::core {
 
@@ -182,8 +187,181 @@ public:
     /// 字符串转小写
     static std::string toLower(std::string str) {
         std::transform(str.begin(), str.end(), str.begin(),
-            [](unsigned char c){ return std::tolower(c); });
+            [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
         return str;
+    }
+
+    /// 宽字符串转小写
+    static std::wstring toLower(std::wstring str) {
+        std::transform(str.begin(), str.end(), str.begin(),
+            [](wchar_t c){ return static_cast<wchar_t>(std::tolower(c)); });
+        return str;
+    }
+
+    /// 获取文件扩展名对应的 Windows 原生高清图标（自动重建 32 位 ARGB Alpha 通道彻底消灭黑边，并进行单例字典缓存）
+    static std::string getFileTypeIconBase64(const std::wstring& extension, bool isDirectory) {
+        static std::unordered_map<std::wstring, std::string> s_iconCache;
+        static std::mutex s_iconCacheMutex;
+
+        std::wstring key = isDirectory ? L"::dir::" : toLower(extension);
+        if (key.rfind(L".", 0) == 0) {
+            key = key.substr(1);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(s_iconCacheMutex);
+            auto it = s_iconCache.find(key);
+            if (it != s_iconCache.end()) return it->second;
+        }
+
+        std::wstring fakePath = isDirectory ? L"folder" : (L"dummy." + key);
+        SHFILEINFOW sfi{};
+        DWORD_PTR hr = SHGetFileInfoW(
+            fakePath.c_str(),
+            isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL,
+            &sfi,
+            sizeof(sfi),
+            SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | SHGFI_SMALLICON
+        );
+
+        if (!hr || !sfi.hIcon) {
+            SHGetFileInfoW(
+                L"dummy",
+                FILE_ATTRIBUTE_NORMAL,
+                &sfi,
+                sizeof(sfi),
+                SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | SHGFI_SMALLICON
+            );
+        }
+
+        std::string base64;
+        if (sfi.hIcon) {
+            ICONINFO iconInfo{};
+            if (GetIconInfo(sfi.hIcon, &iconInfo)) {
+                BITMAP bm{};
+                if (GetObjectW(iconInfo.hbmColor ? iconInfo.hbmColor : iconInfo.hbmMask, sizeof(bm), &bm)) {
+                    int width = bm.bmWidth;
+                    int height = iconInfo.hbmColor ? bm.bmHeight : (bm.bmHeight / 2);
+                    if (width <= 0 || height <= 0) {
+                        width = GetSystemMetrics(SM_CXSMICON);
+                        height = GetSystemMetrics(SM_CYSMICON);
+                    }
+
+                    HDC hdcScreen = GetDC(nullptr);
+                    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+                    BITMAPINFO bi{};
+                    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bi.bmiHeader.biWidth = width;
+                    bi.bmiHeader.biHeight = -height; // Top-down
+                    bi.bmiHeader.biPlanes = 1;
+                    bi.bmiHeader.biBitCount = 32;
+                    bi.bmiHeader.biCompression = BI_RGB;
+
+                    void* pBits = nullptr;
+                    HBITMAP hDIB = CreateDIBSection(hdcMem, &bi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+                    if (hDIB && pBits) {
+                        HGDIOBJ hOldBmp = SelectObject(hdcMem, hDIB);
+                        memset(pBits, 0, width * height * 4);
+
+                        // 使用 Windows 底层权威 DrawIconEx 渲染合成
+                        DrawIconEx(hdcMem, 0, 0, sfi.hIcon, width, height, 0, nullptr, DI_NORMAL);
+
+                        uint32_t* pixels = static_cast<uint32_t*>(pBits);
+                        bool hasValidAlpha = false;
+
+                        for (int i = 0; i < width * height; ++i) {
+                            if ((pixels[i] & 0xFF000000) != 0) {
+                                hasValidAlpha = true;
+                                break;
+                            }
+                        }
+
+                        // 如果原图标是传统的 1-bit / 24-bit 掩码图标（Alpha 全为 0），利用 hbmMask 智能重建真实 Alpha 通道，彻底消灭黑边
+                        if (!hasValidAlpha && iconInfo.hbmMask) {
+                            HDC hdcMask = CreateCompatibleDC(hdcScreen);
+                            HGDIOBJ hOldMask = SelectObject(hdcMask, iconInfo.hbmMask);
+
+                            for (int y = 0; y < height; ++y) {
+                                for (int x = 0; x < width; ++x) {
+                                    COLORREF maskColor = GetPixel(hdcMask, x, y);
+                                    int idx = y * width + x;
+                                    if (maskColor == 0x00FFFFFF) {
+                                        pixels[idx] = 0x00000000; // 掩码白色 = 完全透明
+                                    } else {
+                                        pixels[idx] |= 0xFF000000; // 掩码黑色 = 完全不透明
+                                    }
+                                }
+                            }
+
+                            SelectObject(hdcMask, hOldMask);
+                            DeleteDC(hdcMask);
+                        }
+
+                        // 通过 GDI+ 导出为 32 位透明 PNG
+                        ULONG_PTR gdiplusToken = 0;
+                        Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+                        if (Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr) == Gdiplus::Ok) {
+                            {
+                                Gdiplus::Bitmap gdiBmp(width, height, width * 4, PixelFormat32bppARGB, static_cast<BYTE*>(pBits));
+                                if (gdiBmp.GetLastStatus() == Gdiplus::Ok) {
+                                    CLSID pngClsid{};
+                                    UINT num = 0, size = 0;
+                                    Gdiplus::GetImageEncodersSize(&num, &size);
+                                    if (size > 0) {
+                                        auto pCodecsBuf = std::make_unique<uint8_t[]>(size);
+                                        auto* pCodecs = reinterpret_cast<Gdiplus::ImageCodecInfo*>(pCodecsBuf.get());
+                                        if (Gdiplus::GetImageEncoders(num, size, pCodecs) == Gdiplus::Ok) {
+                                            for (UINT j = 0; j < num; ++j) {
+                                                if (wcscmp(pCodecs[j].MimeType, L"image/png") == 0) {
+                                                    pngClsid = pCodecs[j].Clsid;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (pngClsid != CLSID{}) {
+                                        IStream* pStream = nullptr;
+                                        if (SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &pStream)) && pStream) {
+                                            if (gdiBmp.Save(pStream, &pngClsid, nullptr) == Gdiplus::Ok) {
+                                                HGLOBAL hMem = nullptr;
+                                                if (SUCCEEDED(GetHGlobalFromStream(pStream, &hMem)) && hMem) {
+                                                    const SIZE_T memSize = GlobalSize(hMem);
+                                                    const void* pData = GlobalLock(hMem);
+                                                    if (pData && memSize > 0) {
+                                                        std::vector<uint8_t> buffer(static_cast<const uint8_t*>(pData),
+                                                                                    static_cast<const uint8_t*>(pData) + memSize);
+                                                        GlobalUnlock(hMem);
+                                                        base64 = "data:image/png;base64," + base64Encode(buffer);
+                                                    }
+                                                }
+                                            }
+                                            pStream->Release();
+                                        }
+                                    }
+                                }
+                            }
+                            Gdiplus::GdiplusShutdown(gdiplusToken);
+                        }
+
+                        SelectObject(hdcMem, hOldBmp);
+                        DeleteObject(hDIB);
+                    }
+                    DeleteDC(hdcMem);
+                    ReleaseDC(nullptr, hdcScreen);
+                }
+                if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+                if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
+            }
+            DestroyIcon(sfi.hIcon);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(s_iconCacheMutex);
+            s_iconCache[key] = base64;
+        }
+        return base64;
     }
 
     /// 复制宽文本到剪贴板（支持剪贴板占用重试与异常内存释放保护）
