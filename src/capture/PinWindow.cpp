@@ -882,7 +882,11 @@ void PinWindow::render() {
         m_renderTarget->DrawRectangle(D2D1::RectF(0, 0, size.width, size.height), borderBrush.Get(), 1.0f);
     }
 
-    m_renderTarget->EndDraw();
+    const HRESULT hrEnd = m_renderTarget->EndDraw();
+    if (hrEnd == D2DERR_RECREATE_TARGET) {
+        m_renderTarget.Reset();
+        m_bitmap.Reset();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -8,6 +8,18 @@
 
 namespace easy::gesture {
 
+namespace {
+constexpr size_t cornerToIndex(HotCorner corner) {
+    switch (corner) {
+        case HotCorner::TopLeft: return 0;
+        case HotCorner::TopRight: return 1;
+        case HotCorner::BottomLeft: return 2;
+        case HotCorner::BottomRight: return 3;
+        default: return 0;
+    }
+}
+} // namespace
+
 HotCornerEngine& HotCornerEngine::instance() {
     static HotCornerEngine inst;
     return inst;
@@ -22,12 +34,13 @@ void HotCornerEngine::start() {
         return; // Already running
     }
     
-    m_thread = std::thread(&HotCornerEngine::workerThread, this);
+    m_thread = std::jthread([this](std::stop_token st) { workerThread(st); });
     LOG_INFO("HotCornerEngine: 屏幕触发角引擎已启动");
 }
 
 void HotCornerEngine::stop() {
     if (m_running.exchange(false)) {
+        m_thread.request_stop();
         if (m_thread.joinable()) {
             m_thread.join();
         }
@@ -38,13 +51,13 @@ void HotCornerEngine::stop() {
 void HotCornerEngine::setCornerAction(HotCorner corner, const std::string& actionCmd) {
     if (corner == HotCorner::None) return;
     std::lock_guard lock(m_mutex);
-    m_actions[static_cast<int>(corner) - 1] = actionCmd;
+    m_actions[cornerToIndex(corner)] = actionCmd;
 }
 
 std::string HotCornerEngine::getCornerAction(HotCorner corner) const {
     if (corner == HotCorner::None) return "";
     std::lock_guard lock(m_mutex);
-    return m_actions[static_cast<int>(corner) - 1];
+    return m_actions[cornerToIndex(corner)];
 }
 
 void HotCornerEngine::setEnabled(bool enabled) {
@@ -72,7 +85,7 @@ HotCorner HotCornerEngine::detectCorner(POINT pt) {
     return HotCorner::None;
 }
 
-void HotCornerEngine::workerThread() {
+void HotCornerEngine::workerThread(std::stop_token stop) {
     HotCorner currentCorner = HotCorner::None;
     auto cornerEnterTime = std::chrono::steady_clock::now();
     bool triggered = false; // 避免在同一个角落一直触发
@@ -81,7 +94,7 @@ void HotCornerEngine::workerThread() {
     auto lastTriggerTime = std::chrono::steady_clock::now() - std::chrono::hours(1);
     const auto cooldownDuration = std::chrono::milliseconds(1000); // 1秒冷却
 
-    while (m_running.load()) {
+    while (!stop.stop_requested() && m_running.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50)); // 20Hz 轮询，不占用 CPU
 
         if (!m_enabled.load()) {

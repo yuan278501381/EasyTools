@@ -99,7 +99,8 @@ private:
 
     struct WorkerPool;
 
-    static void retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots);
+    static void retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots,
+                            bool boundedForShutdown = false);
 
     /// 惰性创建线程池。仅在确实注册了异步方法时才付出线程开销。
     WorkerPool& ensureWorkerPool();

@@ -49,6 +49,28 @@ int snapUp(int value, int grid) {
     return -((-value / grid) * grid);
 }
 
+void ensurePremultipliedAlpha(void* bits, int width, int height, int pitch) noexcept {
+    if (!bits || width <= 0 || height <= 0 || pitch < width * 4) return;
+    auto* row = reinterpret_cast<uint8_t*>(bits);
+    for (int y = 0; y < height; ++y) {
+        auto* px = reinterpret_cast<uint32_t*>(row);
+        for (int x = 0; x < width; ++x) {
+            const uint32_t val = px[x];
+            if (val != 0) {
+                const uint8_t a = static_cast<uint8_t>((val >> 24) & 0xFF);
+                if (a == 0) {
+                    const uint8_t r = static_cast<uint8_t>((val >> 16) & 0xFF);
+                    const uint8_t g = static_cast<uint8_t>((val >> 8) & 0xFF);
+                    const uint8_t b = static_cast<uint8_t>(val & 0xFF);
+                    const uint8_t maxC = (std::max)({r, g, b});
+                    px[x] = (static_cast<uint32_t>(maxC) << 24) | (val & 0x00FFFFFF);
+                }
+            }
+        }
+        row += pitch;
+    }
+}
+
 }  // namespace
 
 static constexpr const wchar_t* OVERLAY_CLASS = L"EasyTools_GestureOverlay";
@@ -651,11 +673,8 @@ bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int 
     // 最大化 Electron / CEF 窗下面。沉底过就必须无条件回到 TOPMOST 组。
     const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
     if (!yielded) {
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-    }
-    if (!IsWindowVisible(hwnd)) {
-        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
     }
     return true;
 }
@@ -859,9 +878,7 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         L"EasyTools Gesture Toast",
         WS_POPUP,
         0, 0, 64, 64,
-        // Toast 归轨迹窗口所有。Win32 保证 owned window 始终位于 owner 上方，
-        // 即使两者的像素表面在相邻时刻更新，也不会让轨迹盖住 Toast。
-        m_hwnd,
+        m_helperOwnerHwnd,
         nullptr,
         hInstance,
         this
@@ -1356,6 +1373,8 @@ bool GestureTrailOverlay::render() {
         return false;
     }
 
+    ensurePremultipliedAlpha(m_memoryBits, m_width, m_height, m_memoryPitch);
+
     if (!presentLayeredLocked(m_hwnd, m_memoryDC, m_originX, m_originY, m_width, m_height)) {
         return false;
     }
@@ -1496,8 +1515,9 @@ bool GestureTrailOverlay::presentToastLocked(const std::string& resultText, bool
         LOG_WARN("手势结果卡片 Direct2D 帧提交失败");
         return false;
     }
-    SetWindowPos(m_toastHwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+
+    ensurePremultipliedAlpha(m_toastBits, m_toastWidth, m_toastHeight, m_toastPitch);
+
     return presentLayeredLocked(
         m_toastHwnd, m_toastDC, m_toastOriginX, m_toastOriginY, m_toastWidth, m_toastHeight);
 }

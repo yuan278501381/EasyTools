@@ -431,8 +431,9 @@ void CaptureOverlay::realCancel() {
         easy::core::accessibility::hideOverlay(m_hwnd);
         ShowWindow(m_hwnd, SW_HIDE);
         m_renderer.releaseWindowResources();
-        DestroyWindow(m_hwnd);
+        HWND hwndToDestroy = m_hwnd;
         m_hwnd = nullptr;
+        PostMessageW(hwndToDestroy, WM_CLOSE, 0, 0);
     }
     m_state.markup.clearAll();
     m_state.detectedWindowHierarchy.clear();
@@ -508,6 +509,10 @@ LRESULT CALLBACK CaptureOverlay::staticWndProc(HWND hwnd, UINT msg, WPARAM wPara
     }
     
     if (self) {
+        if (msg == WM_CLOSE) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
         if (msg == WM_ACCESSIBILITY_INVOKE_TOOLBAR) {
             self->m_input.invokeToolbarButton(static_cast<std::size_t>(wParam));
             return 0;

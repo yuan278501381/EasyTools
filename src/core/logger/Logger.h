@@ -21,6 +21,7 @@
 
 #include <string>
 #include <memory>
+#include <filesystem>
 #include <source_location>
 #include <spdlog/spdlog.h>
 
@@ -36,7 +37,7 @@ enum class LogLanguage : uint8_t {
 
 /// 日志配置
 struct LoggerConfig {
-    std::string logDir;                        // 日志文件目录
+    std::filesystem::path logDir;              // 日志文件目录（Windows 原生宽字符路径）
     std::string logFileName = "easytools";     // 日志文件名前缀
     spdlog::level::level_enum consoleLevel = spdlog::level::info;   // 控制台日志级别
     spdlog::level::level_enum fileLevel    = spdlog::level::debug;  // 文件日志级别

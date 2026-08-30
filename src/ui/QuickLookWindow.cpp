@@ -422,7 +422,11 @@ void QuickLookWindow::initializeWebView2() {
                                             std::wstring wResponse = easy::core::WinUtils::utf8ToWstring(response);
                                             sender->PostWebMessageAsString(wResponse.c_str());
                                         }
-                                    } catch (...) {}
+                                    } catch (const std::exception& error) {
+                                        LOG_WARN("QuickLook WebMessage 处理异常: {}", error.what());
+                                    } catch (...) {
+                                        LOG_WARN("QuickLook WebMessage 处理发生未知异常");
+                                    }
                                     return S_OK;
                                 }
                             ).Get(), nullptr

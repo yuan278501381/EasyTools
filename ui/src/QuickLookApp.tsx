@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   File, 
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { bridgeRequest, useBridgeEvent } from './hooks/useBridge';
 import { useAppearance } from './hooks/useAppearance';
+import { highlightCode, renderMarkdownToHtml } from './quickLookMarkup';
 import './QuickLookApp.css';
 
 interface FilePreviewData {
@@ -38,65 +39,6 @@ interface FilePreviewData {
     size: number;
     formattedSize: string;
   }>;
-}
-
-// 简易 Markdown 解析渲染器（支持标题、粗体、代码块、引用、列表、表格、行内代码）
-function renderMarkdownToHtml(markdown: string): string {
-  if (!markdown) return '';
-
-  const html = markdown
-    // HTML 转义
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // 代码块 ```lang ... ```
-    .replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
-      const highlighted = highlightCode(code);
-      return `<div class="ql-code-block"><div class="ql-code-header"><span class="ql-code-lang">${lang || 'text'}</span><button class="ql-code-copy-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(code)}'))">Copy</button></div><pre><code>${highlighted}</code></pre></div>`;
-    })
-    // 标题 # - ######
-    .replace(/^###### (.*$)/gim, '<h6>$1</h6>')
-    .replace(/^##### (.*$)/gim, '<h5>$1</h5>')
-    .replace(/^#### (.*$)/gim, '<h4>$1</h4>')
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    // 引用块 > Note
-    .replace(/^> (.*$)/gim, '<blockquote class="ql-blockquote">$1</blockquote>')
-    // 水平分割线
-    .replace(/^---$/gim, '<hr class="ql-hr" />')
-    // 任务列表
-    .replace(/^- \[x\] (.*$)/gim, '<div class="ql-task-item"><input type="checkbox" checked disabled /> <span>$1</span></div>')
-    .replace(/^- \[ \] (.*$)/gim, '<div class="ql-task-item"><input type="checkbox" disabled /> <span>$1</span></div>')
-    // 无序列表
-    .replace(/^\* (.*$)/gim, '<li>$1</li>')
-    .replace(/^- (.*$)/gim, '<li>$1</li>')
-    // 粗体 & 斜体
-    .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    // 行内代码 `code`
-    .replace(/`([^`]+)`/g, '<code class="ql-inline-code">$1</code>')
-    // 段落换行
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br />');
-
-  return `<div class="ql-markdown-body"><p>${html}</p></div>`;
-}
-
-// 简易多语言代码语法高亮
-function highlightCode(code: string): string {
-  return code
-    // 注释
-    .replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*|--[^\n]*)/g, '<span class="tok-comment">$1</span>')
-    // 字符串
-    .replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g, '<span class="tok-string">$1</span>')
-    // 关键字
-    .replace(/\b(const|let|var|function|return|if|else|for|while|import|export|from|class|public|private|static|void|int|bool|true|false|null|undefined|struct|template|typename|using|namespace|auto|new|delete|async|await|try|catch|throw|typeof|interface|type)\b/g, '<span class="tok-keyword">$1</span>')
-    // 数字
-    .replace(/\b([0-9]+(?:\.[0-9]+)?)\b/g, '<span class="tok-number">$1</span>')
-    // 函数调用
-    .replace(/\b([a-zA-Z_$][a-zA-Z0-9_$]*)(?=\()/g, '<span class="tok-fn">$1</span>');
 }
 
 export default function QuickLookApp() {
@@ -164,6 +106,17 @@ export default function QuickLookApp() {
     if (!data?.content) return 0;
     return data.content.split('\n').length;
   }, [data]);
+
+  const handleMarkdownClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.ql-code-copy-btn');
+    const encodedCode = button?.dataset.quicklookCode;
+    if (!encodedCode) return;
+    try {
+      void navigator.clipboard.writeText(decodeURIComponent(encodedCode));
+    } catch {
+      // Malformed attributes are ignored; generated values are URI-encoded.
+    }
+  }, []);
 
   if (!data || !data.exists) {
     return (
@@ -302,6 +255,7 @@ export default function QuickLookApp() {
         {data.type === 'markdown' && (
           <div
             className="ql-markdown-view"
+            onClick={handleMarkdownClick}
             dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(data.content || '') }}
           />
         )}

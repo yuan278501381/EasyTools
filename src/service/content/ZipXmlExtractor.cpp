@@ -74,13 +74,15 @@ std::wstring stripXmlTags(const std::string& xml) {
         } else if (c == '>') {
             insideTag = false;
             // 识别段落、换行或表格单元格闭合标签，转换为自然换行符
-            if (tagBuffer == "/w:p" || tagBuffer == "w:br" || tagBuffer == "w:br/" ||
-                tagBuffer == "w:cr" || tagBuffer == "w:cr/" || tagBuffer == "/w:tc" ||
-                tagBuffer == "/p:sp" || tagBuffer == "/row" || tagBuffer == "/table:table-row") {
-                currentText.push_back('\n');
-            } else {
-                currentText.push_back(' '); // 替换普通标签为分词空格
+            if (tagBuffer == "/w:p" || tagBuffer == "/a:p" || tagBuffer == "/p:sp" ||
+                tagBuffer == "w:br" || tagBuffer == "w:br/" || tagBuffer == "a:br" || tagBuffer == "a:br/" ||
+                tagBuffer == "w:cr" || tagBuffer == "w:cr/" || tagBuffer == "/w:tr" || tagBuffer == "/row" ||
+                tagBuffer == "/table:table-row" || tagBuffer == "/w:tc" || tagBuffer == "/c") {
+                if (currentText.empty() || currentText.back() != '\n') {
+                    currentText.push_back('\n');
+                }
             }
+            // Inline/格式/文字容器标签 (如 <w:t>, </w:t>, <w:r>, </w:r>, <a:t>, <t>, <v>) 无缝拼接文本，绝不插入破坏性空格！
         } else if (insideTag) {
             if (tagBuffer.size() < 32 && !isspace(static_cast<unsigned char>(c))) {
                 tagBuffer.push_back(static_cast<char>(tolower(static_cast<unsigned char>(c))));

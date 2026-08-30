@@ -11,7 +11,6 @@ public:
     // Non-chinese characters are kept as lowercase
     static std::wstring GetFullPinyin(const std::wstring& text);
 
-private:
     static wchar_t GetFirstLetter(wchar_t ch);
     static std::wstring GetCharPinyin(wchar_t ch);
 };

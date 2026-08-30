@@ -20,7 +20,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Card, Toggle, Button, Badge } from '../components/UIKit';
+import { Card, Toggle, Button, Badge, CodeBadge } from '../components/UIKit';
 import { bridgeRequest } from '../hooks/useBridge';
 import type { PluginStatus } from './PluginsPage';
 import './ExtensionPage.css';
@@ -608,13 +608,13 @@ console.log("${t('extension.mdReadyLog', 'Markdown preview engine is ready!')}")
                     <div className="playground-color-swatch" style={{ background: '#7c3aed' }} />
                     <div className="playground-color-vals">
                       <div className="playground-val-item">
-                        <span>HEX:</span> <code>#7C3AED</code>
+                        <span>HEX:</span> <CodeBadge>#7C3AED</CodeBadge>
                       </div>
                       <div className="playground-val-item">
-                        <span>RGB:</span> <code>rgb(124, 58, 237)</code>
+                        <span>RGB:</span> <CodeBadge>rgb(124, 58, 237)</CodeBadge>
                       </div>
                       <div className="playground-val-item">
-                        <span>HSL:</span> <code>hsl(262, 83%, 58%)</code>
+                        <span>HSL:</span> <CodeBadge>hsl(262, 83%, 58%)</CodeBadge>
                       </div>
                     </div>
                   </div>

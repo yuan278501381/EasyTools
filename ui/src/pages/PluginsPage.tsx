@@ -339,7 +339,7 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                   {t(`plugins.items.${plugin.id}.description`, { defaultValue: plugin.name })}
                 </p>
                 <div className="plugin-card__manifest" aria-label={t('plugins.capabilities')}>
-                  <span>{t('plugins.abi', { version: plugin.abiVersion || '—' })}</span>
+                  <CodeBadge variant="muted">{t('plugins.abi', { version: plugin.abiVersion || '—' })}</CodeBadge>
                   {(plugin.capabilities || []).slice(0, 4).map((capability) => (
                     <CodeBadge key={capability}>{capability}</CodeBadge>
                   ))}
@@ -454,9 +454,9 @@ export const PluginsPage: FC<PluginsPageProps> = ({ initialPlugins = [] }) => {
                   <p className="plugin-card__description">{desc}</p>
 
                   <div className="plugin-card__manifest">
-                    <span>{t('plugins.abi', { version: item.abiVersion })}</span>
+                    <CodeBadge variant="muted">{t('plugins.abi', { version: item.abiVersion })}</CodeBadge>
                     {(item.capabilities || []).map((cap) => (
-                      <code key={cap}>{cap}</code>
+                      <CodeBadge key={cap}>{cap}</CodeBadge>
                     ))}
                   </div>
 

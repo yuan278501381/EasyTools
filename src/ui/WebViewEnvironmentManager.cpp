@@ -114,7 +114,10 @@ void WebViewEnvironmentManager::shutdown() {
     for (auto& callback : callbacks) {
         try {
             callback(E_ABORT, nullptr);
+        } catch (const std::exception& error) {
+            LOG_WARN("WebView2 关闭回调异常: {}", error.what());
         } catch (...) {
+            LOG_WARN("WebView2 关闭回调发生未知异常");
         }
     }
 }

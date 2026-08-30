@@ -1343,7 +1343,13 @@
     "csvModified": "Modified Time",
     "csvCreated": "Created Time",
     "folderType": "Folder",
-    "fileType": "File"
+    "fileType": "File",
+    "presetAppliedToast": "Applied {{label}} preset ({{width}}×{{height}})",
+    "applyPresetTooltip": "Resize window to {{width}}×{{height}}",
+    "visibleColumns": "Visible Columns & Layout",
+    "colType": "Extension/Type",
+    "resetViewPrefTooltip": "Reset density, column layout, drive filters, format extensions to factory defaults",
+    "toastResetAllPref": "All view and search preferences reset to defaults"
   },
   "searchPage": {
     "tabSettings": "Settings & Hotkey",

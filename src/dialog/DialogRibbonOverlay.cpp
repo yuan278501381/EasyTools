@@ -289,6 +289,8 @@ void DialogRibbonOverlay::ensureTextFormats(float dpiScale) {
 
         // 全局单一事实源字体栈优先序列
         const wchar_t* preferredFonts[] = {
+            L"Noto Sans SC",
+            L"Source Han Sans SC",
             L"Segoe UI Variable Text",
             L"Segoe UI",
             L"PingFang SC",

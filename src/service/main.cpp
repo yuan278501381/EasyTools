@@ -587,7 +587,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
             if (isCancelled()) return std::vector<nlohmann::json>{};
-            auto volumeResults = parser->Search(queryStr, 10000, excludeOpts);
+            auto volumeResults = parser->Search(queryStr, 60000, excludeOpts);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -648,10 +648,10 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                 p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
                 p.find(L"\\.gradle") != std::wstring::npos ||
                 p.find(L"\\appdata\\local\\temp") != std::wstring::npos ||
-                p.find(L"\\node_modules") != std::wstring::npos ||
-                p.find(L"\\.git") != std::wstring::npos ||
+                p.find(L"\\node_modules\\") != std::wstring::npos ||
+                p.find(L"\\.git\\") != std::wstring::npos ||
                 p.find(L"\\$recycle.bin") != std::wstring::npos ||
-                p.find(L"\\windows") != std::wstring::npos ||
+                p.find(L"\\windows\\") != std::wstring::npos ||
                 p.find(L"\\cefcache") != std::wstring::npos ||
                 p.find(L"\\crashpad") != std::wstring::npos ||
                 p.find(L"\\coverage_report") != std::wstring::npos ||
@@ -666,6 +666,18 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
             }
 
             double baseScore = 200.0;
+
+            // 开发工作区路径识别（代码、文档、工程仓库赋予顶层优先级）
+            if (p.find(L"\\repo\\") != std::wstring::npos ||
+                p.find(L"\\repos\\") != std::wstring::npos ||
+                p.find(L"\\workspace\\") != std::wstring::npos ||
+                p.find(L"\\projects\\") != std::wstring::npos ||
+                p.find(L"\\code\\") != std::wstring::npos ||
+                p.find(L"\\dev\\") != std::wstring::npos ||
+                p.find(L"\\src\\") != std::wstring::npos ||
+                p.find(L"\\github\\") != std::wstring::npos) {
+                baseScore += 3500.0;
+            }
 
             // 2. 基于当前用户真实行为自适应学习记忆 (Frecency Memory: 历史常开、高频使用的文件赋予顶级权重)
             double frecency = easy::service::db::RunHistoryManager::instance().calculateFrecencyScore(path);

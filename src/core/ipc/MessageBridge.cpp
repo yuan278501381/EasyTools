@@ -17,10 +17,13 @@
 #include "core/events/EventBus.h"
 #include "EasyToolsVersion.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -80,6 +83,46 @@ std::optional<std::filesystem::path> choosePath(bool save, bool folder = false) 
     return result;
 }
 
+bool isPathWithin(const std::filesystem::path& candidate,
+                  const std::filesystem::path& directory) {
+    auto candidateIt = candidate.begin();
+    for (auto directoryIt = directory.begin(); directoryIt != directory.end();
+         ++directoryIt, ++candidateIt) {
+        if (candidateIt == candidate.end() ||
+            _wcsicmp(directoryIt->c_str(), candidateIt->c_str()) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// A path selected by the native picker carries an explicit user gesture and is
+// allowed outside AppData. A path supplied directly by WebView IPC does not;
+// constrain that untrusted route to the application's config directory.
+bool isApprovedDirectConfigPath(const std::filesystem::path& input, bool importing) {
+    if (input.empty() || !input.is_absolute() ||
+        easy::core::WinUtils::toLower(input.extension().wstring()) != L".json" ||
+        std::any_of(input.begin(), input.end(), [](const auto& component) {
+            return component == L"..";
+        })) {
+        return false;
+    }
+
+    std::error_code ec;
+    const auto approvedDirectory = std::filesystem::canonical(
+        easy::core::WinUtils::getConfigDirectory(), ec);
+    if (ec) return false;
+
+    std::filesystem::path resolved;
+    if (importing) {
+        resolved = std::filesystem::canonical(input, ec);
+    } else {
+        const auto parent = std::filesystem::canonical(input.parent_path(), ec);
+        if (!ec) resolved = (parent / input.filename()).lexically_normal();
+    }
+    return !ec && isPathWithin(resolved, approvedDirectory);
+}
+
 bool setAutoStart(bool enabled);
 
 namespace {
@@ -88,8 +131,9 @@ constexpr wchar_t AUTOSTART_TASK_NAME[] = L"EasyTools_Autostart";
 
 bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput = nullptr) {
     constexpr std::size_t MaxCapturedOutputBytes = 1024u * 1024u;
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
+    STARTUPINFOEXW startupInfo{};
+    STARTUPINFOW& si = startupInfo.StartupInfo;
+    si.cb = sizeof(STARTUPINFOW);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
 
@@ -106,11 +150,46 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
         si.dwFlags |= STARTF_USESTDHANDLES;
         si.hStdOutput = writePipe;
         si.hStdError = writePipe;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdInput = nullptr;
     }
 
     PROCESS_INFORMATION pi{};
     std::wstring cmdBuffer = cmd;
+
+    std::vector<unsigned char> attributeStorage;
+    if (capturedOutput) {
+        SIZE_T attributeBytes = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
+        if (attributeBytes == 0) {
+            CloseHandle(readPipe);
+            CloseHandle(writePipe);
+            return false;
+        }
+        attributeStorage.resize(attributeBytes);
+        startupInfo.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
+            attributeStorage.data());
+        if (!InitializeProcThreadAttributeList(
+                startupInfo.lpAttributeList, 1, 0, &attributeBytes)) {
+            CloseHandle(readPipe);
+            CloseHandle(writePipe);
+            return false;
+        }
+
+        // bInheritHandles must remain TRUE for STARTF_USESTDHANDLES, but the
+        // attribute list turns inheritance into an explicit allow-list.
+        HANDLE inheritedHandles[] = {writePipe};
+        if (!UpdateProcThreadAttribute(
+                startupInfo.lpAttributeList, 0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                inheritedHandles, sizeof(inheritedHandles), nullptr, nullptr)) {
+            DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+            startupInfo.lpAttributeList = nullptr;
+            CloseHandle(readPipe);
+            CloseHandle(writePipe);
+            return false;
+        }
+        si.cb = sizeof(STARTUPINFOEXW);
+    }
 
     BOOL ok = CreateProcessW(
         nullptr,
@@ -118,12 +197,17 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
         nullptr,
         nullptr,
         capturedOutput != nullptr,
-        CREATE_NO_WINDOW,
+        CREATE_NO_WINDOW | (capturedOutput ? EXTENDED_STARTUPINFO_PRESENT : 0),
         nullptr,
         nullptr,
-        &si,
+        reinterpret_cast<LPSTARTUPINFOW>(&startupInfo),
         &pi
     );
+
+    if (startupInfo.lpAttributeList) {
+        DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+        startupInfo.lpAttributeList = nullptr;
+    }
 
     if (!ok) {
         if (readPipe) CloseHandle(readPipe);
@@ -179,21 +263,34 @@ bool executeSilentCommand(const std::wstring& cmd, std::string* capturedOutput =
 
             if (outputTooLarge) break;
 
-            DWORD currentExitCode = STILL_ACTIVE;
-            GetExitCodeProcess(pi.hProcess, &currentExitCode);
-            if (currentExitCode != STILL_ACTIVE) break;
-            if (GetTickCount64() >= deadline) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) {
                 timedOut = true;
                 TerminateProcess(pi.hProcess, ERROR_TIMEOUT);
                 WaitForSingleObject(pi.hProcess, 1000);
                 break;
             }
-            Sleep(10);
+            const DWORD waitMs = static_cast<DWORD>((std::min)(
+                deadline - now, static_cast<ULONGLONG>(50)));
+            const DWORD processWait = WaitForSingleObject(pi.hProcess, waitMs);
+            if (processWait == WAIT_OBJECT_0) break;
+            if (processWait == WAIT_FAILED) {
+                pipeFailed = true;
+                TerminateProcess(pi.hProcess, GetLastError());
+                WaitForSingleObject(pi.hProcess, 1000);
+                break;
+            }
         }
 
         if (!outputTooLarge) {
-            DWORD bytesRead = 0;
-            while (ReadFile(readPipe, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
+            // Drain only bytes already buffered. A blocking ReadFile can hang
+            // forever if a descendant process retained the pipe handle.
+            for (;;) {
+                DWORD available = 0;
+                if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr) || available == 0) break;
+                DWORD bytesRead = 0;
+                const DWORD requested = (std::min)(available, static_cast<DWORD>(sizeof(buffer)));
+                if (!ReadFile(readPipe, buffer, requested, &bytesRead, nullptr) || bytesRead == 0) break;
                 if (!appendOutput(buffer, bytesRead)) break;
             }
         }
@@ -423,11 +520,29 @@ void MessageBridge::registerHandler(const std::string& method, MessageHandler ha
     LOG_TRACE("注册 IPC 处理器: method={}", method);
 }
 
-void MessageBridge::retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots) {
+void MessageBridge::retireSlots(std::vector<std::shared_ptr<HandlerSlot>> slots,
+                                bool boundedForShutdown) {
+    // Intentionally leaked only for pathological handlers that are still
+    // executing during process shutdown. Destroying their std::function (or a
+    // plugin DLL) while its code is on another thread would be a UAF.
+    static auto* quarantinedMutex = new std::mutex();
+    static auto* quarantinedSlots = new std::vector<std::shared_ptr<HandlerSlot>>();
     for (const auto& slot : slots) {
         std::unique_lock lock(slot->mutex);
         slot->accepting = false;
-        slot->idle.wait(lock, [&slot]() { return slot->activeCalls == 0; });
+        if (boundedForShutdown &&
+            !slot->idle.wait_for(lock, std::chrono::seconds(2),
+                                 [&slot]() { return slot->activeCalls == 0; })) {
+            LOG_CRITICAL("IPC handler 在关闭期限内未返回，已隔离保留以避免卸载 UAF: activeCalls={}",
+                         slot->activeCalls);
+            lock.unlock();
+            std::lock_guard quarantineLock(*quarantinedMutex);
+            quarantinedSlots->push_back(slot);
+            continue;
+        }
+        if (!boundedForShutdown) {
+            slot->idle.wait(lock, [&slot]() { return slot->activeCalls == 0; });
+        }
         slot->handler = nullptr;
     }
 }
@@ -553,23 +668,59 @@ constexpr size_t AsyncWorkerCount = 4;
 /// 队列上限。搜索场景下堆积几乎都来自连续击键，因此过载时丢弃最旧的一条，
 /// 并立刻给它回一个错误响应，避免前端 Promise 悬挂到超时。
 constexpr size_t MaxQueuedAsyncJobs = 64;
+constexpr auto AsyncJobTimeout = std::chrono::seconds(30);
 
 std::mutex g_workerPoolMutex;
 
 }  // namespace
 
 struct MessageBridge::WorkerPool {
-    struct Job {
+    struct Completion {
+        Completion(int requestId, AsyncResponder callback)
+            : id(requestId), responder(std::move(callback)) {}
+
         int id = 0;
-        std::string message;
         AsyncResponder responder;
+        std::atomic<bool> responded{false};
+    };
+
+    struct Job {
+        std::string message;
+        std::shared_ptr<Completion> completion;
+    };
+
+    struct WorkerState {
+        bool active = false;
+        bool timedOut = false;
+        std::chrono::steady_clock::time_point startedAt{};
+        std::shared_ptr<Completion> completion;
     };
 
     std::vector<std::thread> threads;
+    std::vector<std::unique_ptr<WorkerState>> workerStates;
+    std::thread watchdog;
     std::deque<Job> jobs;
     std::mutex mutex;
     std::condition_variable cv;
+    std::condition_variable watchdogCv;
     bool stopping = false;
+    bool circuitOpen = false;
+
+    static void respondOnce(const std::shared_ptr<Completion>& completion,
+                            std::string response,
+                            const char* context) noexcept {
+        if (!completion || !completion->responder ||
+            completion->responded.exchange(true, std::memory_order_acq_rel)) {
+            return;
+        }
+        try {
+            completion->responder(std::move(response));
+        } catch (const std::exception& e) {
+            LOG_ERROR("异步 IPC 响应回调异常: context={}, error={}", context, e.what());
+        } catch (...) {
+            LOG_ERROR("异步 IPC 响应回调未知异常: context={}", context);
+        }
+    }
 };
 
 MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
@@ -578,28 +729,92 @@ MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
 
     auto* pool = new WorkerPool();
     pool->threads.reserve(AsyncWorkerCount);
+    pool->workerStates.reserve(AsyncWorkerCount);
     for (size_t i = 0; i < AsyncWorkerCount; ++i) {
-        pool->threads.emplace_back([pool]() {
+        pool->workerStates.push_back(std::make_unique<WorkerPool::WorkerState>());
+        auto* workerState = pool->workerStates.back().get();
+        pool->threads.emplace_back([pool, workerState]() {
             for (;;) {
                 WorkerPool::Job job;
                 {
                     std::unique_lock lock(pool->mutex);
                     pool->cv.wait(lock, [pool] { return pool->stopping || !pool->jobs.empty(); });
-                    if (pool->jobs.empty()) return;  // 仅在 stopping 时成立
+                    if (pool->jobs.empty()) return;  // stopping 且队列已清空
                     job = std::move(pool->jobs.front());
                     pool->jobs.pop_front();
+                    workerState->active = true;
+                    workerState->timedOut = false;
+                    workerState->startedAt = std::chrono::steady_clock::now();
+                    workerState->completion = job.completion;
                 }
                 std::string response = MessageBridge::instance().handleMessage(job.message);
-                try {
-                    job.responder(std::move(response));
-                } catch (const std::exception& e) {
-                    LOG_ERROR("异步 IPC 响应回调异常: {}", e.what());
-                } catch (...) {
-                    LOG_ERROR("异步 IPC 响应回调未知异常");
+                WorkerPool::respondOnce(job.completion, std::move(response), "worker");
+                {
+                    std::lock_guard lock(pool->mutex);
+                    workerState->active = false;
+                    workerState->timedOut = false;
+                    workerState->completion.reset();
                 }
+                pool->watchdogCv.notify_one();
             }
         });
     }
+    pool->watchdog = std::thread([pool]() {
+        std::unique_lock lock(pool->mutex);
+        while (!pool->stopping) {
+            pool->watchdogCv.wait_for(lock, std::chrono::seconds(1),
+                                      [pool] { return pool->stopping; });
+            if (pool->stopping) break;
+
+            const auto now = std::chrono::steady_clock::now();
+            std::vector<std::shared_ptr<WorkerPool::Completion>> timedOut;
+            size_t stalledWorkers = 0;
+            for (const auto& state : pool->workerStates) {
+                if (!state->active || now - state->startedAt < AsyncJobTimeout) continue;
+                ++stalledWorkers;
+                if (!state->timedOut) {
+                    state->timedOut = true;
+                    timedOut.push_back(state->completion);
+                }
+            }
+
+            std::deque<WorkerPool::Job> rejected;
+            if (stalledWorkers == pool->workerStates.size()) {
+                if (!pool->circuitOpen) {
+                    pool->circuitOpen = true;
+                    rejected.swap(pool->jobs);
+                }
+            } else if (pool->circuitOpen) {
+                pool->circuitOpen = false;
+                LOG_WARN("异步 IPC 熔断器已恢复: availableWorkers={}",
+                         pool->workerStates.size() - stalledWorkers);
+            }
+
+            lock.unlock();
+            for (const auto& completion : timedOut) {
+                LOG_ERROR("异步 IPC handler 超时: requestId={}, timeoutSeconds={}",
+                          completion ? completion->id : 0,
+                          std::chrono::duration_cast<std::chrono::seconds>(AsyncJobTimeout).count());
+                const int id = completion ? completion->id : 0;
+                WorkerPool::respondOnce(
+                    completion,
+                    bridgeErrorResponse(id, -32001, "Async handler timed out"),
+                    "watchdog timeout");
+            }
+            if (!rejected.empty()) {
+                LOG_CRITICAL("异步 IPC 所有 worker 均超时，熔断并拒绝排队请求: count={}",
+                             rejected.size());
+                for (auto& job : rejected) {
+                    const int id = job.completion ? job.completion->id : 0;
+                    WorkerPool::respondOnce(
+                        job.completion,
+                        bridgeErrorResponse(id, -32002, "Async bridge circuit is open"),
+                        "watchdog circuit breaker");
+                }
+            }
+            lock.lock();
+        }
+    });
     m_workerPool = pool;
     LOG_DEBUG("异步 IPC 线程池已启动: threads={}", AsyncWorkerCount);
     return *pool;
@@ -621,24 +836,52 @@ void MessageBridge::shutdownWorkerPool() {
         abandoned.swap(pool->jobs);
     }
     pool->cv.notify_all();
-    for (auto& thread : pool->threads) {
-        if (thread.joinable()) thread.join();
-    }
+    pool->watchdogCv.notify_all();
+    if (pool->watchdog.joinable()) pool->watchdog.join();
 
     // 让仍在排队的请求立刻失败，而不是让前端等到超时。
     for (auto& job : abandoned) {
-        if (!job.responder) continue;
-        json response = {
-            {"id", job.id},
-            {"error", {{"code", -32000}, {"message", "Bridge is shutting down"}}}
-        };
-        try {
-            job.responder(response.dump());
-        } catch (...) {
+        const int id = job.completion ? job.completion->id : 0;
+        WorkerPool::respondOnce(
+            job.completion,
+            bridgeErrorResponse(id, -32000, "Bridge is shutting down"),
+            "shutdown queue");
+    }
+
+    bool leakedForStalledWorkers = false;
+    for (size_t i = 0; i < pool->threads.size(); ++i) {
+        auto& thread = pool->threads[i];
+        if (!thread.joinable()) continue;
+
+        std::shared_ptr<WorkerPool::Completion> activeCompletion;
+        {
+            std::lock_guard lock(pool->mutex);
+            if (pool->workerStates[i]->active) {
+                activeCompletion = pool->workerStates[i]->completion;
+            }
+        }
+        if (activeCompletion) {
+            const int id = activeCompletion->id;
+            WorkerPool::respondOnce(
+                activeCompletion,
+                bridgeErrorResponse(id, -32000, "Bridge shut down while handler was running"),
+                "shutdown active worker");
+            // Standard C++ cannot safely terminate a handler executing inside
+            // a third-party DLL. Detach it and intentionally retain the pool
+            // state so a late return cannot access freed memory.
+            thread.detach();
+            leakedForStalledWorkers = true;
+        } else {
+            thread.join();
         }
     }
-    delete pool;
-    LOG_DEBUG("异步 IPC 线程池已关闭");
+
+    if (leakedForStalledWorkers) {
+        LOG_CRITICAL("异步 IPC 关闭时仍有 handler 卡住；已脱离线程并保留池状态以避免 join 死锁/UAF");
+    } else {
+        delete pool;
+        LOG_DEBUG("异步 IPC 线程池已关闭");
+    }
 }
 
 void MessageBridge::markMethodAsync(const std::string& method) {
@@ -678,37 +921,42 @@ void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResp
     }
 
     auto& pool = ensureWorkerPool();
-    WorkerPool::Job evicted;
-    bool hasEvicted = false;
+    auto completion = std::make_shared<WorkerPool::Completion>(id, std::move(responder));
+    std::shared_ptr<WorkerPool::Completion> rejected;
+    std::shared_ptr<WorkerPool::Completion> evicted;
+    std::string rejectionMessage;
     {
         std::lock_guard lock(pool.mutex);
         if (pool.stopping) {
-            json response = {
-                {"id", id},
-                {"error", {{"code", -32000}, {"message", "Bridge is shutting down"}}}
-            };
-            responder(response.dump());
-            return;
+            rejected = completion;
+            rejectionMessage = "Bridge is shutting down";
+        } else if (pool.circuitOpen) {
+            rejected = completion;
+            rejectionMessage = "Async bridge circuit is open";
+        } else {
+            if (pool.jobs.size() >= MaxQueuedAsyncJobs) {
+                evicted = std::move(pool.jobs.front().completion);
+                pool.jobs.pop_front();
+            }
+            pool.jobs.push_back(WorkerPool::Job{messageJson, completion});
         }
-        if (pool.jobs.size() >= MaxQueuedAsyncJobs) {
-            evicted = std::move(pool.jobs.front());
-            pool.jobs.pop_front();
-            hasEvicted = true;
-        }
-        pool.jobs.push_back(WorkerPool::Job{id, messageJson, std::move(responder)});
+    }
+    if (rejected) {
+        WorkerPool::respondOnce(
+            rejected,
+            bridgeErrorResponse(id, pool.stopping ? -32000 : -32002, rejectionMessage),
+            "enqueue rejected");
+        return;
     }
     pool.cv.notify_one();
 
-    if (hasEvicted && evicted.responder) {
+    if (evicted) {
         LOG_WARN("异步 IPC 队列过载, 丢弃最旧的待处理请求");
-        json response = {
-            {"id", evicted.id},
-            {"error", {{"code", -32000}, {"message", "Request dropped: bridge queue overloaded"}}}
-        };
-        try {
-            evicted.responder(response.dump());
-        } catch (...) {
-        }
+        WorkerPool::respondOnce(
+            evicted,
+            bridgeErrorResponse(evicted->id, -32000,
+                                "Request dropped: bridge queue overloaded"),
+            "queue eviction");
     }
 }
 
@@ -738,7 +986,7 @@ void MessageBridge::clearHandlers() {
         eventPusher.swap(m_eventPusher);
     }
     eventPusher = nullptr;
-    retireSlots(std::move(handlers));
+    retireSlots(std::move(handlers), true);
     LOG_INFO("IPC 处理器与事件推送器已清空");
 }
 
@@ -1103,8 +1351,16 @@ void MessageBridge::registerBuiltinHandlers() {
     registerHandler("config.export", [](const json& params) -> json {
         std::optional<std::filesystem::path> selected;
         const auto supplied = params.value("path", "");
-        if (!supplied.empty()) selected = WinUtils::utf8ToWstring(supplied);
-        else selected = choosePath(true);
+        if (!supplied.empty()) {
+            const std::filesystem::path candidate = WinUtils::utf8ToWstring(supplied);
+            if (!isApprovedDirectConfigPath(candidate, false)) {
+                LOG_WARN("拒绝 WebView IPC 提供的未授权配置导出路径");
+                return {{"success", false}, {"error", "path is outside the approved config directory"}};
+            }
+            selected = candidate;
+        } else {
+            selected = choosePath(true);
+        }
         if (!selected) return {{"success", false}, {"cancelled", true}};
         auto path = *selected;
         bool ok = ConfigManager::instance().exportTo(path);
@@ -1116,6 +1372,12 @@ void MessageBridge::registerBuiltinHandlers() {
             const auto selected = choosePath(false);
             if (!selected) return {{"success", false}, {"cancelled", true}};
             path = WinUtils::wstringToUtf8(selected->wstring());
+        } else {
+            const std::filesystem::path candidate = WinUtils::utf8ToWstring(path);
+            if (!isApprovedDirectConfigPath(candidate, true)) {
+                LOG_WARN("拒绝 WebView IPC 提供的未授权配置导入路径");
+                return {{"success", false}, {"error", "path is outside the approved config directory"}};
+            }
         }
         bool ok = ConfigManager::instance().importFrom(WinUtils::utf8ToWstring(path));
         return {{"success", ok}};

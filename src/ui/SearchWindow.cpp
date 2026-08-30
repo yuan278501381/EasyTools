@@ -316,12 +316,16 @@ void SearchWindow::initializeWebView2() {
                                 return E_ABORT;
                             }
                             m_controller = controller;
-                            m_controller->get_CoreWebView2(&m_webView);
+                            const HRESULT hrGetWeb = m_controller->get_CoreWebView2(&m_webView);
+                            if (FAILED(hrGetWeb) || !m_webView) {
+                                LOG_WARN("SearchWindow: get_CoreWebView2 失败: HRESULT=0x{:08X}", static_cast<unsigned>(hrGetWeb));
+                                return E_FAIL;
+                            }
                             m_controller->put_IsVisible(m_visible.load() ? TRUE : FALSE);
 
                             Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
-                            m_webView->get_Settings(&settings);
-                            if (settings) {
+                            const HRESULT hrGetSettings = m_webView->get_Settings(&settings);
+                            if (SUCCEEDED(hrGetSettings) && settings) {
                                 settings->put_AreDefaultContextMenusEnabled(FALSE);
                                 settings->put_IsStatusBarEnabled(FALSE);
                                 settings->put_AreDevToolsEnabled(FALSE);

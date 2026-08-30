@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <wtsapi32.h>
 
 #include <atomic>
@@ -256,9 +257,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     // ── 4b. 日志系统初始化 ──────────────────────────────────────────────
     easy::core::LoggerConfig logConfig;
-    logConfig.logDir = easy::core::WinUtils::wstringToUtf8(
-        easy::core::WinUtils::getLogDirectory().wstring()
-    );
+    logConfig.logDir = easy::core::WinUtils::getLogDirectory();
     easy::core::Logger::initialize(logConfig);
 
     easy::core::TraceId::Scope mainScope;
@@ -444,7 +443,11 @@ bool parseWindowPos(int& x, int& y, int& w, int& h) {
                     w = std::stoi(val.substr(p2 + 1, p3 - p2 - 1));
                     h = std::stoi(val.substr(p3 + 1));
                     return true;
-                } catch (...) {}
+                } catch (const std::exception& error) {
+                    LOG_WARN("忽略无效的 --window-pos 参数: {}", error.what());
+                } catch (...) {
+                    LOG_WARN("解析 --window-pos 参数时发生未知异常");
+                }
             }
             break;
         }
@@ -753,7 +756,7 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         if (!supplied.empty()) {
             savePath = easy::core::WinUtils::utf8ToWstring(supplied);
         } else {
-            IFileDialog* dialog = nullptr;
+            Microsoft::WRL::ComPtr<IFileDialog> dialog;
             HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
             if (SUCCEEDED(hr) && dialog) {
                 static const COMDLG_FILTERSPEC filters[] = {
@@ -776,17 +779,15 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
                 dialog->SetTitle(L"导出 EasyTools 诊断日志");
                 
                 if (SUCCEEDED(dialog->Show(nullptr))) {
-                    IShellItem* item = nullptr;
+                    Microsoft::WRL::ComPtr<IShellItem> item;
                     if (SUCCEEDED(dialog->GetResult(&item)) && item) {
                         PWSTR rawPath = nullptr;
                         if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &rawPath)) && rawPath) {
                             savePath = std::filesystem::path(rawPath);
                             CoTaskMemFree(rawPath);
                         }
-                        item->Release();
                     }
                 }
-                dialog->Release();
             }
         }
 

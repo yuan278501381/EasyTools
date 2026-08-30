@@ -768,7 +768,9 @@ public:
             if (resp) {
                 try {
                     return nlohmann::json::parse(*resp);
-                } catch (...) {}
+                } catch (const nlohmann::json::exception& error) {
+                    LOG_WARN("search.rebuildIndex 返回了无效 JSON: {}", error.what());
+                }
             }
             return {{"success", false}};
         });
@@ -781,7 +783,9 @@ public:
             if (resp) {
                 try {
                     return nlohmann::json::parse(*resp);
-                } catch (...) {}
+                } catch (const nlohmann::json::exception& error) {
+                    LOG_WARN("search.sync 返回了无效 JSON: {}", error.what());
+                }
             }
             return {{"success", false}};
         });
@@ -1162,7 +1166,9 @@ public:
             if (res && !res->empty()) {
                 try {
                     return nlohmann::json::parse(*res);
-                } catch (...) {}
+                } catch (const nlohmann::json::exception& error) {
+                    LOG_WARN("search.getSearchHistory 返回了无效 JSON: {}", error.what());
+                }
             }
             return {{"success", false}, {"history", nlohmann::json::array()}};
         });
@@ -1193,7 +1199,9 @@ public:
             if (res && !res->empty()) {
                 try {
                     return nlohmann::json::parse(*res);
-                } catch (...) {}
+                } catch (const nlohmann::json::exception& error) {
+                    LOG_WARN("search.getDbStats 返回了无效 JSON: {}", error.what());
+                }
             }
             return {{"success", false}};
         });

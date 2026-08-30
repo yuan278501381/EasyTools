@@ -7,10 +7,52 @@
 #include "core/utils/TraceId.h"
 #include "core/utils/WinUtils.h"
 
+#include <algorithm>
 #include <fstream>
 #include <filesystem>
 
 namespace easy::core {
+
+namespace {
+
+constexpr uintmax_t MaxImportedConfigBytes = 4u * 1024u * 1024u;
+
+bool hasParentTraversal(const std::filesystem::path& path) {
+    return std::any_of(path.begin(), path.end(), [](const auto& component) {
+        return component == L"..";
+    });
+}
+
+std::optional<std::filesystem::path> validateTransferPath(
+    const std::filesystem::path& input, bool importing) {
+    if (input.empty() || !input.is_absolute() || hasParentTraversal(input) ||
+        input.filename().empty() || WinUtils::toLower(input.extension().wstring()) != L".json") {
+        return std::nullopt;
+    }
+
+    std::error_code ec;
+    if (importing) {
+        const auto resolved = std::filesystem::canonical(input, ec);
+        if (ec || !std::filesystem::is_regular_file(resolved, ec) || ec) return std::nullopt;
+        const auto size = std::filesystem::file_size(resolved, ec);
+        if (ec || size > MaxImportedConfigBytes) return std::nullopt;
+        return resolved;
+    }
+
+    const auto parent = std::filesystem::canonical(input.parent_path(), ec);
+    if (ec || !std::filesystem::is_directory(parent, ec) || ec) return std::nullopt;
+    const auto resolved = (parent / input.filename()).lexically_normal();
+    if (resolved.parent_path() != parent) return std::nullopt;
+    const bool targetExists = std::filesystem::exists(resolved, ec);
+    if (ec) return std::nullopt;
+    if (targetExists) {
+        const bool targetIsDirectory = std::filesystem::is_directory(resolved, ec);
+        if (ec || targetIsDirectory) return std::nullopt;
+    }
+    return resolved;
+}
+
+}  // namespace
 
 ConfigManager& ConfigManager::instance() {
     static ConfigManager inst;
@@ -335,12 +377,18 @@ void ConfigManager::notifyChange(const std::string& key) {
 bool ConfigManager::exportTo(const std::filesystem::path& filePath) const {
     TraceId::Scope scope;
     try {
+        const auto validatedPath = validateTransferPath(filePath, false);
+        if (!validatedPath) {
+            LOG_WARN("拒绝不安全的配置导出路径: {}", WinUtils::wstringToUtf8(filePath.wstring()));
+            return false;
+        }
+        const auto& safePath = *validatedPath;
         json snapshot;
         {
             std::lock_guard lock(m_mutex);
             snapshot = m_config;
         }
-        auto tempPath = filePath;
+        auto tempPath = safePath;
         tempPath += L".tmp";
         std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
         if (!file.is_open()) {
@@ -351,14 +399,14 @@ bool ConfigManager::exportTo(const std::filesystem::path& filePath) const {
         file.flush();
         if (!file.good()) throw std::runtime_error("写入配置导出文件失败");
         file.close();
-        if (!MoveFileExW(tempPath.c_str(), filePath.c_str(),
+        if (!MoveFileExW(tempPath.c_str(), safePath.c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
             const DWORD error = GetLastError();
             std::error_code removeError;
             std::filesystem::remove(tempPath, removeError);
             throw std::runtime_error("替换配置导出文件失败, error=" + std::to_string(error));
         }
-        LOG_INFO("配置已导出到: {}", filePath.string());
+        LOG_INFO("配置已导出到: {}", WinUtils::wstringToUtf8(safePath.wstring()));
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("配置导出失败: {}", e.what());
@@ -369,14 +417,20 @@ bool ConfigManager::exportTo(const std::filesystem::path& filePath) const {
 bool ConfigManager::importFrom(const std::filesystem::path& filePath) {
     TraceId::Scope scope;
     try {
-        std::ifstream file(filePath);
+        const auto validatedPath = validateTransferPath(filePath, true);
+        if (!validatedPath) {
+            LOG_WARN("拒绝不安全的配置导入路径: {}", WinUtils::wstringToUtf8(filePath.wstring()));
+            return false;
+        }
+        std::ifstream file(*validatedPath);
         if (file.is_open()) {
             auto incoming = json::parse(file);
             if (!incoming.is_object()) {
                 throw std::runtime_error("导入配置根节点必须是 JSON 对象");
             }
             if (!mergePatch(incoming)) return false;
-            LOG_INFO("配置已从文件导入(合并模式): {}", filePath.string());
+            LOG_INFO("配置已从文件导入(合并模式): {}",
+                     WinUtils::wstringToUtf8(validatedPath->wstring()));
             return true;
         }
     } catch (const std::exception& e) {

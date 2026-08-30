@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
+# Let individual zero-CRT targets opt out of MSVC's Debug /RTC runtime.
+if(POLICY CMP0184)
+    cmake_policy(SET CMP0184 NEW)
+endif()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # EasyTools — 高性能桌面效率工具 (Microkernel Architecture)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +312,8 @@ if(BUILD_TESTING)
         src/dialog/ExplorerTracker.cpp
         src/dialog/DialogNavigator.cpp
         src/ui/SpotlightOverlay.cpp
+        src/ui/SpotlightOverlayInputController.cpp
+        src/ui/SpotlightOverlayRenderer.cpp
         src/keycast/KeycastOverlay.cpp
     )
     target_include_directories(EasyToolsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -352,8 +359,14 @@ endif()
 # ── 纯 C 内核守卫 (Zero-CRT Watchdog) ──────────────────────────────────────────
 add_executable(EasyWatchdog src/c_core/watchdog.c)
 set_target_properties(EasyWatchdog PROPERTIES LINKER_LANGUAGE C)
+if(POLICY CMP0184)
+    # An empty literal unsets the property and restores CMake's Debug default;
+    # use an always-false generator expression to select no checks explicitly.
+    set_property(TARGET EasyWatchdog PROPERTY MSVC_RUNTIME_CHECKS
+        "$<$<BOOL:0>:UninitializedVariable>")
+endif()
 target_link_options(EasyWatchdog PRIVATE "/ENTRY:RawEntryPoint" "/NODEFAULTLIB" "/SUBSYSTEM:WINDOWS")
-target_link_libraries(EasyWatchdog PRIVATE kernel32 user32)
+target_link_libraries(EasyWatchdog PRIVATE kernel32 user32 advapi32)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
     add_custom_command(TARGET EasyTools POST_BUILD

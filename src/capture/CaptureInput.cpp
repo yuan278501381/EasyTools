@@ -377,8 +377,13 @@ void CaptureInput::updateHoverCursor(POINT point) {
                 }
             }
 
-            // 2. 选区控制点/边框
-            if (!cur) {
+            // 1.5 处于文本标注工具模式下，只要在选区内部，优先展示 IBEAM 输入光标，严禁误触发选区边框手柄
+            if (!cur && isPointInSelection(point) && m_state->currentTool == MarkupTool::Text) {
+                cur = LoadCursor(nullptr, IDC_IBEAM);
+            }
+
+            // 2. 选区控制点/边框 (文本模式在选区内不触发)
+            if (!cur && m_state->currentTool != MarkupTool::Text) {
                 HitArea sel = hitTestSelectionBox(point);
                 if (sel != HitArea::None) {
                     cur = cursorForArea(sel);
@@ -1374,8 +1379,10 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     return 0;
                 }
                 
-                // 选区控制点/边框/圆角手柄调整
-                if ((selHit = hitTestSelectionBox(point)) != HitArea::None) {
+                // 选区控制点/边框/圆角手柄调整（若当前处于文本工具且在选区内，优先作为文本输入，不拉伸选区）
+                const bool inSelection = isPointInSelection(point);
+                if ((!inSelection || m_state->currentTool != MarkupTool::Text) &&
+                    (selHit = hitTestSelectionBox(point)) != HitArea::None) {
                     if (m_state->activeElement && m_state->activeElement->tool == MarkupTool::Text && m_state->activeElement->isEditing) {
                         m_state->activeElement->isEditing = false;
                         if (m_state->activeElement->text.empty()) {
@@ -1395,7 +1402,7 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     return 0;
                 }
                 
-                if (isPointInSelection(point)) {
+                if (inSelection) {
                     cv::Point local = toMarkupPoint(point);
                     
                     // 1. 如果当前有处于激活态的元素，优先测试该元素的把手或主体
@@ -2044,8 +2051,21 @@ LRESULT CaptureInput::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 return 0;
             }
 
-            // 正在输入文字：其余按键交给 WM_CHAR
-            if (editingText) return 0;
+            // 正在输入文字：支持 Ctrl+V 粘贴与其余按键交给 WM_CHAR
+            if (editingText) {
+                if (ctrl && (wParam == 'V' || wParam == 'v')) {
+                    std::string clipText = easy::core::WinUtils::captureSelectedText();
+                    if (!clipText.empty()) {
+                        std::wstring wstr = easy::core::WinUtils::utf8ToWstring(m_state->activeElement->text);
+                        wstr.append(easy::core::WinUtils::utf8ToWstring(clipText));
+                        m_state->activeElement->text = easy::core::WinUtils::wstringToUtf8(wstr);
+                        m_state->activeElement->textRenderSize = cv::Size(0, 0);
+                        m_renderer->markMarkupDirty();
+                        m_renderer->invalidate();
+                    }
+                }
+                return 0;
+            }
 
             // Ctrl+A: 一键全选当前屏幕
             if (ctrl && wParam == 'A') {

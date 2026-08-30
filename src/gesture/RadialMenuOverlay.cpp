@@ -7,6 +7,7 @@
 #include "core/utils/WinUtils.h"
 #include <cmath>
 #include <algorithm>
+#include <charconv>
 #include <unordered_map>
 
 namespace easy::gesture {
@@ -371,16 +372,15 @@ void RadialMenuOverlay::executeAction(int index) {
             BuiltinCommandDispatcher::instance().execute(legacy->second);
             return;
         }
-        try {
-            size_t consumed = 0;
-            const int commandIndex = std::stoi(cmd, &consumed);
-            if (consumed == cmd.size() && commandIndex >= 0 &&
-                commandIndex <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
-                BuiltinCommandDispatcher::instance().execute(
-                    static_cast<BuiltinCommand>(commandIndex));
-                return;
-            }
-        } catch (...) {}
+        int commandIndex = -1;
+        const auto [end, error] = std::from_chars(
+            cmd.data(), cmd.data() + cmd.size(), commandIndex);
+        if (error == std::errc{} && end == cmd.data() + cmd.size() && commandIndex >= 0 &&
+            commandIndex <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
+            BuiltinCommandDispatcher::instance().execute(
+                static_cast<BuiltinCommand>(commandIndex));
+            return;
+        }
 
         // 仅为旧配置保留结构化 IPC 消息兼容；普通文本不再交给 JSON 解析器。
         if (!cmd.empty() && cmd.front() == '{') {

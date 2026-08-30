@@ -27,17 +27,26 @@ inline AccentColorRGB getAccentColorRGB(const std::string& accent) noexcept {
  * 解析用户自定义 HEX 颜色字符串为归一化 RGB 浮点数值
  */
 inline AccentColorRGB parseHexColor(const std::string& hex) noexcept {
-    std::string h = hex;
-    if (!h.empty() && h[0] == '#') h = h.substr(1);
-    if (h.size() == 6) {
-        try {
-            unsigned long val = std::stoul(h, nullptr, 16);
-            return {
-                static_cast<float>((val >> 16) & 0xFF) / 255.0f,
-                static_cast<float>((val >> 8) & 0xFF) / 255.0f,
-                static_cast<float>(val & 0xFF) / 255.0f
-            };
-        } catch (...) {}
+    const size_t offset = !hex.empty() && hex.front() == '#' ? 1u : 0u;
+    if (hex.size() == offset + 6u) {
+        const auto hexNibble = [](const char ch) noexcept -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            return -1;
+        };
+
+        unsigned long value = 0;
+        for (size_t index = offset; index < hex.size(); ++index) {
+            const int nibble = hexNibble(hex[index]);
+            if (nibble < 0) return { 0.231f, 0.510f, 0.965f };
+            value = (value << 4u) | static_cast<unsigned long>(nibble);
+        }
+        return {
+            static_cast<float>((value >> 16) & 0xFF) / 255.0f,
+            static_cast<float>((value >> 8) & 0xFF) / 255.0f,
+            static_cast<float>(value & 0xFF) / 255.0f
+        };
     }
     return { 0.231f, 0.510f, 0.965f };
 }

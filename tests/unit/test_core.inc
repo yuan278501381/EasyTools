@@ -104,6 +104,66 @@ TEST(HotkeyManagerTest, DisabledHotkeyLifecycle) {
     }));
 }
 
+TEST(HotkeyManagerTest, MarshalsWindowHotkeysToOwningThread) {
+    HWND messageWindow = CreateWindowExW(
+        0, L"STATIC", L"EasyToolsHotkeyAffinityTest", 0,
+        0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(messageWindow, nullptr);
+
+    constexpr int probeId = 0x6AFE;
+    constexpr UINT modifiers = MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT;
+    if (!RegisterHotKey(messageWindow, probeId, modifiers, VK_F24)) {
+        DestroyWindow(messageWindow);
+        GTEST_SKIP() << "F24 test chord is unavailable on this host";
+    }
+    UnregisterHotKey(messageWindow, probeId);
+
+    auto& dispatcher = easy::core::MainThreadDispatcher::instance();
+    dispatcher.initialize(messageWindow);
+    auto& manager = easy::core::HotkeyManager::instance();
+    manager.initialize(messageWindow);
+
+    constexpr const char* name = "Unit Test Cross-thread Hotkey";
+    auto registration = std::async(std::launch::async, [&manager, name]() {
+        return manager.registerHotkey(
+            name, {easy::core::ModKey::Ctrl | easy::core::ModKey::Alt |
+                       easy::core::ModKey::Shift, VK_F24},
+            []() {});
+    });
+
+    const auto pumpUntilReady = [&dispatcher](auto& future) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready &&
+               std::chrono::steady_clock::now() < deadline) {
+            MSG message{};
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                if (message.message == easy::core::MainThreadDispatcher::MessageId) {
+                    dispatcher.drain();
+                } else {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            std::this_thread::yield();
+        }
+        return future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready;
+    };
+
+    ASSERT_TRUE(pumpUntilReady(registration));
+    EXPECT_TRUE(registration.get());
+
+    auto removal = std::async(std::launch::async, [&manager, name]() {
+        manager.unregisterHotkey(name);
+        return true;
+    });
+    ASSERT_TRUE(pumpUntilReady(removal));
+    EXPECT_TRUE(removal.get());
+
+    manager.shutdown();
+    dispatcher.shutdown();
+    DestroyWindow(messageWindow);
+}
+
 // -----------------------------------------------------------------------------
 // 8. 配置管理器持久化与默认回退测试套件
 // -----------------------------------------------------------------------------
@@ -161,6 +221,11 @@ TEST(ConfigManagerTest, PersistenceAndDefaultFallbacks) {
         const auto exported = nlohmann::json::parse(file);
         EXPECT_EQ(exported["general"]["language"], "zh-CN");
     }
+    EXPECT_FALSE(config.exportTo(std::filesystem::path(L"relative.json")));
+    EXPECT_FALSE(config.exportTo(temp / L"nested" / L".." / L"escape.json"));
+    EXPECT_FALSE(config.exportTo(temp / L"export.txt"));
+    EXPECT_FALSE(config.importFrom(std::filesystem::path(L"relative.json")));
+    EXPECT_FALSE(config.importFrom(temp / L"nested" / L".." / L"export.json"));
 
     // 给文件监控线程时间消费本进程自己的原子替换事件；内容未变化时不得重复通知。
     std::this_thread::sleep_for(std::chrono::milliseconds(350));
@@ -174,6 +239,9 @@ TEST(ConfigManagerTest, PersistenceAndDefaultFallbacks) {
         EXPECT_TRUE(persisted.is_object());
         EXPECT_TRUE(persisted.empty());
     }
+    EXPECT_TRUE(config.importFrom(temp / "export.json"));
+    EXPECT_EQ(config.get<std::string>("/general/language", ""), "zh-CN");
+    EXPECT_TRUE(config.reset());
     config.removeOnChange(callbackId);
     config.shutdown();
     std::filesystem::remove_all(temp, ec);
@@ -1425,6 +1493,7 @@ TEST(CoreMouseHookTest, InstallAndCallbacks) {
 // 40. 纯矢量图标系统全覆盖测试套件
 // -----------------------------------------------------------------------------
 
+
 TEST(AllModulesLifecycleTest, SearchSuspendAndResumeLifecycle) {
     using namespace easy::ui;
     WebViewSuspendController controller;
@@ -1509,4 +1578,16 @@ TEST(AllModulesLifecycleTest, DynamicHotkeyResolutionForAllFeatures) {
 
 // -----------------------------------------------------------------------------
 // 28. 鼠标手势全链路生命周期、取消打断与视口安全门禁测试套件
-// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
+TEST(ShellContextMenuServiceTest, UniversalDpiAndCoordinateSafety) {
+    auto& service = easy::core::ShellContextMenuService::instance();
+    // 1. 空路径防御性测试：立即安全返回 false
+    EXPECT_FALSE(service.showAsync(L"", -1, -1));
+
+    // 2. 非空路径启动异步工作线程测试，并在后台安全处理
+    EXPECT_TRUE(service.showAsync(L"C:\\non_existent_file_2026.xyz", 100, 200));
+
+    // 3. 并发关闭与生命周期安全
+    service.shutdown();
+}

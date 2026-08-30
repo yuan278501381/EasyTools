@@ -17,7 +17,9 @@
 #include "EasyToolsVersion.h"
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <optional>
+#include <string_view>
 #include <unordered_set>
 #include <windows.h>
 
@@ -25,16 +27,27 @@ namespace easy::gesture {
 
 namespace {
 
+std::optional<int> parseCommandIndex(const std::string_view value) noexcept {
+    if (value.empty() || (value.size() > 1 && value.front() == '0')) return std::nullopt;
+    for (const char ch : value) {
+        if (ch < '0' || ch > '9') return std::nullopt;
+    }
+
+    int index = -1;
+    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), index);
+    if (error != std::errc{} || end != value.data() + value.size() || index < 0 ||
+        index > static_cast<int>(BuiltinCommand::PasteAsPin)) {
+        return std::nullopt;
+    }
+    return index;
+}
+
 int hotCornerCommandIndex(const std::string& value) {
     if (value.empty()) return -1;
     if (value == "capture") return static_cast<int>(BuiltinCommand::TakeScreenshot);
     if (value == "search") return static_cast<int>(BuiltinCommand::ToggleSearch);
-    try {
-        const int index = std::stoi(value);
-        return index >= 0 && index <= static_cast<int>(BuiltinCommand::PasteAsPin) ? index : -1;
-    } catch (...) {
-        return -1;
-    }
+    const auto index = parseCommandIndex(value);
+    return index.value_or(-1);
 }
 
 constexpr std::array<std::pair<const char*, HotCorner>, 4> kHotCorners{{
@@ -48,13 +61,7 @@ std::optional<std::string> parseHotCornerCommand(const nlohmann::json& value) {
     if (value.is_string()) {
         const auto text = value.get<std::string>();
         if (text.empty() || text == "capture" || text == "search") return text;
-        try {
-            const int index = std::stoi(text);
-            if (std::to_string(index) == text && index >= 0 &&
-                index <= static_cast<int>(BuiltinCommand::PasteAsPin)) {
-                return text;
-            }
-        } catch (...) {}
+        if (parseCommandIndex(text)) return text;
         return std::nullopt;
     }
 

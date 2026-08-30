@@ -428,9 +428,10 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
 
     auto calculateFolderPriority = [this](DWORDLONG parentRef) -> int {
         if (parentRef == 0) return 200;
-        int priority = (m_DriveLetter != 'C' && m_DriveLetter != 'c') ? 500 : 200;
+        int priority = (m_DriveLetter != 'C' && m_DriveLetter != 'c') ? 800 : 200;
         DWORDLONG current = parentRef;
         size_t totalDepth = 0;
+        bool isDevWorkspace = false;
         for (size_t depth = 0; depth < 32; ++depth) {
             const auto* node = m_Store.find(current);
             if (!node) break;
@@ -439,22 +440,27 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             totalDepth++;
             
             std::wstring name = normalize(rec.fileName);
-            // 通用系统构建与临时缓存沉底
+            // 通用系统构建与临时缓存沉底（仅沉底真正位于其内部的文件）
             if (name == L"npm-cache" || name == L"pip" || name == L"go-build" ||
                 name == L".gradle" || name == L"temp" || name == L"windows" ||
                 name == L"$recycle.bin" || name == L"node_modules" || name == L".git" ||
                 name == L"cefcache" || name == L"crashpad" || name == L"coverage_report" ||
-                name == L"__pycache__" || name == L".vs" || name == L"obj" || name == L"bin" ||
-                name == L"extensions") {
+                name == L"__pycache__" || name == L".vs") {
                 return 1;
             }
             if (name == L"appdata" || name == L"program files" || name == L"programdata" || name == L"program files (x86)") {
                 priority = (std::min)(priority, 20);
             } else if (name == L"desktop" || name == L"documents" || name == L"downloads") {
-                priority = (std::max)(priority, 1000);
+                priority = (std::max)(priority, 2000);
+            } else if (name == L"repo" || name == L"repos" || name == L"workspace" || name == L"projects" ||
+                       name == L"code" || name == L"src" || name == L"source" || name == L"dev" || name == L"github") {
+                isDevWorkspace = true;
             }
             if (rec.parentFileReferenceNumber == current || rec.parentFileReferenceNumber == 0) break;
             current = rec.parentFileReferenceNumber;
+        }
+        if (isDevWorkspace && priority > 20) {
+            priority = (std::max)(priority, 3500);
         }
         // 浅层目录启发式加权：越靠近磁盘根目录的非系统文件夹，天然是用户的工作区，赋予高优先级
         if (priority > 20 && totalDepth <= 3) {

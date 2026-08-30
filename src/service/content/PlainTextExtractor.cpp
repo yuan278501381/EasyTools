@@ -368,27 +368,45 @@ static bool fastByteSinglePattern(
         }
         return false;
     } else {
-        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
-        if (utf8Len > 0) {
-            std::vector<uint8_t> utf8Pat(utf8Len);
-            WideCharToMultiByte(CP_UTF8, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(utf8Pat.data()), utf8Len, nullptr, nullptr);
-            if (std::search(data, data + len, utf8Pat.begin(), utf8Pat.end()) != data + len) return true;
-        }
-        const UINT gbkCp = getGbkCodePage();
-        int gbkLen = WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
-        if (gbkLen > 0) {
-            std::vector<uint8_t> gbkPat(gbkLen);
-            WideCharToMultiByte(gbkCp, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(gbkPat.data()), gbkLen, nullptr, nullptr);
-            if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) return true;
-        }
-        if (GetACP() != gbkCp && GetACP() != CP_UTF8) {
-            int acpLen = WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), nullptr, 0, nullptr, nullptr);
-            if (acpLen > 0) {
-                std::vector<uint8_t> acpPat(acpLen);
-                WideCharToMultiByte(CP_ACP, 0, queryPattern.data(), static_cast<int>(queryPattern.size()), reinterpret_cast<char*>(acpPat.data()), acpLen, nullptr, nullptr);
-                if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) return true;
+        const auto searchPatternBytes = [&](std::wstring_view pat) -> bool {
+            int utf8Len = WideCharToMultiByte(CP_UTF8, 0, pat.data(), static_cast<int>(pat.size()), nullptr, 0, nullptr, nullptr);
+            if (utf8Len > 0) {
+                std::vector<uint8_t> utf8Pat(utf8Len);
+                WideCharToMultiByte(CP_UTF8, 0, pat.data(), static_cast<int>(pat.size()), reinterpret_cast<char*>(utf8Pat.data()), utf8Len, nullptr, nullptr);
+                if (std::search(data, data + len, utf8Pat.begin(), utf8Pat.end()) != data + len) return true;
             }
+            const UINT gbkCp = getGbkCodePage();
+            int gbkLen = WideCharToMultiByte(gbkCp, 0, pat.data(), static_cast<int>(pat.size()), nullptr, 0, nullptr, nullptr);
+            if (gbkLen > 0) {
+                std::vector<uint8_t> gbkPat(gbkLen);
+                WideCharToMultiByte(gbkCp, 0, pat.data(), static_cast<int>(pat.size()), reinterpret_cast<char*>(gbkPat.data()), gbkLen, nullptr, nullptr);
+                if (std::search(data, data + len, gbkPat.begin(), gbkPat.end()) != data + len) return true;
+            }
+            if (GetACP() != gbkCp && GetACP() != CP_UTF8) {
+                int acpLen = WideCharToMultiByte(CP_ACP, 0, pat.data(), static_cast<int>(pat.size()), nullptr, 0, nullptr, nullptr);
+                if (acpLen > 0) {
+                    std::vector<uint8_t> acpPat(acpLen);
+                    WideCharToMultiByte(CP_ACP, 0, pat.data(), static_cast<int>(pat.size()), reinterpret_cast<char*>(acpPat.data()), acpLen, nullptr, nullptr);
+                    if (std::search(data, data + len, acpPat.begin(), acpPat.end()) != data + len) return true;
+                }
+            }
+            return false;
+        };
+
+        if (searchPatternBytes(queryPattern)) return true;
+
+        if (!caseSensitive) {
+            std::wstring lowerPat;
+            lowerPat.reserve(queryPattern.size());
+            for (wchar_t c : queryPattern) lowerPat.push_back(std::towlower(c));
+            if (lowerPat != queryPattern && searchPatternBytes(lowerPat)) return true;
+
+            std::wstring upperPat;
+            upperPat.reserve(queryPattern.size());
+            for (wchar_t c : queryPattern) upperPat.push_back(std::towupper(c));
+            if (upperPat != queryPattern && upperPat != lowerPat && searchPatternBytes(upperPat)) return true;
         }
+
         return false;
     }
 }

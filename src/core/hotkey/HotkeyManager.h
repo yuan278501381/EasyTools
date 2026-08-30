@@ -128,6 +128,7 @@ private:
     int generateId();
 
     HWND m_hwnd = nullptr;
+    std::atomic<DWORD> m_ownerThreadId{0};
     std::unordered_map<std::string, HotkeyEntry> m_hotkeys;  // name → entry
     std::unordered_map<int, std::string> m_idToName;         // id → name (反向查找)
     mutable std::mutex m_mutex;

@@ -2,8 +2,8 @@
 
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ColumnLayout, SearchResult } from './SearchApp';
-import { VirtualSearchResults } from './SearchApp';
+import { VirtualSearchResults } from './search/VirtualSearchResults';
+import type { ColumnLayout, SearchResult } from './search/searchTypes';
 
 class ResizeObserverMock {
   static instances: ResizeObserverMock[] = [];

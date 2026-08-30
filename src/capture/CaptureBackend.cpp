@@ -6,6 +6,7 @@
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <limits>
@@ -211,6 +212,21 @@ public:
 
         if (matchedOutputs.empty()) {
             error = "no attached DXGI outputs intersect capture region";
+            return false;
+        }
+
+        // A Desktop Duplication object must be created with a D3D device from
+        // the output's own adapter. One device therefore cannot safely compose
+        // a region spanning adapters. Reject it before allocating any DXGI
+        // resources; AutomaticCaptureBackend will select the existing GDI path.
+        const IDXGIAdapter1* captureAdapter = matchedOutputs.front().adapter.Get();
+        const bool spansAdapters = std::any_of(
+            matchedOutputs.cbegin() + 1, matchedOutputs.cend(),
+            [captureAdapter](const MatchedOutput& item) {
+                return item.adapter.Get() != captureAdapter;
+            });
+        if (spansAdapters) {
+            error = "capture region spans multiple DXGI adapters";
             return false;
         }
 

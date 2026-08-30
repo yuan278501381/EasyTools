@@ -65,16 +65,17 @@ private:
     HotCornerEngine(const HotCornerEngine&) = delete;
     HotCornerEngine& operator=(const HotCornerEngine&) = delete;
 
-    void workerThread();
+    void workerThread(std::stop_token stop);
 
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_enabled{true};
     std::atomic<bool> m_autoBypassFullscreen{true}; // 默认开启全屏免打扰
     std::atomic<int> m_triggerDelayMs{300}; // 默认停留 300 毫秒触发
 
-    std::thread m_thread;
+    std::jthread m_thread;
 
-    std::string m_actions[4]; // 对应 TopLeft, TopRight, BottomLeft, BottomRight
+    static constexpr size_t CORNER_COUNT = 4;
+    std::string m_actions[CORNER_COUNT]; // 对应 TopLeft, TopRight, BottomLeft, BottomRight
     mutable std::mutex m_mutex;
 };
 

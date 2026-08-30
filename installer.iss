@@ -2,6 +2,15 @@
 #ifndef EasyToolsVersion
   #error EasyToolsVersion must be supplied by deploy.ps1 from the root VERSION file
 #endif
+#ifndef EasyToolsArchitecture
+  #define EasyToolsArchitecture "x64"
+#endif
+#ifndef EasyToolsSetupBaseFilename
+  #define EasyToolsSetupBaseFilename "EasyTools-Setup"
+#endif
+#if EasyToolsArchitecture != "x64" && EasyToolsArchitecture != "arm64"
+  #error EasyToolsArchitecture must be x64 or arm64
+#endif
 
 [Setup]
 AppName=EasyTools
@@ -15,11 +24,16 @@ AppUpdatesURL=https://github.com/yuan278501381/easyTools/releases
 DefaultDirName={autopf}\EasyTools
 DefaultGroupName=EasyTools
 DisableProgramGroupPage=yes
-OutputBaseFilename=EasyTools-Setup
+OutputBaseFilename={#EasyToolsSetupBaseFilename}
 Compression=lzma2/ultra64
 SolidCompression=yes
+#if EasyToolsArchitecture == "arm64"
+ArchitecturesAllowed=arm64
+ArchitecturesInstallIn64BitMode=arm64
+#else
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 SetupIconFile=resources\app.ico
 UninstallDisplayIcon={app}\EasyTools.exe
 ; 全盘 NTFS 索引服务需要管理员权限注册并读取 USN Journal。

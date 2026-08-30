@@ -110,44 +110,35 @@ void SettingsWindow::show(HINSTANCE hInstance) {
             : L"EasyTools 设置";
         SetWindowTextW(m_hwnd, windowTitle.c_str());
 
-        if (IsIconic(m_hwnd)) {
-            ShowWindow(m_hwnd, SW_RESTORE);
-        } else {
-            ShowWindow(m_hwnd, SW_SHOW);
-        }
-        SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        BringWindowToTop(m_hwnd);
-        SetForegroundWindow(m_hwnd);
-        SetActiveWindow(m_hwnd);
-        SetFocus(m_hwnd);
-        m_visible = true;
-        
-        // 强制刷新 WebView2 尺寸和可见性（防御性编程）
-        if (m_webView) m_suspendController.resume(m_webView.Get(), "settings");
-        if (m_controller) {
-            m_controller->put_IsVisible(TRUE);
-            syncWebViewDpi(m_controller.Get(), m_hwnd);
-        }
         if (m_webViewReady) {
-            easy::core::PerformanceMonitor::instance().recordLatency(
-                "settings.open",
-                std::chrono::duration<double, std::milli>(
-                    std::chrono::steady_clock::now() - m_showRequestedAt).count());
-            m_showRequestedAt = {};
+            smoothPresent();
+        } else {
+            m_showWhenReady = true;
+            if (m_webView) m_suspendController.resume(m_webView.Get(), "settings");
         }
         
         LOG_INFO("设置窗口已激活（复用已有窗口，已取消闲置销毁定时器）");
         return;
     }
 
+    m_showWhenReady = true;
     if (!createWindow(m_hInstance)) {
         LOG_ERROR("创建设置窗口失败");
         return;
     }
 
     initializeWebView2();
-    ShowWindow(m_hwnd, SW_SHOW);
-    UpdateWindow(m_hwnd);
+    LOG_INFO("设置窗口已按需创建，正等待 WebView2 首帧就绪后丝滑呈现");
+}
+
+void SettingsWindow::smoothPresent() {
+    if (!m_hwnd || !IsWindow(m_hwnd)) return;
+
+    if (IsIconic(m_hwnd)) {
+        ShowWindow(m_hwnd, SW_RESTORE);
+    } else {
+        ShowWindow(m_hwnd, SW_SHOW);
+    }
     SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     BringWindowToTop(m_hwnd);
     SetForegroundWindow(m_hwnd);
@@ -155,7 +146,19 @@ void SettingsWindow::show(HINSTANCE hInstance) {
     SetFocus(m_hwnd);
     m_visible = true;
 
-    LOG_INFO("设置窗口已按需创建并显示");
+    if (m_webView) m_suspendController.resume(m_webView.Get(), "settings");
+    if (m_controller) {
+        m_controller->put_IsVisible(TRUE);
+        syncWebViewDpi(m_controller.Get(), m_hwnd);
+    }
+
+    if (m_showRequestedAt != std::chrono::steady_clock::time_point{}) {
+        easy::core::PerformanceMonitor::instance().recordLatency(
+            "settings.open",
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - m_showRequestedAt).count());
+        m_showRequestedAt = {};
+    }
 }
 
 void SettingsWindow::preload(HINSTANCE hInstance) {
@@ -381,7 +384,11 @@ void SettingsWindow::initializeWebView2() {
                             return readyResult;
                         }
                         m_controller = controller;
-                        controller->get_CoreWebView2(&m_webView);
+                        const HRESULT hrGetWeb = controller->get_CoreWebView2(&m_webView);
+                        if (FAILED(hrGetWeb) || !m_webView) {
+                            LOG_WARN("SettingsWindow: get_CoreWebView2 失败, hr=0x{:08X}", static_cast<unsigned>(hrGetWeb));
+                            return hrGetWeb;
+                        }
                         onWebView2Ready();
                         return S_OK;
                     }).Get());
@@ -412,9 +419,9 @@ void SettingsWindow::onWebView2Ready() {
 
     // ── 配置 WebView2 设置 ──────────────────────────────────────────────
     ComPtr<ICoreWebView2Settings> settings;
-    m_webView->get_Settings(&settings);
+    const HRESULT hrGetSettings = m_webView->get_Settings(&settings);
 
-    if (settings) {
+    if (SUCCEEDED(hrGetSettings) && settings) {
         settings->put_IsScriptEnabled(TRUE);
         settings->put_AreDefaultScriptDialogsEnabled(TRUE);
         settings->put_IsWebMessageEnabled(TRUE);
@@ -426,6 +433,8 @@ void SettingsWindow::onWebView2Ready() {
 #else
         settings->put_AreDevToolsEnabled(FALSE);
 #endif
+    } else if (FAILED(hrGetSettings)) {
+        LOG_WARN("SettingsWindow: get_Settings 失败, hr=0x{:08X}", static_cast<unsigned>(hrGetSettings));
     }
 
     // Serve packaged UI from a constrained virtual HTTPS origin instead of
@@ -511,6 +520,10 @@ void SettingsWindow::onWebView2Ready() {
                 args->get_IsSuccess(&success);
                 if (success) {
                     m_webViewReady = true;
+                    if (m_showWhenReady) {
+                        m_showWhenReady = false;
+                        smoothPresent();
+                    }
                     const auto now = std::chrono::steady_clock::now();
                     if (m_initializationStartedAt != std::chrono::steady_clock::time_point{}) {
                         easy::core::PerformanceMonitor::instance().recordLatency(
@@ -531,6 +544,10 @@ void SettingsWindow::onWebView2Ready() {
                     COREWEBVIEW2_WEB_ERROR_STATUS status;
                     args->get_WebErrorStatus(&status);
                     LOG_ERROR("WebView2 导航失败, status={}", static_cast<int>(status));
+                    if (m_showWhenReady) {
+                        m_showWhenReady = false;
+                        smoothPresent();
+                    }
                 }
                 return S_OK;
             }
@@ -569,7 +586,11 @@ std::string SettingsWindow::getUIEntryUrl() const {
                 LOG_INFO("成功读取到动态开发服务器地址: {}", url);
                 return url;
             }
-        } catch (...) {}
+        } catch (const std::exception& ex) {
+            LOG_WARN("读取开发服务器动态端口文件异常: {}", ex.what());
+        } catch (...) {
+            LOG_WARN("读取开发服务器动态端口文件发生未知异常");
+        }
     }
 
     // 3. 配置中的备用开发地址 (如果有的话，主要防呆)
@@ -832,6 +853,20 @@ LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     }
                 }
             }
+            return 0;
+        }
+
+        case WM_ERASEBKGND:
+            return 1; // 阻止 Win32 默认黑白背景擦除引发的闪烁
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            // 采用自适应优雅深色微晶背景底色 (RGB(15, 23, 42)) 预填
+            HBRUSH hBrush = CreateSolidBrush(RGB(15, 23, 42));
+            FillRect(hdc, &ps.rcPaint, hBrush);
+            DeleteObject(hBrush);
+            EndPaint(hwnd, &ps);
             return 0;
         }
 

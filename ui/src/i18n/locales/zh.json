@@ -1343,7 +1343,13 @@
     "csvModified": "修改时间",
     "csvCreated": "创建时间",
     "folderType": "文件夹",
-    "fileType": "文件"
+    "fileType": "文件",
+    "presetAppliedToast": "已应用 {{label}} 预设尺寸 ({{width}}×{{height}})",
+    "applyPresetTooltip": "将窗口调整为 {{width}}×{{height}} 尺寸",
+    "visibleColumns": "显示列与布局占比",
+    "colType": "扩展名/类型",
+    "resetViewPrefTooltip": "将列表密度、列排版、磁盘过滤及格式重置为出厂预设",
+    "toastResetAllPref": "所有视图与检索偏好设置已重置为出厂默认值"
   },
   "searchPage": {
     "tabSettings": "基础与热键",

@@ -8,7 +8,7 @@
   font-family: 'Noto Sans SC';
   font-style: normal;
   font-display: swap;
-  font-weight: 400 700;
+  font-weight: 500 700;
   src: local('Source Han Sans SC'), local('Noto Sans SC'), local('Source Han Sans CN'),
        url('./assets/fonts/noto-sans-sc-500.woff2') format('woff2');
 }
@@ -97,7 +97,7 @@
   --text-lg: 1.20rem;     /* 16.8px - 模块/分组标题 */
   --text-xl: 1.45rem;     /* 20.3px - 页面大标题 */
 
-  --font-normal: 450;
+  --font-normal: 500;
   --font-medium: 500;
   --font-semibold: 600;
   --font-bold: 700;

@@ -23,7 +23,10 @@
 #include <winrt/Windows.Graphics.Imaging.h>
 #include <winrt/Windows.Media.Ocr.h>
 
+#include <unknwn.h>
 #include <windows.h>
+#include <MemoryBuffer.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <cstring>
@@ -38,12 +41,6 @@ namespace wmo = winrt::Windows::Media::Ocr;
 namespace wgl = winrt::Windows::Globalization;
 
 namespace {
-
-// SoftwareBitmap 像素缓冲的低层访问接口。
-struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(novtable)
-IMemoryBufferByteAccess : ::IUnknown {
-    virtual HRESULT __stdcall GetBuffer(uint8_t** value, uint32_t* capacity) = 0;
-};
 
 /// 确保当前线程已进入 COM/WinRT 公寓 (OCR 可能在工作线程上被调用)。
 void ensureApartment() {
@@ -73,7 +70,7 @@ wgi::SoftwareBitmap matToBitmap(const cv::Mat& src) {
     {
         wgi::BitmapBuffer buffer = bitmap.LockBuffer(wgi::BitmapBufferAccessMode::Write);
         wf::IMemoryBufferReference ref = buffer.CreateReference();
-        auto byteAccess = ref.as<IMemoryBufferByteAccess>();
+        auto byteAccess = ref.as<::Windows::Foundation::IMemoryBufferByteAccess>();
 
         uint8_t* data = nullptr;
         uint32_t capacity = 0;

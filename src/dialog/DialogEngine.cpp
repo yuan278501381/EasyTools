@@ -59,6 +59,7 @@ void logWorkerFailureNoexcept(const char* worker, const char* stage,
                      reinterpret_cast<uintptr_t>(hwnd),
                      detail ? detail : "unknown");
     } catch (...) {
+        OutputDebugStringA("EasyTools DialogEngine: logger failed while reporting worker failure\n");
     }
 }
 
@@ -485,12 +486,16 @@ void DialogEngine::monitorThreadMain() {
                     std::lock_guard lock(m_mutex);
                     m_sessions.erase(hwnd);
                 } catch (...) {
+                    logWorkerFailureNoexcept("monitor", "erase failed session", hwnd,
+                                             "cleanup threw a non-standard exception");
                 }
                 try {
                     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
                         DialogRibbonOverlay::instance().hide();
                     }
                 } catch (...) {
+                    logWorkerFailureNoexcept("monitor", "hide failed overlay", hwnd,
+                                             "cleanup threw a non-standard exception");
                 }
             } catch (...) {
                 logWorkerFailureNoexcept("monitor", stage, hwnd, "non-standard exception");
@@ -498,12 +503,16 @@ void DialogEngine::monitorThreadMain() {
                     std::lock_guard lock(m_mutex);
                     m_sessions.erase(hwnd);
                 } catch (...) {
+                    logWorkerFailureNoexcept("monitor", "erase failed session", hwnd,
+                                             "cleanup threw a non-standard exception");
                 }
                 try {
                     if (DialogRibbonOverlay::instance().getTargetDialog() == hwnd) {
                         DialogRibbonOverlay::instance().hide();
                     }
                 } catch (...) {
+                    logWorkerFailureNoexcept("monitor", "hide failed overlay", hwnd,
+                                             "cleanup threw a non-standard exception");
                 }
             }
         }

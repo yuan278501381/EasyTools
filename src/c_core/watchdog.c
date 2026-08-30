@@ -8,14 +8,17 @@
 // 4. 世界级鲁棒性：内置 Mutex 防多开，通过 Event 句柄与主进程实现无锁同步。
 // ==============================================================================
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
+#include <sddl.h>
 #include <tlhelp32.h>
 #include <stdint.h>
 
 // [黑客级魔法]: 手动伪造 MSVC 的缓冲安全检查存根以彻底脱离 CRT
 uintptr_t __security_cookie = 0x00002B992DDFA232;
-void __fastcall __security_check_cookie(uintptr_t _StackCookie) { }
+void __fastcall __security_check_cookie(uintptr_t _StackCookie) { (void)_StackCookie; }
 void __cdecl __GSHandlerCheck() { }
 
 // 由于去除了 CRT，我们需要自己实现简单的宽字符比较
@@ -60,8 +63,32 @@ void ScanAndTrim(const WCHAR* targetName) {
 // 纯 C 程序的裸入口点 (绕过 mainCRTStartup)
 void __stdcall RawEntryPoint() {
     // 1. 防多开鲁棒性 (Single Instance)
-    HANDLE hMutex = CreateMutexW(NULL, TRUE, L"Global\\EasyTools_ZeroC_Watchdog_Mutex");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    // Protect the global object from unprivileged processes. Without an
+    // explicit DACL another desktop process can open and hold the watchdog's
+    // synchronization object. Fail closed if the descriptor cannot be built.
+    PSECURITY_DESCRIPTOR mutexDescriptor = NULL;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)", SDDL_REVISION_1,
+            &mutexDescriptor, NULL)) {
+        ExitProcess(GetLastError());
+        return;
+    }
+    SECURITY_ATTRIBUTES mutexAttributes;
+    mutexAttributes.nLength = sizeof(mutexAttributes);
+    mutexAttributes.lpSecurityDescriptor = mutexDescriptor;
+    mutexAttributes.bInheritHandle = FALSE;
+
+    SetLastError(ERROR_SUCCESS);
+    HANDLE hMutex = CreateMutexW(&mutexAttributes, TRUE,
+                                 L"Global\\EasyTools_ZeroC_Watchdog_Mutex");
+    DWORD mutexError = GetLastError();
+    LocalFree(mutexDescriptor);
+    if (!hMutex) {
+        ExitProcess(mutexError);
+        return;
+    }
+    if (mutexError == ERROR_ALREADY_EXISTS) {
+        CloseHandle(hMutex);
         ExitProcess(0);
         return;
     }

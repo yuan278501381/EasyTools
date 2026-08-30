@@ -46,12 +46,13 @@ bool ShellContextMenuService::showAsync(std::wstring path, int screenX, int scre
     // 若旧菜单窗口仍在展示，主动向其投递取消消息，促使其非阻塞平稳退出
     if (const HWND oldHelper = m_helperWindow.load(std::memory_order_acquire); oldHelper && IsWindow(oldHelper)) {
         PostMessageW(oldHelper, WM_CANCELMODE, 0, 0);
+        PostMessageW(oldHelper, WM_CLOSE, 0, 0);
     }
 
     std::lock_guard lock(m_mutex);
     if (m_worker.joinable()) {
         m_worker.request_stop();
-        m_worker.detach(); // 分离旧工作线程，绝不在调用方线程（UI/IPC）上发生同步阻塞等待
+        m_worker.detach();
     }
 
     m_busy.store(true, std::memory_order_release);
@@ -136,24 +137,29 @@ void ShellContextMenuService::run(std::wstring path, int screenX, int screenY, s
         contextMenu->QueryInterface(IID_IContextMenu2, reinterpret_cast<void**>(&t_contextMenu2));
         contextMenu->QueryInterface(IID_IContextMenu3, reinterpret_cast<void**>(&t_contextMenu3));
 
-        WNDCLASSEXW windowClass{};
-        windowClass.cbSize = sizeof(windowClass);
-        windowClass.lpfnWndProc = helperWindowProc;
-        windowClass.hInstance = GetModuleHandleW(nullptr);
-        windowClass.lpszClassName = HelperClassName;
-        RegisterClassExW(&windowClass);
+        static std::once_flag s_regClassFlag;
+        std::call_once(s_regClassFlag, []() {
+            WNDCLASSEXW windowClass{};
+            windowClass.cbSize = sizeof(windowClass);
+            windowClass.lpfnWndProc = helperWindowProc;
+            windowClass.hInstance = GetModuleHandleW(nullptr);
+            windowClass.lpszClassName = HelperClassName;
+            RegisterClassExW(&windowClass);
+        });
 
         POINT cursor{};
+        GetCursorPos(&cursor);
         if (screenX >= 0 && screenY >= 0) {
-            cursor.x = screenX;
-            cursor.y = screenY;
-        } else {
-            GetCursorPos(&cursor);
+            const POINT specified = { screenX, screenY };
+            if (MonitorFromPoint(specified, MONITOR_DEFAULTTONULL)) {
+                cursor = specified;
+            }
         }
 
         helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, HelperClassName, L"", WS_POPUP,
-                                 cursor.x, cursor.y, 1, 1, nullptr, nullptr,
-                                 GetModuleHandleW(nullptr), nullptr);
+                                 cursor.x, cursor.y, 1, 1,
+                                 (searchWindow && IsWindow(searchWindow)) ? searchWindow : nullptr,
+                                 nullptr, GetModuleHandleW(nullptr), nullptr);
         m_helperWindow.store(helper, std::memory_order_release);
         if (helper) {
             SetWindowPos(helper, HWND_TOPMOST, cursor.x, cursor.y, 1, 1, SWP_SHOWWINDOW);
@@ -169,12 +175,17 @@ void ShellContextMenuService::run(std::wstring path, int screenX, int screenY, s
 
         const UINT command = TrackPopupMenuEx(
             menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_VERPOSANIMATION,
-            cursor.x, cursor.y, helper ? helper : GetForegroundWindow(), nullptr);
+            cursor.x, cursor.y, helper ? helper : (searchWindow ? searchWindow : GetForegroundWindow()), nullptr);
+
+        if (helper && IsWindow(helper)) {
+            PostMessageW(helper, WM_NULL, 0, 0);
+        }
+
         if (command >= 1 && !stop.stop_requested()) {
             CMINVOKECOMMANDINFOEX info{};
             info.cbSize = sizeof(info);
             info.fMask = CMIC_MASK_UNICODE;
-            info.hwnd = helper ? helper : searchWindow;
+            info.hwnd = (searchWindow && IsWindow(searchWindow)) ? searchWindow : helper;
             info.lpVerb = reinterpret_cast<LPCSTR>(MAKEINTRESOURCEA(command - 1));
             info.lpVerbW = reinterpret_cast<LPCWSTR>(MAKEINTRESOURCEW(command - 1));
             info.nShow = SW_SHOWNORMAL;

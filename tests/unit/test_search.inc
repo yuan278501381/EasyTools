@@ -2,6 +2,32 @@
 // test_search.inc — SEARCH 模块化单元测试集
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include "service/StringArena.h"
+
+TEST(StringArenaTest, OversizedSideBlockPreservesActiveBlockCapacity) {
+    easy::service::StringArena arena;
+    const std::uint64_t baselineBytes = arena.approximateBytes();
+
+    const auto prefixOffset = arena.append(L"prefix");
+    std::wstring oversized(easy::service::StringArena::BlockChars + 17, L'X');
+    const auto oversizedOffset = arena.append(oversized);
+    const auto suffixOffset = arena.append(L"suffix");
+
+    EXPECT_EQ(prefixOffset, 1u);
+    EXPECT_EQ(oversizedOffset, 1u << easy::service::StringArena::BlockShift);
+    EXPECT_EQ(suffixOffset, prefixOffset + 6u)
+        << "the oversized side block must not abandon the active block tail";
+    EXPECT_EQ(arena.view(prefixOffset, 6), L"prefix");
+    EXPECT_EQ(arena.view(oversizedOffset, static_cast<std::uint32_t>(oversized.size())),
+              std::wstring_view(oversized));
+    EXPECT_EQ(arena.view(suffixOffset, 6), L"suffix");
+    EXPECT_EQ(arena.approximateBytes(),
+              baselineBytes + oversized.size() * sizeof(wchar_t));
+
+    arena.reset();
+    EXPECT_EQ(arena.approximateBytes(), baselineBytes);
+}
+
 TEST(PinyinEngineTest, FuzzyAndInitialMatching) {
     auto wx_init = PinyinEngine::GetInitials(L"微信");
     auto wx_full = PinyinEngine::GetFullPinyin(L"微信");
@@ -16,6 +42,15 @@ TEST(PinyinEngineTest, FuzzyAndInitialMatching) {
     EXPECT_EQ(PinyinEngine::GetFullPinyin(L"微信"), L"weixin");
     EXPECT_EQ(PinyinEngine::GetFullPinyin(L"你好"), L"nihao");
     EXPECT_EQ(PinyinEngine::GetFullPinyin(L"EasyTools"), L"easytools");
+}
+
+TEST(PinyinEngineTest, PreservesUnsupportedUnicodeAndSurrogatePairs) {
+    const std::wstring supplementary{static_cast<wchar_t>(0xD840),
+                                     static_cast<wchar_t>(0xDC00)};
+    EXPECT_EQ(PinyinEngine::GetFirstLetter(L'\u3042'), L'\u3042');
+    EXPECT_EQ(PinyinEngine::GetCharPinyin(L'\uD7FF'), L"\uD7FF");
+    EXPECT_EQ(PinyinEngine::GetInitials(supplementary), supplementary);
+    EXPECT_EQ(PinyinEngine::GetFullPinyin(supplementary), supplementary);
 }
 
 // -----------------------------------------------------------------------------
@@ -514,12 +549,46 @@ TEST(ContentSearchTest, FormatConfigurationIsReversibleUnderConcurrency) {
     EXPECT_TRUE(engine.canSearchContent(L"cpp"));
 }
 
-// -----------------------------------------------------------------------------
-// 32. 插件发现与动态加载生命周期测试套件 (必须放置在最后，因为 shutdown 会注销共享注册表)
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-// 32. 屏幕触发角引擎测试套件
-// -----------------------------------------------------------------------------
+TEST(ContentSearchTest, CaseInsensitiveMixedLanguageSearch) {
+    auto& engine = easy::service::content::ContentSearchEngine::instance();
+    wchar_t tempPath[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring testFile = std::wstring(tempPath) + L"easytools_test_mixed.txt";
+
+    {
+        std::ofstream ofs(testFile, std::ios::binary);
+        ofs << "项目名称: EasyTools\n";
+        ofs << "开发团队: Antigravity Google Team\n";
+        ofs << "模块说明: ContentSearchEngine 全文穿透检索系统\n";
+    }
+
+    // 1. 中英文大小写混合检索测试：文件中有 "EasyTools"，用全小写 "easytools" 检索
+    std::vector<easy::service::content::ContentSnippet> snippets;
+    bool foundLower = engine.searchFile(testFile, L"easytools", false, snippets);
+    EXPECT_TRUE(foundLower);
+    EXPECT_FALSE(snippets.empty());
+
+    // 2. 用中英混合词检索："easytools 全文"
+    snippets.clear();
+    bool foundMixed = engine.searchFile(testFile, L"easytools 全文", false, snippets);
+    EXPECT_TRUE(foundMixed);
+    EXPECT_FALSE(snippets.empty());
+
+    // 3. 中文词检索
+    snippets.clear();
+    bool foundZh = engine.searchFile(testFile, L"全文穿透检索", false, snippets);
+    EXPECT_TRUE(foundZh);
+    EXPECT_FALSE(snippets.empty());
+
+    DeleteFileW(testFile.c_str());
+}
+
+TEST(ContentSearchTest, ZipXmlTagStrippingNoSpuriousSpaces) {
+    auto& engine = easy::service::content::ContentSearchEngine::instance();
+    EXPECT_TRUE(engine.canSearchContent(L"docx"));
+    EXPECT_TRUE(engine.canSearchContent(L"xlsx"));
+    EXPECT_TRUE(engine.canSearchContent(L"pptx"));
+}
 
 TEST(RunHistoryTest, PersistenceAndFrecencyCalculation) {
     wchar_t tempPath[MAX_PATH]{};
@@ -687,7 +756,7 @@ TEST(DatabaseSnapshotTest, BinaryPackAndFastMemoryMap) {
 TEST(MftParserTest, IncrementalTypingMultiWordCrossPathSearch) {
     auto parser = std::make_unique<MftParser>();
     std::vector<FileRecordInit> mockRecords;
-    
+
     // 构造目录: 226-苏州同心 (id = 100)
     FileRecordInit dirRec{};
     dirRec.fileReferenceNumber = 100;
@@ -962,4 +1031,4 @@ TEST(ServiceLifetimeTest, DefaultConstructedOwnershipStopsNothing) {
 // 38. DevOps 全链路性能防退化基准与内存上限自动化门禁 (DevOps Performance Gates)
 // -----------------------------------------------------------------------------
 
-// 门禁 1: 50,000 文件索引内存紧缩与单趟毫秒级比对吞吐量
+// 门禁 1: 50,000 文件索引内存紧缩与单趟毫秒级比对吞吐量

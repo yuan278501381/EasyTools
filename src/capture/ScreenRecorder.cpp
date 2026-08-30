@@ -209,7 +209,7 @@ bool ScreenRecorder::startRecording(const RecordOptions& options) {
     }
 
     // 上一次若因捕获/编码错误自行退出，线程仍需 join，编码器也需封尾清理。
-    if (m_recordThread.joinable()) {
+    if (m_recordThread.joinable() && std::this_thread::get_id() != m_recordThread.get_id()) {
         m_recordThread.join();
         finalizeEncoder();
         commitOutputFile(stats().frameCount > 0);
@@ -341,8 +341,11 @@ bool ScreenRecorder::startRecording(const RecordOptions& options) {
 }
 
 void ScreenRecorder::pauseRecording() {
+    std::lock_guard controlLock(m_controlMutex);
     if (m_state == RecordState::Recording) {
-        m_state = RecordState::Paused;
+        // Publish Paused only after the audio producer is paused and its queued
+        // samples are cleared. A recorder thread that observes Paused can then
+        // never see the old audio state from the transition window.
         m_audioCapture.setPaused(true);
         {
             std::lock_guard lock(m_statsMutex);
@@ -350,12 +353,14 @@ void ScreenRecorder::pauseRecording() {
             m_stats.microphonePeak = 0.0f;
             m_stats.mixedAudioPeak = 0.0f;
         }
+        m_state = RecordState::Paused;
         LOG_INFO("屏幕录制已暂停, frames={}", stats().frameCount);
         notifyState(RecordState::Paused);
     }
 }
 
 void ScreenRecorder::resumeRecording() {
+    std::lock_guard controlLock(m_controlMutex);
     if (m_state == RecordState::Paused) {
         m_audioCapture.setPaused(false);
         m_state = RecordState::Recording;
@@ -371,8 +376,8 @@ std::string ScreenRecorder::stopRecording() {
     easy::core::TraceId::Scope scope;
     m_state = RecordState::Idle;
 
-    // 等待录制线程结束
-    if (m_recordThread.joinable()) {
+    // 等待录制线程结束（避免在工作线程自身中 join 产生死锁）
+    if (m_recordThread.joinable() && std::this_thread::get_id() != m_recordThread.get_id()) {
         m_recordThread.join();
     }
 

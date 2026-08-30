@@ -3,7 +3,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, type FC } from 'react';
-import { Card, Toggle, SettingRow, SettingGroup, Button, Tabs, type TabItem } from '../components/UIKit';
+import { Card, Toggle, SettingRow, SettingGroup, Button, Tabs, type TabItem, CodeBadge } from '../components/UIKit';
 import { HotkeyRecorder } from '../components/HotkeyRecorder';
 import { HotkeyStatusBadge, type HotkeyEntry } from '../components/HotkeyStatusBadge';
 import { bridgeRequest } from '../hooks/useBridge';
@@ -372,34 +372,34 @@ export const SearchPage: FC = () => {
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>space</code></td>
+                    <td><CodeBadge>space</CodeBadge></td>
                     <td>{t('searchPage.opSpaceDesc', 'Logical AND, matches all keywords simultaneously')}</td>
-                    <td><code>report 2026</code></td>
+                    <td><CodeBadge>report 2026</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>|</code> / <code>OR</code></td>
+                    <td><CodeBadge>|</CodeBadge> / <CodeBadge>OR</CodeBadge></td>
                     <td>{t('searchPage.opOrDesc', 'Logical OR, matches any condition')}</td>
-                    <td><code>ext:jpg | ext:png</code></td>
+                    <td><CodeBadge>ext:jpg | ext:png</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>!</code> / <code>NOT</code></td>
+                    <td><CodeBadge>!</CodeBadge> / <CodeBadge>NOT</CodeBadge></td>
                     <td>{t('searchPage.opNotDesc', 'Logical NOT, excludes files containing specific word')}</td>
-                    <td><code>*.cpp !test</code></td>
+                    <td><CodeBadge>*.cpp !test</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>" "</code></td>
+                    <td><CodeBadge>" "</CodeBadge></td>
                     <td>{t('searchPage.opPhraseDesc', 'Quoted phrase, strictly matches exact text with spaces')}</td>
-                    <td><code>"Program Files"</code></td>
+                    <td><CodeBadge>"Program Files"</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>*</code></td>
+                    <td><CodeBadge>*</CodeBadge></td>
                     <td>{t('searchPage.opWildcardMulti', 'Wildcard, matches 0 or more characters')}</td>
-                    <td><code>*.pdf</code>, <code>report_*</code></td>
+                    <td><CodeBadge>*.pdf</CodeBadge>, <CodeBadge>report_*</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>?</code></td>
+                    <td><CodeBadge>?</CodeBadge></td>
                     <td>{t('searchPage.opWildcardSingle', 'Wildcard, matches 1 character')}</td>
-                    <td><code>img_??.png</code></td>
+                    <td><CodeBadge>img_??.png</CodeBadge></td>
                   </tr>
                 </tbody>
               </table>
@@ -418,59 +418,59 @@ export const SearchPage: FC = () => {
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>ext:&lt;ext_list&gt;</code></td>
+                    <td><CodeBadge>ext:&lt;ext_list&gt;</CodeBadge></td>
                     <td>{t('searchPage.modExtDesc', 'Filter by file extensions, comma or semicolon separated')}</td>
-                    <td><code>ext:jpg;png;webp</code></td>
+                    <td><CodeBadge>ext:jpg;png;webp</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>file:</code></td>
+                    <td><CodeBadge>file:</CodeBadge></td>
                     <td>{t('searchPage.modFileDesc', 'Match files only (exclude folders)')}</td>
-                    <td><code>file: *.txt</code></td>
+                    <td><CodeBadge>file: *.txt</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>folder:</code> / <code>dir:</code></td>
+                    <td><CodeBadge>folder:</CodeBadge> / <CodeBadge>dir:</CodeBadge></td>
                     <td>{t('searchPage.modFolderDesc', 'Match folders / directories only')}</td>
-                    <td><code>folder: project</code></td>
+                    <td><CodeBadge>folder: project</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>path:&lt;path&gt;</code></td>
+                    <td><CodeBadge>path:&lt;path&gt;</CodeBadge></td>
                     <td>{t('searchPage.modPathDesc', 'Search within full absolute path')}</td>
-                    <td><code>path:windows\system32</code></td>
+                    <td><CodeBadge>path:windows\system32</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>parent:&lt;dir&gt;</code> / <code>p:</code></td>
+                    <td><CodeBadge>parent:&lt;dir&gt;</CodeBadge> / <CodeBadge>p:</CodeBadge></td>
                     <td>{t('searchPage.modParentDesc', 'Match in direct parent directory name')}</td>
-                    <td><code>parent:easytools</code></td>
+                    <td><CodeBadge>parent:easytools</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>c:</code> / <code>d:</code></td>
+                    <td><CodeBadge>c:</CodeBadge> / <CodeBadge>d:</CodeBadge></td>
                     <td>{t('searchPage.modDriveDesc', 'Restrict search to specified drive')}</td>
-                    <td><code>d: *.zip</code></td>
+                    <td><CodeBadge>d: *.zip</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>exact:&lt;name&gt;</code></td>
+                    <td><CodeBadge>exact:&lt;name&gt;</CodeBadge></td>
                     <td>{t('searchPage.modExactDesc', 'Strict exact filename match')}</td>
-                    <td><code>exact:README.md</code></td>
+                    <td><CodeBadge>exact:README.md</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>content:&lt;query&gt;</code></td>
+                    <td><CodeBadge>content:&lt;query&gt;</CodeBadge></td>
                     <td>{t('searchPage.modContentDesc', 'Full-text content search, supports code, Office documents, PSD/AI/CAD drawings')}</td>
-                    <td><code>content:SELECT</code>, <code>ext:docx content:contract</code></td>
+                    <td><CodeBadge>content:SELECT</CodeBadge>, <CodeBadge>ext:docx content:contract</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>case:&lt;text&gt;</code> / <code>cs:</code></td>
+                    <td><CodeBadge>case:&lt;text&gt;</CodeBadge> / <CodeBadge>cs:</CodeBadge></td>
                     <td>{t('searchPage.modCaseDesc', 'Enforce case-sensitive matching')}</td>
-                    <td><code>case:EasyTools</code></td>
+                    <td><CodeBadge>case:EasyTools</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>pinyin:&lt;pinyin&gt;</code> / <code>py:</code></td>
+                    <td><CodeBadge>pinyin:&lt;pinyin&gt;</CodeBadge> / <CodeBadge>py:</CodeBadge></td>
                     <td>{t('searchPage.modPinyinDesc', 'Explicit pinyin search (full spell or initials)')}</td>
-                    <td><code>py:wx</code></td>
+                    <td><CodeBadge>py:wx</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>nopy:&lt;text&gt;</code></td>
+                    <td><CodeBadge>nopy:&lt;text&gt;</CodeBadge></td>
                     <td>{t('searchPage.modNopyDesc', 'Disable pinyin, match plain text only')}</td>
-                    <td><code>nopy:wx</code></td>
+                    <td><CodeBadge>nopy:wx</CodeBadge></td>
                   </tr>
                 </tbody>
               </table>
@@ -497,54 +497,54 @@ export const SearchPage: FC = () => {
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>a|b</code></td>
+                    <td><CodeBadge>a|b</CodeBadge></td>
                     <td>{t('searchPage.regOr', 'Match expression a or b')}</td>
-                    <td><code>r:test|debug</code></td>
+                    <td><CodeBadge>r:test|debug</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>.</code></td>
+                    <td><CodeBadge>.</CodeBadge></td>
                     <td>{t('searchPage.regAnyChar', 'Match any single character except newline')}</td>
-                    <td><code>r:a.c\.txt</code></td>
+                    <td><CodeBadge>r:a.c\.txt</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>[abc]</code></td>
+                    <td><CodeBadge>[abc]</CodeBadge></td>
                     <td>{t('searchPage.regCharSet', 'Match any single character in character set')}</td>
-                    <td><code>r:log_[0-9]\.txt</code></td>
+                    <td><CodeBadge>r:log_[0-9]\.txt</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>[^abc]</code></td>
+                    <td><CodeBadge>[^abc]</CodeBadge></td>
                     <td>{t('searchPage.regNegSet', 'Exclude characters in character set')}</td>
-                    <td><code>r:file_[^0-9]\.dat</code></td>
+                    <td><CodeBadge>r:file_[^0-9]\.dat</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>[a-z]</code> / <code>[0-9]</code></td>
+                    <td><CodeBadge>[a-z]</CodeBadge> / <CodeBadge>[0-9]</CodeBadge></td>
                     <td>{t('searchPage.regRange', 'Match characters within specified range')}</td>
-                    <td><code>r:^[a-z]{3}_[0-9]{4}</code></td>
+                    <td><CodeBadge>r:^[a-z]{3}_[0-9]{4}</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>^</code></td>
+                    <td><CodeBadge>^</CodeBadge></td>
                     <td>{t('searchPage.regStartAnchor', 'Match start of filename (head anchor)')}</td>
-                    <td><code>r:^EasyTools.*\.exe$</code></td>
+                    <td><CodeBadge>r:^EasyTools.*\.exe$</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>$</code></td>
+                    <td><CodeBadge>$</CodeBadge></td>
                     <td>{t('searchPage.regEndAnchor', 'Match end of filename (tail anchor)')}</td>
-                    <td><code>r:\.min\.js$</code></td>
+                    <td><CodeBadge>r:\.min\.js$</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>*</code> / <code>+</code> / <code>?</code></td>
+                    <td><CodeBadge>*</CodeBadge> / <CodeBadge>+</CodeBadge> / <CodeBadge>?</CodeBadge></td>
                     <td>{t('searchPage.regQuantifiers', 'Match 0 or more / 1 or more / 0 or 1 time')}</td>
-                    <td><code>r:v\d+\.\d+</code></td>
+                    <td><CodeBadge>r:v\d+\.\d+</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>&#123;n&#125;</code> / <code>&#123;n,m&#125;</code></td>
+                    <td><CodeBadge>&#123;n&#125;</CodeBadge> / <CodeBadge>&#123;n,m&#125;</CodeBadge></td>
                     <td>{t('searchPage.regExactCount', 'Specify exact match count or range')}</td>
-                    <td><code>r:\d&#123;4&#125;-\d&#123;2&#125;-\d&#123;2&#125;</code></td>
+                    <td><CodeBadge>r:\d&#123;4&#125;-\d&#123;2&#125;-\d&#123;2&#125;</CodeBadge></td>
                   </tr>
                   <tr>
-                    <td><code>\</code></td>
+                    <td><CodeBadge>\</CodeBadge></td>
                     <td>{t('searchPage.regEscape', 'Escape special characters (e.g. \\. matches literal dot)')}</td>
-                    <td><code>r:archive\.(tar\.gz|zip)</code></td>
+                    <td><CodeBadge>r:archive\.(tar\.gz|zip)</CodeBadge></td>
                   </tr>
                 </tbody>
               </table>
@@ -581,7 +581,7 @@ export const SearchPage: FC = () => {
               <div className="service-details-grid">
                 <div className="detail-item">
                   <span className="detail-label">{t('searchPage.pipeAddr', 'IPC Pipe Address')}</span>
-                  <span className="detail-value"><code>{serviceStatus.pipeName}</code></span>
+                  <span className="detail-value"><CodeBadge>{serviceStatus.pipeName}</CodeBadge></span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">{t('searchPage.indexTech', 'Indexing Architecture')}</span>

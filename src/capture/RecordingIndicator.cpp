@@ -339,7 +339,11 @@ void RecordingIndicator::render() {
     CaptureVectorIcons::renderIcon(m_renderTarget.Get(), m_d2dFactory.Get(),
         CaptureIconId::ActionRecordStop, sIconRect, m_textBrush.Get(), 1.0f);
 
-    m_renderTarget->EndDraw();
+    const HRESULT hrEnd = m_renderTarget->EndDraw();
+    if (hrEnd == D2DERR_RECREATE_TARGET) {
+        releaseRenderResources();
+        createRenderResources();
+    }
 }
 
 std::wstring RecordingIndicator::formatDuration(double seconds) const {

@@ -28,6 +28,10 @@ public:
                 }
                 break;
             }
+            case WM_SYSCHAR: {
+                // 拦截 Alt+字母/数字 触发的系统字符蜂鸣器与原生助记键
+                return true;
+            }
             case WM_HELP: {
                 // 拦截 F1 帮助广播
                 return true;

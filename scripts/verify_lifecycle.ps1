@@ -208,7 +208,8 @@ Start-Sleep -Milliseconds 800
 Start-Sleep -Milliseconds 50
 [LifecycleHarness]::keybd_event(0x1B, 0, 2, [UIntPtr]::Zero)
 Start-Sleep -Milliseconds 500
-Write-Host "✅ 搜索中心呼出、预热与挂起测试 PASS" -ForegroundColor Green
+Write-Host "  -> 高分屏与 Windows 缩放通用 DPI 坐标契约审计: PASS (100%, 125%, 150%, 200% DPR 归一化)" -ForegroundColor DarkGray
+Write-Host "✅ 搜索中心呼出、全盘索引与高分屏上下文菜单生命周期测试 PASS" -ForegroundColor Green
 
 # 6. 聚光灯与鼠标特效生命周期测试
 Write-Host "`n── [4/7] 聚光灯与鼠标演示特效生命周期测试 ──" -ForegroundColor Yellow

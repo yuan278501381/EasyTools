@@ -40,16 +40,16 @@ public:
 
         const size_t needed = text.size();
         if (needed > BlockChars) {
-            if (m_blocks.size() + 1 >= MaxBlocks) {
+            if (m_blocks.size() >= MaxBlocks) {
                 throw std::length_error("StringArena logical address space exhausted");
             }
-            // Oversized strings get a block to themselves so that the logical
-            // offset of the next block stays collision-free.
+            // Oversized strings are side blocks. They receive their own logical
+            // block index, but do not replace the current fixed-size append
+            // block or discard its remaining capacity.
             m_blocks.push_back(std::make_unique<wchar_t[]>(needed));
             std::copy(text.begin(), text.end(), m_blocks.back().get());
             const uint32_t offset = static_cast<uint32_t>(m_blocks.size() - 1) << BlockShift;
-            m_blocks.push_back(std::make_unique<wchar_t[]>(BlockChars));
-            m_blockUsed = 0;
+            m_allocatedChars += needed;
             m_totalChars += needed;
             return offset;
         }
@@ -59,12 +59,14 @@ public:
                 throw std::length_error("StringArena logical address space exhausted");
             }
             m_blocks.push_back(std::make_unique<wchar_t[]>(BlockChars));
+            m_activeBlockIndex = static_cast<uint32_t>(m_blocks.size() - 1);
             m_blockUsed = 0;
+            m_allocatedChars += BlockChars;
         }
 
-        const uint32_t blockIndex = static_cast<uint32_t>(m_blocks.size() - 1);
+        const uint32_t blockIndex = m_activeBlockIndex;
         const uint32_t offset = (blockIndex << BlockShift) | m_blockUsed;
-        std::copy(text.begin(), text.end(), m_blocks.back().get() + m_blockUsed);
+        std::copy(text.begin(), text.end(), m_blocks[blockIndex].get() + m_blockUsed);
         m_blockUsed += static_cast<uint32_t>(needed);
         m_totalChars += needed;
         return offset;
@@ -105,10 +107,12 @@ public:
     void reset() {
         m_blocks.clear();
         m_blocks.push_back(std::make_unique<wchar_t[]>(BlockChars));
+        m_activeBlockIndex = 0;
         // Offset 0 is reserved for the empty string so that a zero offset can
         // double as "absent" in the record layout and in the intern table.
         m_blocks.back()[0] = L'\0';
         m_blockUsed = 1;
+        m_allocatedChars = BlockChars;
         m_totalChars = 0;
         m_internSlots.assign(1024, EmptySlot);
         m_internUsed = 0;
@@ -126,7 +130,7 @@ public:
     size_t uniqueStrings() const noexcept { return m_internUsed; }
 
     uint64_t approximateBytes() const noexcept {
-        return static_cast<uint64_t>(m_blocks.size()) * BlockChars * sizeof(wchar_t) +
+        return m_allocatedChars * sizeof(wchar_t) +
                static_cast<uint64_t>(m_internSlots.size()) * sizeof(uint64_t);
     }
 
@@ -162,9 +166,11 @@ private:
 
     std::vector<std::unique_ptr<wchar_t[]>> m_blocks;
     std::vector<uint64_t> m_internSlots;
+    uint32_t m_activeBlockIndex = 0;
     uint32_t m_blockUsed = 0;
     size_t m_internUsed = 0;
     uint64_t m_totalChars = 0;
+    uint64_t m_allocatedChars = 0;
 };
 
 }  // namespace easy::service

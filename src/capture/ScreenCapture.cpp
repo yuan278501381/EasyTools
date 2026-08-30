@@ -141,6 +141,7 @@ bool ScreenCapture::initialize(HINSTANCE hInstance) {
             } else {
                 easy::core::EventBus::instance().publish(
                     easy::core::ShowToastEvent{L"OCR 识别完成"});
+                easy::core::WinUtils::trimWorkingSet();
             }
         });
     });

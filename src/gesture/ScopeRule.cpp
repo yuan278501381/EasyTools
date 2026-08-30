@@ -55,14 +55,22 @@ bool ScopeRule::matches(HWND hwnd, const std::wstring& procName, const std::wstr
                 try {
                     std::wregex re(regexStr, std::regex_constants::icase);
                     if (std::regex_match(className, re)) return true;
-                } catch (...) {}
+                } catch (const std::exception& error) {
+                    LOG_WARN("作用域窗口类通配符规则无效: {}", error.what());
+                } catch (...) {
+                    LOG_WARN("作用域窗口类通配符规则发生未知异常");
+                }
                 break;
             }
             case MatchMode::Regex: {
                 try {
                     std::wregex re(wideClass, std::regex_constants::icase);
                     if (std::regex_match(className, re)) return true;
-                } catch (...) {}
+                } catch (const std::exception& error) {
+                    LOG_WARN("作用域窗口类正则规则无效: {}", error.what());
+                } catch (...) {
+                    LOG_WARN("作用域窗口类正则规则发生未知异常");
+                }
                 break;
             }
         }
@@ -86,14 +94,22 @@ bool ScopeRule::matches(HWND hwnd, const std::wstring& procName, const std::wstr
                 try {
                     std::wregex re(regexStr, std::regex_constants::icase);
                     if (std::regex_match(procName, re)) return true;
-                } catch (...) {}
+                } catch (const std::exception& error) {
+                    LOG_WARN("作用域进程名通配符规则无效: {}", error.what());
+                } catch (...) {
+                    LOG_WARN("作用域进程名通配符规则发生未知异常");
+                }
                 break;
             }
             case MatchMode::Regex: {
                 try {
                     std::wregex re(wideProcName, std::regex_constants::icase);
                     if (std::regex_match(procName, re)) return true;
-                } catch (...) {}
+                } catch (const std::exception& error) {
+                    LOG_WARN("作用域进程名正则规则无效: {}", error.what());
+                } catch (...) {
+                    LOG_WARN("作用域进程名正则规则发生未知异常");
+                }
                 break;
             }
         }

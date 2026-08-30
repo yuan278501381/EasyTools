@@ -13,6 +13,8 @@ EasyTools CI/CD 自动化部署脚本 (Idempotent Deployment Script)
 param (
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
     [string]$Configuration = "Release",
+    [ValidateSet("x64", "arm64")]
+    [string]$Arch = "x64",              # Windows 目标架构；ARM64 使用交叉编译工具链
     [string]$VcpkgRoot = "C:\vcpkg",
     [switch]$Quick = $false,             # 极速增量开发模式 (跳过 npm ci，复用 node_modules 直奔编译与测试)
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
@@ -26,6 +28,8 @@ param (
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
+$VcpkgTargetTriplet = "$Arch-windows"
+$BuildDirectoryName = if ($Arch -eq "x64") { "build" } else { "build-$Arch" }
 
 $VersionFile = Join-Path $ScriptDir "VERSION"
 if (-not (Test-Path -LiteralPath $VersionFile)) {
@@ -60,6 +64,7 @@ function Write-Log ($Message, $Level = "INFO") {
 Write-Log "======================================================="
 Write-Log "启动 EasyTools 一键幂等部署流程"
 Write-Log "配置环境: $Configuration"
+Write-Log "目标架构: $Arch (vcpkg: $VcpkgTargetTriplet)"
 Write-Log "======================================================="
 
 # ------------------------------------------------------------------------------
@@ -167,8 +172,9 @@ if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue) -or -not (Get-Comma
             $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
             if (Test-Path $devShell) {
                 Import-Module $devShell
-                Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=x64" | Out-Null
-                Write-Log "✅ 成功挂载 VS 编译环境 ($vsPath)!"
+                Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
+                    -DevCmdArguments "-arch=$Arch -host_arch=x64" | Out-Null
+                Write-Log "✅ 成功挂载 VS $Arch 编译环境 ($vsPath)!"
             }
         }
     }
@@ -191,12 +197,18 @@ if (Get-Command "sccache" -ErrorAction SilentlyContinue) {
 }
 
 Write-Log "执行 CMake Configure..."
-$BuildDir = Join-Path $ScriptDir "build"
+$BuildDir = Join-Path $ScriptDir $BuildDirectoryName
 if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" @CMakeExtraArgs
+$CMakePlatformArgs = @()
+if ($Arch -eq "arm64") {
+    # Use a dedicated build tree so CMake never reuses an x64 generator cache.
+    $CMakePlatformArgs = @("-A", "ARM64")
+}
+cmake -B $BuildDir -S . @CMakePlatformArgs -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" `
+    -DVCPKG_TARGET_TRIPLET="$VcpkgTargetTriplet" @CMakeExtraArgs
 if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败！退出码: $LASTEXITCODE"
 }
@@ -210,7 +222,7 @@ Get-ChildItem -Path $BuildDir -Filter "*EasyTools*.res" -Recurse -ErrorAction Si
 
 $CpuCount = [Environment]::ProcessorCount
 Write-Log "执行 CMake Build ($Configuration, 并发核心数: $CpuCount)..."
-cmake --build build --config $Configuration --parallel $CpuCount
+cmake --build $BuildDir --config $Configuration --parallel $CpuCount
 
 if ($LASTEXITCODE -ne 0) {
     throw "C++ 编译失败！退出码: $LASTEXITCODE"
@@ -238,7 +250,7 @@ if (-not $SkipTests) {
 
         if ((Test-Path $TestExe) -and $OpenCppCoverageExe) {
             & $OpenCppCoverageExe --sources "$ScriptDir\src" `
-                                  --excluded_sources "$ScriptDir\build" `
+                                  --excluded_sources "$BuildDir" `
                                   --excluded_sources "$ScriptDir\packages" `
                                   --excluded_sources "$ScriptDir\tests" `
                                   --export_type "html:$CoverageReportDir" `
@@ -360,7 +372,7 @@ if (Test-Path $ExePath) {
     throw "找不到编译后的 EasyTools.exe"
 }
 
-# MSVC 动态运行库。EasyTools 与 vcpkg x64-windows 依赖均使用动态 CRT；
+# MSVC 动态运行库。EasyTools 与 vcpkg 动态 triplet 依赖均使用动态 CRT；
 # 便携包不能假设目标机器预装了 Visual C++ Redistributable。优先使用当前
 # DevShell 精确对应的 Redist 目录，CI 中再通过 vswhere 定位同一工具链。
 $VcRuntimeNames = @(
@@ -392,9 +404,9 @@ if ($RedistVsPath) {
 }
 
 foreach ($Root in $VcRedistRoots | Select-Object -Unique) {
-    $X64Root = Join-Path $Root "x64"
-    if (-not (Test-Path $X64Root)) { continue }
-    $Candidate = Get-ChildItem $X64Root -Directory -Filter "Microsoft.VC*.CRT" |
+    $ArchitectureRoot = Join-Path $Root $Arch
+    if (-not (Test-Path $ArchitectureRoot)) { continue }
+    $Candidate = Get-ChildItem $ArchitectureRoot -Directory -Filter "Microsoft.VC*.CRT" |
         Sort-Object Name -Descending | Select-Object -First 1
     if ($Candidate) {
         $MissingRuntime = @($VcRuntimeNames | Where-Object {
@@ -407,7 +419,7 @@ foreach ($Root in $VcRedistRoots | Select-Object -Unique) {
     }
 }
 if (-not $VcCrtDir) {
-    throw "找不到与 MSVC 工具链匹配的 x64 Visual C++ Runtime 可再发行文件"
+    throw "找不到与 MSVC 工具链匹配的 $Arch Visual C++ Runtime 可再发行文件"
 }
 Copy-Item (Join-Path $VcCrtDir "*.dll") -Destination $StagingDir
 Write-Log "已复制 Visual C++ Runtime: $VcCrtDir"
@@ -415,7 +427,7 @@ Write-Log "已复制 Visual C++ Runtime: $VcCrtDir"
 # WebView2Loader.dll
 $WebView2PackageDir = Get-Item $WebView2TargetDir -ErrorAction SilentlyContinue
 if ($WebView2PackageDir) {
-    $LoaderPath = Join-Path $WebView2PackageDir.FullName "build\native\x64\WebView2Loader.dll"
+    $LoaderPath = Join-Path $WebView2PackageDir.FullName "build\native\$Arch\WebView2Loader.dll"
     if (Test-Path $LoaderPath) {
         Copy-Item $LoaderPath -Destination $StagingDir
         Write-Log "已复制 WebView2Loader.dll"
@@ -558,12 +570,14 @@ if ($ISCC) {
     $OutputInstallerDir = Join-Path $ScriptDir "Output"
     
     if (Test-Path $InstallerScript) {
-        Write-Log "正在编译安装包 (EasyTools-Setup.exe)..."
-        $TargetSetupFile = Join-Path $OutputInstallerDir "EasyTools-Setup.exe"
+        $SetupBaseName = if ($Arch -eq "arm64") { "EasyTools-Setup-arm64" } else { "EasyTools-Setup" }
+        Write-Log "正在编译安装包 ($SetupBaseName.exe)..."
+        $TargetSetupFile = Join-Path $OutputInstallerDir "$SetupBaseName.exe"
         if (Test-Path $TargetSetupFile) {
             Remove-Item -Force $TargetSetupFile -ErrorAction SilentlyContinue
         }
-        & $ISCC "/DEasyToolsVersion=$ProjectVersion" $InstallerScript
+        & $ISCC "/DEasyToolsVersion=$ProjectVersion" "/DEasyToolsArchitecture=$Arch" `
+            "/DEasyToolsSetupBaseFilename=$SetupBaseName" $InstallerScript
         if ($LASTEXITCODE -eq 0) {
             if (Test-Path $TargetSetupFile) {
                 $now = Get-Date
@@ -587,7 +601,7 @@ if ($ISCC) {
 if (-not $SkipTests) {
     $LifecycleScript = Join-Path $ScriptDir "scripts\verify_lifecycle.ps1"
     if (-not (Test-Path $LifecycleScript)) {
-        $LifecycleScript = Join-Path $ScriptDir "build\verify_lifecycle.ps1"
+        $LifecycleScript = Join-Path $BuildDir "verify_lifecycle.ps1"
     }
     if (Test-Path $LifecycleScript) {
         Write-Log "🚀 正在执行全模块生命周期与防死锁自动化端到端审计 (verify_lifecycle.ps1)..." "INFO"

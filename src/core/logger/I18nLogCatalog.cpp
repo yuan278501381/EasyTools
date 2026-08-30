@@ -17,6 +17,14 @@ struct LogEntry {
 
 static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
     static const std::unordered_map<std::string_view, LogEntry> catalog = {
+        {"前台窗口为 EasyTools 自身界面，放行按键不触发手势", {
+            "[{}] 前台窗口为 EasyTools 自身界面，放行按键不触发手势",
+            "[{}] Foreground window is EasyTools internal UI, pass-through button without gesture"
+        }},
+        {"光标所在窗口为 EasyTools 自身界面，放行按键不触发手势", {
+            "[{}] 光标所在窗口为 EasyTools 自身界面，放行按键不触发手势",
+            "[{}] Window under cursor is EasyTools internal UI, pass-through button without gesture"
+        }},
         {"DXGI 捕获不可用，回退 GDI: {}", {
             "[{}] DXGI 捕获不可用，回退 GDI: {}",
             "[{}] DXGI operation，operation GDI: {}"
@@ -2101,6 +2109,10 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] 设置窗口已按需创建并显示",
             "[{}] Settings window created on-demand and shown"
         }},
+        {"设置窗口已按需创建，正等待 WebView2 首帧就绪后丝滑呈现", {
+            "[{}] 设置窗口已按需创建，正等待 WebView2 首帧就绪后丝滑呈现",
+            "[{}] Settings window created on-demand, awaiting WebView2 first-frame ready for smooth presentation"
+        }},
         {"设置窗口后台静默预热完成", {
             "[{}] 设置窗口后台静默预热完成",
             "[{}] Settings window background warmup completed"
@@ -2156,6 +2168,14 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         {"WebView2 控件创建请求失败, hr=0x{:08X}", {
             "[{}] WebView2 控件创建请求失败, hr=0x{:08X}",
             "[{}] WebView2 operationcreate operationfailed , hr=0x{:08X}"
+        }},
+        {"读取开发服务器动态端口文件异常: {}", {
+            "[{}] 读取开发服务器动态端口文件异常: {}",
+            "[{}] Failed to read dynamic dev server port file: {}"
+        }},
+        {"读取开发服务器动态端口文件发生未知异常", {
+            "[{}] 读取开发服务器动态端口文件发生未知异常",
+            "[{}] Unknown exception occurred while reading dynamic dev server port file"
         }},
         {"WebView2 控件就绪", {
             "[{}] WebView2 控件就绪",
@@ -2260,6 +2280,182 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
         {"贴图编辑底图复制发生未知异常", {
             "[{}] 贴图编辑底图复制发生未知异常",
             "[{}] Unknown exception copying pinned screenshot background"
+        }},
+        {"拒绝 WebView IPC 提供的未授权配置导入路径", {
+            "[{}] 拒绝 WebView IPC 提供的未授权配置导入路径",
+            "[{}] Refused unauthorized config import path provided by WebView IPC"
+        }},
+        {"插件初始化失败后的清理异常: {}, error={}", {
+            "[{}] 插件初始化失败后的清理异常: {}, error={}",
+            "[{}] Exception during plugin cleanup after initialization failure: {}, error={}"
+        }},
+        {"插件初始化失败后的清理发生未知异常: {}", {
+            "[{}] 插件初始化失败后的清理发生未知异常: {}",
+            "[{}] Unknown exception during plugin cleanup after initialization failure: {}"
+        }},
+        {"读取活动资源管理器路径失败: {}", {
+            "[{}] 读取活动资源管理器路径失败: {}",
+            "[{}] Failed to read active File Explorer path: {}"
+        }},
+        {"读取活动资源管理器路径发生未知异常", {
+            "[{}] 读取活动资源管理器路径发生未知异常",
+            "[{}] Unknown exception reading active File Explorer path"
+        }},
+        {"构建最近路径按钮失败: {}", {
+            "[{}] 构建最近路径按钮失败: {}",
+            "[{}] Failed to build recent path button: {}"
+        }},
+        {"构建最近路径按钮发生未知异常", {
+            "[{}] 构建最近路径按钮发生未知异常",
+            "[{}] Unknown exception building recent path button"
+        }},
+        {"作用域窗口类通配符规则无效: {}", {
+            "[{}] 作用域窗口类通配符规则无效: {}",
+            "[{}] Invalid scope window class wildcard rule: {}"
+        }},
+        {"作用域窗口类通配符规则发生未知异常", {
+            "[{}] 作用域窗口类通配符规则发生未知异常",
+            "[{}] Unknown exception in scope window class wildcard rule"
+        }},
+        {"作用域窗口类正则规则无效: {}", {
+            "[{}] 作用域窗口类正则规则无效: {}",
+            "[{}] Invalid scope window class regex rule: {}"
+        }},
+        {"作用域窗口类正则规则发生未知异常", {
+            "[{}] 作用域窗口类正则规则发生未知异常",
+            "[{}] Unknown exception in scope window class regex rule"
+        }},
+        {"作用域进程名通配符规则无效: {}", {
+            "[{}] 作用域进程名通配符规则无效: {}",
+            "[{}] Invalid scope process name wildcard rule: {}"
+        }},
+        {"作用域进程名通配符规则发生未知异常", {
+            "[{}] 作用域进程名通配符规则发生未知异常",
+            "[{}] Unknown exception in scope process name wildcard rule"
+        }},
+        {"作用域进程名正则规则无效: {}", {
+            "[{}] 作用域进程名正则规则无效: {}",
+            "[{}] Invalid scope process name regex rule: {}"
+        }},
+        {"作用域进程名正则规则发生未知异常", {
+            "[{}] 作用域进程名正则规则发生未知异常",
+            "[{}] Unknown exception in scope process name regex rule"
+        }},
+        {"忽略无效的 --window-pos 参数: {}", {
+            "[{}] 忽略无效的 --window-pos 参数: {}",
+            "[{}] Ignored invalid --window-pos argument: {}"
+        }},
+        {"解析 --window-pos 参数时发生未知异常", {
+            "[{}] 解析 --window-pos 参数时发生未知异常",
+            "[{}] Unknown exception parsing --window-pos argument"
+        }},
+        {"search.rebuildIndex 返回了无效 JSON: {}", {
+            "[{}] search.rebuildIndex 返回了无效 JSON: {}",
+            "[{}] search.rebuildIndex returned invalid JSON: {}"
+        }},
+        {"search.sync 返回了无效 JSON: {}", {
+            "[{}] search.sync 返回了无效 JSON: {}",
+            "[{}] search.sync returned invalid JSON: {}"
+        }},
+        {"search.getSearchHistory 返回了无效 JSON: {}", {
+            "[{}] search.getSearchHistory 返回了无效 JSON: {}",
+            "[{}] search.getSearchHistory returned invalid JSON: {}"
+        }},
+        {"search.getDbStats 返回了无效 JSON: {}", {
+            "[{}] search.getDbStats 返回了无效 JSON: {}",
+            "[{}] search.getDbStats returned invalid JSON: {}"
+        }},
+        {"QuickLook WebMessage 处理异常: {}", {
+            "[{}] QuickLook WebMessage 处理异常: {}",
+            "[{}] QuickLook WebMessage handling exception: {}"
+        }},
+        {"QuickLook WebMessage 处理发生未知异常", {
+            "[{}] QuickLook WebMessage 处理发生未知异常",
+            "[{}] QuickLook WebMessage handling unknown exception"
+        }},
+        {"聚光灯颜色格式无效，使用默认蓝色: {}", {
+            "[{}] 聚光灯颜色格式无效，使用默认蓝色: {}",
+            "[{}] Invalid spotlight color format, falling back to default blue: {}"
+        }},
+        {"WebView2 关闭回调异常: {}", {
+            "[{}] WebView2 关闭回调异常: {}",
+            "[{}] WebView2 close callback exception: {}"
+        }},
+        {"WebView2 关闭回调发生未知异常", {
+            "[{}] WebView2 关闭回调发生未知异常",
+            "[{}] WebView2 close callback unknown exception"
+        }},
+        {"拒绝不安全的配置导出路径: {}", {
+            "[{}] 拒绝不安全的配置导出路径: {}",
+            "[{}] Refused unsafe config export path: {}"
+        }},
+        {"拒绝不安全的配置导入路径: {}", {
+            "[{}] 拒绝不安全的配置导入路径: {}",
+            "[{}] Refused unsafe config import path: {}"
+        }},
+        {"快捷键操作派发到了错误线程: operation={}, expected={}, actual={}", {
+            "[{}] 快捷键操作派发到了错误线程: operation={}, expected={}, actual={}",
+            "[{}] Hotkey operation dispatched to wrong thread: operation={}, expected={}, actual={}"
+        }},
+        {"快捷键主线程操作异常: operation={}, error={}", {
+            "[{}] 快捷键主线程操作异常: operation={}, error={}",
+            "[{}] Hotkey main thread operation exception: operation={}, error={}"
+        }},
+        {"快捷键主线程操作未知异常: operation={}", {
+            "[{}] 快捷键主线程操作未知异常: operation={}",
+            "[{}] Hotkey main thread operation unknown exception: operation={}"
+        }},
+        {"快捷键操作无法派发到窗口线程: operation={}", {
+            "[{}] 快捷键操作无法派发到窗口线程: operation={}",
+            "[{}] Unable to dispatch hotkey operation to window thread: operation={}"
+        }},
+        {"快捷键操作等待窗口线程超时: operation={}", {
+            "[{}] 快捷键操作等待窗口线程超时: operation={}",
+            "[{}] Timed out waiting for window thread during hotkey operation: operation={}"
+        }},
+        {"IPC handler 在关闭期限内未返回，已隔离保留以避免卸载 UAF: activeCalls={}", {
+            "[{}] IPC handler 在关闭期限内未返回，已隔离保留以避免卸载 UAF: activeCalls={}",
+            "[{}] IPC handler did not return within shutdown deadline, quarantined to prevent unload UAF: activeCalls={}"
+        }},
+        {"异步 IPC 响应回调异常: context={}, error={}", {
+            "[{}] 异步 IPC 响应回调异常: context={}, error={}",
+            "[{}] Async IPC response callback exception: context={}, error={}"
+        }},
+        {"异步 IPC 响应回调未知异常: context={}", {
+            "[{}] 异步 IPC 响应回调未知异常: context={}",
+            "[{}] Async IPC response callback unknown exception: context={}"
+        }},
+        {"异步 IPC 熔断器已恢复: availableWorkers={}", {
+            "[{}] 异步 IPC 熔断器已恢复: availableWorkers={}",
+            "[{}] Async IPC circuit breaker restored: availableWorkers={}"
+        }},
+        {"异步 IPC handler 超时: requestId={}, timeoutSeconds={}", {
+            "[{}] 异步 IPC handler 超时: requestId={}, timeoutSeconds={}",
+            "[{}] Async IPC handler timed out: requestId={}, timeoutSeconds={}"
+        }},
+        {"异步 IPC 所有 worker 均超时，熔断并拒绝排队请求: count={}", {
+            "[{}] 异步 IPC 所有 worker 均超时，熔断并拒绝排队请求: count={}",
+            "[{}] All async IPC workers timed out, circuit breaker tripped and queued requests rejected: count={}"
+        }},
+        {"异步 IPC 关闭时仍有 handler 卡住；已脱离线程并保留池状态以避免 join 死锁/UAF", {
+            "[{}] 异步 IPC 关闭时仍有 handler 卡住；已脱离线程并保留池状态以避免 join 死锁/UAF",
+            "[{}] Handlers still blocked during async IPC shutdown; detached threads and retained pool state to avoid join deadlock/UAF"
+        }},
+        {"拒绝 WebView IPC 提供的未授权配置导出路径", {
+            "[{}] 拒绝 WebView IPC 提供的未授权配置导出路径",
+            "[{}] Refused unauthorized config export path provided by WebView IPC"
+        }},
+        {"SearchWindow: get_CoreWebView2 失败: HRESULT=0x{:08X}", {
+            "[{}] SearchWindow: get_CoreWebView2 失败: HRESULT=0x{:08X}",
+            "[{}] SearchWindow: get_CoreWebView2 failed: HRESULT=0x{:08X}"
+        }},
+        {"SettingsWindow: get_CoreWebView2 失败, hr=0x{:08X}", {
+            "[{}] SettingsWindow: get_CoreWebView2 失败, hr=0x{:08X}",
+            "[{}] SettingsWindow: get_CoreWebView2 failed, hr=0x{:08X}"
+        }},
+        {"SettingsWindow: get_Settings 失败, hr=0x{:08X}", {
+            "[{}] SettingsWindow: get_Settings 失败, hr=0x{:08X}",
+            "[{}] SettingsWindow: get_Settings failed, hr=0x{:08X}"
         }},
     };
     return catalog;

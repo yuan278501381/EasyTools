@@ -261,7 +261,13 @@ void PluginManager::initializePlugins() {
             LOG_ERROR("插件初始化失败: {}", inst.name);
             if (inst.error.empty()) inst.error = "initialize returned false";
             // initialize() may fail after partially registering callbacks.
-            try { inst.plugin->shutdown(); } catch (...) {}
+            try {
+                inst.plugin->shutdown();
+            } catch (const std::exception& e) {
+                LOG_WARN("插件初始化失败后的清理异常: {}, error={}", inst.name, e.what());
+            } catch (...) {
+                LOG_WARN("插件初始化失败后的清理发生未知异常: {}", inst.name);
+            }
         }
         const double elapsedMs = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - started).count();

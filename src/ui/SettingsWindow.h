@@ -112,6 +112,8 @@ private:
     /// 窗口过程
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    void smoothPresent();
+
     // 闲置自动销毁定时器 (用户关闭 1 分钟后彻底销毁 WebView2 渲染器并释放物理内存)
     static constexpr UINT_PTR IDT_IDLE_DESTROY = 1001;
     static constexpr UINT IDLE_DESTROY_TIMEOUT_MS = 60000;
@@ -121,6 +123,7 @@ private:
     SettingsWindowConfig m_config;
     std::atomic<bool> m_visible{false};
     bool m_webViewReady = false;
+    bool m_showWhenReady = false;
     std::atomic<uint64_t> m_generation{0};
     std::chrono::steady_clock::time_point m_initializationStartedAt{};
     std::chrono::steady_clock::time_point m_showRequestedAt{};

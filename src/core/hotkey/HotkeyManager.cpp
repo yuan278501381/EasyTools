@@ -4,14 +4,84 @@
 
 #include "core/hotkey/HotkeyManager.h"
 #include "core/hotkey/HotkeyPolicy.h"
+#include "core/events/MainThreadDispatcher.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
 
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <future>
+#include <memory>
 
 namespace easy::core {
+
+namespace {
+
+constexpr auto HotkeyDispatchTimeout = std::chrono::seconds(10);
+
+bool isForeignHotkeyThread(DWORD ownerThreadId) noexcept {
+    return ownerThreadId != 0 && ownerThreadId != GetCurrentThreadId();
+}
+
+template <typename Result, typename Operation>
+Result dispatchToHotkeyThread(DWORD ownerThreadId,
+                              const char* operationName,
+                              Result failureResult,
+                              Operation&& operation) {
+    struct DispatchState {
+        std::promise<Result> promise;
+        std::atomic<bool> cancelled{false};
+    };
+
+    auto state = std::make_shared<DispatchState>();
+    auto future = state->promise.get_future();
+    const bool posted = MainThreadDispatcher::instance().post(
+        [state, ownerThreadId, operationName,
+         operation = std::forward<Operation>(operation), failureResult]() mutable {
+            if (state->cancelled.load(std::memory_order_acquire)) return;
+            if (GetCurrentThreadId() != ownerThreadId) {
+                LOG_ERROR("快捷键操作派发到了错误线程: operation={}, expected={}, actual={}",
+                          operationName, ownerThreadId, GetCurrentThreadId());
+                state->promise.set_value(std::move(failureResult));
+                return;
+            }
+            try {
+                state->promise.set_value(operation());
+            } catch (const std::exception& e) {
+                LOG_ERROR("快捷键主线程操作异常: operation={}, error={}", operationName, e.what());
+                state->promise.set_value(std::move(failureResult));
+            } catch (...) {
+                LOG_ERROR("快捷键主线程操作未知异常: operation={}", operationName);
+                state->promise.set_value(std::move(failureResult));
+            }
+        });
+    if (!posted) {
+        LOG_ERROR("快捷键操作无法派发到窗口线程: operation={}", operationName);
+        return failureResult;
+    }
+    if (future.wait_for(HotkeyDispatchTimeout) != std::future_status::ready) {
+        state->cancelled.store(true, std::memory_order_release);
+        LOG_ERROR("快捷键操作等待窗口线程超时: operation={}", operationName);
+        return failureResult;
+    }
+    return future.get();
+}
+
+template <typename Operation>
+void dispatchToHotkeyThread(DWORD ownerThreadId,
+                            const char* operationName,
+                            Operation&& operation) {
+    (void)dispatchToHotkeyThread<bool>(
+        ownerThreadId, operationName, false,
+        [operation = std::forward<Operation>(operation)]() mutable {
+            operation();
+            return true;
+        });
+}
+
+}  // namespace
 
 // ── HotkeyDef 序列化 ────────────────────────────────────────────────────────
 
@@ -117,10 +187,19 @@ HotkeyManager& HotkeyManager::instance() {
 
 void HotkeyManager::initialize(HWND messageWindow) {
     m_hwnd = messageWindow;
+    DWORD ownerThreadId = 0;
+    if (messageWindow) ownerThreadId = GetWindowThreadProcessId(messageWindow, nullptr);
+    if (ownerThreadId == 0) ownerThreadId = GetCurrentThreadId();
+    m_ownerThreadId.store(ownerThreadId, std::memory_order_release);
     LOG_INFO("快捷键管理器已初始化");
 }
 
 void HotkeyManager::shutdown() {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        dispatchToHotkeyThread(ownerThreadId, "shutdown", [this]() { shutdown(); });
+        return;
+    }
     std::lock_guard lock(m_mutex);
     for (const auto& [name, entry] : m_hotkeys) {
         if (entry.registered) UnregisterHotKey(m_hwnd, entry.id);
@@ -128,11 +207,21 @@ void HotkeyManager::shutdown() {
     }
     m_hotkeys.clear();
     m_idToName.clear();
+    m_hwnd = nullptr;
+    m_ownerThreadId.store(0, std::memory_order_release);
     LOG_INFO("快捷键管理器已关闭, 所有快捷键已注销");
 }
 
 bool HotkeyManager::registerHotkey(const std::string& name, const HotkeyDef& def, HotkeyCallback callback) {
     TraceId::Scope scope;
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        return dispatchToHotkeyThread<bool>(
+            ownerThreadId, "registerHotkey", false,
+            [this, name, def, callback = std::move(callback)]() mutable {
+                return registerHotkey(name, def, std::move(callback));
+            });
+    }
     std::lock_guard lock(m_mutex);
 
     // 检查名称冲突
@@ -172,6 +261,12 @@ bool HotkeyManager::registerHotkey(const std::string& name, const HotkeyDef& def
 }
 
 void HotkeyManager::unregisterHotkey(const std::string& name) {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        dispatchToHotkeyThread(ownerThreadId, "unregisterHotkey",
+                               [this, name]() { unregisterHotkey(name); });
+        return;
+    }
     std::lock_guard lock(m_mutex);
     auto it = m_hotkeys.find(name);
     if (it == m_hotkeys.end()) {
@@ -185,6 +280,12 @@ void HotkeyManager::unregisterHotkey(const std::string& name) {
 }
 
 bool HotkeyManager::rebindHotkey(const std::string& name, const HotkeyDef& newDef) {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        return dispatchToHotkeyThread<bool>(
+            ownerThreadId, "rebindHotkey", false,
+            [this, name, newDef]() { return rebindHotkey(name, newDef); });
+    }
     if (newDef.virtualKey == 0) return clearHotkey(name);
     std::lock_guard lock(m_mutex);
     auto it = m_hotkeys.find(name);
@@ -233,6 +334,12 @@ bool HotkeyManager::rebindHotkey(const std::string& name, const HotkeyDef& newDe
 }
 
 bool HotkeyManager::clearHotkey(const std::string& name) {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        return dispatchToHotkeyThread<bool>(
+            ownerThreadId, "clearHotkey", false,
+            [this, name]() { return clearHotkey(name); });
+    }
     std::lock_guard lock(m_mutex);
     auto it = m_hotkeys.find(name);
     if (it == m_hotkeys.end()) return false;
@@ -245,6 +352,12 @@ bool HotkeyManager::clearHotkey(const std::string& name) {
 }
 
 bool HotkeyManager::setHotkeyArmed(const std::string& name, bool armed) {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        return dispatchToHotkeyThread<bool>(
+            ownerThreadId, "setHotkeyArmed", false,
+            [this, name, armed]() { return setHotkeyArmed(name, armed); });
+    }
     std::lock_guard lock(m_mutex);
     auto it = m_hotkeys.find(name);
     if (it == m_hotkeys.end()) {
@@ -296,6 +409,13 @@ bool HotkeyManager::isConflict(const HotkeyDef& def) const {
 }
 
 HotkeyConflictInfo HotkeyManager::checkConflict(const HotkeyDef& def, const std::string& currentName) const {
+    const DWORD ownerThreadId = m_ownerThreadId.load(std::memory_order_acquire);
+    if (isForeignHotkeyThread(ownerThreadId)) {
+        return dispatchToHotkeyThread<HotkeyConflictInfo>(
+            ownerThreadId, "checkConflict",
+            HotkeyConflictInfo{true, "unavailable", "无法在窗口线程检查快捷键冲突"},
+            [this, def, currentName]() { return checkConflict(def, currentName); });
+    }
     if (def.virtualKey == 0) {
         return {false, "none", ""};
     }

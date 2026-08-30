@@ -122,32 +122,35 @@ namespace {
             }
         }
     }
+    cv::Size measureSnipasteText(const std::wstring& text, int fontSize, bool isEditing = false) {
+        if (text.empty() || g_gdiPlusToken == 0) {
+            int w = isEditing ? 140 : static_cast<int>(std::max(80.0f, fontSize * 4.0f));
+            int h = isEditing ? (fontSize + 12) : static_cast<int>(std::max(26.0f, fontSize * 1.4f));
+            return cv::Size(std::max(w, 24), std::max(h, fontSize + 8));
+        }
 
-    cv::Size measureSnipasteText(const std::wstring& wtext, int fontSize) {
-        if (wtext.empty()) return {24, fontSize + 8};
         Gdiplus::FontFamily fontFamily(L"Microsoft YaHei UI");
         const Gdiplus::FontFamily* activeFamily = &fontFamily;
         Gdiplus::FontFamily fallbackFamily(L"Segoe UI");
         if (!fontFamily.IsAvailable()) {
             activeFamily = &fallbackFamily;
         }
-
-        if (wtext.empty()) {
-            // 空文本预留舒适编辑框尺寸 (支持用户在输入内容前拖拽 8 手柄调节大小)
-            int minW = static_cast<int>(std::max(90.0f, fontSize * 4.2f));
-            int minH = static_cast<int>(std::max(26.0f, fontSize * 1.4f));
-            return cv::Size(minW, minH);
-        }
-
         Gdiplus::Font font(activeFamily, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-        HDC hdc = GetDC(nullptr);
-        Gdiplus::Graphics graphics(hdc);
-        Gdiplus::RectF boundRect;
         Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericTypographic());
-        graphics.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &boundRect);
-        ReleaseDC(nullptr, hdc);
-        int w = static_cast<int>(std::ceil(boundRect.Width)) + 8;
-        int h = static_cast<int>(std::ceil(boundRect.Height)) + 6;
+        format.SetAlignment(Gdiplus::StringAlignmentNear);
+        format.SetLineAlignment(Gdiplus::StringAlignmentNear);
+
+        Gdiplus::Bitmap tmpBmp(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Graphics g(&tmpBmp);
+        Gdiplus::RectF boundRect;
+        std::wstring measureStr = text.empty() ? (isEditing ? L"点击输入文字..." : L" ") : text;
+        g.MeasureString(measureStr.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &boundRect);
+        int w = static_cast<int>(std::ceil(boundRect.Width)) + 16;
+        int h = static_cast<int>(std::ceil(boundRect.Height)) + 8;
+        if (isEditing) {
+            w = (std::max)(w, 140);
+            h = (std::max)(h, fontSize + 12);
+        }
         return cv::Size(std::max(w, 24), std::max(h, fontSize + 8));
     }
 
@@ -158,7 +161,7 @@ namespace {
             return;
         }
 
-        cv::Size sz = measureSnipasteText(wtext, fontSize);
+        cv::Size sz = measureSnipasteText(wtext, fontSize, isEditing);
         outSize = sz;
         if (sz.width <= 0 || sz.height <= 0) return;
 
@@ -187,28 +190,37 @@ namespace {
             format.SetAlignment(Gdiplus::StringAlignmentNear);
             format.SetLineAlignment(Gdiplus::StringAlignmentNear);
 
-            float textX = 4.0f;
-            float textY = 3.0f;
+            float textX = 6.0f;
+            float textY = 4.0f;
+
+            Gdiplus::GraphicsPath boxPath;
+            float padX = 4.0f, padY = 2.0f;
+            float r = 4.0f;
+            float bx = textX - padX, by = textY - padY, bw = sz.width - 6.0f, bh = sz.height - 4.0f;
+            boxPath.AddArc(bx, by, r * 2, r * 2, 180, 90);
+            boxPath.AddArc(bx + bw - r * 2, by, r * 2, r * 2, 270, 90);
+            boxPath.AddArc(bx + bw - r * 2, by + bh - r * 2, r * 2, r * 2, 0, 90);
+            boxPath.AddArc(bx, by + bh - r * 2, r * 2, r * 2, 90, 90);
+            boxPath.CloseFigure();
 
             if (withBackdrop) {
+                // 仅当用户显式开启填充底衬开关时，才绘制微晶背景胶囊
                 Gdiplus::SolidBrush bgBrush(luminance > 0.45f ? Gdiplus::Color(210, 15, 23, 42) : Gdiplus::Color(210, 255, 255, 255));
-                Gdiplus::GraphicsPath bgPath;
-                float padX = 2.0f, padY = 1.0f;
-                float r = 4.0f;
-                float bx = textX - padX, by = textY - padY, bw = sz.width - 4.0f, bh = sz.height - 2.0f;
-                bgPath.AddArc(bx, by, r * 2, r * 2, 180, 90);
-                bgPath.AddArc(bx + bw - r * 2, by, r * 2, r * 2, 270, 90);
-                bgPath.AddArc(bx + bw - r * 2, by + bh - r * 2, r * 2, r * 2, 0, 90);
-                bgPath.AddArc(bx, by + bh - r * 2, r * 2, r * 2, 90, 90);
-                bgPath.CloseFigure();
-                g.FillPath(&bgBrush, &bgPath);
+                g.FillPath(&bgBrush, &boxPath);
+            }
+
+            if (isEditing) {
+                // 编辑态仅绘制半透明亮蓝虚线框指示输入焦点，背景 100% 保持透明透出原图，绝不遮挡原图
+                Gdiplus::Pen editFocusPen(Gdiplus::Color(200, 59, 130, 246), 1.5f);
+                editFocusPen.SetDashStyle(Gdiplus::DashStyleDash);
+                g.DrawPath(&editFocusPen, &boxPath);
             }
 
             if (!wtext.empty()) {
                 Gdiplus::GraphicsPath textPath;
                 textPath.AddString(wtext.c_str(), -1, activeFamily, Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(fontSize), Gdiplus::PointF(textX, textY), &format);
 
-                // 双层高对比抗锯齿描边（浅色文字配深色阴影描边，深色文字配浅色高光描边，无需灰黑底框）
+                // 双层高对比抗锯齿描边（浅色文字配深色阴影描边，深色文字配浅色高光描边）
                 Gdiplus::Color strokeColor = (luminance > 0.45f) ? Gdiplus::Color(220, 0, 0, 0) : Gdiplus::Color(220, 255, 255, 255);
                 Gdiplus::Pen strokePen(strokeColor, std::max(2.0f, fontSize * 0.10f));
                 strokePen.SetLineJoin(Gdiplus::LineJoinRound);
@@ -218,10 +230,10 @@ namespace {
                 Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, rVal, gVal, bVal));
                 g.FillPath(&textBrush, &textPath);
             } else if (isEditing) {
-                // 空文本编辑态：绘制柔和的极细占位微虚线边框
-                Gdiplus::Pen dashPen(Gdiplus::Color(120, 59, 130, 246), 1.0f);
-                dashPen.SetDashStyle(Gdiplus::DashStyleDash);
-                g.DrawRectangle(&dashPen, textX, textY, static_cast<float>(sz.width - 8), static_cast<float>(sz.height - 6));
+                // 空文本编辑态：绘制提示占位文字“点击输入文字...”
+                Gdiplus::Font placeholderFont(activeFamily, static_cast<Gdiplus::REAL>(fontSize * 0.88f), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+                Gdiplus::SolidBrush placeholderBrush(Gdiplus::Color(180, 148, 163, 184));
+                g.DrawString(L"点击输入文字...", -1, &placeholderFont, Gdiplus::PointF(textX + 2.0f, textY + 1.0f), &format, &placeholderBrush);
             }
 
             // 2. 编辑态光标绘制
@@ -235,7 +247,7 @@ namespace {
                         g.MeasureString(wtext.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &measured);
                         cursorX = textX + measured.Width + 2.0f;
                     }
-                    Gdiplus::Pen cursorPen(Gdiplus::Color(255, rVal, gVal, bVal), 2.0f);
+                    Gdiplus::Pen cursorPen(Gdiplus::Color(255, 59, 130, 246), 2.0f);
                     g.DrawLine(&cursorPen, cursorX, textY + 2.0f, cursorX, textY + static_cast<float>(fontSize) + 2.0f);
                 }
             }
@@ -378,7 +390,7 @@ cv::Rect MarkupElement::getBoundingBox() const {
         case MarkupTool::Text: {
             if (textRenderSize.width <= 0 || textRenderSize.height <= 0) {
                 std::wstring wtext = utf8ToWide(text);
-                const_cast<MarkupElement*>(this)->textRenderSize = measureSnipasteText(wtext, static_cast<int>(fontSize));
+                const_cast<MarkupElement*>(this)->textRenderSize = measureSnipasteText(wtext, static_cast<int>(fontSize), isEditing);
             }
             int bw = textRenderSize.width;
             int bh = textRenderSize.height;
