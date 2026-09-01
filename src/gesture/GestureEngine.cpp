@@ -7,6 +7,7 @@
 #include "gesture/GestureInputPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/UiThreadJoin.h"
 #include "core/utils/WinUtils.h"
 #include "core/config/ConfigManager.h"
 #include "core/events/EventBus.h"
@@ -89,7 +90,7 @@ bool GestureEngine::start() {
         LOG_ERROR("手势引擎启动失败: 无法安装鼠标钩子");
         m_actionWorker.request_stop();
         m_actionCv.notify_all();
-        m_actionWorker.join();
+        easy::core::joinWorkerWhilePumpingSentMessages(m_actionWorker);
         return false;
     }
     hook.setPaused(m_paused.load());
@@ -120,7 +121,9 @@ void GestureEngine::stop() {
     if (m_actionWorker.joinable()) {
         m_actionWorker.request_stop();
         m_actionCv.notify_all();
-        m_actionWorker.join();
+        LOG_DEBUG("Gesture shutdown: waiting for action worker");
+        easy::core::joinWorkerWhilePumpingSentMessages(m_actionWorker);
+        LOG_DEBUG("Gesture shutdown: action worker stopped");
     }
     {
         std::lock_guard lock(m_actionMutex);

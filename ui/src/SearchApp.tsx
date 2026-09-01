@@ -993,10 +993,15 @@ export default function SearchApp() {
     event.stopPropagation();
     setSelectedIndex(index);
     if (event.shiftKey) {
-      void bridgeRequest('search.showShellContextMenu', {
-        filepath: result.path,
-        path: result.path,
-      });
+      // 延迟 20ms 确保 Chromium 彻底完成 preventDefault 并释放底层鼠标捕获
+      setTimeout(() => {
+        void bridgeRequest('search.showShellContextMenu', {
+          filepath: result.path,
+          path: result.path,
+          x: -1,
+          y: -1,
+        });
+      }, 20);
       return;
     }
     const menuWidth = 240;

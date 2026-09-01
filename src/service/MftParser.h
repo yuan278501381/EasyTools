@@ -43,8 +43,10 @@ public:
     void StopListening();
     
     // Quick search
+    using CancellationCheck = std::function<bool()>;
     std::vector<SearchResult> Search(const std::wstring& query, int limit = 100,
-                                     const SearchExcludeOptions& excludeOpts = {});
+                                     const SearchExcludeOptions& excludeOpts = {},
+                                     const CancellationCheck& isCancelled = {});
 
     // 快照导出与载入接口
     //

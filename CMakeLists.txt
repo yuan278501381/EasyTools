@@ -26,6 +26,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 option(EASYTOOLS_ENABLE_MSVC_ANALYSIS "Run MSVC static analysis on security-sensitive targets" OFF)
 
+if(MSVC)
+    add_compile_options(/FS /utf-8)
+endif()
+
 configure_file(
     "${CMAKE_SOURCE_DIR}/src/core/Version.h.in"
     "${CMAKE_BINARY_DIR}/generated/EasyToolsVersion.h"

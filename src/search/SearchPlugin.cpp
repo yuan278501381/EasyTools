@@ -739,6 +739,12 @@ public:
                     const bool isInit = result.value("initializing", false);
                     result["available"] = !isInit;
                     result["status"] = isInit ? "starting" : "ready";
+                    const auto resultIt = result.find("results");
+                    const size_t resultCount = resultIt != result.end() && resultIt->is_array()
+                        ? resultIt->size() : 0;
+                    LOG_DEBUG("SearchPlugin query completed: mode={}, queryId={}, results={}, cancelled={}, elapsedMs={}",
+                              normalized.value("searchMode", "name"), normalized.value("queryId", std::uint64_t{0}),
+                              resultCount, result.value("cancelled", false), result.value("elapsedMs", 0));
                     return result;
                 } catch (...) {
                     LOG_ERROR("SearchPlugin: 无法解析 JSON 结果");
@@ -876,11 +882,14 @@ public:
 
         mb.registerHandler("search.showShellContextMenu", [](const nlohmann::json& params) -> nlohmann::json {
             const std::string filepath = params.value("filepath", params.value("path", ""));
+            LOG_INFO("SearchPlugin: 收到 showShellContextMenu 请求, filepath={}", filepath);
             if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
             const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
             const int x = params.value("x", -1);
             const int y = params.value("y", -1);
-            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath, x, y);
+            const bool extended = params.value("extended", false);
+            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath, x, y, extended);
+            LOG_INFO("SearchPlugin: showShellContextMenu 调度结果 started={}", started);
             return {{"success", started}, {"busy", !started}};
         });
 
@@ -1214,10 +1223,10 @@ public:
             return {{"success", res.has_value()}};
         });
 
-        // 这些处理器全部要跨进程等待搜索服务，耗时由索引规模和磁盘决定。放在
+        // 这些处理器要跨进程等待搜索服务，耗时由索引规模和磁盘决定。放在
         // WebView2 的 UI 线程上同步执行会让搜索窗口在整个等待期间无法响应键盘
-        // 输入。窗口操作类处理器（startDrag/startResize/右键菜单等）有线程亲和
-        // 性，必须留在同步路径上。
+        // 输入。打开文件、定位文件夹、属性窗口和右键菜单等 Shell 操作有前台窗口/
+        // COM 线程亲和性，必须留在调用窗口的同步路径上；其内部需要时会自行异步。
         for (const char* method : {
                  "search.query",
                  "search.sync",
@@ -1226,12 +1235,6 @@ public:
                  "search.getDbStats",
                  "search.saveSnapshot",
                  "search.warmup",
-                 "search.openFolder",
-                 "search.openFile",
-                 "search.openFileAsAdmin",
-                 "search.openWithNotepad",
-                 "search.showFileProperties",
-                 "search.showShellContextMenu",
                  "search.renamePath",
              }) {
             mb.markMethodAsync(method);

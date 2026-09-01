@@ -205,6 +205,14 @@ inline bool isGesturePassThroughClassName(std::wstring_view cls) noexcept {
     return isGestureOverlayClassName(cls) || cls == L"EasyTools_ToastOverlay";
 }
 
+/// 搜索结果中的 Shift+右键属于 Windows 原生菜单快捷操作，必须让物理按下/
+/// 抬起原样进入 WebView。若先由手势引擎吞掉再补发，Shift 状态、坐标和菜单
+/// 前台权限都会变得不可靠。
+inline bool shouldBypassGestureForNativeSearchMenu(std::wstring_view cls,
+                                                    bool shiftPressed) noexcept {
+    return shiftPressed && cls == L"EasyTools_SearchWindow";
+}
+
 /// 从覆盖层往下找真实窗口时，不可见、覆盖层、几何上不含该点的候选都跳过。
 inline bool gestureHitTestShouldSkipCandidate(bool visible, bool overlayClass,
                                               bool containsPoint) noexcept {

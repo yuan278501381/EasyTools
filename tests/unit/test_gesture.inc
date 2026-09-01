@@ -468,6 +468,13 @@ TEST(GestureInputPolicyTest, EasyToolsUiAndOverlayClassNames) {
     EXPECT_GT(kCloseObserveTimeoutMs, 0u);
 }
 
+TEST(GestureInputPolicyTest, ShiftRightClickBypassesGesturesOnlyInSearchWindow) {
+    EXPECT_TRUE(shouldBypassGestureForNativeSearchMenu(L"EasyTools_SearchWindow", true));
+    EXPECT_FALSE(shouldBypassGestureForNativeSearchMenu(L"EasyTools_SearchWindow", false));
+    EXPECT_FALSE(shouldBypassGestureForNativeSearchMenu(L"CabinetWClass", true));
+    EXPECT_FALSE(shouldBypassGestureForNativeSearchMenu(L"EasyTools_SettingsWindow", true));
+}
+
 TEST(GestureInputPolicyTest, ResultToastRequiresRecognitionOrExcessive) {
     EXPECT_TRUE(shouldShowGestureResultToast(true, true, false));
     EXPECT_FALSE(shouldShowGestureResultToast(false, true, false));

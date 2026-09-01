@@ -205,6 +205,7 @@ void TrayWindow::setContentSize(int width, int height) {
     if (!m_hwnd || !IsWindow(m_hwnd) || width <= 0 || height <= 0) return;
     const int clampedW = std::clamp(width, 180, 220);
     const int clampedH = std::clamp(height, 100, 500);
+    if (m_contentWidth == clampedW && m_contentHeight == clampedH) return;
     m_contentWidth = clampedW;
     m_contentHeight = clampedH;
     const HMONITOR monitor = MonitorFromPoint(m_anchor, MONITOR_DEFAULTTONEAREST);
@@ -458,8 +459,8 @@ LRESULT CALLBACK TrayWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     break;
                 }
                 const uint64_t elapsed = GetTickCount64() - inst.m_showTimeTick;
-                if (elapsed < 100) {
-                    // 初始创建与动画容差期
+                if (elapsed < 350) {
+                    // 初始创建与托盘图标点击释放容差期（防止刚在任务栏右击抬起时误判为外部点击导致反复闪烁跳动）
                     break;
                 }
 

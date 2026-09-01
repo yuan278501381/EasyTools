@@ -16,19 +16,29 @@ export default function TrayApp() {
   const [busy, setBusy] = useState(false);
   const [pendingRestart, setPendingRestart] = useState(false);
   const pendingRestartRef = useRef(false);
+  const lastReportedSizeRef = useRef({ width: 0, height: 0 });
+  const sizeFrameRef = useRef<number | null>(null);
+  const refreshInFlightRef = useRef(false);
   const [activePlugins, setActivePlugins] = useState<Set<string>>(() => new Set([
     'capture', 'search', 'gesture', 'keycast', 'spotlight', 'dialogenhancer', 'dialog_enhancer'
   ]));
 
-    // 动态上报真实尺寸给 C++ 宿主窗口（宽度严格锁定 220px，仅高度自适应内容）
-    const reportSize = useCallback(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const totalHeight = Math.ceil(rect.height);
-    const fixedWidth = 220;
-    if (totalHeight > 20) {
-      void bridgeRequest('tray.resize', { width: fixedWidth, height: totalHeight }).catch(() => {});
-    }
+  // ResizeObserver can fire again because the native host accepted the previous
+  // resize. Coalesce to one measurement per frame and never echo the same size.
+  const reportSize = useCallback(() => {
+    if (sizeFrameRef.current !== null) return;
+    sizeFrameRef.current = window.requestAnimationFrame(() => {
+      sizeFrameRef.current = null;
+      if (!menuRef.current) return;
+      const totalHeight = Math.ceil(menuRef.current.getBoundingClientRect().height);
+      const fixedWidth = 220;
+      const previous = lastReportedSizeRef.current;
+      if (totalHeight <= 20 || (previous.width === fixedWidth && previous.height === totalHeight)) return;
+      lastReportedSizeRef.current = { width: fixedWidth, height: totalHeight };
+      void bridgeRequest('tray.resize', { width: fixedWidth, height: totalHeight }).catch(() => {
+        lastReportedSizeRef.current = { width: 0, height: 0 };
+      });
+    });
   }, []);
 
   useLayoutEffect(() => {
@@ -38,24 +48,38 @@ export default function TrayApp() {
       reportSize();
     });
     ro.observe(menuRef.current);
-    return () => ro.disconnect();
-  }, [reportSize, activePlugins, gesturePaused, pendingRestart]);
+    return () => {
+      ro.disconnect();
+      if (sizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sizeFrameRef.current);
+        sizeFrameRef.current = null;
+      }
+    };
+  }, [reportSize]);
 
   const refreshState = useCallback(() => {
-    void bridgeRequest<{ elevated?: boolean }>('general.getSettings')
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const settingsRequest = bridgeRequest<{ elevated?: boolean }>('general.getSettings')
       .then((res) => setElevated(Boolean(res?.elevated)))
       .catch(() => {});
-    void bridgeRequest<Array<{ id: string; active: boolean }>>('plugins.getAll')
+    const pluginsRequest = bridgeRequest<Array<{ id: string; active: boolean }>>('plugins.getAll')
       .then((plugins) => {
         const active = new Set(plugins.filter((plugin) => plugin.active).map((plugin) => plugin.id));
-        setActivePlugins(active);
+        setActivePlugins((previous) => {
+          if (previous.size === active.size && [...previous].every((id) => active.has(id))) return previous;
+          return active;
+        });
         if (active.has('gesture')) {
-          void bridgeRequest<{ paused: boolean }>('gesture.getState')
+          return bridgeRequest<{ paused: boolean }>('gesture.getState')
             .then((state) => setGesturePaused(Boolean(state?.paused)))
             .catch(() => {});
         }
       })
       .catch(() => {});
+    void Promise.allSettled([settingsRequest, pluginsRequest]).finally(() => {
+      refreshInFlightRef.current = false;
+    });
   }, []);
 
   const applyPendingRestart = useCallback(async () => {
@@ -79,16 +103,12 @@ export default function TrayApp() {
         pendingRestartRef.current = false;
         setPendingRestart(false);
         void bridgeRequest('app.restart').catch(() => {});
-      } else {
-        handleShow();
       }
     };
     window.addEventListener('tray:show', handleShow);
-    window.addEventListener('focus', handleShow);
     window.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('tray:show', handleShow);
-      window.removeEventListener('focus', handleShow);
       window.removeEventListener('visibilitychange', handleVisibility);
       delete document.documentElement.dataset.surface;
     };

@@ -213,6 +213,7 @@ export const SearchContextMenu: React.FC<SearchContextMenuProps> = ({
             void bridgeRequest('search.showShellContextMenu', {
               filepath: res.path,
               path: res.path,
+              extended: false,
             });
           }}
           title={t('search.nativeExplorerTooltip', 'Open native Windows Explorer context menu (Shift+Right Click)')}

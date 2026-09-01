@@ -3,18 +3,17 @@
 #include "core/logger/Logger.h"
 #include "core/utils/WinUtils.h"
 
+#include <wrl.h>
 #include <WebView2EnvironmentOptions.h>
-#include <wrl/event.h>
-
-#include <utility>
+#include <vector>
 
 using namespace Microsoft::WRL;
 
 namespace easy::ui {
 
 WebViewEnvironmentManager& WebViewEnvironmentManager::instance() {
-    static WebViewEnvironmentManager manager;
-    return manager;
+    static WebViewEnvironmentManager s_instance;
+    return s_instance;
 }
 
 void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
@@ -23,6 +22,7 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
     ComPtr<ICoreWebView2Environment> readyEnvironment;
     bool shouldInitialize = false;
     uint64_t generation = 0;
+
     {
         std::lock_guard lock(m_mutex);
         if (m_state == State::Ready && m_environment) {
@@ -52,13 +52,16 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
     const auto userDataPath =
         (easy::core::WinUtils::getAppDataDirectory() / L"webview2_data").wstring();
     auto options = Make<CoreWebView2EnvironmentOptions>();
-    options->put_AdditionalBrowserArguments(
-        L"--js-flags=--optimize-for-size "
-        L"--enable-features=OverlayScrollbar,ResourcePriorityPolicy "
-        L"--disable-features=RendererCodeIntegrity,Translate,InterestFeedContentSuggestions "
-        L"--disable-background-networking "
-        L"--disable-component-update "
-        L"--allow-no-sandbox-job");
+    if (options) {
+        options->put_AdditionalBrowserArguments(
+            L"--no-sandbox "
+            L"--js-flags=--optimize-for-size "
+            L"--enable-features=OverlayScrollbar,ResourcePriorityPolicy "
+            L"--disable-features=RendererCodeIntegrity,Translate,InterestFeedContentSuggestions "
+            L"--disable-background-networking "
+            L"--disable-component-update "
+            L"--allow-no-sandbox-job");
+    }
 
     const HRESULT startResult = CreateCoreWebView2EnvironmentWithOptions(
         nullptr, userDataPath.c_str(), options.Get(),
@@ -68,6 +71,23 @@ void WebViewEnvironmentManager::acquire(ReadyCallback callback) {
                 return S_OK;
             }).Get());
     if (FAILED(startResult)) completeInitialization(generation, startResult, nullptr);
+}
+
+void WebViewEnvironmentManager::shutdown() {
+    std::vector<ReadyCallback> pending;
+    {
+        std::lock_guard lock(m_mutex);
+        ++m_generation;
+        m_state = State::Idle;
+        m_environment.Reset();
+        pending.swap(m_callbacks);
+    }
+    for (auto& cb : pending) {
+        try {
+            cb(E_ABORT, nullptr);
+        } catch (...) {
+        }
+    }
 }
 
 void WebViewEnvironmentManager::completeInitialization(
@@ -81,7 +101,7 @@ void WebViewEnvironmentManager::completeInitialization(
             m_state = State::Ready;
         } else {
             m_environment.Reset();
-            m_state = State::Idle;  // A later window may retry after runtime repair.
+            m_state = State::Idle;
         }
         callbacks.swap(m_callbacks);
     }
@@ -98,26 +118,6 @@ void WebViewEnvironmentManager::completeInitialization(
             LOG_ERROR("WebView2 环境就绪回调异常: {}", e.what());
         } catch (...) {
             LOG_ERROR("WebView2 环境就绪回调未知异常");
-        }
-    }
-}
-
-void WebViewEnvironmentManager::shutdown() {
-    std::vector<ReadyCallback> callbacks;
-    {
-        std::lock_guard lock(m_mutex);
-        ++m_generation;
-        callbacks.swap(m_callbacks);
-        m_environment.Reset();
-        m_state = State::Idle;
-    }
-    for (auto& callback : callbacks) {
-        try {
-            callback(E_ABORT, nullptr);
-        } catch (const std::exception& error) {
-            LOG_WARN("WebView2 关闭回调异常: {}", error.what());
-        } catch (...) {
-            LOG_WARN("WebView2 关闭回调发生未知异常");
         }
     }
 }

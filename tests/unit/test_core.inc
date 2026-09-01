@@ -1588,6 +1588,9 @@ TEST(ShellContextMenuServiceTest, UniversalDpiAndCoordinateSafety) {
     // 2. 非空路径启动异步工作线程测试，并在后台安全处理
     EXPECT_TRUE(service.showAsync(L"C:\\non_existent_file_2026.xyz", 100, 200));
 
-    // 3. 并发关闭与生命周期安全
+    // 3. 真实系统文件夹测试
+    EXPECT_TRUE(service.showAsync(L"C:\\Windows", 100, 200));
+
+    // 4. 并发关闭与生命周期安全
     service.shutdown();
 }

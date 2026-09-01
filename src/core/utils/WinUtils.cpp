@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "core/utils/WinUtils.h"
+#include "core/logger/Logger.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -741,45 +742,71 @@ std::vector<WinUtils::SystemDriveInfo> WinUtils::getSystemDrives() {
 
 bool WinUtils::openFolderAndSelectItem(const std::wstring& filePath) {
     if (filePath.empty()) return false;
+    const DWORD attributes = GetFileAttributesW(filePath.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        LOG_WARN("WinUtils: openFolder target no longer exists: {}", wstringToUtf8(filePath));
+        return false;
+    }
 
-    std::thread([path = filePath]() {
-        try {
-            std::filesystem::path fsPath(path);
-            std::error_code ec;
-            const bool isDir = std::filesystem::is_directory(fsPath, ec) && !ec;
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        const auto result = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"open", filePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+        if (result > 32) return true;
+        LOG_WARN("WinUtils: failed to open directory, shellCode={}, path={}",
+                 result, wstringToUtf8(filePath));
+        return false;
+    }
 
-            if (isDir) {
-                // 目标为目录：直接打开进入该目录
-                const auto ret = reinterpret_cast<INT_PTR>(
-                    ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-                if (ret > 32) return;
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
-                return;
+    // 采用独立 STA 线程执行 COM Shell API，彻底避免调用方线程处于 MTA 导致的 RPC_E_WRONG_THREAD 失败
+    bool shellSuccess = false;
+    HRESULT parseResult = E_FAIL;
+    HRESULT selectResult = E_FAIL;
+    std::thread staThread([&]() {
+        const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        PIDLIST_ABSOLUTE itemId = nullptr;
+        parseResult = SHParseDisplayName(filePath.c_str(), nullptr, &itemId, 0, nullptr);
+        if (SUCCEEDED(parseResult) && itemId) {
+            selectResult = SHOpenFolderAndSelectItems(itemId, 0, nullptr, 0);
+            CoTaskMemFree(itemId);
+            if (SUCCEEDED(selectResult)) {
+                shellSuccess = true;
             }
-
-            // 目标为文件：使用系统原生 explorer.exe /select,"path" 调起并高亮选中
-            const std::wstring args = L"/select,\"" + path + L"\"";
-            const auto ret = reinterpret_cast<INT_PTR>(
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
-            if (ret > 32) return;
-
-            // 兜底直接打开父文件夹
-            auto parent = fsPath.parent_path();
-            if (!parent.empty() && std::filesystem::exists(parent, ec)) {
-                ShellExecuteW(nullptr, L"open", parent.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            }
-        } catch (...) {
-            // 异常防御隔离
         }
-    }).detach();
+        if (SUCCEEDED(comResult)) CoUninitialize();
+    });
+    if (staThread.joinable()) staThread.join();
+    if (shellSuccess) return true;
 
-    return true;
+    // 二级降级容灾：通过 explorer.exe /select 启动并定位目标项
+    const std::wstring arguments = L"/select,\"" + filePath + L"\"";
+    const auto explorerResult = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL));
+    if (explorerResult > 32) return true;
+
+    // 三级降级容灾：打开父文件夹
+    const std::filesystem::path parent = std::filesystem::path(filePath).parent_path();
+    if (!parent.empty()) {
+        const auto parentResult = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"open", parent.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+        if (parentResult > 32) return true;
+    }
+    LOG_WARN("WinUtils: failed to locate item, parseHr=0x{:08X}, selectHr=0x{:08X}, shellCode={}, path={}",
+             static_cast<unsigned>(parseResult), static_cast<unsigned>(selectResult), explorerResult,
+             wstringToUtf8(filePath));
+    return false;
 }
 
 bool WinUtils::openFile(const std::wstring& filePath) {
     if (filePath.empty()) return false;
-    return reinterpret_cast<INT_PTR>(
-        ShellExecuteW(nullptr, L"open", filePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+    if (GetFileAttributesW(filePath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        LOG_WARN("WinUtils: openFile target no longer exists: {}", wstringToUtf8(filePath));
+        return false;
+    }
+    const auto result = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", filePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (result > 32) return true;
+    LOG_WARN("WinUtils: openFile failed, shellCode={}, path={}", result, wstringToUtf8(filePath));
+    return false;
 }
 
 bool WinUtils::openWithNotepad(const std::wstring& filePath) {
@@ -797,21 +824,21 @@ bool WinUtils::openFileAsAdmin(const std::wstring& filePath) {
 
 bool WinUtils::showFileProperties(const std::wstring& filePath) {
     if (filePath.empty()) return false;
-    std::thread([path = filePath]() {
-        try {
-            const HRESULT hrOle = OleInitialize(nullptr);
-            SHELLEXECUTEINFOW sei{};
-            sei.cbSize = sizeof(sei);
-            sei.fMask = SEE_MASK_INVOKEIDLIST;
-            sei.lpVerb = L"properties";
-            sei.lpFile = path.c_str();
-            sei.nShow = SW_SHOWNORMAL;
-            ShellExecuteExW(&sei);
-            if (SUCCEEDED(hrOle)) OleUninitialize();
-        } catch (...) {
-        }
-    }).detach();
-    return true;
+    if (GetFileAttributesW(filePath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+    const HRESULT oleResult = OleInitialize(nullptr);
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI;
+    info.lpVerb = L"properties";
+    info.lpFile = filePath.c_str();
+    info.nShow = SW_SHOWNORMAL;
+    const bool success = ShellExecuteExW(&info) != FALSE;
+    const DWORD error = success ? ERROR_SUCCESS : GetLastError();
+    if (oleResult == S_OK || oleResult == S_FALSE) OleUninitialize();
+    if (!success) {
+        LOG_WARN("WinUtils: show properties failed, error={}, path={}", error, wstringToUtf8(filePath));
+    }
+    return success;
 }
 
 bool WinUtils::isSystemTaskbarDark() {

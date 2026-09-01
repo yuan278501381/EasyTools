@@ -24,18 +24,23 @@
 
 #include <windows.h>
 #include <objbase.h>
+#include <sddl.h>
 #include <shellapi.h>
+#include <shldisp.h>
 #include <shobjidl.h>
 #include <wtsapi32.h>
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -94,6 +99,7 @@ void preloadSettingsWindow(HINSTANCE hInstance);
 static HANDLE g_singleInstanceMutex = nullptr;
 static UINT g_wmTaskbarCreated = 0;
 static std::optional<std::filesystem::path> g_performanceScenarioOutput;
+static std::atomic<bool> g_restartLaunchStarted{false};
 
 namespace {
 
@@ -136,8 +142,66 @@ bool writePerformanceBaselineSnapshot(const std::filesystem::path& outputPath) {
 
 void releaseSingleInstanceMutex() {
     if (!g_singleInstanceMutex) return;
+    ReleaseMutex(g_singleInstanceMutex);
     CloseHandle(g_singleInstanceMutex);
     g_singleInstanceMutex = nullptr;
+}
+
+HANDLE createSingleInstanceMutex() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return nullptr;
+
+    DWORD tokenBytes = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &tokenBytes);
+    if (tokenBytes == 0) {
+        const DWORD error = GetLastError();
+        CloseHandle(token);
+        SetLastError(error);
+        return nullptr;
+    }
+
+    std::vector<std::byte> tokenBuffer(tokenBytes);
+    if (!GetTokenInformation(token, TokenUser, tokenBuffer.data(), tokenBytes,
+                             &tokenBytes)) {
+        const DWORD error = GetLastError();
+        CloseHandle(token);
+        SetLastError(error);
+        return nullptr;
+    }
+    CloseHandle(token);
+
+    const auto* tokenUser = reinterpret_cast<const TOKEN_USER*>(tokenBuffer.data());
+    LPWSTR sidText = nullptr;
+    if (!ConvertSidToStringSidW(tokenUser->User.Sid, &sidText) || !sidText) {
+        return nullptr;
+    }
+
+    // The explicit user ACE lets a standard-token successor synchronize with
+    // a mutex created by the same user's elevated token. SYSTEM and local
+    // administrators retain recovery access; unrelated users receive none.
+    // An explicit medium integrity label prevents low-integrity processes from
+    // acquiring and indefinitely holding the application hand-off barrier.
+    const std::wstring sddl =
+        L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100001;;;" +
+        std::wstring(sidText) + L")S:(ML;;NW;;;ME)";
+    LocalFree(sidText);
+
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) {
+        return nullptr;
+    }
+
+    SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
+    // CreateMutexW requests MUTEX_ALL_ACCESS when the object already exists.
+    // Request only the rights required by the wait/release protocol so the
+    // restricted same-user ACE is sufficient across integrity levels.
+    HANDLE mutex = CreateMutexExW(
+        &security, MUTEX_NAME, 0, SYNCHRONIZE | MUTEX_MODIFY_STATE);
+    const DWORD error = GetLastError();
+    LocalFree(descriptor);
+    SetLastError(error);
+    return mutex;
 }
 
 std::wstring buildRestartParameters(bool includeWindowPos) {
@@ -165,7 +229,6 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
     if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
 
     const std::wstring params = buildRestartParameters(includeWindowPos);
-    releaseSingleInstanceMutex(); // 先释放单例互斥锁，确保子进程能平滑获取单例锁
 
     SHELLEXECUTEINFOW sei{};
     sei.cbSize = sizeof(sei);
@@ -175,12 +238,78 @@ bool launchElevatedSuccessor(bool includeWindowPos) {
     sei.lpParameters = params.c_str();
     sei.nShow = SW_SHOWNORMAL;
     if (!ShellExecuteExW(&sei)) {
-        // 用户在 UAC 弹窗点击了“否”或提权失败，重新占有单例锁以普通权限继续运行
-        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
         return false;
     }
     if (sei.hProcess) CloseHandle(sei.hProcess);
     return true;
+}
+
+bool launchSameIntegritySuccessor(bool includeWindowPos) {
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
+
+    std::wstring commandLine = L"\"";
+    commandLine += exePath;
+    commandLine += L"\" ";
+    commandLine += buildRestartParameters(includeWindowPos);
+
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(exePath, commandLine.data(), nullptr, nullptr, FALSE, 0,
+                        nullptr, nullptr, &startup, &process)) {
+        return false;
+    }
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return true;
+}
+
+bool launchUnelevatedSuccessor(bool includeWindowPos) {
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
+
+    // IPC normally arrives on the WebView UI apartment, but the bridge also
+    // supports worker-thread callers. Make the launcher correct in both cases.
+    const HRESULT comResult = CoInitializeEx(
+        nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const bool uninitializeCom = SUCCEEDED(comResult);
+    if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE) {
+        SetLastError(HRESULT_CODE(comResult));
+        return false;
+    }
+
+    IShellDispatch2* shell = nullptr;
+    const HRESULT createResult = CoCreateInstance(
+        CLSID_Shell, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&shell));
+    if (FAILED(createResult) || !shell) {
+        if (uninitializeCom) CoUninitialize();
+        SetLastError(HRESULT_CODE(createResult));
+        return false;
+    }
+
+    VARIANT arguments{};
+    VARIANT directory{};
+    VARIANT operation{};
+    VARIANT show{};
+    VariantInit(&arguments);
+    VariantInit(&directory);
+    VariantInit(&operation);
+    VariantInit(&show);
+    arguments.vt = VT_BSTR;
+    arguments.bstrVal = SysAllocString(buildRestartParameters(includeWindowPos).c_str());
+    show.vt = VT_I4;
+    show.lVal = SW_SHOWNORMAL;
+    const BSTR executable = SysAllocString(exePath);
+    const HRESULT launchResult = executable && arguments.bstrVal
+        ? shell->ShellExecute(executable, arguments, directory, operation, show)
+        : E_OUTOFMEMORY;
+    if (executable) SysFreeString(executable);
+    VariantClear(&arguments);
+    shell->Release();
+    if (uninitializeCom) CoUninitialize();
+    if (FAILED(launchResult)) SetLastError(HRESULT_CODE(launchResult));
+    return SUCCEEDED(launchResult);
 }
 
 }  // namespace
@@ -210,11 +339,56 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
 
     g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
-    // ── 0. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
+
+    // ── 0a. 命令行调试控制台挂载 (支持 --debug / --console / -d) ────────
+    bool isDebugMode = false;
+    int numArgs = 0;
+    LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &numArgs);
+    if (argvW) {
+        for (int i = 1; i < numArgs; ++i) {
+            if (_wcsicmp(argvW[i], L"--debug") == 0 ||
+                _wcsicmp(argvW[i], L"--console") == 0 ||
+                _wcsicmp(argvW[i], L"-d") == 0) {
+                isDebugMode = true;
+                break;
+            }
+        }
+        LocalFree(argvW);
+    }
+
+    const auto debugFlagPath = easy::core::WinUtils::getExeDirectory() / L"debug.flag";
+    std::error_code ecFlag;
+    if (std::filesystem::exists(debugFlagPath, ecFlag)) {
+        isDebugMode = true;
+    }
+
+    if (isDebugMode) {
+        AllocConsole();
+        std::wstring consoleTitle = L"EasyTools Live Debug Console [构建时间: " _CRT_WIDE(__DATE__) L" " _CRT_WIDE(__TIME__) L"]";
+        SetConsoleTitleW(consoleTitle.c_str());
+        HWND consoleHwnd = GetConsoleWindow();
+        if (consoleHwnd) {
+            ShowWindow(consoleHwnd, SW_SHOW);
+            SetForegroundWindow(consoleHwnd);
+        }
+        FILE* fpOut = nullptr;
+        FILE* fpErr = nullptr;
+        freopen_s(&fpOut, "CONOUT$", "w", stdout);
+        freopen_s(&fpErr, "CONOUT$", "w", stderr);
+        SetConsoleOutputCP(CP_UTF8);
+        std::cout << "\n======================================================\n";
+        std::cout << " [DEBUG MODE] EasyTools 实时调试控制台已激活\n";
+        std::cout << "======================================================\n" << std::flush;
+    }
+
+    // ── 0b. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
     easy::core::WinUtils::enableHighDpiSupport();
 
     // ── 1. 单实例检测 ────────────────────────────────────────────────────
     if (!checkSingleInstance()) {
+        if (isDebugMode) {
+            std::cout << "[WARN] 检测到已有 EasyTools 实例正在运行，请先在任务栏退出旧实例后重试！\n" << std::flush;
+        }
         return 0;
     }
 
@@ -222,8 +396,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         MessageBoxW(nullptr, L"COM 初始化失败", L"EasyTools 错误", MB_OK | MB_ICONERROR);
-        CloseHandle(g_singleInstanceMutex);
-        g_singleInstanceMutex = nullptr;
+        releaseSingleInstanceMutex();
         return 1;
     }
 
@@ -258,11 +431,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     // ── 4b. 日志系统初始化 ──────────────────────────────────────────────
     easy::core::LoggerConfig logConfig;
     logConfig.logDir = easy::core::WinUtils::getLogDirectory();
+    if (isDebugMode) {
+        logConfig.enableConsole = true;
+        logConfig.consoleLevel = spdlog::level::debug;
+    }
     easy::core::Logger::initialize(logConfig);
+    if (isDebugMode) {
+        LOG_INFO("EasyTools 实时调试控制台已激活 (Debug Mode)");
+    }
 
     easy::core::TraceId::Scope mainScope;
     LOG_INFO("========================================");
     LOG_INFO("EasyTools v{} 启动", easy::version::String);
+    LOG_INFO("EasyTools process identity: pid={}, elevated={}",
+             GetCurrentProcessId(), easy::core::WinUtils::isCurrentProcessElevated());
     LOG_INFO("========================================");
 
     // ── 5a. 性能监控启动 ─────────────────────────────────────────────
@@ -274,9 +456,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         LOG_ERROR("配置管理器初始化失败，应用无法安全启动");
         easy::core::PerformanceMonitor::instance().stop();
         easy::core::Logger::shutdown();
+        releaseSingleInstanceMutex();
         CoUninitialize();
-        CloseHandle(g_singleInstanceMutex);
-        g_singleInstanceMutex = nullptr;
         return 1;
     }
 
@@ -316,6 +497,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
             easy::core::ConfigManager::instance().shutdown();
             easy::core::PerformanceMonitor::instance().stop();
             easy::core::Logger::shutdown();
+            releaseSingleInstanceMutex();
             CoUninitialize();
             return 0;
         }
@@ -329,9 +511,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
         easy::core::ConfigManager::instance().shutdown();
         easy::core::PerformanceMonitor::instance().stop();
         easy::core::Logger::shutdown();
+        releaseSingleInstanceMutex();
         CoUninitialize();
-        CloseHandle(g_singleInstanceMutex);
-        g_singleInstanceMutex = nullptr;
         return 1;
     }
     easy::core::MainThreadDispatcher::instance().initialize(hwndMessage);
@@ -391,11 +572,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     // ── 9. 清理与退出 ────────────────────────────────────────────────────
     LOG_INFO("收到退出消息，准备清理");
     shutdownSubsystems();
-
-    if (g_singleInstanceMutex) {
-        CloseHandle(g_singleInstanceMutex);
-    }
-
+    releaseSingleInstanceMutex();
     CoUninitialize();
     return messageResult == -1 ? 1 : static_cast<int>(msg.wParam);
 }
@@ -464,33 +641,24 @@ bool checkSingleInstance() {
         }
     }
 
-    // 若是热重启拉起的新进程，等待旧进程完全退出并释放所有系统资源
-    if (restartPid > 0) {
-        HANDLE hOldProc = OpenProcess(SYNCHRONIZE, FALSE, restartPid);
-        if (hOldProc) {
-            WaitForSingleObject(hOldProc, 3000);
-            CloseHandle(hOldProc);
+    g_singleInstanceMutex = createSingleInstanceMutex();
+    if (g_singleInstanceMutex) {
+        // The mutex, rather than an arbitrary PID timeout, is the authoritative
+        // hand-off barrier. The old process keeps ownership until every tray,
+        // hook, plugin and WebView resource has been shut down. A successor may
+        // wait, but it can never overlap and publish a second tray icon.
+        constexpr DWORD RestartHandoffTimeoutMs = 30'000;
+        const DWORD waitResult = WaitForSingleObject(
+            g_singleInstanceMutex, restartPid > 0 ? RestartHandoffTimeoutMs : 0);
+        if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED) {
+            return true;
         }
-    }
-
-    // 重试获取互斥锁（热重启重试 30 次，正常二次启动仅重试 1 次以实现零延迟秒开）
-    const int maxRetries = (restartPid > 0) ? 30 : 1;
-    for (int retry = 0; retry < maxRetries; ++retry) {
-        g_singleInstanceMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
-        if (g_singleInstanceMutex) {
-            const DWORD waitResult = WaitForSingleObject(g_singleInstanceMutex, 0);
-            if (waitResult == WAIT_OBJECT_0) {
-                return true;
-            }
-            if (waitResult == WAIT_ABANDONED) {
-                // 上一个持有互斥量的进程异常被强杀或崩溃，操作系统已将孤儿锁授予当前进程，自愈启动
-                return true;
-            }
-            CloseHandle(g_singleInstanceMutex);
-            g_singleInstanceMutex = nullptr;
-        }
-        if (retry < maxRetries - 1) {
-            Sleep(50);
+        CloseHandle(g_singleInstanceMutex);
+        g_singleInstanceMutex = nullptr;
+        if (restartPid > 0) {
+            // Fail closed. Starting anyway would recreate the exact dual-icon,
+            // duplicate-hook and hotkey-conflict failure this barrier prevents.
+            return false;
         }
     }
 
@@ -598,8 +766,11 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
     tray.onPauseGesture([]() { easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{}); });
     tray.onRestartElevated([hwnd]() {
         easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
+        if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) return;
         if (launchElevatedSuccessor(true)) {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        } else {
+            g_restartLaunchStarted.store(false, std::memory_order_release);
         }
     });
 
@@ -838,34 +1009,13 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
     // 注册应用一键热重启 IPC 处理器
     easy::core::MessageBridge::instance().registerHandler("app.restart", [hwnd](const nlohmann::json&) -> nlohmann::json {
-        wchar_t exePath[MAX_PATH];
-        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
-            DWORD currentPid = GetCurrentProcessId();
-            std::wstring cmdLine = L"\"";
-            cmdLine += exePath;
-            cmdLine += L"\" --restart-pid=" + std::to_wstring(currentPid);
-
-            auto& settingsWnd = easy::ui::SettingsWindow::instance();
-            if (settingsWnd.isVisible() && settingsWnd.hwnd() && IsWindow(settingsWnd.hwnd())) {
-                RECT rc{};
-                if (GetWindowRect(settingsWnd.hwnd(), &rc)) {
-                    cmdLine += L" --window-pos=" + std::to_wstring(rc.left) + L"," +
-                               std::to_wstring(rc.top) + L"," +
-                               std::to_wstring(rc.right - rc.left) + L"," +
-                               std::to_wstring(rc.bottom - rc.top);
-                }
-            }
-
-            // 预先释放互斥锁句柄，为新实例让路
-            releaseSingleInstanceMutex();
-
-            STARTUPINFOW si{};
-            si.cb = sizeof(si);
-            PROCESS_INFORMATION pi{};
-            if (CreateProcessW(exePath, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-            }
+        if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) {
+            return {{"success", true}, {"alreadyRestarting", true}};
+        }
+        if (!launchSameIntegritySuccessor(true)) {
+            const DWORD error = GetLastError();
+            g_restartLaunchStarted.store(false, std::memory_order_release);
+            return {{"success", false}, {"error", "failed to start successor"}, {"win32Error", error}};
         }
         PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return {{"success", true}};
@@ -875,8 +1025,12 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         if (easy::core::WinUtils::isCurrentProcessElevated()) {
             return {{"success", true}, {"alreadyElevated", true}};
         }
+        if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) {
+            return {{"success", true}, {"alreadyRestarting", true}};
+        }
         if (!launchElevatedSuccessor(true)) {
             const DWORD err = GetLastError();
+            g_restartLaunchStarted.store(false, std::memory_order_release);
             return {
                 {"success", false},
                 {"cancelled", err == ERROR_CANCELLED},
@@ -891,15 +1045,16 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
         if (!easy::core::WinUtils::isCurrentProcessElevated()) {
             return {{"success", true}, {"alreadyDemoted", true}};
         }
-        wchar_t exePath[MAX_PATH];
-        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
-            releaseSingleInstanceMutex();
-            std::wstring cmd = L"\"";
-            cmd += exePath;
-            cmd += L"\"";
-            ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
-            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) {
+            return {{"success", true}, {"alreadyRestarting", true}};
         }
+        if (!launchUnelevatedSuccessor(true)) {
+            const DWORD error = GetLastError();
+            g_restartLaunchStarted.store(false, std::memory_order_release);
+            return {{"success", false}, {"error", "failed to start unelevated successor"},
+                    {"win32Error", error}};
+        }
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return {{"success", true}};
     });
 
@@ -962,21 +1117,29 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             easy::core::EventBus::instance().publish(easy::core::ActionToggleGesturePauseEvent{});
         } else if (action == "restartElevated") {
             easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", true);
+            if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) {
+                return {{"success", true}, {"alreadyRestarting", true}};
+            }
             if (launchElevatedSuccessor(true)) {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            } else {
+                const DWORD error = GetLastError();
+                g_restartLaunchStarted.store(false, std::memory_order_release);
+                return {{"success", false}, {"error", "failed to start elevated successor"},
+                        {"win32Error", error}};
             }
         } else if (action == "restartDemoted") {
             easy::core::ConfigManager::instance().set<bool>("/general/runAsAdmin", false);
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
-                releaseSingleInstanceMutex(); // 为新实例让路
-                // [世界级架构] 通过将自身路径作为参数传递给 explorer.exe，利用桌面壳层实现了完美的进程降权启动
-                std::wstring cmd = L"\"";
-                cmd += exePath;
-                cmd += L"\"";
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", cmd.c_str(), nullptr, SW_SHOWNORMAL);
-                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            if (g_restartLaunchStarted.exchange(true, std::memory_order_acq_rel)) {
+                return {{"success", true}, {"alreadyRestarting", true}};
             }
+            if (!launchUnelevatedSuccessor(true)) {
+                const DWORD error = GetLastError();
+                g_restartLaunchStarted.store(false, std::memory_order_release);
+                return {{"success", false}, {"error", "failed to start unelevated successor"},
+                        {"win32Error", error}};
+            }
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
         } else if (action == "exit") {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
         } else {
@@ -1161,12 +1324,19 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
     // 全局搜索窗口与托盘均为核心高频入口：启动后立即在隐藏窗口中预热 WebView2，确保 0ms 秒开
     easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
+    if (hasCommandLineFlag(L"--debug") || hasCommandLineFlag(L"--console") || hasCommandLineFlag(L"-d")) {
+        easy::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
+    }
 
     // 9. 更新检查严格在后台执行，并由内部频率限制保护启动性能。
     easy::core::UpdateChecker::instance().checkAsync(false);
 }
 
 void shutdownSubsystems() {
+    // Withdraw the user-visible entry point before any potentially blocking
+    // plugin teardown. Even if a third-party worker is slow, Explorer cannot
+    // retain a clickable-looking icon for an instance already shutting down.
+    easy::tray::TrayIcon::instance().destroy();
     easy::core::UpdateChecker::instance().shutdown();
     // 先关闭所有 WebView 入口，阻止新的 IPC 请求进入插件，再等待并卸载插件。
     easy::ui::SettingsWindow::instance().destroy();
@@ -1182,7 +1352,6 @@ void shutdownSubsystems() {
     easy::core::MouseHook::instance().uninstall();
     easy::core::StatsManager::instance().shutdown();
     easy::core::PerformanceMonitor::instance().stop();
-    easy::tray::TrayIcon::instance().destroy();
     easy::core::MainThreadDispatcher::instance().shutdown();
     easy::core::ConfigManager::instance().shutdown();
     easy::core::Logger::shutdown();

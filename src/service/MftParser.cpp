@@ -358,9 +358,10 @@ void MftParser::EnumerateFiles() {
 }
 
 std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit,
-                                           const SearchExcludeOptions& excludeOpts) {
+                                           const SearchExcludeOptions& excludeOpts,
+                                           const CancellationCheck& isCancelled) {
     std::vector<SearchResult> results;
-    if (query.empty()) return results;
+    if (query.empty() || (isCancelled && isCancelled())) return results;
 
     const std::wstring lowerQuery = normalize(query);
     const auto expr = SearchExpression::parse(query);
@@ -382,13 +383,20 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             return lazyPath;
         };
 
-        // 1. 若为全文内容搜索模式，提前剪枝目录与不支持的二进制/媒体格式
+        // 1. 若为全文内容搜索模式，提前剪枝目录与不支持的二进制/媒体格式，并主动过滤系统无意义目录
         if (expr.hasContentFilter()) {
             if (record.isDirectory) return false;
             size_t dotPos = record.fileName.rfind(L'.');
             if (dotPos == std::wstring::npos) return false;
             std::wstring_view ext = std::wstring_view(record.fileName).substr(dotPos + 1);
             if (!easy::service::content::ContentSearchEngine::instance().canSearchContent(ext)) {
+                return false;
+            }
+            // 避免 Windows 系统内置几十万个 xml/manifest 占满 candidates 配额
+            const std::wstring& p = getPath();
+            if (p.find(L"\\Windows\\WinSxS\\") != std::wstring::npos ||
+                p.find(L"\\Windows\\System32\\") != std::wstring::npos ||
+                p.find(L"\\$Recycle.Bin\\") != std::wstring::npos) {
                 return false;
             }
         }
@@ -398,7 +406,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             return false;
         }
 
-        // 2. 仅对命中的极少数候选执行排除规则过滤 (避免对 265 万未命中文件强制构建全路径)
+        // 3. 仅对命中的极少数候选执行排除规则过滤 (避免对 265 万未命中文件强制构建全路径)
         if (!excludeOpts.patterns.empty()) {
             const std::wstring& p = getPath();
             for (const auto& pat : excludeOpts.patterns) {
@@ -484,7 +492,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         std::vector<DWORDLONG> filtered;
         filtered.reserve(std::min<size_t>(candidates.size(), 65536));
         ranked.reserve(std::min<size_t>(candidates.size(), 65536));
+        size_t checked = 0;
         for (const auto id : candidates) {
+            if (((checked++ & 0x3FFu) == 0) && isCancelled && isCancelled()) return results;
             const auto* stored = m_Store.find(id);
             if (!stored) continue;
             const FileRecord record = m_Store.view(*stored);
@@ -521,6 +531,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
                 localRank.reserve(std::min<size_t>((endIdx - startIdx) / 16 + 64, 8192));
 
                 for (size_t i = startIdx; i < endIdx; ++i) {
+                    if (((i - startIdx) & 0x3FFu) == 0 && isCancelled && isCancelled()) break;
                     const auto* stored = m_Store.at(i);
                     if (!stored) continue;
                     const FileRecord record = m_Store.view(*stored);
@@ -537,6 +548,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         for (auto& w : workers) {
             if (w.joinable()) w.join();
         }
+        if (isCancelled && isCancelled()) return results;
 
         size_t totalFound = 0;
         for (unsigned int t = 0; t < numThreads; ++t) {
@@ -564,6 +576,7 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             return a.record.normalizedName.size() < b.record.normalizedName.size();
         return a.record.normalizedName < b.record.normalizedName;
     };
+    if (isCancelled && isCancelled()) return results;
     const size_t resultCount = std::min(ranked.size(), static_cast<size_t>(limit));
     if (resultCount < ranked.size()) {
         std::partial_sort(ranked.begin(), ranked.begin() + resultCount, ranked.end(), compareRank);

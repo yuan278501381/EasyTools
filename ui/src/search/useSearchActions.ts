@@ -6,6 +6,31 @@ import { IMAGE_EXTENSIONS } from './searchConstants';
 import type { SearchResult } from './searchTypes';
 import { formatFileSize, formatWindowsTime } from './searchUtils';
 
+interface NativeActionResponse {
+  success?: boolean;
+  error?: string;
+}
+
+async function requestNativeAction(method: string, params: Record<string, unknown>): Promise<void> {
+  const response = await bridgeRequest<NativeActionResponse>(method, params);
+  if (response?.success === false) {
+    throw new Error(response.error || `${method} failed`);
+  }
+}
+
+async function requestNativeActionWithFallback(
+  primaryMethod: string,
+  fallbackMethod: string,
+  path: string,
+): Promise<void> {
+  const params = { path, filepath: path };
+  try {
+    await requestNativeAction(primaryMethod, params);
+  } catch {
+    await requestNativeAction(fallbackMethod, params);
+  }
+}
+
 export interface UseSearchActionsProps {
   isPinned: boolean;
   hide: () => void;
@@ -38,15 +63,10 @@ export function useSearchActions({
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('search.openFile', { filepath: result.path, path: result.path });
+      await requestNativeActionWithFallback('search.openFile', 'system.openFile', result.path);
       if (!isPinned) hide();
     } catch {
-      try {
-        await bridgeRequest('system.openFile', { path: result.path, filepath: result.path });
-        if (!isPinned) hide();
-      } catch {
-        setActionError(t('search.openFailed', 'Could not open this result'));
-      }
+      setActionError(t('search.openFailed', 'Could not open this result'));
     }
   }, [hide, isPinned, setActionError, t]);
 
@@ -55,15 +75,10 @@ export function useSearchActions({
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('search.openFolder', { filepath: result.path, path: result.path });
+      await requestNativeActionWithFallback('search.openFolder', 'system.openFolder', result.path);
       if (!isPinned) hide();
     } catch {
-      try {
-        await bridgeRequest('system.openFolder', { path: result.path, filepath: result.path });
-        if (!isPinned) hide();
-      } catch {
-        setActionError(t('search.openFolderFailed', 'Could not open containing folder'));
-      }
+      setActionError(t('search.openFolderFailed', 'Could not open containing folder'));
     }
   }, [hide, isPinned, setActionError, t]);
 
@@ -121,15 +136,10 @@ export function useSearchActions({
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('search.openFileAsAdmin', { filepath: result.path, path: result.path });
+      await requestNativeActionWithFallback('search.openFileAsAdmin', 'system.openFileAsAdmin', result.path);
       if (!isPinned) hide();
     } catch {
-      try {
-        await bridgeRequest('system.openFileAsAdmin', { path: result.path, filepath: result.path });
-        if (!isPinned) hide();
-      } catch {
-        setActionError(t('search.errRunAsAdmin', 'Failed to run as administrator'));
-      }
+      setActionError(t('search.errRunAsAdmin', 'Failed to run as administrator'));
     }
   }, [hide, isPinned, setActionError, t]);
 
@@ -137,13 +147,9 @@ export function useSearchActions({
     if (!result) return;
     setActionError('');
     try {
-      await bridgeRequest('search.showFileProperties', { filepath: result.path, path: result.path });
+      await requestNativeActionWithFallback('search.showFileProperties', 'system.showFileProperties', result.path);
     } catch {
-      try {
-        await bridgeRequest('system.showFileProperties', { path: result.path, filepath: result.path });
-      } catch {
-        setActionError(t('search.errFileProperties', 'Unable to open file properties'));
-      }
+      setActionError(t('search.errFileProperties', 'Unable to open file properties'));
     }
   }, [setActionError, t]);
 
@@ -186,15 +192,10 @@ export function useSearchActions({
     setActionError('');
     try {
       void bridgeRequest('search.recordRun', { path: result.path });
-      await bridgeRequest('search.openWithNotepad', { filepath: result.path, path: result.path });
+      await requestNativeActionWithFallback('search.openWithNotepad', 'system.openWithNotepad', result.path);
       if (!isPinned) hide();
     } catch {
-      try {
-        await bridgeRequest('system.openWithNotepad', { path: result.path, filepath: result.path });
-        if (!isPinned) hide();
-      } catch {
-        setActionError(t('search.errOpenNotepad', 'Unable to open file with Notepad'));
-      }
+      setActionError(t('search.errOpenNotepad', 'Unable to open file with Notepad'));
     }
   }, [hide, isPinned, setActionError, t]);
 

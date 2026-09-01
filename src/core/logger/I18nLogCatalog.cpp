@@ -17,6 +17,86 @@ struct LogEntry {
 
 static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
     static const std::unordered_map<std::string_view, LogEntry> catalog = {
+        {"ShellContextMenuService: QueryContextMenu 返回 hr=0x{:08X}, itemsCount={}", {
+            "[{}] ShellContextMenuService: QueryContextMenu 返回 hr=0x{:08X}, itemsCount={}",
+            "[{}] ShellContextMenuService: QueryContextMenu returned hr=0x{:08X}, itemsCount={}"
+        }},
+        {"ShellContextMenuService: 检测到第三方 Shell 扩展执行超时 (500ms 熔断)，自动触发原生自愈降级菜单！", {
+            "[{}] ShellContextMenuService: 检测到第三方 Shell 扩展执行超时 (500ms 熔断)，自动触发原生自愈降级菜单！",
+            "[{}] ShellContextMenuService: Detected third-party shell extension timeout (500ms circuit breaker), activating fallback menu!"
+        }},
+        {"ShellContextMenuService: 即将弹出原生菜单, path={}, x={}, y={}, isFallback={}", {
+            "[{}] ShellContextMenuService: 即将弹出原生菜单, path={}, x={}, y={}, isFallback={}",
+            "[{}] ShellContextMenuService: About to pop context menu, path={}, x={}, y={}, isFallback={}"
+        }},
+        {"ShellContextMenuService: [Build __TIMESTAMP__] 即将调用 QueryContextMenu, flags=0x{:08X}...", {
+            "[{}] ShellContextMenuService: [Build __TIMESTAMP__] 即将调用 QueryContextMenu, flags=0x{:08X}...",
+            "[{}] ShellContextMenuService: [Build __TIMESTAMP__] About to call QueryContextMenu, flags=0x{:08X}..."
+        }},
+        {"ShellContextMenuService: 即将调用 QueryContextMenu...", {
+            "[{}] ShellContextMenuService: 即将调用 QueryContextMenu...",
+            "[{}] ShellContextMenuService: About to call QueryContextMenu..."
+        }},
+        {"ShellContextMenuService: 尝试直接从 Desktop IShellFolder 绑定绝对 PIDL 上下文菜单...", {
+            "[{}] ShellContextMenuService: 尝试直接从 Desktop IShellFolder 绑定绝对 PIDL 上下文菜单...",
+            "[{}] ShellContextMenuService: Attempting to bind absolute PIDL context menu directly from Desktop IShellFolder..."
+        }},
+        {"ShellContextMenuService: 尝试直接从文件夹自身视图绑定上下文菜单...", {
+            "[{}] ShellContextMenuService: 尝试直接从文件夹自身视图绑定上下文菜单...",
+            "[{}] ShellContextMenuService: Attempting to bind context menu directly from folder view..."
+        }},
+        {"ShellContextMenuService: 无法获取目标对象右键菜单 (文件或文件夹), path={}", {
+            "[{}] ShellContextMenuService: 无法获取目标对象右键菜单 (文件或文件夹), path={}",
+            "[{}] ShellContextMenuService: Failed to get context menu for target (file or folder), path={}"
+        }},
+        {"ShellContextMenuService: 开始解析路径 PIDL, path={}", {
+            "[{}] ShellContextMenuService: 开始解析路径 PIDL, path={}",
+            "[{}] ShellContextMenuService: Start parsing path PIDL, path={}"
+        }},
+        {"ShellContextMenuService: 无法将路径解析为 PIDL, path={}", {
+            "[{}] ShellContextMenuService: 无法将路径解析为 PIDL, path={}",
+            "[{}] ShellContextMenuService: Failed to parse path to PIDL, path={}"
+        }},
+        {"ShellContextMenuService: 开始解析路径 PIDL, path={}", {
+            "[{}] ShellContextMenuService: 开始解析路径 PIDL, path={}",
+            "[{}] ShellContextMenuService: Starting PIDL resolution for path, path={}"
+        }},
+        {"ShellContextMenuService: QueryContextMenu 返回 hr=0x{:08X}, itemsCount={}", {
+            "[{}] ShellContextMenuService: QueryContextMenu 返回 hr=0x{:08X}, itemsCount={}",
+            "[{}] ShellContextMenuService: QueryContextMenu returned hr=0x{:08X}, itemsCount={}"
+        }},
+        {"ShellContextMenuService: 即将弹出原生菜单, path={}, x={}, y={}, isFallback={}", {
+            "[{}] ShellContextMenuService: 即将弹出原生菜单, path={}, x={}, y={}, isFallback={}",
+            "[{}] ShellContextMenuService: About to show native shell menu, path={}, x={}, y={}, isFallback={}"
+        }},
+        {"ShellContextMenuService: 原生菜单已关闭, command={}", {
+            "[{}] ShellContextMenuService: 原生菜单已关闭, command={}",
+            "[{}] ShellContextMenuService: Native shell menu closed, command={}"
+        }},
+        {"ShellContextMenuService: 捕获第三方 Shell 扩展异常，已安全隔离防御", {
+            "[{}] ShellContextMenuService: 捕获第三方 Shell 扩展异常，已安全隔离防御",
+            "[{}] ShellContextMenuService: Caught 3rd-party shell extension exception, safely isolated"
+        }},
+        {"ShellContextMenuService: 检测到第三方 Shell 扩展执行超时 (300ms 熔断)，自动触发原生自愈降级菜单！", {
+            "[{}] ShellContextMenuService: 检测到第三方 Shell 扩展执行超时 (300ms 熔断)，自动触发原生自愈降级菜单！",
+            "[{}] ShellContextMenuService: 3rd-party shell extension timed out (300ms circuit breaker), auto-fallback to self-healing menu!"
+        }},
+        {"鼠标钩子执行耗时过长(当前耗时 {} ms), 触发安全熔断机制, 将暂停工作 {} ms 以保护系统响应", {
+            "[{}] 鼠标钩子执行耗时过长(当前耗时 {} ms), 触发安全熔断机制, 将暂停工作 {} ms 以保护系统响应",
+            "[{}] Mouse hook execution took too long ({} ms), triggering circuit breaker, pausing for {} ms to protect system responsiveness"
+        }},
+        {"SearchPlugin: 收到 showShellContextMenu 请求, filepath={}", {
+            "[{}] SearchPlugin: 收到 showShellContextMenu 请求, filepath={}",
+            "[{}] SearchPlugin: Received showShellContextMenu request, filepath={}"
+        }},
+        {"SearchPlugin: showShellContextMenu 调度结果 started={}", {
+            "[{}] SearchPlugin: showShellContextMenu 调度结果 started={}",
+            "[{}] SearchPlugin: showShellContextMenu dispatch result started={}"
+        }},
+        {"EasyTools 实时调试控制台已激活 (Debug Mode)", {
+            "[{}] EasyTools 实时调试控制台已激活 (Debug Mode)",
+            "[{}] EasyTools Live Debug Console Activated (Debug Mode)"
+        }},
         {"前台窗口为 EasyTools 自身界面，放行按键不触发手势", {
             "[{}] 前台窗口为 EasyTools 自身界面，放行按键不触发手势",
             "[{}] Foreground window is EasyTools internal UI, pass-through button without gesture"

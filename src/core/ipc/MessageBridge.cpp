@@ -668,7 +668,10 @@ constexpr size_t AsyncWorkerCount = 4;
 /// 队列上限。搜索场景下堆积几乎都来自连续击键，因此过载时丢弃最旧的一条，
 /// 并立刻给它回一个错误响应，避免前端 Promise 悬挂到超时。
 constexpr size_t MaxQueuedAsyncJobs = 64;
-constexpr auto AsyncJobTimeout = std::chrono::seconds(30);
+constexpr auto DefaultAsyncJobTimeout = std::chrono::seconds(30);
+// 全文搜索会真实读取并解压大量文档。前端已经为 search.query 保留 30 分钟，
+// 后端不能再用普通 IPC 的 30 秒熔断提前返回空结果。
+constexpr auto SearchQueryAsyncJobTimeout = std::chrono::minutes(30);
 
 std::mutex g_workerPoolMutex;
 
@@ -687,12 +690,14 @@ struct MessageBridge::WorkerPool {
     struct Job {
         std::string message;
         std::shared_ptr<Completion> completion;
+        std::chrono::steady_clock::duration timeout = DefaultAsyncJobTimeout;
     };
 
     struct WorkerState {
         bool active = false;
         bool timedOut = false;
         std::chrono::steady_clock::time_point startedAt{};
+        std::chrono::steady_clock::duration timeout = DefaultAsyncJobTimeout;
         std::shared_ptr<Completion> completion;
     };
 
@@ -745,6 +750,7 @@ MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
                     workerState->active = true;
                     workerState->timedOut = false;
                     workerState->startedAt = std::chrono::steady_clock::now();
+                    workerState->timeout = job.timeout;
                     workerState->completion = job.completion;
                 }
                 std::string response = MessageBridge::instance().handleMessage(job.message);
@@ -767,14 +773,18 @@ MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
             if (pool->stopping) break;
 
             const auto now = std::chrono::steady_clock::now();
-            std::vector<std::shared_ptr<WorkerPool::Completion>> timedOut;
+            struct TimedOutJob {
+                std::shared_ptr<WorkerPool::Completion> completion;
+                std::chrono::steady_clock::duration timeout;
+            };
+            std::vector<TimedOutJob> timedOut;
             size_t stalledWorkers = 0;
             for (const auto& state : pool->workerStates) {
-                if (!state->active || now - state->startedAt < AsyncJobTimeout) continue;
+                if (!state->active || now - state->startedAt < state->timeout) continue;
                 ++stalledWorkers;
                 if (!state->timedOut) {
                     state->timedOut = true;
-                    timedOut.push_back(state->completion);
+                    timedOut.push_back({state->completion, state->timeout});
                 }
             }
 
@@ -791,13 +801,13 @@ MessageBridge::WorkerPool& MessageBridge::ensureWorkerPool() {
             }
 
             lock.unlock();
-            for (const auto& completion : timedOut) {
+            for (const auto& job : timedOut) {
                 LOG_ERROR("异步 IPC handler 超时: requestId={}, timeoutSeconds={}",
-                          completion ? completion->id : 0,
-                          std::chrono::duration_cast<std::chrono::seconds>(AsyncJobTimeout).count());
-                const int id = completion ? completion->id : 0;
+                          job.completion ? job.completion->id : 0,
+                          std::chrono::duration_cast<std::chrono::seconds>(job.timeout).count());
+                const int id = job.completion ? job.completion->id : 0;
                 WorkerPool::respondOnce(
-                    completion,
+                    job.completion,
                     bridgeErrorResponse(id, -32001, "Async handler timed out"),
                     "watchdog timeout");
             }
@@ -904,10 +914,11 @@ void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResp
 
     int id = 0;
     bool runAsync = false;
+    std::string method;
     try {
         auto request = json::parse(messageJson);
         id = request.value("id", 0);
-        const std::string method = request.value("method", "");
+        method = request.value("method", "");
         std::shared_lock lock(m_mutex);
         runAsync = m_asyncMethods.find(method) != m_asyncMethods.end();
     } catch (...) {
@@ -938,7 +949,10 @@ void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResp
                 evicted = std::move(pool.jobs.front().completion);
                 pool.jobs.pop_front();
             }
-            pool.jobs.push_back(WorkerPool::Job{messageJson, completion});
+            const auto timeout = method == "search.query"
+                ? SearchQueryAsyncJobTimeout
+                : DefaultAsyncJobTimeout;
+            pool.jobs.push_back(WorkerPool::Job{messageJson, completion, timeout});
         }
     }
     if (rejected) {
@@ -1684,7 +1698,8 @@ void MessageBridge::registerBuiltinHandlers() {
         const auto wide = WinUtils::utf8ToWstring(path);
         const int x = params.value("x", -1);
         const int y = params.value("y", -1);
-        const bool started = ShellContextMenuService::instance().showAsync(wide, x, y);
+        const bool extended = params.value("extended", false);
+        const bool started = ShellContextMenuService::instance().showAsync(wide, x, y, extended);
         return {{"success", started}, {"busy", !started}};
     });
     registerHandler("app.checkForUpdates", [](const json&) -> json {

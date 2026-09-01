@@ -15,6 +15,7 @@
 #include "core/logger/Logger.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/TraceId.h"
+#include "core/utils/UiThreadJoin.h"
 #include "core/utils/WinUtils.h"
 #include "core/utils/ThemeUtils.h"
 #include "core/config/ConfigManager.h"
@@ -258,7 +259,9 @@ void GestureTrailOverlay::shutdown() {
     if (m_renderThread.joinable()) {
         m_renderThread.request_stop();
         m_renderCv.notify_all();
-        m_renderThread.join();
+        LOG_DEBUG("Gesture shutdown: waiting for render worker");
+        easy::core::joinWorkerWhilePumpingSentMessages(m_renderThread);
+        LOG_DEBUG("Gesture shutdown: render worker stopped");
     }
     releaseD2DResources();
     if (m_toastHwnd) {
@@ -308,6 +311,8 @@ void GestureTrailOverlay::clearCanvasLocked() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    struct CoGuard { ~CoGuard() { CoUninitialize(); } } coGuard;
     while (!stopToken.stop_requested()) {
         {
             std::unique_lock lock(m_renderSignalMutex);
@@ -415,7 +420,7 @@ void GestureTrailOverlay::renderLoop(std::stop_token stopToken) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void GestureTrailOverlay::beginTrail() {
-    m_zOrderYielded.store(false, std::memory_order_release);
+    raiseZOrderForDraw();
     m_trailEpoch.fetch_add(1, std::memory_order_acq_rel);
     m_hideRequested.store(false, std::memory_order_release);
     m_wantVisible.store(false, std::memory_order_release);
@@ -643,10 +648,13 @@ bool GestureTrailOverlay::recreateBitmapLocked(int x, int y, int width, int heig
     m_height = height;
 
     if (m_renderTarget) {
-        RECT memRect = {0, 0, width, height};
-        if (FAILED(m_renderTarget->BindDC(m_memoryDC, &memRect))) {
-            return false;
-        }
+        m_renderTarget.Reset();
+        m_lineBrush.Reset();
+        m_glowBrush.Reset();
+        m_greyLineBrush.Reset();
+        m_greyGlowBrush.Reset();
+        m_headCoreBrush.Reset();
+        m_outlineBrush.Reset();
     }
     LOG_DEBUG("手势轨迹表面重建: {}x{} at ({},{})", width, height, x, y);
     return true;
@@ -673,8 +681,11 @@ bool GestureTrailOverlay::presentLayeredLocked(HWND hwnd, HDC memDC, int x, int 
     // 最大化 Electron / CEF 窗下面。沉底过就必须无条件回到 TOPMOST 组。
     const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
     if (!yielded) {
-        SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height,
-                     SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+    if (!IsWindowVisible(hwnd)) {
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     }
     return true;
 }
@@ -878,6 +889,8 @@ bool GestureTrailOverlay::createOverlayWindow(HINSTANCE hInstance) {
         L"EasyTools Gesture Toast",
         WS_POPUP,
         0, 0, 64, 64,
+        // Keep the result card owned by the trail surface so it cannot fall
+        // behind it after another TOPMOST popup (such as a Shell menu) closes.
         m_helperOwnerHwnd,
         nullptr,
         hInstance,
@@ -1045,10 +1058,9 @@ bool GestureTrailOverlay::presentCompositorLocked(HWND hwnd, const void* bits, i
     }
     if (FAILED(surface->EndDraw())) return false;
 
-    const bool yielded = m_zOrderYielded.load(std::memory_order_acquire);
-    SetWindowPos(hwnd, yielded ? HWND_BOTTOM : HWND_TOPMOST, x, y, width, height,
+    SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-    if (!yielded && !IsWindowVisible(hwnd)) {
+    if (!IsWindowVisible(hwnd)) {
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     }
     return SUCCEEDED(m_dcompDevice->Commit());
@@ -1071,7 +1083,7 @@ bool GestureTrailOverlay::createD2DResources() {
     // D2D 工厂
     if (!m_d2dFactory) {
         D2D1_FACTORY_OPTIONS options{};
-        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, options, m_d2dFactory.GetAddressOf());
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, options, m_d2dFactory.GetAddressOf());
         if (FAILED(hr)) return fail();
     }
 
@@ -1215,8 +1227,7 @@ void GestureTrailOverlay::releaseD2DResourcesLocked() {
     m_strokeStyle.Reset();
     m_toastTarget.Reset();
     m_renderTarget.Reset();
-    m_dwriteFactory.Reset();
-    m_d2dFactory.Reset();
+// Factories are preserved across memory trims for zero-recreation failure
     
     if (m_memoryDC && m_oldBitmap) {
         SelectObject(m_memoryDC, m_oldBitmap);
@@ -1241,6 +1252,9 @@ void GestureTrailOverlay::releaseD2DResourcesLocked() {
 
 bool GestureTrailOverlay::render() {
     std::lock_guard lock(m_renderMutex);
+    if (!m_fading.load(std::memory_order_relaxed)) {
+        m_fadeAlpha = 1.0f;
+    }
 
     std::vector<TrailPoint> points;
     std::string resultText;
@@ -1518,6 +1532,8 @@ bool GestureTrailOverlay::presentToastLocked(const std::string& resultText, bool
 
     ensurePremultipliedAlpha(m_toastBits, m_toastWidth, m_toastHeight, m_toastPitch);
 
+    SetWindowPos(m_toastHwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     return presentLayeredLocked(
         m_toastHwnd, m_toastDC, m_toastOriginX, m_toastOriginY, m_toastWidth, m_toastHeight);
 }

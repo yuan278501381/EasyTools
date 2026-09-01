@@ -70,6 +70,7 @@
 #include "core/utils/WinUtils.h"
 #include "core/utils/ElevationPolicy.h"
 #include "core/utils/ShellContextMenuService.h"
+#include "core/utils/UiThreadJoin.h"
 #include "core/lua/LuaEngine.h"
 #include "search/ServiceLifetime.h"
 #include "search/ServiceStartupPolicy.h"
@@ -127,6 +128,28 @@ using namespace easy::gesture;
 #include "test_search.inc"
 #include "test_ui_lifecycle.inc"
 #include "test_dialog.inc"
+
+TEST(UiThreadJoinTest, PumpsCrossThreadSentMessagesDuringShutdown) {
+    HWND window = CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 0, 0, 1, 1,
+        nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(window, nullptr);
+
+    std::atomic<bool> workerEntered{false};
+    std::atomic<bool> sendCompleted{false};
+    std::jthread worker([&](std::stop_token) {
+        workerEntered.store(true, std::memory_order_release);
+        SendMessageW(window, WM_NULL, 0, 0);
+        sendCompleted.store(true, std::memory_order_release);
+    });
+    while (!workerEntered.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+
+    easy::core::joinWorkerWhilePumpingSentMessages(worker);
+    EXPECT_TRUE(sendCompleted.load(std::memory_order_acquire));
+    DestroyWindow(window);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 单元测试主入口 (Google Test 初始化与执行)

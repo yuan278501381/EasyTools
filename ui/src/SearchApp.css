@@ -810,7 +810,7 @@ html[data-surface="search"] #root {
     cursor: pointer;
     color: var(--search-text-main);
     border-bottom: 1px solid var(--search-item-border);
-    transition: background 0.1s ease, color 0.1s ease;
+    transition: background-color 55ms linear, color 0.1s ease;
 
     /* 让渲染引擎跳过视口外结果行的布局与绘制。相比手写虚拟列表，这条原生
        能力保留了真实滚动条、键盘导航和无障碍树，代价只有一个尺寸估算值。
@@ -830,6 +830,12 @@ html[data-surface="search"] #root {
 
 .search-result-item.selected {
     background: var(--search-selected-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .search-result-item {
+        transition: none;
+    }
 }
 
 .file-icon {

@@ -562,8 +562,8 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         futures.reserve(g_MftParsers.size());
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
-            futures.push_back(std::async(std::launch::async, [&parser, &queryStr, &excludeOpts, maxCount]() {
-                return parser->Search(queryStr, static_cast<int>(maxCount), excludeOpts);
+            futures.push_back(std::async(std::launch::async, [&parser, &queryStr, &excludeOpts, &isCancelled, maxCount]() {
+                return parser->Search(queryStr, static_cast<int>(maxCount), excludeOpts, isCancelled);
             }));
         }
 
@@ -587,7 +587,7 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         for (auto& parser : g_MftParsers) {
             if (!isDriveEnabled(parser->getDriveLetter())) continue;
             if (isCancelled()) return std::vector<nlohmann::json>{};
-            auto volumeResults = parser->Search(queryStr, 60000, excludeOpts);
+            auto volumeResults = parser->Search(queryStr, 60000, excludeOpts, isCancelled);
             candidates.insert(candidates.end(),
                               std::make_move_iterator(volumeResults.begin()),
                               std::make_move_iterator(volumeResults.end()));
@@ -911,8 +911,8 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
                 if (!frame::writeExact(hPipe, response.data(), response.size())) break;
             }
         }
-        // 客户端断开连接或进程退出时，毫秒级原子取消当前所有正在运行的内容扫描，杜绝后台空转
-        easy::service::query::sharedEpochTracker().cancelAll();
+        // 每个查询使用独立的管道实例。某个旧连接正常结束绝不能取消其它实例上
+        // 仍在运行的新查询；取消只由更大的 queryId 或显式 cancel 请求驱动。
         FlushFileBuffers(hPipe);
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);

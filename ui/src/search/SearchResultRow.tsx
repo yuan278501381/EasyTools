@@ -188,8 +188,17 @@ export const SearchResultRow = memo(function SearchResultRow({
       aria-setsize={setSize}
       ref={measureRef}
       style={style}
-      onMouseEnter={() => onHover(index)}
-      onMouseDown={(event) => event.preventDefault()}
+      // Scrolling a virtualized list can move a new row under a stationary
+      // pointer and synthesize mouseenter, stealing keyboard selection. Only
+      // actual pointer motion is allowed to switch navigation modality.
+      onMouseMove={(event) => {
+        if (event.movementX !== 0 || event.movementY !== 0) onHover(index);
+      }}
+      onMouseDown={(event) => {
+        if (event.button === 0 && !event.shiftKey) {
+          event.preventDefault();
+        }
+      }}
       onClick={() => onSelect(index)}
       onDoubleClick={() => onOpen(result)}
       onContextMenu={(event) => onContextMenu(event, index, result)}

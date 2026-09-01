@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
 import type { CategoryFilter, SearchResult, SortField } from './searchTypes';
 
 export interface UseSearchKeyboardProps {
@@ -62,6 +62,20 @@ export function useSearchKeyboard({
   selectCategory,
   categories,
 }: UseSearchKeyboardProps) {
+  const selectedIndexRef = useRef(selectedIndex);
+
+  useEffect(() => {
+    selectedIndexRef.current = selectedIndex;
+  }, [selectedIndex]);
+
+  const moveSelection = useCallback((direction: 'ArrowDown' | 'ArrowUp') => {
+    if (sortedResults.length === 0) return;
+    const delta = direction === 'ArrowDown' ? 1 : -1;
+    setSelectedIndex((previous) => (
+      previous + delta + sortedResults.length
+    ) % sortedResults.length);
+  }, [setSelectedIndex, sortedResults.length]);
+
   const handleUnifiedKeyDown = useCallback((event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
     const isSearchInput = target === inputRef.current;
@@ -120,7 +134,7 @@ export function useSearchKeyboard({
     // 4. F2 全局重命名当前选中项
     if (event.key === 'F2') {
       event.preventDefault();
-      const current = sortedResults[selectedIndex];
+      const current = sortedResults[selectedIndexRef.current];
       if (current) startRename(current);
       return;
     }
@@ -136,17 +150,13 @@ export function useSearchKeyboard({
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (sortedResults.length > 0) {
-        setSelectedIndex((prev) => (prev + 1) % sortedResults.length);
-      }
+      moveSelection('ArrowDown');
       return;
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      if (sortedResults.length > 0) {
-        setSelectedIndex((prev) => (prev - 1 + sortedResults.length) % sortedResults.length);
-      }
+      moveSelection('ArrowUp');
       return;
     }
 
@@ -182,7 +192,7 @@ export function useSearchKeyboard({
 
     if (event.key === 'Enter' && event.ctrlKey) {
       event.preventDefault();
-      const current = sortedResults[selectedIndex];
+      const current = sortedResults[selectedIndexRef.current];
       if (current) {
         void openFolderResult(current);
       }
@@ -191,7 +201,7 @@ export function useSearchKeyboard({
 
     if (event.key === 'Enter' && event.altKey) {
       event.preventDefault();
-      const current = sortedResults[selectedIndex];
+      const current = sortedResults[selectedIndexRef.current];
       if (current) {
         void showFileProperties(current);
       }
@@ -200,7 +210,7 @@ export function useSearchKeyboard({
 
     if (event.key === 'Enter' && !isComposing) {
       event.preventDefault();
-      const current = sortedResults[selectedIndex];
+      const current = sortedResults[selectedIndexRef.current];
       if (current) {
         void openResult(current);
       } else if (query.trim() && !query.trim().toLowerCase().startsWith('content:') && !query.trim().startsWith('内容:')) {
@@ -215,7 +225,7 @@ export function useSearchKeyboard({
         return;
       }
       event.preventDefault();
-      const current = sortedResults[selectedIndex];
+      const current = sortedResults[selectedIndexRef.current];
       if (current) {
         copyPathResult(current);
       }
@@ -241,12 +251,13 @@ export function useSearchKeyboard({
       inputRef.current?.focus();
     }
   }, [
-    inputRef, isComposing, sortedResults, selectedIndex, setSelectedIndex, query,
+    inputRef, isComposing, sortedResults, setSelectedIndex, query,
     renameTarget.visible, setRenameTarget, contextMenu.visible, setContextMenu,
     showSortMenu, setShowSortMenu, showSyntaxHelp, setShowSyntaxHelp,
     showViewSettings, setShowViewSettings, hide, rebuildIndex, togglePin,
     startRename, handleSelectSort, openResult, openFolderResult,
-    showFileProperties, copyPathResult, exportResultsToCsv, selectCategory, categories
+    showFileProperties, copyPathResult, exportResultsToCsv, selectCategory, categories,
+    moveSelection
   ]);
 
   useEffect(() => {
