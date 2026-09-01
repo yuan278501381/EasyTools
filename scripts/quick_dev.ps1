@@ -46,6 +46,6 @@ $sw.Stop()
 Write-Host "✅ [增量编译就绪] 耗时: $($sw.ElapsedMilliseconds) ms" -ForegroundColor Green
 
 if (-not $NoRun) {
-    Write-Host "🚀 正在启动 EasyTools 实时调试控制台..." -ForegroundColor Yellow
-    Start-Process -FilePath "$PSScriptRoot\..\deploy_dist\EasyTools.exe" -ArgumentList "--debug"
+    Write-Host "🚀 正在启动 EasyTools 桌面客户端..." -ForegroundColor Yellow
+    Start-Process -FilePath "$PSScriptRoot\..\deploy_dist\EasyTools.exe"
 }

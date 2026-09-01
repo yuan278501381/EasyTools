@@ -340,55 +340,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
 
-    // ── 0a. 命令行调试控制台挂载 (正式发布默认静默) (支持 --debug / --console / -d) ────────
-    bool isDebugMode = false;
-    int numArgs = 0;
-    LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &numArgs);
-    if (argvW) {
-        for (int i = 1; i < numArgs; ++i) {
-            if (_wcsicmp(argvW[i], L"--debug") == 0 ||
-                _wcsicmp(argvW[i], L"--console") == 0 ||
-                _wcsicmp(argvW[i], L"-d") == 0) {
-                isDebugMode = true;
-                break;
-            }
-        }
-        LocalFree(argvW);
-    }
-
-    const auto debugFlagPath = easy::core::WinUtils::getExeDirectory() / L"debug.flag";
-    std::error_code ecFlag;
-    if (std::filesystem::exists(debugFlagPath, ecFlag)) {
-        isDebugMode = true;
-    }
-
-    if (isDebugMode) {
-        AllocConsole();
-        std::wstring consoleTitle = L"EasyTools Live Debug Console [构建时间: " _CRT_WIDE(__DATE__) L" " _CRT_WIDE(__TIME__) L"]";
-        SetConsoleTitleW(consoleTitle.c_str());
-        HWND consoleHwnd = GetConsoleWindow();
-        if (consoleHwnd) {
-            ShowWindow(consoleHwnd, SW_SHOW);
-            SetForegroundWindow(consoleHwnd);
-        }
-        FILE* fpOut = nullptr;
-        FILE* fpErr = nullptr;
-        freopen_s(&fpOut, "CONOUT$", "w", stdout);
-        freopen_s(&fpErr, "CONOUT$", "w", stderr);
-        SetConsoleOutputCP(CP_UTF8);
-        std::cout << "\n======================================================\n";
-        std::cout << " [DEBUG MODE] EasyTools 实时调试控制台已激活\n";
-        std::cout << "======================================================\n" << std::flush;
-    }
-
     // ── 0b. 高分屏 (DPI) 感知 ─────────────────────────────────────────────
     easy::core::WinUtils::enableHighDpiSupport();
 
     // ── 1. 单实例检测 ────────────────────────────────────────────────────
     if (!checkSingleInstance()) {
-        if (isDebugMode) {
-            std::cout << "[WARN] 检测到已有 EasyTools 实例正在运行，请先在任务栏退出旧实例后重试！\n" << std::flush;
-        }
         return 0;
     }
 
@@ -431,14 +387,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     // ── 4b. 日志系统初始化 ──────────────────────────────────────────────
     easy::core::LoggerConfig logConfig;
     logConfig.logDir = easy::core::WinUtils::getLogDirectory();
-    if (isDebugMode) {
-        logConfig.enableConsole = true;
-        logConfig.consoleLevel = spdlog::level::debug;
-    }
+    logConfig.enableConsole = false;
     easy::core::Logger::initialize(logConfig);
-    if (isDebugMode) {
-        LOG_INFO("EasyTools 实时调试控制台已激活 (Debug Mode)");
-    }
 
     easy::core::TraceId::Scope mainScope;
     LOG_INFO("========================================");
