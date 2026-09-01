@@ -469,7 +469,6 @@ if (Test-Path "ui/dist") {
 }
 if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination $StagingDir }
 Set-Content -Path (Join-Path $StagingDir "启动调试控制台.bat") -Value "@echo off`r`nchcp 65001 >nul`r`ntitle EasyTools 实时调试控制台`r`nstart `"`" `"%~dp0EasyTools.exe`" --debug`r`n" -Encoding utf8
-New-Item -ItemType File -Path (Join-Path $StagingDir "debug.flag") -Force | Out-Null
 
 $RequiredArtifacts = @(
     "EasyTools.exe", "EasyTools_Service.exe", "EasyCore.dll",

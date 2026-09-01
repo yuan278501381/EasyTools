@@ -340,7 +340,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
     g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     const auto startupBeganAt = std::chrono::steady_clock::now();
 
-    // ── 0a. 命令行调试控制台挂载 (支持 --debug / --console / -d) ────────
+    // ── 0a. 命令行调试控制台挂载 (正式发布默认静默) (支持 --debug / --console / -d) ────────
     bool isDebugMode = false;
     int numArgs = 0;
     LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &numArgs);
