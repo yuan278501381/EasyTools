@@ -1,20 +1,4 @@
 #!/usr/bin/env pwsh
-# ─────────────────────────────────────────────────────────────────────────────
-# EasyTools CI/CD Build & Deploy Script
-#
-# 支持:
-#   - x64 和 ARM64 双架构交叉编译
-#   - Debug / Release / RelWithDebInfo 构建类型
-#   - UI (Vite) 自动构建
-#   - 自动打包 ZIP 发布包
-#   - vcpkg 依赖管理
-#
-# 用法:
-#   .\scripts\build.ps1 -Arch x64 -Config Release
-#   .\scripts\build.ps1 -Arch arm64 -Config Release -Package
-#   .\scripts\build.ps1 -All    # 构建 x64 + ARM64
-# ─────────────────────────────────────────────────────────────────────────────
-
 param(
     [ValidateSet("x64", "arm64")]
     [string]$Arch = "x64",
@@ -22,10 +6,10 @@ param(
     [ValidateSet("Debug", "Release", "RelWithDebInfo")]
     [string]$Config = "Release",
 
-    [switch]$Package,   # 是否打包 ZIP
-    [switch]$All,       # 构建所有架构
-    [switch]$SkipUI,    # 跳过 UI 构建
-    [switch]$Clean      # 清理构建目录
+    [switch]$Package,
+    [switch]$All,
+    [switch]$SkipUI,
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,11 +24,9 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "VERSION 必须是稳定 SemVer（例如 1.2.3），当前值: $Version"
 }
 
-Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  EasyTools v$Version - Build Script                           ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-
-# ── 辅助函数 ──────────────────────────────────────────────────────────────────
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "  EasyTools v$Version - Build Script" -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
 
 function Write-Step {
     param([string]$Message)
@@ -63,59 +45,47 @@ function Invoke-BuildArch {
         [string]$BuildConfig
     )
 
-    $BuildDir = Join-Path $ProjectRoot "build-$TargetArch"
+    $BuildDir = Join-Path $ProjectRoot "build"
 
-    # 清理
     if ($Clean -and (Test-Path $BuildDir)) {
         Write-Step "清理构建目录: $BuildDir"
         Remove-Item -Recurse -Force $BuildDir
     }
 
-    # 创建构建目录
     if (!(Test-Path $BuildDir)) {
         New-Item -ItemType Directory -Path $BuildDir | Out-Null
     }
 
-    # ── CMake Configure ──────────────────────────────────────────────────
-    Write-Step "CMake Configure [$TargetArch / $BuildConfig]"
-
-    $CmakeArgs = @(
-        "-B", $BuildDir,
-        "-S", $ProjectRoot,
-        "-G", "Visual Studio 17 2022",
-        "-A", $(if ($TargetArch -eq "arm64") { "ARM64" } else { "x64" }),
-        "-DCMAKE_BUILD_TYPE=$BuildConfig",
-        "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-    )
-
-    if ($TargetArch -eq "arm64") {
-        $CmakeArgs += "-DVCPKG_TARGET_TRIPLET=arm64-windows"
-    } else {
-        $CmakeArgs += "-DVCPKG_TARGET_TRIPLET=x64-windows"
+    $cmakeExe = "cmake.exe"
+    if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
+        $candidates = @(
+            "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+            "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+            "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+            "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+        )
+        foreach ($cand in $candidates) {
+            if (Test-Path $cand) {
+                $cmakeExe = $cand
+                break
+            }
+        }
     }
 
-    cmake @CmakeArgs
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error-Exit "CMake Configure 失败"
-    }
-
-    # ── CMake Build ──────────────────────────────────────────────────────
     Write-Step "CMake Build [$TargetArch / $BuildConfig]"
 
-    cmake --build $BuildDir --config $BuildConfig --parallel
+    & $cmakeExe --build $BuildDir --config $BuildConfig --parallel
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Exit "CMake Build 失败"
     }
 
     Write-Host "✓ 构建完成: $TargetArch / $BuildConfig" -ForegroundColor Green
 
-    # ── 打包 ─────────────────────────────────────────────────────────────
     if ($Package) {
         Write-Step "打包发布包 [$TargetArch]"
 
         $OutDir = Join-Path $BuildDir "bin" $BuildConfig
         if (!(Test-Path $OutDir)) {
-            # 某些生成器不会创建 Config 子目录
             $OutDir = Join-Path $BuildDir "bin"
         }
 
@@ -123,58 +93,42 @@ function Invoke-BuildArch {
         $PackageDir = Join-Path $ProjectRoot "dist" $PackageName
         $ZipPath = Join-Path $ProjectRoot "dist" "${PackageName}.zip"
 
-        # 创建发布目录
         if (Test-Path $PackageDir) {
             Remove-Item -Recurse -Force $PackageDir
         }
         New-Item -ItemType Directory -Path $PackageDir | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $PackageDir "plugins") | Out-Null
 
-        # 复制文件
-        Copy-Item (Join-Path $OutDir "EasyTools.exe") $PackageDir
-        Copy-Item (Join-Path $OutDir "EasyTools_Service.exe") $PackageDir
-        Copy-Item (Join-Path $OutDir "EasyCore.dll") $PackageDir
+        Copy-Item (Join-Path $OutDir "EasyTools.exe") $PackageDir -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $OutDir "EasyTools_Service.exe") $PackageDir -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $OutDir "EasyCore.dll") $PackageDir -ErrorAction SilentlyContinue
 
-        # 插件
-        $PluginsDir = Join-Path $OutDir "plugins"
+        $PluginsDir = Join-Path $OutDir "plugins" $BuildConfig
+        if (-not (Test-Path $PluginsDir)) {
+            $PluginsDir = Join-Path $OutDir "plugins"
+        }
         if (Test-Path $PluginsDir) {
-            Copy-Item (Join-Path $PluginsDir "*") (Join-Path $PackageDir "plugins") -Recurse
+            Copy-Item (Join-Path $PluginsDir "*.dll") (Join-Path $PackageDir "plugins") -Force -ErrorAction SilentlyContinue
+            Copy-Item (Join-Path $PluginsDir "*.json") (Join-Path $PackageDir "plugins") -Force -ErrorAction SilentlyContinue
         }
 
-        # UI 资产
         $UIDist = Join-Path $OutDir "ui"
         if (Test-Path $UIDist) {
-            Copy-Item $UIDist (Join-Path $PackageDir "ui") -Recurse
+            Copy-Item $UIDist (Join-Path $PackageDir "ui") -Recurse -Force -ErrorAction SilentlyContinue
         }
 
-        # 资源文件
-        $ResourcesDir = Join-Path $ProjectRoot "resources"
-        if (Test-Path $ResourcesDir) {
-            Copy-Item $ResourcesDir (Join-Path $PackageDir "resources") -Recurse
+        if (Test-Path $ZipPath) {
+            Remove-Item -Force $ZipPath
         }
-
-        # 压缩
-        if (Test-Path $ZipPath) { Remove-Item $ZipPath }
-        Compress-Archive -Path $PackageDir -DestinationPath $ZipPath
-        Write-Host "✓ 发布包: $ZipPath" -ForegroundColor Green
+        Compress-Archive -Path "$PackageDir\*" -DestinationPath $ZipPath
+        Write-Host "✓ 发布包生成: $ZipPath" -ForegroundColor Green
     }
 }
 
-# ── UI 构建 ───────────────────────────────────────────────────────────────────
-
-if (!$SkipUI) {
-    Write-Step "构建 WebView2 UI (Vite)"
-
+if (-not $SkipUI) {
+    Write-Step "构建前端 UI (Vite)"
     Push-Location $UIDir
     try {
-        if (!(Test-Path "node_modules")) {
-            Write-Host "  安装依赖..."
-            npm ci --prefer-offline
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error-Exit "npm ci 失败"
-            }
-        }
-
         npm run build
         if ($LASTEXITCODE -ne 0) {
             Write-Error-Exit "UI 构建失败"
@@ -185,17 +139,11 @@ if (!$SkipUI) {
     }
 }
 
-# ── 执行构建 ──────────────────────────────────────────────────────────────────
-
 if ($All) {
-    Write-Step "构建所有架构"
-    Invoke-BuildArch -TargetArch "x64" -BuildConfig $Config
-    Invoke-BuildArch -TargetArch "arm64" -BuildConfig $Config
+    Invoke-BuildArch "x64" $Config
+    Invoke-BuildArch "arm64" $Config
 } else {
-    Invoke-BuildArch -TargetArch $Arch -BuildConfig $Config
+    Invoke-BuildArch $Arch $Config
 }
 
-# ── 完成 ──────────────────────────────────────────────────────────────────────
-Write-Host "`n═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  构建全部完成!" -ForegroundColor Green
-Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "全部构建任务已完成！" -ForegroundColor Green
