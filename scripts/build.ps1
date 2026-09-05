@@ -241,6 +241,25 @@ function Invoke-BuildArch {
     }
 
     if ($Package) {
+        Write-Step "打包发布质量门禁校验 [$TargetArch]"
+        $HostArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+        if ($TargetArch -eq "arm64" -and $HostArch -ne "arm64") {
+            Write-Error-Exit "当前 $HostArch 主机无法直接运行 ARM64 原生测试门禁；禁止直接在交叉编译宿主机生成正式发布包，请在 ARM64 目标机运行测试验证后打包。"
+        }
+        $TestExe = Join-Path $BuildDir "bin\$BuildConfig\EasyToolsTests.exe"
+        if (-not (Test-Path $TestExe)) {
+            $TestExe = Join-Path $BuildDir "bin\EasyToolsTests.exe"
+        }
+        if (-not (Test-Path $TestExe)) {
+            Write-Error-Exit "缺少单元测试二进制产物: $TestExe"
+        }
+        Write-Step "运行原生单元测试门禁: $TestExe"
+        & $TestExe
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error-Exit "C++ 单元测试未通过，终止打包！退出码: $LASTEXITCODE"
+        }
+        Write-Host "✓ C++ 单元测试门禁通过" -ForegroundColor Green
+
         Write-Step "打包发布包 [$TargetArch]"
 
         $OutDir = Join-Path $BuildDir "bin" $BuildConfig
@@ -402,11 +421,20 @@ if (-not $SkipUI) {
                 Write-Error-Exit "npm ci 失败"
             }
         }
+        if ($Package) {
+            Write-Step "执行前端发布质量门禁 (lint, i18n, css, typography, trim-workingset, test)..."
+            foreach ($Command in @("lint", "i18n-check", "css-check", "typography-check", "trim-workingset-check", "test")) {
+                npm run $Command
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error-Exit "前端质量门禁失败: npm run $Command"
+                }
+            }
+        }
         npm run build
         if ($LASTEXITCODE -ne 0) {
             Write-Error-Exit "UI 构建失败"
         }
-        Write-Host "✓ UI 构建完成" -ForegroundColor Green
+        Write-Host "✓ UI 构建与门禁完成" -ForegroundColor Green
     } finally {
         Pop-Location
     }

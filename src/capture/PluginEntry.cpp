@@ -190,6 +190,9 @@ void stopRecordingWithFeedback() {
         LOG_INFO("录屏已保存: {}", path);
         easy::core::EventBus::instance().publish(
             easy::core::ShowToastEvent{L"录屏已保存"});
+    } else {
+        easy::core::EventBus::instance().publish(
+            easy::core::ShowToastEvent{L"录屏已停止，未生成有效内容"});
     }
 }
 

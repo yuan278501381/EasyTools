@@ -59,10 +59,13 @@ enum class SearchFilterType {
     CaseSensitive, // case:text
     PinyinOnly,    // pinyin:text, py:text
     NoPinyin,      // nopy:text
-    Content        // content:text, c:text, 内容:text
+    Content,       // content:text, c:text, 内容:text
+    Size           // size:>100mb, size:<10kb, size:>=1gb
 };
 
 struct SearchClause {
+    enum class SizeOp { Equal, Greater, GreaterEqual, Less, LessEqual };
+
     bool isNegated = false;
     SearchFilterType filterType = SearchFilterType::None;
     std::wstring pattern;        // normalized (lowercased)
@@ -73,6 +76,8 @@ struct SearchClause {
     bool hasWildcard = false;
     bool isAsciiOnly = false;
     wchar_t driveLetter = 0;
+    SizeOp sizeOp = SizeOp::Equal;
+    uint64_t sizeBytes = 0;
 };
 
 struct SearchOrGroup {

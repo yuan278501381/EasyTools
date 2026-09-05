@@ -126,14 +126,24 @@ std::wstring stripXmlTags(const std::string& xml) {
     return result;
 }
 
-bool decompressRawDeflate(const uint8_t* compressed, size_t compSize, size_t uncompSize, std::string& out) {
-    if (compSize == 0) return false;
-    
-    // 限制单 XML 解压上限为 30MB
-    constexpr size_t MAX_UNCOMP_SIZE = 30 * 1024 * 1024;
-    size_t targetSize = uncompSize > 0 ? (std::min)(uncompSize, MAX_UNCOMP_SIZE) : (std::min)(compSize * 10, MAX_UNCOMP_SIZE);
+constexpr size_t MAX_UNCOMP_SIZE = 30 * 1024 * 1024;
+constexpr size_t MAX_DOC_UNCOMP_TOTAL_BYTES = 30 * 1024 * 1024;
+constexpr size_t MAX_DOC_EXTRACTED_CHARS = 15 * 1024 * 1024;
+constexpr size_t MAX_ZIP_MATCHING_ENTRIES = 256;
 
-    out.resize(targetSize);
+bool decompressRawDeflate(const uint8_t* compressed, size_t compSize, size_t uncompSize, std::string& out, size_t maxAllowed = MAX_UNCOMP_SIZE) {
+    if (compSize == 0 || maxAllowed == 0) return false;
+    
+    // 限制单 XML 解压上限为 maxAllowed
+    size_t targetCap = (std::min)(MAX_UNCOMP_SIZE, maxAllowed);
+    size_t targetSize = uncompSize > 0 ? (std::min)(uncompSize, targetCap) : (std::min)(compSize * 10, targetCap);
+
+    try {
+        out.resize(targetSize);
+    } catch (...) {
+        out.clear();
+        return false;
+    }
 
     z_stream strm{};
     strm.next_in = const_cast<Bytef*>(compressed);
@@ -156,7 +166,12 @@ bool decompressRawDeflate(const uint8_t* compressed, size_t compSize, size_t unc
         return false;
     }
 
-    out.resize(actualSize);
+    try {
+        out.resize(actualSize);
+    } catch (...) {
+        out.clear();
+        return false;
+    }
     return true;
 }
 
@@ -228,6 +243,9 @@ bool ZipXmlExtractor::extractZipEntriesText(
     std::wstring lowerExt;
     for (wchar_t c : extension) lowerExt.push_back(std::towlower(c));
 
+    size_t totalUncompressedBytes = 0;
+    size_t matchingEntriesCount = 0;
+
     // ── 1. 优先通过 Central Directory (中央目录) 解析 (工业级防 Data Descriptor 零长度硬伤) ──
     const ZipEocd* pEocd = nullptr;
     const size_t maxSearch = (std::min)(zipSize, static_cast<size_t>(65535 + sizeof(ZipEocd)));
@@ -255,6 +273,14 @@ bool ZipXmlExtractor::extractZipEntriesText(
 
             if (!isMatchingZipEntry(filename, lowerExt)) continue;
 
+            if (totalUncompressedBytes >= MAX_DOC_UNCOMP_TOTAL_BYTES ||
+                outExtractedText.size() >= MAX_DOC_EXTRACTED_CHARS ||
+                matchingEntriesCount >= MAX_ZIP_MATCHING_ENTRIES) {
+                break;
+            }
+            matchingEntriesCount++;
+            const size_t remainingBudget = MAX_DOC_UNCOMP_TOTAL_BYTES - totalUncompressedBytes;
+
             // 定位到该 Entry 对应的 Local Header 读取压缩数据
             if (cdHeader->localHeaderOffset + sizeof(ZipLocalHeader) > zipSize) continue;
             const auto* localHeader = reinterpret_cast<const ZipLocalHeader*>(pZipData + cdHeader->localHeaderOffset);
@@ -265,16 +291,26 @@ bool ZipXmlExtractor::extractZipEntriesText(
 
             std::string uncompData;
             if (cdHeader->compressionMethod == 0) {
-                uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), cdHeader->compressedSize);
+                size_t takeSize = (std::min)(static_cast<size_t>(cdHeader->compressedSize), remainingBudget);
+                uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), takeSize);
             } else if (cdHeader->compressionMethod == 8) {
-                decompressRawDeflate(pZipData + dataOffset, cdHeader->compressedSize, cdHeader->uncompressedSize, uncompData);
+                decompressRawDeflate(pZipData + dataOffset, cdHeader->compressedSize, cdHeader->uncompressedSize, uncompData, remainingBudget);
             }
 
             if (!uncompData.empty()) {
+                totalUncompressedBytes += uncompData.size();
                 std::wstring plain = stripXmlTags(uncompData);
                 if (!plain.empty()) {
-                    outExtractedText += plain;
-                    outExtractedText += L"\n";
+                    if (outExtractedText.size() + plain.size() + 1 > MAX_DOC_EXTRACTED_CHARS) {
+                        const size_t allowedChars = MAX_DOC_EXTRACTED_CHARS - outExtractedText.size();
+                        if (allowedChars > 0) {
+                            outExtractedText.append(plain.data(), (std::min)(plain.size(), allowedChars));
+                        }
+                        break;
+                    } else {
+                        outExtractedText += plain;
+                        outExtractedText += L"\n";
+                    }
                 }
             }
         }
@@ -295,18 +331,36 @@ bool ZipXmlExtractor::extractZipEntriesText(
         if (dataOffset + header->compressedSize > zipSize) break;
 
         if (isMatchingZipEntry(filename, lowerExt)) {
+            if (totalUncompressedBytes >= MAX_DOC_UNCOMP_TOTAL_BYTES ||
+                outExtractedText.size() >= MAX_DOC_EXTRACTED_CHARS ||
+                matchingEntriesCount >= MAX_ZIP_MATCHING_ENTRIES) {
+                break;
+            }
+            matchingEntriesCount++;
+            const size_t remainingBudget = MAX_DOC_UNCOMP_TOTAL_BYTES - totalUncompressedBytes;
+
             std::string uncompData;
             if (header->compressionMethod == 0 && header->compressedSize > 0) {
-                uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), header->compressedSize);
+                size_t takeSize = (std::min)(static_cast<size_t>(header->compressedSize), remainingBudget);
+                uncompData.assign(reinterpret_cast<const char*>(pZipData + dataOffset), takeSize);
             } else if (header->compressionMethod == 8 && header->compressedSize > 0) {
-                decompressRawDeflate(pZipData + dataOffset, header->compressedSize, header->uncompressedSize, uncompData);
+                decompressRawDeflate(pZipData + dataOffset, header->compressedSize, header->uncompressedSize, uncompData, remainingBudget);
             }
 
             if (!uncompData.empty()) {
+                totalUncompressedBytes += uncompData.size();
                 std::wstring plain = stripXmlTags(uncompData);
                 if (!plain.empty()) {
-                    outExtractedText += plain;
-                    outExtractedText += L"\n";
+                    if (outExtractedText.size() + plain.size() + 1 > MAX_DOC_EXTRACTED_CHARS) {
+                        const size_t allowedChars = MAX_DOC_EXTRACTED_CHARS - outExtractedText.size();
+                        if (allowedChars > 0) {
+                            outExtractedText.append(plain.data(), (std::min)(plain.size(), allowedChars));
+                        }
+                        break;
+                    } else {
+                        outExtractedText += plain;
+                        outExtractedText += L"\n";
+                    }
                 }
             }
         }
@@ -367,7 +421,13 @@ bool ZipXmlExtractor::searchContent(
     }
 
     std::wstring extractedAllText;
-    bool hasText = extractZipEntriesText(pData, mapSize, ext, extractedAllText);
+    bool hasText = false;
+    try {
+        hasText = extractZipEntriesText(pData, mapSize, ext, extractedAllText);
+    } catch (...) {
+        hasText = false;
+        extractedAllText.clear();
+    }
 
     UnmapViewOfFile(pData);
     CloseHandle(hMapping);

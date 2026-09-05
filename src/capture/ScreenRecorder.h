@@ -196,7 +196,8 @@ private:
     bool encodeAvailableAudio();
     bool writeAvailableAudioPackets();
 
-    void finalizeEncoder();
+    void cleanupEncoder(bool& closeOk);
+    bool finalizeEncoder();
     bool commitOutputFile(bool keepRecording);
     bool preflightOutputStorage();
     bool updateOutputStorageStatus();

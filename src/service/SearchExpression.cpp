@@ -137,6 +137,48 @@ SearchClause parseSingleToken(std::wstring token) {
     } else if (startsWithNoCase(token, L"nopy:")) {
         clause.filterType = SearchFilterType::NoPinyin;
         token = token.substr(5);
+    } else if (startsWithNoCase(token, L"size:")) {
+        clause.filterType = SearchFilterType::Size;
+        std::wstring s = token.substr(5);
+        if (s.starts_with(L">=")) {
+            clause.sizeOp = SearchClause::SizeOp::GreaterEqual;
+            s = s.substr(2);
+        } else if (s.starts_with(L"<=")) {
+            clause.sizeOp = SearchClause::SizeOp::LessEqual;
+            s = s.substr(2);
+        } else if (s.starts_with(L">")) {
+            clause.sizeOp = SearchClause::SizeOp::Greater;
+            s = s.substr(1);
+        } else if (s.starts_with(L"<")) {
+            clause.sizeOp = SearchClause::SizeOp::Less;
+            s = s.substr(1);
+        } else if (s.starts_with(L"=")) {
+            clause.sizeOp = SearchClause::SizeOp::Equal;
+            s = s.substr(1);
+        } else {
+            clause.sizeOp = SearchClause::SizeOp::Equal;
+        }
+
+        double num = 0.0;
+        size_t idx = 0;
+        try {
+            num = std::stod(s, &idx);
+        } catch (...) {
+            num = 0.0;
+        }
+        std::wstring unit = SearchExpression::normalize(s.substr(idx));
+        uint64_t multiplier = 1;
+        if (unit == L"kb" || unit == L"k") {
+            multiplier = 1024ULL;
+        } else if (unit == L"mb" || unit == L"m") {
+            multiplier = 1024ULL * 1024ULL;
+        } else if (unit == L"gb" || unit == L"g") {
+            multiplier = 1024ULL * 1024ULL * 1024ULL;
+        } else if (unit == L"tb" || unit == L"t") {
+            multiplier = 1024ULL * 1024ULL * 1024ULL * 1024ULL;
+        }
+        clause.sizeBytes = static_cast<uint64_t>(num * multiplier);
+        return clause;
     }
 
     clause.rawPattern = token;
@@ -447,6 +489,30 @@ static bool matchSingleClauseLazy(const SearchClause& clause, const FileRecord& 
                     } else {
                         matched = containsIgnoreCase(normPath, clause.pattern);
                     }
+                }
+            }
+            break;
+
+        case SearchFilterType::Size:
+            if (record.isDirectory) {
+                matched = false;
+            } else {
+                switch (clause.sizeOp) {
+                    case SearchClause::SizeOp::Equal:
+                        matched = (record.fileSize == clause.sizeBytes);
+                        break;
+                    case SearchClause::SizeOp::Greater:
+                        matched = (record.fileSize > clause.sizeBytes);
+                        break;
+                    case SearchClause::SizeOp::GreaterEqual:
+                        matched = (record.fileSize >= clause.sizeBytes);
+                        break;
+                    case SearchClause::SizeOp::Less:
+                        matched = (record.fileSize < clause.sizeBytes);
+                        break;
+                    case SearchClause::SizeOp::LessEqual:
+                        matched = (record.fileSize <= clause.sizeBytes);
+                        break;
                 }
             }
             break;

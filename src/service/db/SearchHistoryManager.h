@@ -26,6 +26,7 @@ public:
 
     // 初始化搜索历史文件路径 (默认使用 %APPDATA%\EasyTools\Search History.csv)
     void init(const std::wstring& customCsvPath = L"");
+    void initForSid(const std::wstring& sid);
 
     // 记录搜索表达式
     void recordSearch(const std::wstring& search);

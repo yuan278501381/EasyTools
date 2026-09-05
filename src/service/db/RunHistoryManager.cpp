@@ -2,6 +2,8 @@
 #include "CsvUtils.h"
 #include "../../common/AtomicFile.h"
 #include <shlobj.h>
+#include <sddl.h>
+#include <filesystem>
 #include <fstream>
 #include <algorithm>
 #include <cwctype>
@@ -19,6 +21,34 @@ std::wstring getDefaultAppDataFolder() {
         return dir;
     }
     return L".";
+}
+
+std::wstring getUserHistoryPath(const std::wstring& sid, const std::wstring& fileName) {
+    if (sid.empty()) {
+        return getDefaultAppDataFolder() + L"\\" + fileName;
+    }
+    wchar_t commonAppData[MAX_PATH]{};
+    std::wstring baseDir;
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, commonAppData))) {
+        baseDir = std::wstring(commonAppData) + L"\\EasyTools\\users\\" + sid;
+    } else {
+        baseDir = getDefaultAppDataFolder() + L"\\users\\" + sid;
+    }
+
+    std::wstring sddl = L"D:P(A;OICI;GA;;;" + sid + L")(A;OICI;GA;;;BA)(A;OICI;GA;;;SY)";
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &pSD, nullptr)) {
+        sa.lpSecurityDescriptor = pSD;
+    }
+
+    std::filesystem::path p(baseDir);
+    std::error_code ec;
+    std::filesystem::create_directories(p.parent_path(), ec);
+    CreateDirectoryW(baseDir.c_str(), pSD ? &sa : nullptr);
+    if (pSD) LocalFree(pSD);
+
+    return baseDir + L"\\" + fileName;
 }
 
 std::wstring trim(const std::wstring& str) {
@@ -70,6 +100,17 @@ void RunHistoryManager::init(const std::wstring& customCsvPath) {
     } else if (m_csvPath.empty()) {
         m_csvPath = getDefaultAppDataFolder() + L"\\Run History.csv";
     }
+    load();
+}
+
+void RunHistoryManager::initForSid(const std::wstring& sid) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (m_isDirty) {
+        save();
+    }
+    m_records.clear();
+    m_isDirty = false;
+    m_csvPath = getUserHistoryPath(sid, L"Run History.csv");
     load();
 }
 

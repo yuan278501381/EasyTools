@@ -90,10 +90,15 @@ private:
     std::wstring m_CachedQuery;
     std::vector<DWORDLONG> m_CachedCandidates;
     uint64_t m_CachedGeneration = 0;
+    bool m_CachedExcludeHidden = false;
+    bool m_CachedExcludeSystem = false;
+    std::vector<std::wstring> m_CachedExcludePatterns;
 
     bool QueryUsnJournal();
     void EnumerateFilesViaDirectoryWalk(char driveLetter);
     std::wstring buildFullPath(DWORDLONG fileReferenceNumber) const;
 
     bool m_IsFallbackDirectoryWalk{false};
+    bool m_Initialized{false};
+    uint32_t m_VolumeSerial{0};
 };

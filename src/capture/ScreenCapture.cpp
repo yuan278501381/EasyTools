@@ -24,6 +24,7 @@
 #include "capture/CaptureHistory.h"
 #include "capture/ShortcutHintOverlay.h"
 #include "gesture/GestureInputPolicy.h"
+#include "common/AtomicFile.h"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -565,21 +566,27 @@ std::string ScreenCapture::saveToFile(const std::vector<uint8_t>& data,
                                        const std::string& path,
                                        [[maybe_unused]] ImageFormat format) {
     try {
+        if (data.empty() || path.empty()) {
+            LOG_ERROR("保存截图失败: 数据或路径为空");
+            return "";
+        }
         // 确保目录存在
         const auto widePath = easy::core::WinUtils::utf8ToWstring(path);
         auto dir = std::filesystem::path(widePath).parent_path();
         if (!dir.empty()) {
-            std::filesystem::create_directories(dir);
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            if (ec) {
+                LOG_ERROR("无法创建截图保存目录: path={}, error={}", path, ec.message());
+                return "";
+            }
         }
 
-        std::ofstream file(std::filesystem::path(widePath), std::ios::binary);
-        if (!file.is_open()) {
-            LOG_ERROR("无法打开文件: {}", path);
+        if (!easy::common::atomicWriteBinaryFileWithFlush(widePath, data.data(), data.size())) {
+            LOG_ERROR("原子写入或刷新截图文件失败: {}", path);
             return "";
         }
 
-        file.write(reinterpret_cast<const char*>(data.data()), 
-                   static_cast<std::streamsize>(data.size()));
         return path;
     } catch (const std::exception& e) {
         LOG_ERROR("保存截图失败: {}", e.what());

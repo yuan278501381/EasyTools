@@ -13,19 +13,19 @@
 
 ```mermaid
 graph TD
-    UI[React 19 + TypeScript + Vite 单文件打包] <-->|WebView2 JSON-RPC IPC| Core[EasyCore.dll C++20 核心框架]
+    UI[React 19 + TypeScript + Vite 动态分块] <-->|WebView2 JSON-RPC IPC| Core[EasyCore.dll C++20 核心框架]
     Core <--> Hook[全局低级键鼠钩子 HookService]
     Core <--> Config[JSON 配置与热更新 ConfigManager]
     Core <--> Shell[非阻塞 Windows 原生外壳交互 WinUtils]
-    Core <--> SearchPlugin[Plugin_Search.dll 秒级引擎 + SQLite FTS5]
+    Core <--> SearchPlugin[Plugin_Search.dll 秒级全盘检索与内容穿透引擎]
     Core <--> GesturePlugin[Plugin_Gesture.dll 贝塞尔轨迹识别引擎]
     Core <--> CapturePlugin[Plugin_Capture.dll 截屏/录屏/OCR]
     Core <--> KeycastPlugin[Plugin_Keycast.dll 按键回显]
 ```
 
 ### 1. 技术栈
-* **核心后端 (Backend)**：C++20, MSVC (Visual Studio 2022/2026 v143+), Direct2D, COM/Shell API, Windows Hook API, SQLite FTS5, Lua 5.4;
-* **前端渲染 (Frontend)**：React 19, TypeScript 5.x, Vite 8 (vite-plugin-singlefile 打包为单 HTML), Lucide-react 矢量图标, i18next;
+* **核心后端 (Backend)**：C++20, MSVC (Visual Studio 2022/2026 v143+), Direct2D, COM/Shell API, Windows Hook API, NTFS USN/MFT 引擎, Lua 5.4;
+* **前端渲染 (Frontend)**：React 19, TypeScript 5.x, Vite 8 (多 Entry 动态分块，通过 easytools.local 虚拟主机本地加载), Lucide-react 矢量图标, i18next;
 * **混合架构 (Hybrid Shell)**：Microsoft Edge WebView2 (通过 `MessageBridge` 实现双向类型安全 JSON-RPC 通信);
 * **安装与分发 (Packaging)**：Inno Setup 6 自动化脚本 (`deploy.ps1` 一键构建、测试、裁剪并生成安装包)。
 
@@ -98,7 +98,7 @@ npm run lint
 # 多语言国际化键值对齐校验
 npm run i18n-check
 
-# 生产环境打包 (生成单个 HTML 文件到 ui/dist/index.html)
+# 生产环境打包 (生成生产静态资源与分块到 ui/dist/)
 npm run build
 ```
 
@@ -127,7 +127,7 @@ easyTools/
 │   │   ├── utils/               # WinUtils, TraceId 等系统工具
 │   │   ├── hotkey/              # 全局热键与 Hook 调度
 │   │   └── config/              # JSON 配置持久化与热更新
-│   ├── search/                  # Plugin_Search 搜索插件与 SQLite FTS5 引擎
+│   ├── search/                  # Plugin_Search 搜索插件与全盘检索服务客户端
 │   ├── gesture/                 # Plugin_Gesture 鼠标手势插件
 │   ├── capture/                 # Plugin_Capture 截图/录屏/OCR
 │   ├── keycast/                 # Plugin_Keycast 按键回显
@@ -139,7 +139,7 @@ easyTools/
 │   │   ├── i18n/locales/        # 中英文多语言字典 (zh.json, en.json)
 │   │   ├── SearchApp.tsx        # 独立搜索大窗主入口
 │   │   └── App.tsx              # 主控制台/设置中心入口
-│   └── vite.config.ts           # 单文件内联打包配置
+│   └── vite.config.ts           # 前端 Vite 动态分块与开发服务器配置
 ├── tests/                       # Google Test 单元测试套件
 ├── deploy_dist/                 # 绿色便携版运行目录 (包含所有依赖 DLL 与资源)
 ├── deploy.ps1                   # 一键自动化 CI/CD 构建部署脚本

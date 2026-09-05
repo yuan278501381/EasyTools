@@ -381,14 +381,22 @@ std::string ScreenRecorder::stopRecording() {
         m_recordThread.join();
     }
 
-    finalizeEncoder();
+    const bool finalized = finalizeEncoder();
 
     const auto finalStats = stats();
-    const bool committed = commitOutputFile(finalStats.frameCount > 0);
     std::string completedPath;
-    if (committed) completedPath = m_outputPath;
-    else if (finalStats.frameCount > 0 && !m_workingOutputPath.empty()) {
-        completedPath = m_workingOutputPath;
+    if (finalStats.frameCount == 0) {
+        // 无有效帧时清理空临时文件
+        commitOutputFile(false);
+    } else if (finalized) {
+        if (commitOutputFile(true)) {
+            completedPath = m_outputPath;
+        } else {
+            LOG_WARN("录屏结束封装或原子重命名未完全成功，保留临时文件供手动恢复: {}", m_workingOutputPath);
+        }
+    } else {
+        // 封装或关闭失败但存在有效帧时，保留临时文件供手动恢复，严防数据丢失 (A05)
+        LOG_WARN("录屏结束封装或原子重命名未完全成功，保留临时文件供手动恢复: {}", m_workingOutputPath);
     }
 
     LOG_INFO("屏幕录制已停止: frames={}, dropped={}, duration={:.1f}s, output={}",
@@ -680,23 +688,39 @@ void ScreenRecorder::notifyState(RecordState state) {
     if (callback) callback(state, stats());
 }
 
-void ScreenRecorder::finalizeEncoder() {
+bool ScreenRecorder::finalizeEncoder() {
     auto* codecCtx = static_cast<AVCodecContext*>(m_codecCtx);
     auto* audioCodecCtx = static_cast<AVCodecContext*>(m_audioCodecCtx);
     auto* fmtCtx = static_cast<AVFormatContext*>(m_fmtCtx);
     m_audioCapture.stop();
     encodeAvailableAudio();
+    bool success = true;
     if (codecCtx && m_headerWritten) {
-        avcodec_send_frame(codecCtx, nullptr);
-        writeAvailablePackets();
+        if (avcodec_send_frame(codecCtx, nullptr) >= 0) {
+            if (!writeAvailablePackets()) success = false;
+        } else {
+            success = false;
+        }
     }
     if (audioCodecCtx && m_headerWritten) {
-        avcodec_send_frame(audioCodecCtx, nullptr);
-        writeAvailableAudioPackets();
+        if (avcodec_send_frame(audioCodecCtx, nullptr) >= 0) {
+            if (!writeAvailableAudioPackets()) success = false;
+        } else {
+            success = false;
+        }
     }
-    if (fmtCtx && m_headerWritten) av_write_trailer(fmtCtx);
-    cleanupEncoder();
+    if (fmtCtx && m_headerWritten) {
+        const int trailerRet = av_write_trailer(fmtCtx);
+        if (trailerRet < 0) {
+            LOG_ERROR("av_write_trailer 写入封装尾部失败: error={}", trailerRet);
+            success = false;
+        }
+    }
+    bool closeOk = true;
+    cleanupEncoder(closeOk);
+    if (!closeOk) success = false;
     m_finalizePending = false;
+    return success;
 }
 
 bool ScreenRecorder::commitOutputFile(bool keepRecording) {
@@ -1240,6 +1264,11 @@ bool ScreenRecorder::writeAvailablePackets() {
 }
 
 void ScreenRecorder::cleanupEncoder() {
+    bool ignored = true;
+    cleanupEncoder(ignored);
+}
+
+void ScreenRecorder::cleanupEncoder(bool& closeOk) {
     cleanupCaptureResources();
     m_audioCapture.stop();
     if (m_audioPacket) {
@@ -1278,7 +1307,11 @@ void ScreenRecorder::cleanupEncoder() {
     if (m_fmtCtx) {
         auto* fmtCtx = static_cast<AVFormatContext*>(m_fmtCtx);
         if (fmtCtx->pb) {
-            avio_closep(&fmtCtx->pb);
+            const int closeRet = avio_closep(&fmtCtx->pb);
+            if (closeRet < 0) {
+                closeOk = false;
+                LOG_ERROR("avio_closep 关闭输出文件失败: error={}", closeRet);
+            }
         }
         avformat_free_context(fmtCtx);
         m_fmtCtx = nullptr;

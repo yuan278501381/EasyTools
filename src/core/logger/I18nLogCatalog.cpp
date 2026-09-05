@@ -2537,6 +2537,30 @@ static const std::unordered_map<std::string_view, LogEntry>& getCatalog() {
             "[{}] SettingsWindow: get_Settings 失败, hr=0x{:08X}",
             "[{}] SettingsWindow: get_Settings failed, hr=0x{:08X}"
         }},
+        {"保存截图失败: 数据或路径为空", {
+            "[{}] 保存截图失败: 数据或路径为空",
+            "[{}] Failed to save screenshot: data or path is empty"
+        }},
+        {"无法创建截图保存目录: path={}, error={}", {
+            "[{}] 无法创建截图保存目录: path={}, error={}",
+            "[{}] Failed to create screenshot directory: path={}, error={}"
+        }},
+        {"原子写入或刷新截图文件失败: {}", {
+            "[{}] 原子写入或刷新截图文件失败: {}",
+            "[{}] Atomic write or flush of screenshot file failed: {}"
+        }},
+        {"录屏结束封装或原子重命名未完全成功，保留临时文件供手动恢复: {}", {
+            "[{}] 录屏结束封装或原子重命名未完全成功，保留临时文件供手动恢复: {}",
+            "[{}] Screen recording finalization or atomic rename was incomplete, preserved temporary file for recovery: {}"
+        }},
+        {"av_write_trailer 写入封装尾部失败: error={}", {
+            "[{}] av_write_trailer 写入封装尾部失败: error={}",
+            "[{}] av_write_trailer failed to write trailer: error={}"
+        }},
+        {"avio_closep 关闭输出文件失败: error={}", {
+            "[{}] avio_closep 关闭输出文件失败: error={}",
+            "[{}] avio_closep failed to close output file: error={}"
+        }},
     };
     return catalog;
 }

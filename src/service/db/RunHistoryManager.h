@@ -26,6 +26,7 @@ public:
 
     // 初始化历史文件路径 (默认使用 %APPDATA%\EasyTools\Run History.csv 或当前执行目录)
     void init(const std::wstring& customCsvPath = L"");
+    void initForSid(const std::wstring& sid);
 
     // 记录运行/打开事件
     void recordRun(const std::wstring& filename);

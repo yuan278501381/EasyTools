@@ -126,6 +126,7 @@ void MftParser::StartListening() {
     if (m_IsFallbackDirectoryWalk || m_hVolume == INVALID_HANDLE_VALUE) {
         return;
     }
+    StopListening();
     m_IsListening = true;
     m_ListenerThread = std::make_unique<std::thread>(&MftParser::UsnListenerLoop, this);
 }
@@ -135,11 +136,14 @@ void MftParser::StopListening() {
     if (m_ListenerThread && m_ListenerThread->joinable()) {
         m_ListenerThread->join();
     }
+    m_ListenerThread.reset();
 }
 
 bool MftParser::Initialize(char driveLetter) {
     resetStopRequest();
     m_DriveLetter = driveLetter;
+    m_VolumeSerial = getVolumeSerialNumber();
+    m_Initialized = true;
     const std::wstring root{static_cast<wchar_t>(driveLetter), L':', L'\\'};
     m_DriveType = GetDriveTypeW(root.c_str());
 
@@ -304,6 +308,7 @@ void MftParser::EnumerateFiles() {
     }
 
     spdlog::info("Starting MFT enumeration...");
+    QueryUsnJournal();
     MFT_ENUM_DATA_V0 med;
     med.StartFileReferenceNumber = 0;
     med.LowUsn = 0;
@@ -426,6 +431,9 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
         std::lock_guard<std::mutex> cacheLock(m_SearchCacheMutex);
         if (generation == m_CachedGeneration && !m_CachedQuery.empty() &&
             !expr.requiresFullPath() &&
+            excludeOpts.excludeHidden == m_CachedExcludeHidden &&
+            excludeOpts.excludeSystem == m_CachedExcludeSystem &&
+            excludeOpts.patterns == m_CachedExcludePatterns &&
             lowerQuery.rfind(m_CachedQuery, 0) == 0 &&
             lowerQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos &&
             m_CachedQuery.find_first_of(L"*?|/\\: \t\r\n") == std::wstring::npos) {
@@ -591,9 +599,13 @@ std::vector<SearchResult> MftParser::Search(const std::wstring& query, int limit
             m_CachedQuery = lowerQuery;
             m_CachedCandidates = std::move(candidates);
             m_CachedGeneration = generation;
+            m_CachedExcludeHidden = excludeOpts.excludeHidden;
+            m_CachedExcludeSystem = excludeOpts.excludeSystem;
+            m_CachedExcludePatterns = excludeOpts.patterns;
         } else {
             m_CachedQuery.clear();
             m_CachedCandidates.clear();
+            m_CachedExcludePatterns.clear();
         }
     }
 
@@ -674,7 +686,14 @@ void MftParser::exportSnapshot(const SnapshotVisitor& visit, uint64_t& outLastUs
 
 bool MftParser::importSnapshot(const SnapshotProducer& next, size_t expectedRecords,
                                uint64_t lastUsn, uint32_t volumeSerial) {
-    (void)volumeSerial;
+    if (m_Initialized && volumeSerial != 0) {
+        const uint32_t currentSerial = (m_VolumeSerial != 0) ? m_VolumeSerial : getVolumeSerialNumber();
+        if (currentSerial != 0 && currentSerial != volumeSerial) {
+            spdlog::warn("Drive {}: snapshot volume serial (0x{:X}) does not match current volume (0x{:X}), discarding snapshot",
+                         m_DriveLetter, volumeSerial, currentSerial);
+            return false;
+        }
+    }
     if (!next) return false;
 
     std::unique_lock lock(m_MapMutex);

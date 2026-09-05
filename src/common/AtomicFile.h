@@ -9,7 +9,7 @@
 
 namespace easy::common {
 
-inline bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::string& data) {
+inline bool atomicWriteBinaryFileWithFlush(const std::wstring& targetPath, const void* data, std::size_t size) {
     if (targetPath.empty()) return false;
     static std::atomic_uint64_t sequence{0};
     const std::wstring tempPath = targetPath + L"." + std::to_wstring(GetCurrentProcessId()) +
@@ -23,10 +23,11 @@ inline bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::
     bool writeOk = true;
     std::size_t offset = 0;
     constexpr std::size_t WriteChunkBytes = 16u * 1024u * 1024u;
-    while (offset < data.size()) {
-        const DWORD requested = static_cast<DWORD>((std::min)(WriteChunkBytes, data.size() - offset));
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    while (offset < size) {
+        const DWORD requested = static_cast<DWORD>((std::min)(WriteChunkBytes, size - offset));
         DWORD written = 0;
-        if (!WriteFile(file, data.data() + offset, requested, &written, nullptr) || written == 0) {
+        if (!WriteFile(file, bytes ? (bytes + offset) : nullptr, requested, &written, nullptr) || written == 0) {
             writeOk = false;
             break;
         }
@@ -35,7 +36,7 @@ inline bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::
     if (writeOk && !FlushFileBuffers(file)) writeOk = false;
     if (!CloseHandle(file)) writeOk = false;
 
-    if (!writeOk || offset != data.size()) {
+    if (!writeOk || offset != size) {
         DeleteFileW(tempPath.c_str());
         return false;
     }
@@ -45,6 +46,10 @@ inline bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::
         return false;
     }
     return true;
+}
+
+inline bool atomicWriteFileWithFlush(const std::wstring& targetPath, const std::string& data) {
+    return atomicWriteBinaryFileWithFlush(targetPath, data.data(), data.size());
 }
 
 }  // namespace easy::common

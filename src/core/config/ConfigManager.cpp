@@ -240,7 +240,17 @@ bool ConfigManager::mergePatch(const json& patch, const std::string& notificatio
             next = m_config;
         }
         try {
+            std::string existingPipeToken;
+            auto tokenPtr = json::json_pointer("/search/pipeToken");
+            if (next.contains(tokenPtr) && next[tokenPtr].is_string()) {
+                existingPipeToken = next[tokenPtr].get<std::string>();
+            }
+
             next.merge_patch(patch);
+
+            if (!existingPipeToken.empty()) {
+                next["search"]["pipeToken"] = existingPipeToken;
+            }
         } catch (const std::exception& e) {
             LOG_WARN("配置合并失败: {}", e.what());
             return false;
@@ -333,11 +343,24 @@ bool ConfigManager::fromJsonString(const std::string& jsonStr) {
 bool ConfigManager::reset() {
     {
         std::lock_guard ioLock(m_ioMutex);
-        const json empty = json::object();
+        json empty = json::object();
+        std::string preservedPipeToken;
+        {
+            std::lock_guard lock(m_mutex);
+            try {
+                auto tokenPtr = json::json_pointer("/search/pipeToken");
+                if (m_config.contains(tokenPtr) && m_config[tokenPtr].is_string()) {
+                    preservedPipeToken = m_config[tokenPtr].get<std::string>();
+                }
+            } catch (...) {}
+        }
+        if (!preservedPipeToken.empty()) {
+            empty["search"]["pipeToken"] = preservedPipeToken;
+        }
         if (!writeSnapshotLocked(empty)) return false;
         {
             std::lock_guard lock(m_mutex);
-            m_config = empty;
+            m_config = std::move(empty);
         }
     }
     notifyChange("*");

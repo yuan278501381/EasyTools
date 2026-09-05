@@ -150,6 +150,7 @@ bool scheduleRebuild() {
         std::vector<std::thread> workers;
         workers.reserve(parsers.size());
         for (auto* parser : parsers) {
+            parser->StopListening();
             workers.emplace_back([parser, stop]() {
                 if (stop.stop_requested()) return;
                 try {
@@ -247,7 +248,7 @@ void InitLogger() {
 // --------------------------------------------------------------------------------------
 #include <chrono>
 
-nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
+nlohmann::json ProcessSearchQuery(const std::wstring& rawInput, HANDLE hClientToken = nullptr) {
     std::wstring wQuery;
     std::string searchMode = "name";
     std::vector<char> enabledDrives;
@@ -736,7 +737,27 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
         std::atomic<size_t> nextIndex{0};
 
         for (unsigned int t = 0; t < numThreads; ++t) {
-            workers.emplace_back([&]() {
+            workers.emplace_back([&, hClientToken]() {
+                bool impersonated = false;
+                if (hClientToken != nullptr) {
+                    if (!SetThreadToken(nullptr, hClientToken)) {
+                        spdlog::error("SetThreadToken failed: error={}, refusing unauthenticated content read", GetLastError());
+                        return;
+                    }
+                    impersonated = true;
+                } else if (!g_SearchClientSid.empty()) {
+                    spdlog::error("Refusing content search without client token under restricted SID: {}", WStringToString(g_SearchClientSid));
+                    return;
+                }
+                struct ImpersonationGuard {
+                    bool active;
+                    ~ImpersonationGuard() {
+                        if (active) {
+                            SetThreadToken(nullptr, nullptr);
+                        }
+                    }
+                } impGuard{impersonated};
+
                 while (matchCount.load() < maxCount) {
                     // 用户已经继续打字或取消，毫秒级原子退出释放 CPU
                     if (isCancelled()) break;
@@ -744,33 +765,39 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
                     if (idx >= textCandidates.size()) break;
 
                     const auto& item = textCandidates[idx];
-                    std::vector<easy::service::content::ContentSnippet> snippets;
-                    if (contentEngine.searchFile(item.fullPath, contentPattern, false, snippets)) {
-                        nlohmann::json snippetsJson = nlohmann::json::array();
-                        for (const auto& snip : snippets) {
-                            snippetsJson.push_back({
-                                {"lineNumber", snip.lineNumber},
-                                {"lineContent", WStringToString(snip.lineContent)},
-                                {"matchOffset", snip.matchOffset},
-                                {"matchLength", snip.matchLength}
-                            });
-                        }
+                    try {
+                        std::vector<easy::service::content::ContentSnippet> snippets;
+                        if (contentEngine.searchFile(item.fullPath, contentPattern, false, snippets)) {
+                            nlohmann::json snippetsJson = nlohmann::json::array();
+                            for (const auto& snip : snippets) {
+                                snippetsJson.push_back({
+                                    {"lineNumber", snip.lineNumber},
+                                    {"lineContent", WStringToString(snip.lineContent)},
+                                    {"matchOffset", snip.matchOffset},
+                                    {"matchLength", snip.matchLength}
+                                });
+                            }
 
-                        nlohmann::json itemJson = {
-                            {"name", WStringToString(item.fileName)},
-                            {"path", WStringToString(item.fullPath)},
-                            {"isDirectory", item.isDirectory},
-                            {"size", item.fileSize},
-                            {"creationTime", item.creationTime},
-                            {"lastWriteTime", item.lastWriteTime},
-                            {"snippets", std::move(snippetsJson)}
-                        };
+                            nlohmann::json itemJson = {
+                                {"name", WStringToString(item.fileName)},
+                                {"path", WStringToString(item.fullPath)},
+                                {"isDirectory", item.isDirectory},
+                                {"size", item.fileSize},
+                                {"creationTime", item.creationTime},
+                                {"lastWriteTime", item.lastWriteTime},
+                                {"snippets", std::move(snippetsJson)}
+                            };
 
-                        std::lock_guard<std::mutex> lock(resultsMutex);
-                        if (contentResults.size() < maxCount) {
-                            contentResults.push_back(std::move(itemJson));
-                            matchCount.fetch_add(1);
+                            std::lock_guard<std::mutex> lock(resultsMutex);
+                            if (contentResults.size() < maxCount) {
+                                contentResults.push_back(std::move(itemJson));
+                                matchCount.fetch_add(1);
+                            }
                         }
+                    } catch (const std::exception& e) {
+                        spdlog::warn("Exception while searching content in {}: {}", WStringToString(item.fullPath), e.what());
+                    } catch (...) {
+                        spdlog::warn("Unknown exception while searching content in {}", WStringToString(item.fullPath));
                     }
                 }
             });
@@ -863,15 +890,99 @@ nlohmann::json ProcessSearchQuery(const std::wstring& rawInput) {
 
 namespace {
 
+struct OverlappedIoTransfer {
+    HANDLE m_event{nullptr};
+    explicit OverlappedIoTransfer() {
+        m_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    }
+    ~OverlappedIoTransfer() {
+        if (m_event) CloseHandle(m_event);
+    }
+    OverlappedIoTransfer(const OverlappedIoTransfer&) = delete;
+    OverlappedIoTransfer& operator=(const OverlappedIoTransfer&) = delete;
+
+    bool waitOne(HANDLE pipe, OVERLAPPED& ov, DWORD timeoutMs, DWORD& transferred) {
+        HANDLE handles[2] = { ov.hEvent, g_ServiceStopEvent };
+        DWORD count = (g_ServiceStopEvent != INVALID_HANDLE_VALUE && g_ServiceStopEvent != nullptr) ? 2 : 1;
+        DWORD wait = WaitForMultipleObjects(count, handles, FALSE, timeoutMs);
+        if (wait == WAIT_OBJECT_0) {
+            return GetOverlappedResult(pipe, &ov, &transferred, FALSE) != FALSE;
+        }
+        CancelIoEx(pipe, &ov);
+        DWORD ignored = 0;
+        GetOverlappedResult(pipe, &ov, &ignored, TRUE);
+        return false;
+    }
+
+    bool readExact(HANDLE pipe, char* buffer, size_t bytes, DWORD timeoutMs) {
+        if (pipe == INVALID_HANDLE_VALUE || !buffer || bytes == 0) return false;
+        const ULONGLONG deadline = (timeoutMs == INFINITE) ? (std::numeric_limits<ULONGLONG>::max)() : (GetTickCount64() + timeoutMs);
+        size_t done = 0;
+        while (done < bytes && g_IsRunning.load(std::memory_order_relaxed)) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) return false;
+            const DWORD remainMs = (timeoutMs == INFINITE) ? INFINITE : static_cast<DWORD>(deadline - now);
+            const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - done, easy::service::pipe::IoChunkBytes));
+
+            OVERLAPPED ov{};
+            ResetEvent(m_event);
+            ov.hEvent = m_event;
+            DWORD moved = 0;
+            if (!ReadFile(pipe, buffer + done, want, &moved, &ov)) {
+                DWORD err = GetLastError();
+                if (err != ERROR_IO_PENDING || !waitOne(pipe, ov, remainMs, moved)) {
+                    return false;
+                }
+            }
+            if (moved == 0) return false;
+            done += moved;
+        }
+        return done == bytes;
+    }
+
+    bool writeExact(HANDLE pipe, const char* data, size_t bytes, DWORD timeoutMs) {
+        if (pipe == INVALID_HANDLE_VALUE || !data || bytes == 0) return false;
+        const ULONGLONG deadline = (timeoutMs == INFINITE) ? (std::numeric_limits<ULONGLONG>::max)() : (GetTickCount64() + timeoutMs);
+        size_t done = 0;
+        while (done < bytes && g_IsRunning.load(std::memory_order_relaxed)) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) return false;
+            const DWORD remainMs = (timeoutMs == INFINITE) ? INFINITE : static_cast<DWORD>(deadline - now);
+            const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - done, easy::service::pipe::IoChunkBytes));
+
+            OVERLAPPED ov{};
+            ResetEvent(m_event);
+            ov.hEvent = m_event;
+            DWORD moved = 0;
+            if (!WriteFile(pipe, data + done, want, &moved, &ov)) {
+                DWORD err = GetLastError();
+                if (err != ERROR_IO_PENDING || !waitOne(pipe, ov, remainMs, moved)) {
+                    return false;
+                }
+            }
+            if (moved == 0) return false;
+            done += moved;
+        }
+        return done == bytes;
+    }
+};
+
 }  // namespace
 
 void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* pipeSecurity) {
     namespace frame = easy::service::pipe;
 
+    OverlappedIoTransfer transfer;
+    HANDLE connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    struct EventGuard {
+        HANDLE h;
+        ~EventGuard() { if (h) CloseHandle(h); }
+    } connectGuard{connectEvent};
+
     while (g_IsRunning.load()) {
         HANDLE hPipe = CreateNamedPipeA(
             g_SearchPipeName.c_str(),
-            PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_UNLIMITED_INSTANCES,
             frame::IoChunkBytes, frame::IoChunkBytes, 0,
@@ -883,11 +994,43 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
             continue;
         }
 
-        BOOL connected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
-        if (connected && g_IsRunning.load()) {
+        OVERLAPPED connectOv{};
+        ResetEvent(connectEvent);
+        connectOv.hEvent = connectEvent;
+
+        BOOL connected = ConnectNamedPipe(hPipe, &connectOv);
+        DWORD connErr = GetLastError();
+        bool isConnected = false;
+        if (connected) {
+            isConnected = true;
+        } else if (connErr == ERROR_PIPE_CONNECTED) {
+            isConnected = true;
+        } else if (connErr == ERROR_IO_PENDING) {
+            DWORD dummy = 0;
+            if (transfer.waitOne(hPipe, connectOv, INFINITE, dummy)) {
+                isConnected = true;
+            }
+        }
+
+        if (isConnected && g_IsRunning.load()) {
+            HANDLE hClientToken = nullptr;
+            if (ImpersonateNamedPipeClient(hPipe)) {
+                HANDLE hThreadToken = nullptr;
+                if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_DUPLICATE, TRUE, &hThreadToken)) {
+                    DuplicateTokenEx(hThreadToken, TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_DUPLICATE, nullptr,
+                                     SecurityImpersonation, TokenImpersonation, &hClientToken);
+                    CloseHandle(hThreadToken);
+                }
+                RevertToSelf();
+            }
+            struct TokenGuard {
+                HANDLE tok;
+                ~TokenGuard() { if (tok) CloseHandle(tok); }
+            } clientTokenGuard{hClientToken};
+
             while (g_IsRunning.load()) {
                 char header[frame::HeaderSize] = {};
-                if (!frame::readExact(hPipe, header, sizeof(header))) break;
+                if (!transfer.readExact(hPipe, header, sizeof(header), 60000)) break;
 
                 uint32_t requestBytes = 0;
                 if (!frame::decodeFrameHeader(header, requestBytes, frame::MaxRequestBytes)) {
@@ -896,9 +1039,9 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
                 }
 
                 std::string request(requestBytes, '\0');
-                if (!frame::readExact(hPipe, request.data(), requestBytes)) break;
+                if (!transfer.readExact(hPipe, request.data(), requestBytes, 10000)) break;
 
-                nlohmann::json responseJson = ProcessSearchQuery(StringToWString(request));
+                nlohmann::json responseJson = ProcessSearchQuery(StringToWString(request), hClientToken);
                 const std::string response = responseJson.dump();
                 if (!frame::fitsInFrame(response.size())) {
                     spdlog::error("Pipe: 响应超出单帧上限 ({} 字节), 断开该连接", response.size());
@@ -907,13 +1050,12 @@ void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* 
 
                 const auto responseHeader =
                     frame::encodeFrameHeader(static_cast<uint32_t>(response.size()));
-                if (!frame::writeExact(hPipe, responseHeader.data(), responseHeader.size())) break;
-                if (!frame::writeExact(hPipe, response.data(), response.size())) break;
+                if (!transfer.writeExact(hPipe, responseHeader.data(), responseHeader.size(), 10000)) break;
+                if (!transfer.writeExact(hPipe, response.data(), response.size(), 30000)) break;
             }
         }
-        // 每个查询使用独立的管道实例。某个旧连接正常结束绝不能取消其它实例上
-        // 仍在运行的新查询；取消只由更大的 queryId 或显式 cancel 请求驱动。
-        FlushFileBuffers(hPipe);
+
+        CancelIo(hPipe);
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
     }
@@ -945,9 +1087,14 @@ void IPCServerThread() {
     }
     spdlog::info("Launched {} restricted named pipe worker(s) before index initialization", NumPipeWorkers);
 
-    // 初始化历史与快照数据库管理器
-    easy::service::db::RunHistoryManager::instance().init();
-    easy::service::db::SearchHistoryManager::instance().init();
+    // 初始化历史与快照数据库管理器 (按客户端 SID 隔离, A11)
+    if (!g_SearchClientSid.empty()) {
+        easy::service::db::RunHistoryManager::instance().initForSid(g_SearchClientSid);
+        easy::service::db::SearchHistoryManager::instance().initForSid(g_SearchClientSid);
+    } else {
+        easy::service::db::RunHistoryManager::instance().init();
+        easy::service::db::SearchHistoryManager::instance().init();
+    }
     easy::service::db::DatabaseManager::instance().init();
 
     // 扫描所有本地驱动器
@@ -1117,6 +1264,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
     if (ipcThread.joinable()) ipcThread.join();
 
     CloseHandle(g_ServiceStopEvent);
+    g_ServiceStopEvent = INVALID_HANDLE_VALUE;
     g_ServiceStatus.dwControlsAccepted = 0;
     g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
     g_ServiceStatus.dwWin32ExitCode = 0;
@@ -1165,12 +1313,15 @@ int main(int argc, char** argv) {
         if (wideArgv) LocalFree(wideArgv);
         if (!configured) return 1;
         spdlog::info("Running in debug mode (Console).");
+        g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         g_IsRunning = true;
         std::thread ipcThread(IPCServerThread);
         std::cout << "Press ENTER to stop..." << std::endl;
         std::cin.get();
         RequestServiceShutdown();
         if (ipcThread.joinable()) ipcThread.join();
+        CloseHandle(g_ServiceStopEvent);
+        g_ServiceStopEvent = INVALID_HANDLE_VALUE;
         return 0;
     }
 
@@ -1189,8 +1340,11 @@ int main(int argc, char** argv) {
             if (wideArgv) LocalFree(wideArgv);
             if (!configured) return 1;
             spdlog::info("Running in standalone background mode (per-user named pipe server).");
+            g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
             g_IsRunning = true;
             IPCServerThread();
+            CloseHandle(g_ServiceStopEvent);
+            g_ServiceStopEvent = INVALID_HANDLE_VALUE;
             return 0;
         }
         spdlog::error("StartServiceCtrlDispatcher failed: {}.", err);

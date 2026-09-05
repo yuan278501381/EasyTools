@@ -998,3 +998,168 @@ TEST(SearchRequestLimitsTest, OversizedRegexIsNotCompiled) {
 // -----------------------------------------------------------------------------
 
 // 门禁 1: 50,000 文件索引内存紧缩与单趟毫秒级比对吞吐量
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 39. 综合审计验证测试套件 (Comprehensive Audit 2026-09-05 Verifications)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(SearchExpressionTest, SizeFilterParsingAndMatching) {
+    FileRecord smallFile{1, 0, L"small.txt", L"small.txt", L"small.txt", L"small.txt", false, 0, 500};
+    FileRecord mediumFile{2, 0, L"medium.dat", L"medium.dat", L"medium.dat", L"medium.dat", false, 0, 50 * 1024 * 1024};
+    FileRecord largeFile{3, 0, L"big_video.mp4", L"big_video.mp4", L"big_video.mp4", L"big_video.mp4", false, 0, 200 * 1024 * 1024};
+    FileRecord dirRecord{4, 0, L"BigFolder", L"bigfolder", L"bigfolder", L"bigfolder", true, 0, 500 * 1024 * 1024};
+
+    auto exprGt100mb = SearchExpression::parse(L"size:>100mb");
+    EXPECT_TRUE(exprGt100mb.matches(largeFile, L'C', L"C:\\big_video.mp4"));
+    EXPECT_FALSE(exprGt100mb.matches(mediumFile, L'C', L"C:\\medium.dat"));
+    EXPECT_FALSE(exprGt100mb.matches(smallFile, L'C', L"C:\\small.txt"));
+    EXPECT_FALSE(exprGt100mb.matches(dirRecord, L'C', L"C:\\BigFolder"));
+
+    auto exprLt1mb = SearchExpression::parse(L"size:<1mb");
+    EXPECT_TRUE(exprLt1mb.matches(smallFile, L'C', L"C:\\small.txt"));
+    EXPECT_FALSE(exprLt1mb.matches(mediumFile, L'C', L"C:\\medium.dat"));
+
+    auto exprGte50mb = SearchExpression::parse(L"size:>=50mb");
+    EXPECT_TRUE(exprGte50mb.matches(mediumFile, L'C', L"C:\\medium.dat"));
+    EXPECT_TRUE(exprGte50mb.matches(largeFile, L'C', L"C:\\big_video.mp4"));
+}
+
+TEST(ConfigManagerEndpointIdentityTest, ResetPreservesSearchPipeToken) {
+    auto temp = std::filesystem::temp_directory_path() /
+        (L"EasyToolsTests_Identity_" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp, ec);
+    std::filesystem::create_directories(temp, ec);
+
+    auto& config = easy::core::ConfigManager::instance();
+    EXPECT_TRUE(config.initialize(temp));
+
+    const std::string token = "test_pipe_token_identity_12345";
+    EXPECT_TRUE(config.set("/search/pipeToken", token));
+    EXPECT_EQ(config.get<std::string>("/search/pipeToken", ""), token);
+
+    // Resetting config must preserve /search/pipeToken (A06)
+    EXPECT_TRUE(config.reset());
+    EXPECT_EQ(config.get<std::string>("/search/pipeToken", ""), token);
+
+    // mergePatch with another config must not overwrite /search/pipeToken (A06)
+    nlohmann::json patch = {
+        {"general", {{"theme", "dark"}}},
+        {"search", {{"pipeToken", "malicious_overwrite_token"}}}
+    };
+    EXPECT_TRUE(config.mergePatch(patch));
+    EXPECT_EQ(config.get<std::string>("/search/pipeToken", ""), token);
+
+    std::filesystem::remove_all(temp, ec);
+}
+
+TEST(MftParserCandidateFilterTest, RelaxingExclusionsClearsOldCandidateMatches) {
+    MftParser parser;
+    parser.Initialize('C');
+    const DWORD realSerial = parser.getVolumeSerialNumber();
+
+    std::vector<FileRecordInit> records;
+    FileRecordInit rec1;
+    rec1.fileReferenceNumber = 1001;
+    rec1.parentFileReferenceNumber = 0;
+    rec1.fileName = L"normal_doc.txt";
+    rec1.fileAttributes = FILE_ATTRIBUTE_NORMAL;
+    rec1.fileSize = 100;
+    records.push_back(std::move(rec1));
+
+    FileRecordInit rec2;
+    rec2.fileReferenceNumber = 1002;
+    rec2.parentFileReferenceNumber = 0;
+    rec2.fileName = L"hidden_secret.txt";
+    rec2.fileAttributes = FILE_ATTRIBUTE_HIDDEN;
+    rec2.fileSize = 100;
+    records.push_back(std::move(rec2));
+
+    EXPECT_TRUE(parser.importSnapshot(std::move(records), 1000, realSerial));
+
+    SearchExcludeOptions optsStrict;
+    optsStrict.excludeHidden = true;
+    optsStrict.excludeSystem = false;
+    auto res1 = parser.Search(L"secret", 10, optsStrict);
+    EXPECT_EQ(res1.size(), 0u);
+
+    // Relax exclusion: must invalidate old candidate cache and return hidden file (A07)
+    SearchExcludeOptions optsRelaxed;
+    optsRelaxed.excludeHidden = false;
+    optsRelaxed.excludeSystem = false;
+    auto res2 = parser.Search(L"secret", 10, optsRelaxed);
+    EXPECT_EQ(res2.size(), 1u);
+    if (!res2.empty()) {
+        EXPECT_EQ(res2[0].fileName, L"hidden_secret.txt");
+    }
+}
+
+TEST(MftParserSnapshotValidationTest, RejectMismatchedVolumeSerial) {
+    MftParser parser;
+    EXPECT_TRUE(parser.Initialize('C'));
+
+    const DWORD realSerial = parser.getVolumeSerialNumber();
+    const DWORD fakeSerial = (realSerial == 0) ? 0x12345678 : (realSerial ^ 0xDEADBEEF);
+
+    std::vector<FileRecordInit> fakeRecords;
+    FileRecordInit rec;
+    rec.fileReferenceNumber = 101;
+    rec.parentFileReferenceNumber = 0;
+    rec.fileName = L"ghost.txt";
+    rec.fileAttributes = FILE_ATTRIBUTE_NORMAL;
+    rec.fileSize = 100;
+    fakeRecords.push_back(std::move(rec));
+
+    // Importing snapshot with mismatched volume serial must be rejected (A12)
+    EXPECT_FALSE(parser.importSnapshot(std::move(fakeRecords), 1000, fakeSerial));
+    EXPECT_EQ(parser.getFileCount(), 0u);
+}
+
+TEST(MftParserLifecycleTest, MultipleStartListeningCallsDoNotCrash) {
+    MftParser parser;
+    parser.Initialize('C');
+
+    // Calling StartListening multiple times consecutively must be safe and idempotent (A01)
+    EXPECT_NO_THROW({
+        parser.StartListening();
+        parser.StartListening();
+        parser.StopListening();
+        parser.StopListening();
+    });
+}
+
+TEST(AtomicFileTest, BinaryWriteAndOverwriteIntegrity) {
+    auto temp = std::filesystem::temp_directory_path() /
+        (L"EasyToolsAtomic_" + std::to_wstring(GetCurrentProcessId()) + L".bin");
+    std::error_code ec;
+    std::filesystem::remove(temp, ec);
+
+    std::vector<uint8_t> testData = {0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04};
+    EXPECT_TRUE(easy::common::atomicWriteBinaryFileWithFlush(temp.wstring(), testData.data(), testData.size()));
+    EXPECT_TRUE(std::filesystem::exists(temp, ec));
+    EXPECT_EQ(std::filesystem::file_size(temp, ec), testData.size());
+
+    // Overwrite with new data
+    std::vector<uint8_t> testData2 = {0xCA, 0xFE, 0xBA, 0xBE};
+    EXPECT_TRUE(easy::common::atomicWriteBinaryFileWithFlush(temp.wstring(), testData2.data(), testData2.size()));
+    EXPECT_EQ(std::filesystem::file_size(temp, ec), testData2.size());
+
+    std::filesystem::remove(temp, ec);
+}
+
+TEST(SearchExpressionTest, MultiTokenContentAndSizeExpressions) {
+    auto expr1 = SearchExpression::parse(L"*.cpp content:EasyCore");
+    EXPECT_TRUE(expr1.hasContentFilter());
+    EXPECT_EQ(expr1.getContentQuery(), L"EasyCore");
+
+    auto expr2 = SearchExpression::parse(L"*.txt c:password");
+    EXPECT_TRUE(expr2.hasContentFilter());
+    EXPECT_EQ(expr2.getContentQuery(), L"password");
+
+    auto expr3 = SearchExpression::parse(L"size:>500kb *.log");
+    FileRecord recSmall{1, 0, L"app.log", L"app.log", L"app.log", L"app.log", false, 0, 100 * 1024};
+    FileRecord recBig{2, 0, L"app.log", L"app.log", L"app.log", L"app.log", false, 0, 1024 * 1024};
+    EXPECT_FALSE(expr3.matches(recSmall, L'C', L"C:\\app.log"));
+    EXPECT_TRUE(expr3.matches(recBig, L'C', L"C:\\app.log"));
+}
+

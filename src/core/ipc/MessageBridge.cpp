@@ -556,7 +556,7 @@ void MessageBridge::unregisterHandler(const std::string& method) {
             m_handlers.erase(it);
         }
     }
-    if (removed) retireSlots({std::move(removed)});
+    if (removed) retireSlots({std::move(removed)}, true);
 }
 
 size_t MessageBridge::unregisterHandlersByPrefix(const std::string& prefix) {
@@ -573,7 +573,7 @@ size_t MessageBridge::unregisterHandlersByPrefix(const std::string& prefix) {
         }
     }
     const size_t count = removed.size();
-    retireSlots(std::move(removed));
+    retireSlots(std::move(removed), true);
     if (count > 0) LOG_DEBUG("注销 IPC 命名空间: prefix={}, count={}", prefix, count);
     return count;
 }

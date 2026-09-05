@@ -39,6 +39,7 @@ static std::atomic<bool> g_serviceSpawnedByUs{false};
 // 后台 WebView 预载、设置页状态查询和任意搜索 IPC 都不能成为服务启动信号。
 // 只有原生 SearchWindow::show() 先发送 windowShown 后，后续请求才允许补拉服务。
 static std::atomic<bool> g_searchWindowExplicitlyShown{false};
+static std::atomic<bool> g_searchPluginShuttingDown{false};
 
 bool hasCommandLineFlag(std::wstring_view wanted) {
     int argc = 0;
@@ -131,15 +132,36 @@ bool initializePipeEndpoint() {
 
 bool finishOverlapped(HANDLE pipe, OVERLAPPED& overlapped, DWORD timeoutMs,
                       DWORD& transferred, DWORD& error) {
-    const DWORD wait = WaitForSingleObject(overlapped.hEvent, timeoutMs);
-    if (wait == WAIT_OBJECT_0 &&
-        GetOverlappedResult(pipe, &overlapped, &transferred, FALSE)) {
-        return true;
+    const DWORD stepMs = 100;
+    DWORD elapsed = 0;
+    while (elapsed < timeoutMs) {
+        if (g_searchPluginShuttingDown.load(std::memory_order_relaxed)) {
+            error = ERROR_OPERATION_ABORTED;
+            CancelIoEx(pipe, &overlapped);
+            DWORD ignored = 0;
+            GetOverlappedResult(pipe, &overlapped, &ignored, TRUE);
+            return false;
+        }
+        const DWORD waitChunk = (std::min)(stepMs, timeoutMs - elapsed);
+        const DWORD wait = WaitForSingleObject(overlapped.hEvent, waitChunk);
+        if (wait == WAIT_OBJECT_0) {
+            if (GetOverlappedResult(pipe, &overlapped, &transferred, FALSE)) {
+                return true;
+            }
+            error = GetLastError();
+            return false;
+        }
+        if (wait != WAIT_TIMEOUT) {
+            error = GetLastError();
+            CancelIoEx(pipe, &overlapped);
+            DWORD ignored = 0;
+            GetOverlappedResult(pipe, &overlapped, &ignored, TRUE);
+            return false;
+        }
+        elapsed += waitChunk;
     }
-    error = wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+    error = ERROR_TIMEOUT;
     CancelIoEx(pipe, &overlapped);
-    // OVERLAPPED storage and event must remain alive until cancellation has
-    // completed, otherwise a late kernel completion can access freed memory.
     DWORD ignored = 0;
     GetOverlappedResult(pipe, &overlapped, &ignored, TRUE);
     return false;
@@ -321,6 +343,10 @@ ScmEndpointResult startScmServiceAndWait(DWORD& error) {
     ULONGLONG checkpointDeadline = hardDeadline;
     auto lastKnownState = toScmServiceState(status.dwCurrentState);
     while (GetTickCount64() < hardDeadline) {
+        if (g_searchPluginShuttingDown.load(std::memory_order_relaxed)) {
+            error = ERROR_OPERATION_ABORTED;
+            return ScmEndpointResult::Unavailable;
+        }
         if (WaitNamedPipeA(g_searchPipe.c_str(), 100)) return ScmEndpointResult::Ready;
         if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
                                   reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
@@ -454,7 +480,7 @@ static bool ensureSearchServiceRunning() {
 // 辅助数据会在搜索窗 WebView 预热完成的瞬间被前端拉一遍，若允许它们拉起服务，
 // 用户从没按过搜索热键也会在开机时凭空多出几百 MB 的索引进程。
 std::optional<std::string> querySearchService(const std::string& query, DWORD& error,
-                                              bool autoStart = true) {
+                                              bool autoStart = true, DWORD timeoutMs = 120000) {
     error = ERROR_SUCCESS;
     if (g_searchPipe.empty()) {
         error = ERROR_ACCESS_DENIED;
@@ -508,9 +534,9 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
         return std::nullopt;
     }
 
-    // 帧头到达即表示服务端已完成计算，因此这一步承担查询本身的等待时间 (支持 2 分钟全盘扫描)。
+    // 帧头到达即表示服务端已完成计算，因此这一步承担查询本身的等待时间 (内容搜索支持最高 30 分钟)。
     char responseHeader[frame::HeaderSize] = {};
-    if (!transfer.readExact(pipe, responseHeader, sizeof(responseHeader), 120000, error)) {
+    if (!transfer.readExact(pipe, responseHeader, sizeof(responseHeader), timeoutMs, error)) {
         return std::nullopt;
     }
 
@@ -521,7 +547,7 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
     }
 
     std::string response(responseBytes, '\0');
-    if (!transfer.readExact(pipe, response.data(), responseBytes, 120000, error)) {
+    if (!transfer.readExact(pipe, response.data(), responseBytes, timeoutMs, error)) {
         return std::nullopt;
     }
     return response;
@@ -648,8 +674,23 @@ public:
             normalized["query"] = query;
             const std::string payload = normalized.dump();
 
+            bool isContentSearch = normalized.value("searchMode", "name") == "content" ||
+                                   normalized.value("searchMode", "name") == "both" ||
+                                   query.find("content:") != std::string::npos ||
+                                   query.find("内容:") != std::string::npos;
+            if (!isContentSearch) {
+                size_t cPos = query.find("c:");
+                while (cPos != std::string::npos) {
+                    if (cPos + 2 < query.size() && query[cPos + 2] != '\\' && query[cPos + 2] != '/') {
+                        isContentSearch = true;
+                        break;
+                    }
+                    cPos = query.find("c:", cPos + 2);
+                }
+            }
+            const DWORD queryTimeout = isContentSearch ? 1800000 : 120000;
             DWORD pipeError = ERROR_SUCCESS;
-            auto response = querySearchService(payload, pipeError);
+            auto response = querySearchService(payload, pipeError, true, queryTimeout);
 
             if (response) {
                 try {
@@ -980,6 +1021,7 @@ public:
 
     void shutdown() override {
         LOG_INFO("SearchPlugin: 关闭");
+        g_searchPluginShuttingDown.store(true, std::memory_order_release);
         easy::core::MessageBridge::instance().unregisterHandlersByPrefix("search.");
         // 索引服务一旦因显式搜索需求启动，即独立常驻。
         // 主程序退出不发送 shutdown；SCM 的 demand start 保证下次开机不自启。
