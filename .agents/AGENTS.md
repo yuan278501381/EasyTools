@@ -19,10 +19,18 @@
      - *Secondary Tier (Win10 / Server 2022/2025 / RDP)*: Calls Win32 kernel-level `CreateRoundRectRgn` and `SetWindowRgn` to hard-clip outer corner pixels, permanently eliminating square gray backdrops across all Windows environments;
      - *DPI & Zero-Padding Sync*: Frontend shell container must use 0 padding to seamlessly fit the window boundary, and corner radius must scale proportionally with monitor DPI (`scaleMetric(radius, scale)`).
 
-## Quality Assurance & Code Coverage (100% Coverage Mandate)
-1. **100% Code Coverage Standard**: All core business logic, utility classes, codecs, parsers, state machines, math/transform algorithms, and plugin contracts must maintain 100% statement and branch test coverage.
-2. **Zero-Dead-Code Principle**: Any code path that cannot be covered or is unexecutable must be strictly refactored or removed. Do not introduce unreachable switch cases or phantom branches.
-3. **Automated Gate & Verification**: Unit tests (`EasyToolsTests.exe`) and frontend checks (`npm run lint`, `npm run i18n-check`) must execute and pass completely on every build and CI pipeline.
+## Quality Assurance & Code Coverage (Regression-Based Mandate)
+1. **Practical Coverage Baseline**: The native source-tree line coverage gate starts at **32%**. A change must not reduce the established baseline, and new or modified core business logic, parsers, state machines, security boundaries, and bug fixes must include focused tests for the changed behavior. Universal 100% statement/branch coverage is not a project requirement.
+2. **Coverage Ratchet**: Raise the repository-wide threshold only after the measured baseline has increased and remained stable. Branch coverage becomes a blocking metric only after the selected coverage tool reports real branch data; `0/0` branch data must never be represented as 100% coverage.
+3. **Zero-Dead-Code Principle**: Code paths proven unreachable should be refactored or removed, but platform, error-recovery, and hardware-specific paths may be justified by targeted tests or documented manual verification.
+4. **Automated Gate & Verification**: Unit tests (`EasyToolsTests.exe`) and frontend checks (`npm run lint`, `npm run i18n-check`) must execute and pass completely on release builds and CI pipelines. Local incremental helper builds may expose an explicit test-skip option, but must not silently claim that tests ran.
+
+## Accepted Product Decisions & Audit Baseline
+The following behaviors were explicitly reviewed and accepted by the project owner on 2026-09-04. Future audits must not report them as defects unless their implementation materially changes or a new, distinct regression is introduced:
+1. **Elevated Auto-Start Task**: The per-user EasyTools scheduled task may run at `HighestAvailable` and grant `Everyone` full control over the task. This is an explicitly accepted security trade-off.
+2. **Destructive CLI Uninstall Default**: `install.ps1 -Uninstall`, `uninstall.ps1`, and `uninstall.cmd` may delete EasyTools settings, caches, screenshots, and recordings by default unless `-KeepPersonalData` is supplied. This destructive default is intentional.
+3. **QuickLook Format Placeholders**: QuickLook may advertise and classify video, audio, and PDF formats even while their inline preview implementation is incomplete. Treat this as accepted product scope, not a release-blocking defect.
+4. **Search Service Lifecycle Contract**: The search service is `DEMAND_START`. EasyTools startup, hidden WebView preload, settings-page status checks, focus events, and EasyTools shutdown must never start it. Only an explicit user action that opens Search may start it. Once started, it remains resident across Search-window hiding and EasyTools process exit until Windows shuts down/restarts or an administrator explicitly stops it; the next Windows boot must not auto-start it.
 
 ## Frontend (React/TypeScript) Development
 1. **i18next Dynamic Keys**: The project's `react-i18next` `t()` function uses strict TypeScript union types for keys. When passing dynamic variables as translation keys (e.g., from an array or config), cast the key `as any` (e.g., `t(item.key as any)`) to bypass `TS2345` type errors.
@@ -47,7 +55,7 @@
 
 ## Git Branch Management & Non-Fast-Forward Release Pipeline (`GitFlowReleasePipeline`)
 1. **One-Command DevOps Master Release (`scripts/release.ps1`)**:
-   - The entire release workflow is 100% automated via `pwsh scripts/release.ps1` (or `pwsh scripts/release.ps1 -Bump Minor/Major`, or `pwsh scripts/release.ps1 -Version X.Y.Z`).
-   - Automatically executes: Working tree hygiene check -> `VERSION` single-source-of-truth bump (+1) -> Release notes template generation -> Dev commit -> Non-fast-forward `--no-ff` merge to `main` -> Zero-cache clean build & package (`deploy.ps1`) -> 7-tier E2E lifecycle test gate -> Binary `ProductVersion` strict assertion -> Asset packaging (Setup EXE, Portable ZIP, SHA256SUMS) -> Git annotated Tag creation -> Remote push -> `gh release create` publication -> Automatic checkout of next feature branch.
+   - The release workflow is orchestrated by `pwsh scripts/release.ps1` (or `pwsh scripts/release.ps1 -Bump Minor/Major`, or `pwsh scripts/release.ps1 -Version X.Y.Z`).
+   - It executes: working-tree hygiene check -> `VERSION` single-source-of-truth bump (+1) -> release-notes generation -> dev commit -> non-fast-forward `--no-ff` merge to `main` -> clean build and package (`deploy.ps1`) -> lifecycle E2E gate -> binary `ProductVersion` assertion -> signed setup/portable assets and SHA256SUMS -> immutable annotated tag and GitHub Release creation -> safe checkout or creation of the next feature branch.
 2. **Visual Graph Integrity**: Ensures the Git Graph visually retains the independent development branch line and a dual-parent milestone convergence node (`merge(dev)`).
 

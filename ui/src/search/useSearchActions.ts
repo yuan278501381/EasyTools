@@ -7,14 +7,30 @@ import type { SearchResult } from './searchTypes';
 import { formatFileSize, formatWindowsTime } from './searchUtils';
 
 interface NativeActionResponse {
-  success?: boolean;
+  success: boolean;
   error?: string;
 }
 
 async function requestNativeAction(method: string, params: Record<string, unknown>): Promise<void> {
   const response = await bridgeRequest<NativeActionResponse>(method, params);
-  if (response?.success === false) {
-    throw new Error(response.error || `${method} failed`);
+  if (response?.success !== true) {
+    throw new Error(response?.error || `${method} failed`);
+  }
+}
+
+function copyTextWithTextarea(text: string): boolean {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  try {
+    textarea.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
   }
 }
 
@@ -87,20 +103,12 @@ export function useSearchActions({
     setActionError('');
     const doNativeCopy = async () => {
       try {
-        await bridgeRequest('system.copyText', { text: result.path });
+        await requestNativeAction('system.copyText', { text: result.path });
         toast.success(t('search.copiedPath', 'File path copied to clipboard'));
       } catch {
-        try {
-          const textarea = document.createElement('textarea');
-          textarea.value = result.path;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
+        if (copyTextWithTextarea(result.path)) {
           toast.success(t('search.copiedPath', 'File path copied to clipboard'));
-        } catch {
+        } else {
           setActionError(t('search.copyFailed', 'Failed to copy to clipboard'));
         }
       }
@@ -157,20 +165,12 @@ export function useSearchActions({
     if (!text) return;
     const doNative = async () => {
       try {
-        await bridgeRequest('system.copyText', { text });
+        await requestNativeAction('system.copyText', { text });
         toast.success(t('search.toastCopied', 'Copied to clipboard'));
       } catch {
-        try {
-          const textarea = document.createElement('textarea');
-          textarea.value = text;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
+        if (copyTextWithTextarea(text)) {
           toast.success(t('search.toastCopied', 'Copied to clipboard'));
-        } catch {
+        } else {
           toast.error(t('search.toastCopyFail', 'Failed to copy to clipboard'));
         }
       }

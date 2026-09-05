@@ -2,6 +2,8 @@
 trigger: always_on
 ---
 
+审计基准：遵循 `.agents/AGENTS.md` 的 Accepted Product Decisions & Audit Baseline。2026-09-04 项目负责人已接受计划任务 Everyone 完全控制与最高权限、CLI 卸载默认删除个人数据、QuickLook 音视频/PDF 预览占位，不得在行为未实质变化时重复报为缺陷。搜索服务只在首次显式打开搜索时启动，之后在本次 Windows 会话中跨 EasyTools 退出常驻。
+
 1、世界级架构、世界级性能、世界级鲁棒性 世界级UI，世界级UX
 2、易用：每一个功能都要考虑人类的易用度，世界级的用户体验，方便操作，因为这本身就是效率软件
 2.1全面支持高分屏以及Windows缩放
@@ -11,9 +13,9 @@ trigger: always_on
    - 在重型任务结束（截图/录屏/长截图/OCR）或窗口隐藏/组件停用时，释放大对象并主动调用 `WinUtils::trimWorkingSet()` 归还物理内存。
    - 严禁在 1000Hz 鼠标钩子、键盘连击流或 60FPS 渲染循环等热路径中调用，杜绝软缺页卡顿。
 4、代码覆盖率与质量红线：
-   - 核心业务逻辑、工具算法、数据协议与状态机必须保持 100% 代码覆盖率。
-   - 任何新增功能与重构必须同步配套全覆盖单元测试，杜绝死代码与不可达分支。
-   - CI/CD 自动化部署流水线强制接入覆盖率分析与测试门禁，未达标严禁发布。
+   - 原生源码行覆盖率门禁从已测基线 **32%** 起步，后续只升不降；不要求不可实现的全库 100% 语句/分支覆盖。
+   - 新增或修改的核心业务逻辑、工具算法、数据协议、状态机、安全边界与缺陷修复必须配套针对性测试。
+   - CI/CD 强制执行单元测试和覆盖率防回退门禁；只有在工具真实产生分支数据后才能启用分支门禁，`0/0` 不得冒充 100%。
 5、全链路键盘加速器管线标准（KeyboardPipeline）：
    - Win32 宿主拦截：所有顶层宿主窗口（SettingsWindow, SearchWindow, TrayWindow 等）必须通过 `KeyboardPipeline::filterWindowMessage` 拦截 `SC_KEYMENU`、`SC_CONTEXTHELP`、`WM_HELP`，杜绝 Alt、F10、F1 激活系统菜单抢夺焦点。
    - WebView2 加速器策略：必须在控制器上挂载 `KeyboardPipeline::applyWebKeyboardPolicy` 屏蔽 Chromium 默认浏览器快捷键（`Ctrl+P/F/U/J/H/W` 等），保障组合键 100% 透传至前端 DOM。
@@ -39,7 +41,7 @@ trigger: always_on
    - 严禁在 UI 状态徽章、提示标签及正文中内嵌 Unicode 彩色 Emoji 字符。
    - 全面采用 Lucide 高精度矢量 SVG 图标与玻璃拟态胶囊微徽章，保障世界级桌面软件原生设计质感。
 10、Git 分支管理与非快进显式合并发版标准（GitFlowReleasePipeline）：
-   - 一键全自动 DevOps 发版总控（`pwsh scripts/release.ps1`）：全链路 100% 自动化闭环：工作区纯净检查 -> VERSION 事实源自增 (+1) -> Release Notes 模板生成 -> 开发分支提交 -> main 显式非快进合并 (`--no-ff`) -> 零缓存编译打包 -> 7 重生命周期端到端门禁 -> 二进制 ProductVersion 强校验 -> 生成安装包/便携包/SHA256SUMS -> 创建推送 Tag -> GitHub Release 官方发布 -> 自动检出下一阶段特性分支。
+   - 一键 DevOps 发版总控（`pwsh scripts/release.ps1`）：工作区纯净检查 -> VERSION 事实源自增 (+1) -> Release Notes 生成 -> 开发分支提交 -> main 显式非快进合并 (`--no-ff`) -> 全新构建与生命周期端到端门禁 -> 二进制 ProductVersion 校验 -> 生成安装包/便携包/SHA256SUMS -> 创建不可覆盖的 Tag 与 GitHub Release -> 安全检出下一阶段特性分支。
    - 双圆环拓扑美学：确保在 Git Graph 中呈现出独立的开发支线气泡与顶部的双圆环汇聚节点（`merge(dev)`）。
 11、跨系统无缝通用圆角双保险架构标准（UniversalRoundedCornersDualInsurance）：
    - 跨系统断层机理：Windows 11 的 DWM 硬件圆角（`DWMWCP_ROUND`）在 Windows 10、Windows Server 全系列（如 Server 2019/2022/2025）、精简版系统及远程桌面 (RDP) 下会被 DWM 忽略或关闭，导致无边框弹窗（如搜索中心、托盘菜单）暴露 Win32 直角底衬与粗糙阴影裁切块。

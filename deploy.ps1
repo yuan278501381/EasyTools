@@ -15,13 +15,14 @@ param (
     [string]$Configuration = "Release",
     [ValidateSet("x64", "arm64")]
     [string]$Arch = "x64",              # Windows 目标架构；ARM64 使用交叉编译工具链
-    [string]$VcpkgRoot = "C:\vcpkg",
+    [string]$VcpkgRoot = "",
     [switch]$Quick = $false,             # 极速增量开发模式 (跳过 npm ci，复用 node_modules 直奔编译与测试)
     [switch]$SkipTests = $false,         # 跳过 CTest 单元测试
     [switch]$SkipInstaller = $false,     # 跳过 Inno Setup 安装包生成
     [switch]$Coverage = $false,          # 启用 C++ 代码覆盖率分析与防回退门禁 (OpenCppCoverage)
     [switch]$StaticAnalysis = $false,    # 对核心、搜索插件和索引服务运行 MSVC /analyze
     [switch]$Install = $false,           # 构建完成后立即通过 CLI 执行静默安装与启动
+    [switch]$RequireSigning = $false,    # 正式发布门禁：所有自有二进制与安装包必须签名
     [string]$BinaryCacheDir = ""         # 自定义 vcpkg 二进制包缓存目录
 )
 
@@ -31,6 +32,21 @@ Set-Location $ScriptDir
 $VcpkgTargetTriplet = "$Arch-windows"
 $BuildDirectoryName = if ($Arch -eq "x64") { "build" } else { "build-$Arch" }
 
+if ($RequireSigning -and $SkipInstaller) {
+    throw "-RequireSigning 不允许与 -SkipInstaller 同时使用：正式发布必须生成并签名安装包。"
+}
+if ($Coverage -and $SkipTests) {
+    throw "-Coverage 不允许与 -SkipTests 同时使用：覆盖率门禁必须执行测试。"
+}
+
+$HostArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+if ($Install -and $Arch -ne $HostArchitecture) {
+    throw "不能在 $HostArchitecture 主机上安装 $Arch 目标；请在目标架构机器上执行 -Install。"
+}
+if (-not $SkipTests -and $Arch -eq "arm64" -and $HostArchitecture -ne "arm64") {
+    throw "当前 $HostArchitecture 主机不能执行 ARM64 测试与生命周期门禁。交叉编译请显式传入 -SkipTests，并在 ARM64 发布机补跑测试。"
+}
+
 $VersionFile = Join-Path $ScriptDir "VERSION"
 if (-not (Test-Path -LiteralPath $VersionFile)) {
     throw "缺少唯一版本源: $VersionFile"
@@ -39,7 +55,12 @@ $ProjectVersion = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
 if ($ProjectVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "VERSION 必须是稳定 SemVer（例如 1.2.3），当前值: $ProjectVersion"
 }
-$WebView2Version = "1.0.4022.49"
+# ARM64 is a real target, not a relabelled x64 artifact. Fail before dependency
+# installation when the cross-compiler workload is absent.
+if ($Arch -eq "arm64") {
+    $Arm64Toolchain = & (Join-Path $ScriptDir 'scripts\Get-Arm64Toolchain.ps1')
+    $vsPath = $Arm64Toolchain.InstallationPath
+}
 
 $TraceID = [guid]::NewGuid().ToString("N").Substring(0, 8)
 $LogDir = Join-Path $ScriptDir "deploy_logs"
@@ -104,15 +125,68 @@ if (Test-Path "ui/package.json") {
 # 2. Vcpkg 依赖安装与二进制归档缓存 (Binary Cache Acceleration)
 # ------------------------------------------------------------------------------
 Write-Log "检查 Vcpkg 依赖环境与二进制缓存配置..."
-if (-not (Test-Path $VcpkgRoot)) {
-    Write-Log "未检测到 Vcpkg ($VcpkgRoot)。开始克隆并安装 Vcpkg..." "WARN"
-    git clone https://github.com/microsoft/vcpkg.git $VcpkgRoot
-    Push-Location $VcpkgRoot
-    .\bootstrap-vcpkg.bat
-    Pop-Location
+if (-not (Get-Command "git" -ErrorAction SilentlyContinue)) {
+    throw "找不到 Git；无法获取或校验固定版本的 vcpkg 工具源码。"
+}
+$VcpkgManifest = Get-Content -LiteralPath (Join-Path $ScriptDir "vcpkg.json") -Raw | ConvertFrom-Json
+$VcpkgBaseline = [string]$VcpkgManifest.'builtin-baseline'
+if ($VcpkgBaseline -notmatch '^[0-9a-f]{40}$') {
+    throw "vcpkg.json 必须固定 40 位 builtin-baseline，当前值: $VcpkgBaseline"
+}
+if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
+    $LocalAppDataRoot = [Environment]::GetFolderPath(
+        [Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($LocalAppDataRoot)) {
+        throw "无法确定当前用户的 LocalAppData 目录；请显式传入 -VcpkgRoot。"
+    }
+    $UserVcpkgRoot = Join-Path $LocalAppDataRoot "EasyTools\vcpkg"
+    $VcpkgCandidates = @($env:VCPKG_ROOT, "C:\vcpkg", $UserVcpkgRoot) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+    $VcpkgRoot = $VcpkgCandidates | Where-Object {
+        Test-Path -LiteralPath (Join-Path $_ "scripts\buildsystems\vcpkg.cmake")
+    } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
+        $VcpkgRoot = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { $UserVcpkgRoot }
+    }
+}
+$VcpkgRoot = [System.IO.Path]::GetFullPath($VcpkgRoot)
+$VcpkgToolchain = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+if (-not (Test-Path -LiteralPath $VcpkgToolchain)) {
+    if (Test-Path -LiteralPath $VcpkgRoot) {
+        throw "vcpkg 目录已存在但不完整，拒绝覆盖: $VcpkgRoot"
+    }
+    $VcpkgParent = Split-Path -Parent $VcpkgRoot
+    if (-not (Test-Path -LiteralPath $VcpkgParent)) {
+        New-Item -ItemType Directory -Path $VcpkgParent -Force | Out-Null
+    }
+    Write-Log "未检测到 Vcpkg ($VcpkgRoot)。按清单固定提交 $VcpkgBaseline 安装..." "WARN"
+    git clone --no-checkout https://github.com/microsoft/vcpkg.git $VcpkgRoot
+    if ($LASTEXITCODE -ne 0) { throw "克隆 vcpkg 失败" }
+    git -C $VcpkgRoot checkout --detach $VcpkgBaseline
+    if ($LASTEXITCODE -ne 0) { throw "检出固定 vcpkg 提交失败: $VcpkgBaseline" }
 } else {
     Write-Log "发现 Vcpkg 安装在: $VcpkgRoot"
 }
+$VcpkgHeadOutput = git -C $VcpkgRoot rev-parse HEAD 2>$null
+$VcpkgHead = if ($LASTEXITCODE -eq 0) { ([string]$VcpkgHeadOutput).Trim() } else { "" }
+if ($VcpkgHead -ne $VcpkgBaseline) {
+    throw "vcpkg 工具源码必须固定到清单提交 $VcpkgBaseline，当前为 $VcpkgHead"
+}
+$VcpkgTrackedChanges = @(git -C $VcpkgRoot status --porcelain --untracked-files=no 2>$null)
+if ($LASTEXITCODE -ne 0) {
+    throw "无法检查 vcpkg 工作树状态: $VcpkgRoot"
+}
+if ($VcpkgTrackedChanges.Count -gt 0) {
+    throw "vcpkg 工具源码包含本地修改；发布构建必须使用无修改的固定提交 $VcpkgBaseline。"
+}
+$VcpkgBootstrap = Join-Path $VcpkgRoot "bootstrap-vcpkg.bat"
+if (-not (Test-Path -LiteralPath $VcpkgBootstrap)) {
+    throw "固定提交中缺少 vcpkg 引导脚本: $VcpkgBootstrap"
+}
+Write-Log "已校验固定 vcpkg 源码，重新引导工具程序..."
+& $VcpkgBootstrap -disableMetrics
+if ($LASTEXITCODE -ne 0) { throw "bootstrap vcpkg 失败" }
 
 # 自动激活本地/CI vcpkg 二进制包归档缓存 (按 ABI 哈希缓存，彻底免除重编译)
 if ([string]::IsNullOrEmpty($BinaryCacheDir)) {
@@ -124,39 +198,26 @@ if (-not (Test-Path $BinaryCacheDir)) {
 $env:VCPKG_DEFAULT_BINARY_CACHE = $BinaryCacheDir
 Write-Log "⚡ 已激活 Vcpkg 二进制归档加速缓存: $BinaryCacheDir" "SUCCESS"
 
-$VcpkgToolchain = "$VcpkgRoot\scripts\buildsystems\vcpkg.cmake"
-if (-not (Test-Path $VcpkgToolchain)) {
+$VcpkgToolchain = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+if (-not (Test-Path -LiteralPath $VcpkgToolchain)) {
     throw "Vcpkg Toolchain 文件丢失: $VcpkgToolchain"
 }
 
 # ------------------------------------------------------------------------------
-# 3. WebView2 SDK NuGet 包下载
+# 3. WebView2 SDK 固定哈希恢复
 # ------------------------------------------------------------------------------
 Write-Log "检查 WebView2 SDK..."
-$PackagesDir = Join-Path $ScriptDir "packages"
-if (-not (Test-Path $PackagesDir)) {
-    New-Item -ItemType Directory -Path $PackagesDir | Out-Null
+$RestoreWebView2Script = Join-Path $ScriptDir "scripts\restore-webview2.ps1"
+if (-not (Test-Path -LiteralPath $RestoreWebView2Script -PathType Leaf)) {
+    throw "缺少 WebView2 SDK 恢复脚本: $RestoreWebView2Script"
 }
-
-$WebView2TargetDir = Join-Path $PackagesDir "Microsoft.Web.WebView2.$WebView2Version"
-if (-not (Test-Path (Join-Path $WebView2TargetDir "build\native\include\WebView2.h"))) {
-    Write-Log "未发现固定版本 WebView2 SDK $WebView2Version，开始通过 nuget.exe 下载..." "WARN"
-
-    $NugetPath = Join-Path $ScriptDir "nuget.exe"
-    if (-not (Test-Path $NugetPath)) {
-        Write-Log "下载 nuget.exe..."
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $NugetPath
-    }
-
-    & $NugetPath install Microsoft.Web.WebView2 -Version $WebView2Version -OutputDirectory $PackagesDir
-    if ($LASTEXITCODE -ne 0) {
-        throw "WebView2 SDK 下载失败！退出码: $LASTEXITCODE"
-    }
-    Write-Log "WebView2 SDK 安装成功。" "SUCCESS"
-} else {
-    Write-Log "已就绪 WebView2 SDK: $WebView2TargetDir"
+$WebView2Sdk = & $RestoreWebView2Script -ProjectRoot $ScriptDir
+$WebView2Version = [string]$WebView2Sdk.Version
+$WebView2TargetDir = [string]$WebView2Sdk.TargetDirectory
+if (-not $WebView2Version -or -not (Test-Path -LiteralPath $WebView2TargetDir)) {
+    throw "WebView2 SDK 恢复后仍不可用。"
 }
+Write-Log "已就绪 WebView2 SDK: $WebView2TargetDir" "SUCCESS"
 
 # ------------------------------------------------------------------------------
 # 4. CMake 构建 C++ 核心与插件 (含 sccache 编译器级缓存)
@@ -167,7 +228,9 @@ Write-Log "准备 C++ 构建环境..."
 if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue) -or -not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vswhere) {
-        $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
+        $VsRequiredComponents = @("Microsoft.VisualStudio.Workload.VCTools")
+        if ($Arch -eq "arm64") { $VsRequiredComponents += "Microsoft.VisualStudio.Component.VC.Tools.ARM64" }
+        $vsPath = & $vswhere -latest -products * -requires $VsRequiredComponents -property installationPath
         if ($vsPath) {
             $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
             if (Test-Path $devShell) {
@@ -198,6 +261,21 @@ if (Get-Command "sccache" -ErrorAction SilentlyContinue) {
 
 Write-Log "执行 CMake Configure..."
 $BuildDir = Join-Path $ScriptDir $BuildDirectoryName
+if (-not $Quick -and (Test-Path -LiteralPath $BuildDir)) {
+    $ResolvedBuildDir = [System.IO.Path]::GetFullPath($BuildDir)
+    $WorkspacePrefix = [System.IO.Path]::GetFullPath($ScriptDir).TrimEnd('\') + '\'
+    $AllowedBuildNames = @("build", "build-arm64")
+    if (-not $ResolvedBuildDir.StartsWith($WorkspacePrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        (Split-Path -Leaf $ResolvedBuildDir) -notin $AllowedBuildNames) {
+        throw "拒绝清理未经验证的构建目录: $ResolvedBuildDir"
+    }
+    $BuildItem = Get-Item -LiteralPath $ResolvedBuildDir -Force
+    if (($BuildItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "拒绝清理重解析点构建目录: $ResolvedBuildDir"
+    }
+    Write-Log "正式构建使用全新构建树，清理: $ResolvedBuildDir"
+    Remove-Item -LiteralPath $ResolvedBuildDir -Recurse -Force
+}
 if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
@@ -205,7 +283,10 @@ if (-not (Test-Path $BuildDir)) {
 $CMakePlatformArgs = @()
 if ($Arch -eq "arm64") {
     # Use a dedicated build tree so CMake never reuses an x64 generator cache.
-    $CMakePlatformArgs = @("-A", "ARM64")
+    $CMakePlatformArgs = @("-A", "ARM64", "-G", $Arm64Toolchain.Generator,
+        "-DCMAKE_GENERATOR_INSTANCE=$($Arm64Toolchain.InstallationPath)")
+} elseif (-not (Test-Path -LiteralPath (Join-Path $BuildDir 'CMakeCache.txt'))) {
+    $CMakePlatformArgs = @("-A", "x64")
 }
 cmake -B $BuildDir -S . @CMakePlatformArgs -DCMAKE_TOOLCHAIN_FILE="$VcpkgToolchain" `
     -DVCPKG_TARGET_TRIPLET="$VcpkgTargetTriplet" @CMakeExtraArgs
@@ -239,10 +320,13 @@ if (-not $SkipTests) {
     } elseif (Test-Path "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe") {
         $OpenCppCoverageExe = "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe"
     }
+    if ($Coverage -and -not $OpenCppCoverageExe) {
+        throw "已要求覆盖率门禁，但找不到 OpenCppCoverage；请安装后重试。"
+    }
 
     if ($Coverage -or $OpenCppCoverageExe) {
         Write-Log "运行 C++ 单元测试与代码覆盖率防回退分析..."
-        $CoverageReportDir = Join-Path $ScriptDir "coverage_report"
+        $CoverageReportDir = Join-Path $ScriptDir "coverage_report\$TraceID"
         if (-not (Test-Path $CoverageReportDir)) { New-Item -ItemType Directory -Path $CoverageReportDir | Out-Null }
 
         $TestExe = Join-Path $BuildDir "bin\$Configuration\EasyToolsTests.exe"
@@ -260,20 +344,18 @@ if (-not $SkipTests) {
                 throw "单元测试与代码覆盖率分析执行失败！退出码: $LASTEXITCODE"
             }
             $CoberturaPath = Join-Path $CoverageReportDir "cobertura.xml"
-            if (Test-Path $CoberturaPath) {
-                [xml]$CoverageXml = Get-Content $CoberturaPath
-                $LineRate = [double]$CoverageXml.coverage.'line-rate'
-                if ($LineRate -lt 0.32) {
-                    throw "C++ 行覆盖率 $([math]::Round($LineRate * 100, 2))% 低于 32% 防回退门禁"
-                }
-                Write-Log "C++ 行覆盖率: $([math]::Round($LineRate * 100, 2))% (门禁 >= 32%)" "SUCCESS"
+            if (-not (Test-Path -LiteralPath $CoberturaPath)) {
+                throw "覆盖率工具未生成本轮 Cobertura 报告: $CoberturaPath"
             }
+            [xml]$CoverageXml = Get-Content -LiteralPath $CoberturaPath
+            $LineRate = [double]$CoverageXml.coverage.'line-rate'
+            if ([double]::IsNaN($LineRate) -or $LineRate -lt 0.32 -or $LineRate -gt 1) {
+                throw "C++ 行覆盖率 $([math]::Round($LineRate * 100, 2))% 未达到有效的 32% 防回退门禁"
+            }
+            Write-Log "C++ 行覆盖率: $([math]::Round($LineRate * 100, 2))% (门禁 >= 32%)" "SUCCESS"
             Write-Log "代码覆盖率报告与 GTest JUnit 报表已生成: $CoverageReportDir" "SUCCESS"
         } else {
-            ctest --test-dir $BuildDir -C $Configuration --output-on-failure
-            if ($LASTEXITCODE -ne 0) {
-                throw "测试失败！退出码: $LASTEXITCODE"
-            }
+            throw "覆盖率门禁缺少待测二进制或工具: $TestExe"
         }
     } else {
         Write-Log "运行 CTest 测试套件..."
@@ -376,9 +458,9 @@ if (Test-Path $ExePath) {
 # 便携包不能假设目标机器预装了 Visual C++ Redistributable。优先使用当前
 # DevShell 精确对应的 Redist 目录，CI 中再通过 vswhere 定位同一工具链。
 $VcRuntimeNames = @(
-    "msvcp140.dll", "msvcp140_atomic_wait.dll",
-    "vcruntime140.dll", "vcruntime140_1.dll"
+    "msvcp140.dll", "msvcp140_atomic_wait.dll", "concrt140.dll", "vcruntime140.dll"
 )
+if ($Arch -eq 'x64') { $VcRuntimeNames += 'vcruntime140_1.dll' }
 $VcCrtDir = $null
 $VcRedistRoots = @()
 if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
@@ -468,17 +550,40 @@ if (Test-Path "ui/dist") {
     Write-Log "已复制纯净前端产物 (ui/) 并保留原始 Logo"
 }
 if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination $StagingDir }
+$NoticeScript = Join-Path $ScriptDir "scripts\generate-third-party-notices.ps1"
+if (-not (Test-Path -LiteralPath $NoticeScript)) {
+    throw "缺少第三方许可与 SBOM 生成脚本: $NoticeScript"
+}
+& $NoticeScript -VcpkgInstalledDir (Join-Path $BuildDir "vcpkg_installed") `
+    -Triplet $VcpkgTargetTriplet -UiDir (Join-Path $ScriptDir "ui") `
+    -OutputDirectory $StagingDir -ProjectVersion $ProjectVersion
+if ($LASTEXITCODE -ne 0) { throw "第三方许可与 SBOM 生成失败" }
 
 $RequiredArtifacts = @(
     "EasyTools.exe", "EasyTools_Service.exe", "EasyCore.dll",
+    "LICENSE", "THIRD_PARTY_NOTICES.txt", "SBOM.spdx.json",
     "ui\index.html", "plugins\Plugin_Gesture.dll", "plugins\Plugin_Capture.dll",
-    "plugins\Plugin_Keycast.dll", "plugins\Plugin_Search.dll"
+    "plugins\Plugin_Keycast.dll", "plugins\Plugin_Search.dll",
+    "plugins\Plugin_DialogEnhancer.dll",
+    "plugins\Plugin_Gesture.plugin.json", "plugins\Plugin_Capture.plugin.json",
+    "plugins\Plugin_Keycast.plugin.json", "plugins\Plugin_Search.plugin.json",
+    "plugins\Plugin_DialogEnhancer.plugin.json"
 ) + $VcRuntimeNames
 foreach ($Artifact in $RequiredArtifacts) {
     if (-not (Test-Path (Join-Path $StagingDir $Artifact))) {
         throw "发布产物不完整，缺少: $Artifact"
     }
 }
+
+$SignScript = Join-Path $ScriptDir "scripts\sign-artifacts.ps1"
+if (-not (Test-Path -LiteralPath $SignScript)) { throw "缺少签名脚本: $SignScript" }
+$OwnedArtifacts = @(
+    (Join-Path $StagingDir "EasyTools.exe"),
+    (Join-Path $StagingDir "EasyTools_Service.exe"),
+    (Join-Path $StagingDir "EasyCore.dll")
+) + @(Get-ChildItem -LiteralPath (Join-Path $StagingDir "plugins") -Filter "Plugin_*.dll" -File |
+    Select-Object -ExpandProperty FullName)
+& $SignScript -Paths $OwnedArtifacts -Required:$RequireSigning
 
 # ------------------------------------------------------------------------------
 # 6. 优雅关闭及原子交换 (Atomic Swap)
@@ -564,7 +669,9 @@ foreach ($dir in $InnoSetupDirs) {
     }
 }
 
-if ($ISCC) {
+if ($SkipInstaller) {
+    Write-Log "已指定 -SkipInstaller，跳过安装包生成。" "WARN"
+} elseif ($ISCC) {
     Write-Log "找到 Inno Setup 编译器: $ISCC"
     $InstallerScript = Join-Path $ScriptDir "installer.iss"
     $OutputInstallerDir = Join-Path $ScriptDir "Output"
@@ -576,22 +683,41 @@ if ($ISCC) {
         if (Test-Path $TargetSetupFile) {
             Remove-Item -Force $TargetSetupFile -ErrorAction SilentlyContinue
         }
-        & $ISCC "/DEasyToolsVersion=$ProjectVersion" "/DEasyToolsArchitecture=$Arch" `
-            "/DEasyToolsSetupBaseFilename=$SetupBaseName" $InstallerScript
+        $InnoArgs = @(
+            "/DEasyToolsVersion=$ProjectVersion",
+            "/DEasyToolsArchitecture=$Arch",
+            "/DEasyToolsSetupBaseFilename=$SetupBaseName"
+        )
+        $HasSigningIdentity = $env:EASYTOOLS_SIGNING_CERT_SHA1 -or $env:EASYTOOLS_SIGNING_PFX
+        if ($HasSigningIdentity) {
+            $InnoArgs += "/DEasyToolsSignedBuild=1"
+            $InnoArgs += "/Seasytools=pwsh.exe -NoProfile -ExecutionPolicy Bypass -File `"$SignScript`" -Required -Paths `$f"
+        }
+        & $ISCC @InnoArgs $InstallerScript
         if ($LASTEXITCODE -eq 0) {
             if (Test-Path $TargetSetupFile) {
                 $now = Get-Date
                 (Get-Item $TargetSetupFile).CreationTime = $now
                 (Get-Item $TargetSetupFile).LastWriteTime = $now
             }
+            if ($HasSigningIdentity) {
+                $SetupSignature = Get-AuthenticodeSignature -LiteralPath $TargetSetupFile
+                if ($SetupSignature.Status -ne "Valid") {
+                    throw "Inno Setup 生成的安装包签名验证失败: $($SetupSignature.Status)"
+                }
+            } else {
+                & $SignScript -Paths $TargetSetupFile -Required:$RequireSigning
+            }
             Write-Log "安装包已成功生成到: $OutputInstallerDir" "SUCCESS"
         } else {
             throw "安装包编译失败！退出码: $LASTEXITCODE"
         }
     } else {
+        if ($RequireSigning) { throw "正式发布要求生成并签名安装包，但缺少安装脚本: $InstallerScript" }
         Write-Log "未找到安装脚本 $InstallerScript" "WARN"
     }
 } else {
+    if ($RequireSigning) { throw "正式发布要求生成并签名安装包，但未找到 Inno Setup 编译器。" }
     Write-Log "未找到 Inno Setup 编译器，跳过安装包生成步骤。" "WARN"
 }
 
@@ -607,9 +733,9 @@ if (-not $SkipTests) {
         Write-Log "🚀 正在执行全模块生命周期与防死锁自动化端到端审计 (verify_lifecycle.ps1)..." "INFO"
         & pwsh.exe -File $LifecycleScript
         if ($LASTEXITCODE -ne 0) {
-            throw "全模块生命周期自动化端到端审计未通过！退出码: $LASTEXITCODE"
+            throw "关键生命周期自动化端到端门禁未通过！退出码: $LASTEXITCODE"
         }
-        Write-Log "全模块生命周期自动化审计 100% 通过。" "SUCCESS"
+        Write-Log "关键生命周期自动化门禁全部通过。" "SUCCESS"
     }
 }
 
@@ -633,4 +759,5 @@ Write-Log "======================================================="
 if ($Install) {
     Write-Log "正在执行自动化 CLI 安装..." "INFO"
     & pwsh.exe -File (Join-Path $ScriptDir "install.ps1") -Silent -Launch
+    if ($LASTEXITCODE -ne 0) { throw "自动化 CLI 安装失败，退出码: $LASTEXITCODE" }
 }

@@ -18,7 +18,7 @@ AppVersion={#EasyToolsVersion}
 UninstallDisplayName=EasyTools
 AppPublisher=Yy1 (yuan278501381)
 AppPublisherURL=https://github.com/yuan278501381/easyTools
-AppCopyright=Copyright (c) 2026 Yy1 (yuan278501381) <https://github.com/yuan278501381> & EasyTools contributors
+AppCopyright=Copyright (c) 2026 Yy1 (yuan278501381) & EasyTools contributors
 AppSupportURL=https://github.com/yuan278501381/easyTools/issues
 AppUpdatesURL=https://github.com/yuan278501381/easyTools/releases
 DefaultDirName={autopf}\EasyTools
@@ -27,6 +27,10 @@ DisableProgramGroupPage=yes
 OutputBaseFilename={#EasyToolsSetupBaseFilename}
 Compression=lzma2/ultra64
 SolidCompression=yes
+#ifdef EasyToolsSignedBuild
+SignTool=easytools
+SignedUninstaller=yes
+#endif
 #if EasyToolsArchitecture == "arm64"
 ArchitecturesAllowed=arm64
 ArchitecturesInstallIn64BitMode=arm64
@@ -60,8 +64,6 @@ chinesesimplified.UninstallAbortedByUser=卸载已由用户取消。请关闭 Ea
 english.UninstallAbortedByUser=Uninstall was cancelled by the user. Please close EasyTools and rerun uninstall.
 chinesesimplified.InstallingService=正在安装快速文件索引服务...
 english.InstallingService=Installing fast file search index service...
-chinesesimplified.StartingService=正在启动快速文件索引服务...
-english.StartingService=Starting fast file search index service...
 chinesesimplified.ShowDetails=详细信息(&D)
 english.ShowDetails=Show &Details
 chinesesimplified.HideDetails=隐藏信息(&D)
@@ -94,8 +96,6 @@ chinesesimplified.TypeCustom=自定义模块选择
 english.TypeCustom=Custom Module Selection
 chinesesimplified.CompSearch=超级文件检索 (Search) — 全盘秒级索引与极速文件启动
 english.CompSearch=Fast File Search (Search) — Instant disk indexing & launcher
-chinesesimplified.CompSearchResident=搜索服务常驻后台运行 (开机自启并保持毫秒级极速响应，推荐)
-english.CompSearchResident=Keep search service resident in background (Auto-start for instant search, Recommended)
 chinesesimplified.CompCapture=截图贴图与录屏 (Capture) — 智能贴图、长截图、拾色器与高清录屏
 english.CompCapture=Screenshot, Pin & Recording (Capture) — Smart pin, OCR & HD recording
 chinesesimplified.CompGesture=鼠标手势与触发角 (Gesture) — 右键手势轨迹、屏幕四角触发与轮盘菜单
@@ -114,7 +114,6 @@ Name: "custom"; Description: "{cm:TypeCustom}"; Flags: iscustom
 
 [Components]
 Name: "search"; Description: "{cm:CompSearch}"; Types: full
-Name: "search_resident"; Description: "      {cm:CompSearchResident}"; Types: full; Flags: dontinheritcheck
 Name: "capture"; Description: "{cm:CompCapture}"; Types: full
 Name: "gesture"; Description: "{cm:CompGesture}"; Types: full
 Name: "keycast"; Description: "{cm:CompKeycast}"; Types: full
@@ -134,12 +133,11 @@ Name: "{group}\{cm:UninstallProgram,EasyTools}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\EasyTools"; Filename: "{app}\EasyTools.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: IsSearchServiceInstallNeededAndResident
-Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= demand DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: IsSearchServiceInstallNeededAndNotResident
-Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= auto DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: IsSearchServiceConfigNeededAndResident
-Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= demand DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: IsSearchServiceConfigNeededAndNotResident
+; 服务只负责承载按需索引。安装、系统启动和 WebView 预加载都不得启动它；
+; SearchWindow::show() 在用户通过快捷键、托盘或设置页按钮主动唤起时发送 search.warmup。
+Filename: "{sys}\sc.exe"; Parameters: "create EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= demand DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; StatusMsg: "{cm:InstallingService}"; Check: IsSearchServiceInstallNeeded
+Filename: "{sys}\sc.exe"; Parameters: "config EasyTools_SearchService binPath= ""{app}\EasyTools_Service.exe"" start= demand DisplayName= ""EasyTools Search Service"""; Flags: runhidden waituntilterminated; Check: IsSearchServiceConfigNeeded
 Filename: "{sys}\sc.exe"; Parameters: "description EasyTools_SearchService ""EasyTools 本地文件快速搜索索引"""; Flags: runhidden waituntilterminated; Check: IsSearchComponentSelected
-Filename: "{sys}\sc.exe"; Parameters: "start EasyTools_SearchService"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:StartingService}"; Check: IsSearchServiceStartNeeded
 Filename: "{app}\EasyTools.exe"; Description: "{cm:LaunchProgram,EasyTools}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -159,80 +157,11 @@ var
   DeleteDiagnostics: Boolean;
   DeleteCachesIndexes: Boolean;
   DeleteCaptures: Boolean;
-  SearchIndex: Integer;
-  ResidentIndex: Integer;
-  IsInternalUpdating: Boolean;
 
 function SetTimer(hWnd: LongWord; nIDEvent, uElapse: LongWord; lpTimerFunc: LongWord): LongWord;
   external 'SetTimer@user32.dll stdcall';
 function KillTimer(hWnd: LongWord; uIDEvent: LongWord): Boolean;
   external 'KillTimer@user32.dll stdcall';
-
-procedure SyncSearchResidentLinkage();
-var
-  SearchChecked: Boolean;
-begin
-  if (SearchIndex < 0) or (ResidentIndex < 0) then Exit;
-  if (SearchIndex >= WizardForm.ComponentsList.Items.Count) or 
-     (ResidentIndex >= WizardForm.ComponentsList.Items.Count) then Exit;
-
-  SearchChecked := WizardForm.ComponentsList.Checked[SearchIndex];
-  if not SearchChecked then
-  begin
-    // 主设置未开：子设置强制跟随关闭并禁用交互
-    WizardForm.ComponentsList.Checked[ResidentIndex] := False;
-    WizardForm.ComponentsList.ItemEnabled[ResidentIndex] := False;
-  end
-  else
-  begin
-    // 主设置已开启：子设置解除禁用，用户可自由开或关
-    WizardForm.ComponentsList.ItemEnabled[ResidentIndex] := True;
-  end;
-end;
-
-procedure OnComponentsListClickCheck(Sender: TObject);
-var
-  ClickedIndex: Integer;
-begin
-  if IsInternalUpdating then Exit;
-  if (SearchIndex < 0) or (ResidentIndex < 0) then Exit;
-  if (SearchIndex >= WizardForm.ComponentsList.Items.Count) or 
-     (ResidentIndex >= WizardForm.ComponentsList.Items.Count) then Exit;
-
-  ClickedIndex := WizardForm.ComponentsList.ItemIndex;
-
-  IsInternalUpdating := True;
-  try
-    if ClickedIndex = SearchIndex then
-    begin
-      // 用户点击了主项「超级文件检索」
-      if not WizardForm.ComponentsList.Checked[SearchIndex] then
-      begin
-        // 主项取消：子项强制取消并禁用
-        WizardForm.ComponentsList.Checked[ResidentIndex] := False;
-        WizardForm.ComponentsList.ItemEnabled[ResidentIndex] := False;
-      end
-      else
-      begin
-        // 主项勾选：子项解除禁用，并恢复默认推荐勾选
-        WizardForm.ComponentsList.ItemEnabled[ResidentIndex] := True;
-        WizardForm.ComponentsList.Checked[ResidentIndex] := True;
-      end;
-    end
-    else if ClickedIndex = ResidentIndex then
-    begin
-      // 用户点击了子项「搜索服务常驻」
-      if not WizardForm.ComponentsList.Checked[SearchIndex] then
-      begin
-        // 如果主项未开，子项不允许开
-        WizardForm.ComponentsList.Checked[ResidentIndex] := False;
-      end;
-      // 如果主项已开，子项自由切换开/关，主项 100% 保持打勾不变！
-    end;
-  finally
-    IsInternalUpdating := False;
-  end;
-end;
 
 procedure OnExtractTimer(hWnd: LongWord; uMsg: LongWord; idEvent: LongWord; dwTime: LongWord);
 var
@@ -276,11 +205,6 @@ begin
   ApplyComponentsListStyles();
   WizardForm.TasksList.ShowLines := False;
 
-  // 组件联动绑定：0 为主搜索组件，1 为子项常驻服务组件
-  SearchIndex := 0;
-  ResidentIndex := 1;
-  WizardForm.ComponentsList.OnClickCheck := @OnComponentsListClickCheck;
-
   // 创建详细信息展开/收起按钮
   DetailsButton := TNewButton.Create(WizardForm);
   DetailsButton.Parent := WizardForm.InstallingPage;
@@ -312,10 +236,6 @@ begin
   if (CurPageID = wpSelectComponents) or (CurPageID = wpSelectTasks) then
   begin
     ApplyComponentsListStyles();
-  end;
-  if CurPageID = wpSelectComponents then
-  begin
-    SyncSearchResidentLinkage();
   end;
   if CurPageID = wpInstalling then
   begin
@@ -351,45 +271,18 @@ begin
   Result := WizardIsComponentSelected('search');
 end;
 
-function IsSearchResidentSelected(): Boolean;
-begin
-  Result := IsSearchComponentSelected() and WizardIsComponentSelected('search_resident');
-end;
-
 function IsSearchServiceInstallNeeded(): Boolean;
 begin
   Result := IsSearchComponentSelected() and (not ServiceExists());
 end;
 
-function IsSearchServiceInstallNeededAndResident(): Boolean;
-begin
-  Result := IsSearchServiceInstallNeeded() and IsSearchResidentSelected();
-end;
-
-function IsSearchServiceInstallNeededAndNotResident(): Boolean;
-begin
-  Result := IsSearchServiceInstallNeeded() and (not IsSearchResidentSelected());
-end;
-
 function IsSearchServiceConfigNeeded(): Boolean;
 begin
-  Result := IsSearchComponentSelected() and ServiceExists();
+  { 升级时也要把旧版 auto 服务迁移为 demand，即使用户未勾选搜索组件。 }
+  { 否则遗留服务仍会在每次 Windows 启动时常驻。 }
+  Result := ServiceExists();
 end;
 
-function IsSearchServiceConfigNeededAndResident(): Boolean;
-begin
-  Result := IsSearchServiceConfigNeeded() and IsSearchResidentSelected();
-end;
-
-function IsSearchServiceConfigNeededAndNotResident(): Boolean;
-begin
-  Result := IsSearchServiceConfigNeeded() and (not IsSearchResidentSelected());
-end;
-
-function IsSearchServiceStartNeeded(): Boolean;
-begin
-  Result := IsSearchResidentSelected();
-end;
 function AutoStartTaskExists(): Boolean;
 var
   ResultCode: Integer;
@@ -428,15 +321,14 @@ end;
 procedure SyncInitialModuleConfig();
 var
   AppDir, InitialModulesPath: String;
-  SearchSel, SearchResidentSel, CaptureSel, GestureSel, KeycastSel, DialogSel, SpotlightSel: Boolean;
-  SearchStr, SearchResidentStr, CaptureStr, GestureStr, KeycastStr, DialogStr, SpotlightStr: String;
+  SearchSel, CaptureSel, GestureSel, KeycastSel, DialogSel, SpotlightSel: Boolean;
+  SearchStr, CaptureStr, GestureStr, KeycastStr, DialogStr, SpotlightStr: String;
   JsonContent: String;
 begin
   AppDir := ExpandConstant('{app}');
   InitialModulesPath := AppDir + '\initial_modules.json';
 
   SearchSel := WizardIsComponentSelected('search');
-  SearchResidentSel := SearchSel and WizardIsComponentSelected('search_resident');
   CaptureSel := WizardIsComponentSelected('capture');
   GestureSel := WizardIsComponentSelected('gesture');
   KeycastSel := WizardIsComponentSelected('keycast');
@@ -444,7 +336,6 @@ begin
   SpotlightSel := WizardIsComponentSelected('spotlight');
 
   if SearchSel then SearchStr := 'true' else SearchStr := 'false';
-  if SearchResidentSel then SearchResidentStr := 'true' else SearchResidentStr := 'false';
   if CaptureSel then CaptureStr := 'true' else CaptureStr := 'false';
   if GestureSel then GestureStr := 'true' else GestureStr := 'false';
   if KeycastSel then KeycastStr := 'true' else KeycastStr := 'false';
@@ -462,7 +353,7 @@ begin
     '  },' + #13#10 +
     '  "search": {' + #13#10 +
     '    "enabled": ' + SearchStr + ',' + #13#10 +
-    '    "residentInBackground": ' + SearchResidentStr + '' + #13#10 +
+    '    "residentInBackground": true' + #13#10 +
     '  },' + #13#10 +
     '  "gesture": { "enabled": ' + GestureStr + ' },' + #13#10 +
     '  "dialog": { "enabled": ' + DialogStr + ' },' + #13#10 +

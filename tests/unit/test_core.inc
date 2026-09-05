@@ -1594,3 +1594,72 @@ TEST(ShellContextMenuServiceTest, UniversalDpiAndCoordinateSafety) {
     // 4. 并发关闭与生命周期安全
     service.shutdown();
 }
+
+TEST(PathOperationsTest, RenameStaysWithinTheSourceParentDirectory) {
+    const auto tempRoot = std::filesystem::temp_directory_path() /
+        (L"EasyToolsRename_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
+         std::to_wstring(GetTickCount64()));
+    std::error_code ec;
+    ASSERT_TRUE(std::filesystem::create_directories(tempRoot, ec));
+
+    const auto source = tempRoot / L"source.txt";
+    {
+        std::ofstream output(source, std::ios::binary);
+        ASSERT_TRUE(output.good());
+        output << "rename-test";
+    }
+
+    for (const std::wstring_view invalidName : {
+             L"..", L"../escaped.txt", L"subdir\\escaped.txt", L"C:\\escaped.txt",
+             L"name:stream", L"CON.txt", L"COM\u00B9.txt", L"LPT\u00B2",
+             L"trailing.", L"trailing "}) {
+        const auto result = easy::core::renamePathWithinParent(source, invalidName);
+        EXPECT_FALSE(result.success) <<
+            easy::core::WinUtils::wstringToUtf8(std::wstring(invalidName));
+        EXPECT_FALSE(result.error.empty());
+        EXPECT_TRUE(std::filesystem::exists(source));
+    }
+    EXPECT_FALSE(std::filesystem::exists(tempRoot.parent_path() / L"escaped.txt"));
+
+    auto& bridge = easy::core::MessageBridge::instance();
+    easy::core::registerFileInteractionHandlers(
+        bridge, "audit.file", "path is required");
+    const nlohmann::json request = {
+        {"id", 701},
+        {"method", "audit.file.renamePath"},
+        {"params", {
+            {"oldPath", easy::core::WinUtils::wstringToUtf8(source.wstring())},
+            {"newName", "../ipc-escaped.txt"}
+        }}
+    };
+    const auto response = nlohmann::json::parse(bridge.handleMessage(request.dump()));
+    ASSERT_TRUE(response.contains("result"));
+    EXPECT_FALSE(response["result"].value("success", true));
+    EXPECT_TRUE(std::filesystem::exists(source));
+    EXPECT_FALSE(std::filesystem::exists(tempRoot.parent_path() / L"ipc-escaped.txt"));
+    EXPECT_EQ(bridge.unregisterHandlersByPrefix("audit.file"), 7u);
+
+    const auto renamed = tempRoot / L"renamed.txt";
+    const auto success = easy::core::renamePathWithinParent(source, L"renamed.txt");
+    EXPECT_TRUE(success.success) << success.error;
+    EXPECT_EQ(success.newPath, renamed);
+    EXPECT_FALSE(std::filesystem::exists(source));
+    EXPECT_TRUE(std::filesystem::exists(renamed));
+
+    const auto duplicate = tempRoot / L"duplicate.txt";
+    {
+        std::ofstream output(duplicate, std::ios::binary);
+        output << "existing";
+    }
+    const auto collision = easy::core::renamePathWithinParent(renamed, L"duplicate.txt");
+    EXPECT_FALSE(collision.success);
+    EXPECT_TRUE(std::filesystem::exists(renamed));
+    std::ifstream duplicateInput(duplicate, std::ios::binary);
+    std::string duplicateContents;
+    duplicateInput >> duplicateContents;
+    EXPECT_EQ(duplicateContents, "existing");
+    duplicateInput.close();
+
+    std::filesystem::remove_all(tempRoot, ec);
+    EXPECT_FALSE(ec) << ec.message();
+}

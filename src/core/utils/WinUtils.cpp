@@ -46,6 +46,23 @@ bool WinUtils::isPortableMode() {
 std::filesystem::path WinUtils::getAppDataDirectory() {
     const auto exeDir = getExeDirectory();
     std::error_code ec;
+
+    // CI/生命周期门禁可为待测进程和它派生的索引进程提供完全隔离的数据根。
+    // 只接受绝对路径，避免主进程与服务因工作目录不同而落到两个位置。
+    const DWORD overrideLength = GetEnvironmentVariableW(L"EASYTOOLS_DATA_ROOT", nullptr, 0);
+    if (overrideLength > 1) {
+        std::vector<wchar_t> overrideBuffer(overrideLength);
+        const DWORD copied = GetEnvironmentVariableW(
+            L"EASYTOOLS_DATA_ROOT", overrideBuffer.data(), overrideLength);
+        if (copied > 0 && copied < overrideLength) {
+            std::filesystem::path overridePath(overrideBuffer.data());
+            if (overridePath.is_absolute()) {
+                std::filesystem::create_directories(overridePath, ec);
+                if (!ec) return overridePath;
+                ec.clear();
+            }
+        }
+    }
     
     // 1. 便携模式检测：若主程序同级目录下存在 .easytools 或 data 目录，优先作为数据根目录
     if (std::filesystem::is_directory(exeDir / L".easytools", ec)) {
@@ -344,6 +361,23 @@ std::string WinUtils::getFileTypeIconBase64(const std::wstring& extension, bool 
 bool WinUtils::copyToClipboard(const std::wstring& wtext, HWND owner) {
     if (wtext.empty()) return false;
 
+    // EmptyClipboard assigns ownership to the HWND passed to OpenClipboard.
+    // Passing nullptr leaves the clipboard without an owner and makes the
+    // following SetClipboardData call fail, so provide a short-lived
+    // message-only window when the caller has no suitable UI window.
+    HWND temporaryOwner = nullptr;
+    if (!owner || !IsWindow(owner)) {
+        temporaryOwner = CreateWindowExW(
+            0, L"STATIC", L"EasyTools Clipboard Owner", 0,
+            0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+        owner = temporaryOwner;
+    }
+    if (!owner) return false;
+    struct TemporaryOwnerGuard {
+        HWND hwnd;
+        ~TemporaryOwnerGuard() { if (hwnd) DestroyWindow(hwnd); }
+    } temporaryOwnerGuard{temporaryOwner};
+
     // 剪贴板可能被其他进程瞬时独占（如剪贴板管理器、Office），进行有界重试
     bool opened = false;
     for (int retry = 0; retry < 5; ++retry) {
@@ -354,19 +388,18 @@ bool WinUtils::copyToClipboard(const std::wstring& wtext, HWND owner) {
         Sleep(10);
     }
     if (!opened) return false;
+    struct ClipboardGuard {
+        ~ClipboardGuard() { CloseClipboard(); }
+    } clipboardGuard;
 
-    EmptyClipboard();
+    if (!EmptyClipboard()) return false;
     const size_t byteCount = (wtext.length() + 1) * sizeof(wchar_t);
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, byteCount);
-    if (!hMem) {
-        CloseClipboard();
-        return false;
-    }
+    if (!hMem) return false;
 
     void* dest = GlobalLock(hMem);
     if (!dest) {
         GlobalFree(hMem);
-        CloseClipboard();
         return false;
     }
     memcpy(dest, wtext.c_str(), byteCount);
@@ -374,10 +407,8 @@ bool WinUtils::copyToClipboard(const std::wstring& wtext, HWND owner) {
 
     if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
         GlobalFree(hMem);
-        CloseClipboard();
         return false;
     }
-    CloseClipboard();
     return true;
 }
 

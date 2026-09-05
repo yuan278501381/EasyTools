@@ -104,6 +104,18 @@ std::pair<int, int> SearchWindow::getWindowSize() const {
     return {w, h};
 }
 
+void SearchWindow::focusSearchIfVisible() {
+    if (!m_visible.load()) return;
+    if (m_controller) {
+        m_controller->put_IsVisible(TRUE);
+        m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+    }
+    if (m_webView) {
+        m_webView->ExecuteScript(
+            L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
+    }
+}
+
 void SearchWindow::preload(HINSTANCE hInstance) {
     if (m_hwnd && IsWindow(m_hwnd)) return;
     if (!createWindow(hInstance)) {
@@ -122,21 +134,17 @@ void SearchWindow::show(HINSTANCE hInstance) {
                 std::chrono::steady_clock::now() - showStarted).count());
     };
     m_showTimeTick = GetTickCount64();
+    // 先同步记录“原生窗口被显式唤起”，再异步启动服务。这样查询即使与
+    // warmup 并发，也只能在这次用户动作之后补拉服务。
+    easy::core::MessageBridge::instance().handleMessage(
+        R"({"id":0,"method":"search.windowShown","params":{}})");
     warmUpSearchService();
-    easy::core::MessageBridge::instance().handleMessageAsync(
-        R"({"id":0,"method":"search.windowShown","params":{}})", [](std::string) {});
     if (m_hwnd && IsWindow(m_hwnd)) {
         if (m_visible) {
             updatePlacement();
             SetForegroundWindow(m_hwnd);
             SetFocus(m_hwnd);
-            if (m_controller) {
-                m_controller->put_IsVisible(TRUE);
-                m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-            }
-            if (m_webView) {
-                m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
-            }
+            focusSearchIfVisible();
             recordShown();
             return;
         }
@@ -146,13 +154,7 @@ void SearchWindow::show(HINSTANCE hInstance) {
         SetFocus(m_hwnd);
         m_visible = true;
         if (m_webView) m_suspendController.resume(m_webView.Get(), "search");
-        if (m_controller) {
-            m_controller->put_IsVisible(TRUE);
-            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-        }
-        if (m_webView) {
-            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'))", nullptr);
-        }
+        focusSearchIfVisible();
         recordShown();
         return;
     }
@@ -342,7 +344,9 @@ void SearchWindow::initializeWebView2() {
                             GetClientRect(m_hwnd, &bounds);
                             m_controller->put_Bounds(bounds);
                             syncWebViewDpi(m_controller.Get(), m_hwnd);
-                            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                            if (m_visible.load()) {
+                                m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                            }
 
                             // ── 本地打包模式: 设置虚拟主机映射 ──────────────────────────────────
                             auto uiFolder = (easy::core::WinUtils::getExeDirectory() / L"ui").wstring();
@@ -386,17 +390,13 @@ void SearchWindow::initializeWebView2() {
                             std::wstring targetUrl = baseUrl + L"#/search";
                             m_webView->Navigate(targetUrl.c_str());
 
-                            // 导航完成后标记就绪并自动聚焦输入框
+                            // 导航完成后标记就绪。后台 preload 不得发送聚焦事件；
+                            // 只有可见窗口才应同步查询状态并聚焦输入框。
                             m_webView->add_NavigationCompleted(
                                 Callback<ICoreWebView2NavigationCompletedEventHandler>(
                                     [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
                                         m_webViewReady = true;
-                                        if (m_controller) {
-                                            m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-                                        }
-                                        if (m_webView) {
-                                            m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
-                                        }
+                                        focusSearchIfVisible();
                                         return S_OK;
                                     }).Get(), nullptr);
 
@@ -562,23 +562,11 @@ LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             if (LOWORD(wParam) == WA_INACTIVE) {
                 PostMessageW(hwnd, WM_SEARCH_VERIFY_DEACTIVATED, 0, 0);
             } else {
-                if (inst.m_controller) {
-                    inst.m_controller->put_IsVisible(TRUE);
-                    inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-                }
-                if (inst.m_webView) {
-                    inst.m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
-                }
+                inst.focusSearchIfVisible();
             }
             break;
         case WM_SETFOCUS:
-            if (inst.m_controller) {
-                inst.m_controller->put_IsVisible(TRUE);
-                inst.m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-            }
-            if (inst.m_webView) {
-                inst.m_webView->ExecuteScript(L"window.dispatchEvent(new CustomEvent('easytools:focusSearch'));", nullptr);
-            }
+            inst.focusSearchIfVisible();
             return 0;
         case WM_CLOSE:
             inst.hide();

@@ -31,9 +31,6 @@ interface SearchSettings {
   matchPath: boolean;
   pinyinEnabled: boolean;
   iconStyle?: 'native' | 'vector';
-  residentInBackground?: boolean;
-  keepServiceRunning?: boolean;
-  idleShutdownMinutes?: number;
   autoBypassFullscreen?: boolean;
 }
 
@@ -54,9 +51,6 @@ export const SearchPage: FC = () => {
     matchPath: false,
     pinyinEnabled: true,
     iconStyle: 'native',
-    residentInBackground: true,
-    keepServiceRunning: true,
-    idleShutdownMinutes: 1,
     autoBypassFullscreen: true,
   });
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
@@ -272,86 +266,6 @@ export const SearchPage: FC = () => {
                 </div>
               </SettingRow>
 
-              <SettingRow
-                label={t('searchPage.residentInBackgroundTitle', 'Resident in Background')}
-                description={t('searchPage.residentInBackgroundDesc', 'Enabled by default to keep the index resident in memory for instant search. When disabled, the service automatically idles out and frees memory after timeout, and reloads on-demand on next trigger.')}
-              >
-                <Toggle
-                  id="search-resident-toggle"
-                  checked={settings.residentInBackground ?? true}
-                  onChange={v => {
-                    void saveSetting('residentInBackground', v);
-                  }}
-                />
-              </SettingRow>
-
-              {!(settings.residentInBackground ?? true) && (
-                <SettingRow
-                  label={t('searchPage.idleShutdownMinutesTitle', 'Idle Sleep Timeout')}
-                  description={t('searchPage.idleShutdownMinutesDesc', 'Time to wait after search window is hidden before shutting down index service and freeing memory. Set to 0 to exit immediately on window close; reloads on-demand next time search is summoned')}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input
-                        type="number"
-                        id="search-idle-shutdown-input"
-                        min={0}
-                        max={60}
-                        step={1}
-                        value={settings.idleShutdownMinutes ?? 1}
-                        onChange={e => {
-                          const val = Math.max(0, Math.min(60, parseInt(e.target.value, 10) || 0));
-                          void saveSetting('idleShutdownMinutes', val);
-                        }}
-                        style={{
-                          width: '72px',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--search-surface-pill-border, rgba(255, 255, 255, 0.12))',
-                          background: 'var(--search-surface-pill, rgba(255, 255, 255, 0.06))',
-                          color: 'inherit',
-                          textAlign: 'center',
-                          fontSize: '13px',
-                          fontWeight: 600
-                        }}
-                      />
-                      <span style={{ fontSize: '12.5px', color: 'var(--search-text-sub, #888)' }}>
-                        {t('searchPage.idleMinutesUnit', 'min')}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {[
-                        { label: t('searchPage.idleImmediate', 'Immediate (0 min)'), val: 0 },
-                        { label: t('searchPage.idlePreset1m', '1 min (Default)'), val: 1 },
-                        { label: t('searchPage.idlePreset2m', '2 min'), val: 2 },
-                        { label: t('searchPage.idlePreset5m', '5 min'), val: 5 },
-                      ].map(preset => {
-                        const isSelected = (settings.idleShutdownMinutes ?? 1) === preset.val;
-                        return (
-                          <button
-                            key={preset.val}
-                            type="button"
-                            onClick={() => void saveSetting('idleShutdownMinutes', preset.val)}
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '12px',
-                              border: isSelected ? '1px solid var(--primary)' : '1px solid var(--search-surface-pill-border, rgba(255, 255, 255, 0.1))',
-                              background: isSelected ? 'color-mix(in srgb, var(--primary) 20%, transparent)' : 'transparent',
-                              color: isSelected ? 'var(--primary)' : 'inherit',
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease'
-                            }}
-                          >
-                            {preset.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </SettingRow>
-              )}
             </Card>
           </SettingGroup>
         </div>

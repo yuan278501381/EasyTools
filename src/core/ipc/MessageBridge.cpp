@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "core/ipc/MessageBridge.h"
+#include "core/ipc/SystemInteractionHandlers.h"
 #include "core/ipc/AutoStartPolicy.h"
 #include "core/logger/Logger.h"
 #include "core/plugin/PluginManager.h"
@@ -10,7 +11,6 @@
 #include "core/config/ConfigManager.h"
 #include "core/hotkey/HotkeyManager.h"
 #include "core/utils/WinUtils.h"
-#include "core/utils/ShellContextMenuService.h"
 #include "core/stats/StatsManager.h"
 #include "core/stats/PerformanceMonitor.h"
 #include "core/update/UpdateChecker.h"
@@ -1614,94 +1614,7 @@ void MessageBridge::registerBuiltinHandlers() {
         const auto selected = choosePath(false, true);
         return selected ? json(WinUtils::wstringToUtf8(selected->wstring())) : json(nullptr);
     });
-    registerHandler("system.openFile", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        bool ok = WinUtils::openFile(wide);
-        return {{"success", ok}};
-    });
-    registerHandler("system.openFolder", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        bool ok = WinUtils::openFolderAndSelectItem(wide);
-        return {{"success", ok}};
-    });
-    registerHandler("system.copyText", [](const json& params) -> json {
-        const std::string text = params.value("text", "");
-        if (text.empty()) return {{"success", false}};
-        const auto wide = WinUtils::utf8ToWstring(text);
-        if (!OpenClipboard(nullptr)) return {{"success", false}};
-        EmptyClipboard();
-        HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
-        if (hGlob) {
-            void* pBuf = GlobalLock(hGlob);
-            if (pBuf) {
-                memcpy(pBuf, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
-                GlobalUnlock(hGlob);
-                SetClipboardData(CF_UNICODETEXT, hGlob);
-            }
-        }
-        CloseClipboard();
-        return {{"success", true}};
-    });
-    registerHandler("system.openFileAsAdmin", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        bool ok = WinUtils::openFileAsAdmin(wide);
-        return {{"success", ok}};
-    });
-    registerHandler("system.showFileProperties", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        bool ok = WinUtils::showFileProperties(wide);
-        return {{"success", ok}};
-    });
-    registerHandler("system.openWithNotepad", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        bool ok = WinUtils::openWithNotepad(wide);
-        return {{"success", ok}};
-    });
-    registerHandler("system.renamePath", [](const json& params) -> json {
-        const std::string oldPath = params.value("oldPath", params.value("path", ""));
-        const std::string newName = params.value("newName", params.value("name", ""));
-        if (oldPath.empty() || newName.empty()) return {{"success", false}, {"error", "invalid parameters"}};
-        
-        const auto wideOld = WinUtils::utf8ToWstring(oldPath);
-        std::filesystem::path oldP(wideOld);
-        std::error_code ec;
-        if (!std::filesystem::exists(oldP, ec)) {
-            return {{"success", false}, {"error", "源文件或目录不存在"}};
-        }
-        std::filesystem::path newP = oldP.parent_path() / WinUtils::utf8ToWstring(newName);
-        if (std::filesystem::exists(newP, ec)) {
-            return {{"success", false}, {"error", "目标同名文件或目录已存在"}};
-        }
-        std::filesystem::rename(oldP, newP, ec);
-        if (ec) {
-            return {{"success", false}, {"error", ec.message()}};
-        }
-        return {
-            {"success", true},
-            {"newPath", WinUtils::wstringToUtf8(newP.wstring())},
-            {"newName", newName}
-        };
-    });
-    registerHandler("system.showShellContextMenu", [](const json& params) -> json {
-        const std::string path = params.value("path", params.value("filepath", ""));
-        if (path.empty()) return {{"success", false}, {"error", "path is required"}};
-        const auto wide = WinUtils::utf8ToWstring(path);
-        const int x = params.value("x", -1);
-        const int y = params.value("y", -1);
-        const bool extended = params.value("extended", false);
-        const bool started = ShellContextMenuService::instance().showAsync(wide, x, y, extended);
-        return {{"success", started}, {"busy", !started}};
-    });
+    registerSystemInteractionHandlers(*this);
     registerHandler("app.checkForUpdates", [](const json&) -> json {
         const bool started = UpdateChecker::instance().checkAsync(true);
         return {{"success", true}, {"started", started}};

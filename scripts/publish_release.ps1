@@ -8,6 +8,8 @@ $ScriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Defi
 if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
 Set-Location $ScriptDir
 
+. (Join-Path $PSScriptRoot "ReleaseArtifacts.ps1")
+
 $VersionFile = Join-Path $ScriptDir "VERSION"
 if (-not (Test-Path -LiteralPath $VersionFile)) {
     throw "缺少唯一版本源: $VersionFile"
@@ -28,6 +30,17 @@ if ($CleanVersion -ne $ProjectVersion) {
     throw "发布标签 $Tag 与 VERSION ($ProjectVersion) 不一致。请只修改根目录 VERSION。"
 }
 
+$HeadCommit = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($HeadCommit)) {
+    throw "无法读取当前 Git 提交"
+}
+$LocalTag = @(git tag --list $Tag)
+if ($LASTEXITCODE -ne 0) { throw "检查本地标签 $Tag 失败" }
+if ($LocalTag.Count -gt 0) { throw "标签 $Tag 已存在；正式发布标签不可覆盖。" }
+$RemoteTag = @(git ls-remote --tags origin "refs/tags/$Tag")
+if ($LASTEXITCODE -ne 0) { throw "检查远程标签 $Tag 失败" }
+if ($RemoteTag.Count -gt 0) { throw "远程标签 $Tag 已存在；正式发布标签不可覆盖。" }
+
 $DirtyFiles = @(git status --porcelain --untracked-files=all)
 if ($LASTEXITCODE -ne 0) { throw "无法读取 Git 工作树状态" }
 if ($DirtyFiles.Count -gt 0) {
@@ -43,10 +56,24 @@ Write-Host "[BUILD] 正在清理旧产物并触发全量一键构建部署流水
 if (Test-Path "Output\EasyTools-Setup.exe") {
     Remove-Item -Force "Output\EasyTools-Setup.exe"
 }
-& pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -Quick
+& pwsh -ExecutionPolicy Bypass -File .\deploy.ps1 -RequireSigning
 if ($LASTEXITCODE -ne 0) {
     throw "构建部署失败，终止发布！"
 }
+
+$SignedReleaseInputs = @(
+    "deploy_dist\EasyTools.exe",
+    "deploy_dist\EasyTools_Service.exe",
+    "deploy_dist\EasyCore.dll",
+    "Output\EasyTools-Setup.exe"
+) + @(Get-ChildItem "deploy_dist\plugins\Plugin_*.dll" -File | Select-Object -ExpandProperty FullName)
+foreach ($SignedInput in $SignedReleaseInputs) {
+    $Signature = Get-AuthenticodeSignature -LiteralPath $SignedInput
+    if ($Signature.Status -ne "Valid") {
+        throw "正式发布签名验证失败: $SignedInput ($($Signature.Status))"
+    }
+}
+Write-Host "[OK] 自有二进制与安装包 Authenticode 签名验证通过" -ForegroundColor Green
 
 # 强校验：提取生成 EXE 的二进制版本元数据，必须与 VERSION 文件 100% 精确一致
 $BuiltExe = "deploy_dist\EasyTools.exe"
@@ -57,10 +84,8 @@ if ($ExeVersion -ne $CleanVersion) {
 }
 Write-Host "[OK] 版本强校验通过: EasyTools.exe ProductVersion = $ExeVersion" -ForegroundColor Green
 
-$ReleaseDir = "release_assets"
-if (Test-Path $ReleaseDir) {
-    Remove-Item -Recurse -Force $ReleaseDir
-}
+$ReleaseDir = Join-Path $ScriptDir "release_assets"
+Remove-ProjectArtifactDirectorySafely -ProjectRoot $ScriptDir -RelativePath "release_assets"
 New-Item -ItemType Directory -Path $ReleaseDir | Out-Null
 
 $SetupExe = "Output\EasyTools-Setup.exe"
@@ -72,14 +97,9 @@ $TargetSetup = "$ReleaseDir\EasyTools-$Tag-Setup.exe"
 Copy-Item $SetupExe $TargetSetup
 Write-Host "[OK] 安装包已就绪: $TargetSetup" -ForegroundColor Green
 
-$TempPortable = Join-Path $env:TEMP "EasyTools-$Tag"
-if (Test-Path $TempPortable) {
-    Remove-Item -Recurse -Force $TempPortable
-}
-Copy-Item -Recurse "deploy_dist" $TempPortable
 $TargetZip = "$ReleaseDir\EasyTools-$Tag-win-x64-portable.zip"
-Compress-Archive -Path $TempPortable -DestinationPath $TargetZip -CompressionLevel Optimal
-Remove-Item -Recurse -Force $TempPortable
+Compress-Archive -Path (Join-Path $ScriptDir "deploy_dist\*") `
+    -DestinationPath $TargetZip -CompressionLevel Optimal
 Write-Host "[OK] 绿色便携包已压缩: $TargetZip" -ForegroundColor Green
 
 $Checksums = @()
@@ -91,11 +111,10 @@ $ChecksumFile = "$ReleaseDir\SHA256SUMS.txt"
 $Checksums | Out-File -FilePath $ChecksumFile -Encoding utf8
 Write-Host "[OK] 校验和文件已生成: $ChecksumFile" -ForegroundColor Green
 
-$HeadCommit = (git rev-parse HEAD).Trim()
-git tag -a $Tag -m "EasyTools $Tag" -f
+git tag -a $Tag -m "EasyTools $Tag"
 if ($LASTEXITCODE -ne 0) { throw "创建标签 $Tag 失败" }
 Write-Host "[OK] 标签 $Tag 已更新并指向当前 HEAD ($HeadCommit)" -ForegroundColor Green
-git push origin "refs/tags/$Tag" --force
+git push origin "refs/tags/$Tag"
 if ($LASTEXITCODE -ne 0) { throw "推送标签 $Tag 失败" }
 
 $NotesFile = Join-Path $ScriptDir "docs\RELEASE_NOTES_$Tag.md"
@@ -104,6 +123,7 @@ if (-not (Test-Path $NotesFile)) {
 }
 
 gh release create $Tag $TargetSetup $TargetZip $ChecksumFile --title "EasyTools $Tag (Windows x64)" --notes-file $NotesFile --latest
+if ($LASTEXITCODE -ne 0) { throw "创建 GitHub Release $Tag 失败" }
 
 Write-Host "=========================================" -ForegroundColor Green
 Write-Host "EasyTools $Tag 发布成功！" -ForegroundColor Green

@@ -25,7 +25,7 @@ public:
     /// 判断是否处于绿色便携模式 (Portable Mode)
     static bool isPortableMode();
 
-    /// 获取应用数据根目录（优先使用主程序目录下 .easytools / data 便携目录，否则使用 LocalAppData）
+    /// 获取应用数据根目录（测试隔离变量、便携目录、LocalAppData，按此优先级）
     static std::filesystem::path getAppDataDirectory();
 
     /// 获取日志目录

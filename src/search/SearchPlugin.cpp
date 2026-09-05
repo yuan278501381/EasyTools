@@ -4,22 +4,20 @@
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
 #include "core/utils/WinUtils.h"
-#include "core/utils/ShellContextMenuService.h"
-#include "search/ServiceLifetime.h"
 #include "search/ServiceStartupPolicy.h"
+#include "search/SearchInteractionHandlers.h"
 #include "service/PipeProtocol.h"
 #include "service/PipeEndpoint.h"
 #include "service/SearchRequestLimits.h"
 #include <windows.h>
 #include <sddl.h>
-#include <tlhelp32.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <shlobj.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
-#include <chrono>
 #include <cstdint>
 #include <string>
 #include <array>
@@ -35,8 +33,23 @@ std::string g_searchPipe;
 std::string g_searchPipeToken;
 std::wstring g_searchClientSid;
 
-// 本进程是否亲手拉起过索引服务。退出时据此决定要不要把它一并带走。
+// 本进程是否亲手拉起过索引服务，用于启动期状态提示。
 static std::atomic<bool> g_serviceSpawnedByUs{false};
+
+// 后台 WebView 预载、设置页状态查询和任意搜索 IPC 都不能成为服务启动信号。
+// 只有原生 SearchWindow::show() 先发送 windowShown 后，后续请求才允许补拉服务。
+static std::atomic<bool> g_searchWindowExplicitlyShown{false};
+
+bool hasCommandLineFlag(std::wstring_view wanted) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+    struct ArgumentsGuard { LPWSTR* value; ~ArgumentsGuard() { LocalFree(value); } } guard{argv};
+    for (int index = 1; index < argc; ++index) {
+        if (_wcsicmp(argv[index], std::wstring(wanted).c_str()) == 0) return true;
+    }
+    return false;
+}
 
 std::optional<std::wstring> currentUserSid() {
     HANDLE token = nullptr;
@@ -193,28 +206,6 @@ private:
     HANDLE m_event;
 };
 
-// 服务是否由 SCM 托管。这种情况下它是用户显式安装的常驻服务，主程序退出时
-// 无权把它关掉。
-static bool isServiceManagedByScm() {
-    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!scm) return false;
-
-    bool managed = false;
-    SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_QUERY_STATUS);
-    if (service) {
-        SERVICE_STATUS_PROCESS status{};
-        DWORD bytesNeeded = 0;
-        if (QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
-                                 reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
-            managed = status.dwCurrentState == SERVICE_RUNNING ||
-                      status.dwCurrentState == SERVICE_START_PENDING;
-        }
-        CloseServiceHandle(service);
-    }
-    CloseServiceHandle(scm);
-    return managed;
-}
-
 enum class ScmEndpointResult {
     Ready,
     AllowPortableFallback,
@@ -235,6 +226,11 @@ easy::search::ScmServiceState toScmServiceState(DWORD state) noexcept {
 // 扫描卷，不能用固定数百毫秒猜测失败并再拉起一个便携服务。
 ScmEndpointResult startScmServiceAndWait(DWORD& error) {
     error = ERROR_SUCCESS;
+    // Lifecycle verification needs to exercise the packaged service binary,
+    // independent of any older SCM registration on the developer machine.
+    if (hasCommandLineFlag(L"--force-portable-search-service")) {
+        return ScmEndpointResult::AllowPortableFallback;
+    }
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (!scm) {
         error = GetLastError();
@@ -431,7 +427,8 @@ static bool ensureSearchServiceRunning() {
         if (CreateProcessW(serviceExe.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                            CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, exeDir.c_str(), &si, &pi)) {
             g_serviceSpawnedByUs.store(true);
-            easy::core::WinUtils::assignProcessToCurrentJob(pi.hProcess);
+            // 便携模式也遵循“首次搜索后常驻”：不把索引进程加入
+            // 主程序的 KILL_ON_JOB_CLOSE Job，使 EasyTools 关闭后它仍可服务。
             if (pi.hProcess) CloseHandle(pi.hProcess);
             if (pi.hThread) CloseHandle(pi.hThread);
         } else {
@@ -463,8 +460,9 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
         error = ERROR_ACCESS_DENIED;
         return std::nullopt;
     }
-    if (!WaitNamedPipeA(g_searchPipe.c_str(), autoStart ? 1000 : 1)) {
-        if (!autoStart) {
+    const bool mayStart = autoStart && g_searchWindowExplicitlyShown.load();
+    if (!WaitNamedPipeA(g_searchPipe.c_str(), mayStart ? 1000 : 1)) {
+        if (!mayStart) {
             error = ERROR_SERVICE_NOT_ACTIVE;
             return std::nullopt;
         }
@@ -529,87 +527,6 @@ std::optional<std::string> querySearchService(const std::string& query, DWORD& e
     return response;
 }
 
-static std::mutex g_idleShutdownMutex;
-static std::jthread g_idleShutdownThread;
-static std::atomic<uint64_t> g_lastActiveTick{0};
-
-static void cancelIdleServiceShutdown() {
-    std::lock_guard lock(g_idleShutdownMutex);
-    g_lastActiveTick.store(GetTickCount64());
-    if (g_idleShutdownThread.joinable()) {
-        g_idleShutdownThread.request_stop();
-    }
-}
-
-static void stopSearchServiceIfOwned() {
-    const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
-    if (resident) return;
-
-    nlohmann::json req;
-    req["action"] = "shutdown";
-    DWORD error = ERROR_SUCCESS;
-    if (querySearchService(req.dump(), error, /*autoStart=*/false)) {
-        LOG_INFO("SearchPlugin: 已请求索引服务停机");
-    } else {
-        LOG_WARN("SearchPlugin: 索引服务停机请求失败, error={}", error);
-    }
-
-    if (isServiceManagedByScm()) {
-        SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-        if (scm) {
-            SC_HANDLE service = OpenServiceW(scm, L"EasyTools_SearchService", SERVICE_STOP | SERVICE_QUERY_STATUS);
-            if (service) {
-                SERVICE_STATUS status{};
-                ControlService(service, SERVICE_CONTROL_STOP, &status);
-                CloseServiceHandle(service);
-            }
-            CloseServiceHandle(scm);
-        }
-    }
-}
-
-static void scheduleIdleServiceShutdown(int timeoutSeconds = -1) {
-    std::lock_guard lock(g_idleShutdownMutex);
-    const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
-    if (resident) {
-        return;
-    }
-
-    if (timeoutSeconds < 0) {
-        int minutes = easy::core::ConfigManager::instance().get<int>("/search/idleShutdownMinutes", 1);
-        timeoutSeconds = minutes * 60;
-    }
-
-    if (timeoutSeconds <= 0) {
-        LOG_INFO("SearchPlugin: 搜索窗口已隐藏且空闲超时设置为 0，立即安全休眠索引服务");
-        stopSearchServiceIfOwned();
-        return;
-    }
-
-    g_lastActiveTick.store(GetTickCount64());
-    if (g_idleShutdownThread.joinable()) {
-        g_idleShutdownThread.request_stop();
-        g_idleShutdownThread.join();
-    }
-
-    g_idleShutdownThread = std::jthread([timeoutSeconds](std::stop_token stop) {
-        LOG_INFO("SearchPlugin: 启动空闲索引服务休眠看门狗 (timeout={}s)", timeoutSeconds);
-        const int intervalMs = 500;
-        const int totalChecks = (timeoutSeconds * 1000) / intervalMs;
-        for (int i = 0; i < totalChecks; ++i) {
-            if (stop.stop_requested()) {
-                LOG_INFO("SearchPlugin: 用户重新唤起搜索，已取消索引服务休眠看门狗");
-                return;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
-        }
-        if (stop.stop_requested()) return;
-
-        LOG_INFO("SearchPlugin: 搜索窗口闲置达到超时时间且未开启常驻后台，自动安全休眠索引服务");
-        stopSearchServiceIfOwned();
-    });
-}
-
 static const std::unordered_map<std::string, std::vector<std::string>> CONTENT_CATEGORY_EXTS = {
     {"doc", {"doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "txt", "md", "markdown", "rtf", "csv", "tsv", "log", "epub", "tex", "bib", "rst", "adoc"}},
     {"code", {"c", "cpp", "cc", "cxx", "h", "hpp", "hxx", "cs", "rs", "go", "zig", "nim", "d", "java", "kt", "kts", "scala", "groovy", "dart", "swift", "m", "mm", "js", "jsx", "mjs", "cjs", "ts", "tsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "proto", "graphql", "gql", "thrift", "prisma", "json", "jsonc", "json5", "xml", "xaml", "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties", "env", "reg", "lock", "plist", "prefs", "py", "pyw", "rb", "php", "pl", "pm", "lua", "sh", "bash", "zsh", "ps1", "psm1", "psd1", "bat", "cmd", "vbs", "ahk", "au3", "sql", "prc", "fnc", "trg", "pks", "pkb", "pls", "ch", "pld", "asm", "s", "glsl", "hlsl", "vert", "frag", "geom", "comp", "shader", "wgsl"}},
@@ -667,6 +584,7 @@ public:
     bool initialize() override {
         LOG_INFO("SearchPlugin: 初始化搜索引擎");
         if (!initializePipeEndpoint()) return false;
+        g_searchWindowExplicitlyShown.store(false);
 
         auto& mb = easy::core::MessageBridge::instance();
         
@@ -813,147 +731,7 @@ public:
             return arr;
         });
 
-        mb.registerHandler("search.openFile", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            bool ok = easy::core::WinUtils::openFile(widePath);
-            return {{"success", ok}};
-        });
-
-        mb.registerHandler("search.openFolder", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            bool ok = easy::core::WinUtils::openFolderAndSelectItem(widePath);
-            return {{"success", ok}};
-        });
-
-        mb.registerHandler("search.openFileAsAdmin", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            bool ok = easy::core::WinUtils::openFileAsAdmin(widePath);
-            return {{"success", ok}};
-        });
-
-        mb.registerHandler("search.showFileProperties", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            bool ok = easy::core::WinUtils::showFileProperties(widePath);
-            return {{"success", ok}};
-        });
-
-        mb.registerHandler("search.openWithNotepad", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            bool ok = easy::core::WinUtils::openWithNotepad(widePath);
-            return {{"success", ok}};
-        });
-
-        mb.registerHandler("search.renamePath", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string oldPath = params.value("oldPath", params.value("path", ""));
-            const std::string newName = params.value("newName", params.value("name", ""));
-            if (oldPath.empty() || newName.empty()) return {{"success", false}, {"error", "invalid parameters"}};
-            
-            const auto wideOld = easy::core::WinUtils::utf8ToWstring(oldPath);
-            std::filesystem::path oldP(wideOld);
-            std::error_code ec;
-            if (!std::filesystem::exists(oldP, ec)) {
-                return {{"success", false}, {"error", "源文件或目录不存在"}};
-            }
-            std::filesystem::path newP = oldP.parent_path() / easy::core::WinUtils::utf8ToWstring(newName);
-            if (std::filesystem::exists(newP, ec)) {
-                return {{"success", false}, {"error", "目标同名文件或目录已存在"}};
-            }
-            std::filesystem::rename(oldP, newP, ec);
-            if (ec) {
-                LOG_ERROR("SearchPlugin: 重命名失败 {} -> {}, error={}", oldPath, newName, ec.message());
-                return {{"success", false}, {"error", ec.message()}};
-            }
-            return {
-                {"success", true},
-                {"newPath", easy::core::WinUtils::wstringToUtf8(newP.wstring())},
-                {"newName", newName}
-            };
-        });
-
-        mb.registerHandler("search.showShellContextMenu", [](const nlohmann::json& params) -> nlohmann::json {
-            const std::string filepath = params.value("filepath", params.value("path", ""));
-            LOG_INFO("SearchPlugin: 收到 showShellContextMenu 请求, filepath={}", filepath);
-            if (filepath.empty()) return {{"success", false}, {"error", "path is empty"}};
-            const auto widePath = easy::core::WinUtils::utf8ToWstring(filepath);
-            const int x = params.value("x", -1);
-            const int y = params.value("y", -1);
-            const bool extended = params.value("extended", false);
-            const bool started = easy::core::ShellContextMenuService::instance().showAsync(widePath, x, y, extended);
-            LOG_INFO("SearchPlugin: showShellContextMenu 调度结果 started={}", started);
-            return {{"success", started}, {"busy", !started}};
-        });
-
-        mb.registerHandler("search.startDrag", [](const nlohmann::json&) -> nlohmann::json {
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (hwnd && IsWindow(hwnd)) {
-                ReleaseCapture();
-                SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-            }
-            return {{"success", true}};
-        });
-
-        mb.registerHandler("search.startResize", [](const nlohmann::json& params) -> nlohmann::json {
-            std::string edge = params.value("edge", params.value("direction", "bottom_right"));
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (hwnd && IsWindow(hwnd)) {
-                WPARAM hitTest = HTBOTTOMRIGHT;
-                if (edge == "top" || edge == "n") hitTest = HTTOP;
-                else if (edge == "bottom" || edge == "s") hitTest = HTBOTTOM;
-                else if (edge == "left" || edge == "w") hitTest = HTLEFT;
-                else if (edge == "right" || edge == "e") hitTest = HTRIGHT;
-                else if (edge == "top_left" || edge == "nw") hitTest = HTTOPLEFT;
-                else if (edge == "top_right" || edge == "ne") hitTest = HTTOPRIGHT;
-                else if (edge == "bottom_left" || edge == "sw") hitTest = HTBOTTOMLEFT;
-                else if (edge == "bottom_right" || edge == "se") hitTest = HTBOTTOMRIGHT;
-
-                ReleaseCapture();
-                SendMessageW(hwnd, WM_NCLBUTTONDOWN, hitTest, 0);
-            }
-            return {{"success", true}};
-        });
-
-        mb.registerHandler("search.resetPlacement", [](const nlohmann::json&) -> nlohmann::json {
-            easy::core::ConfigManager::instance().set<int>("/search/windowWidth", 760);
-            easy::core::ConfigManager::instance().set<int>("/search/windowHeight", 520);
-            easy::core::ConfigManager::instance().set<int>("/search/windowX", -99999);
-            easy::core::ConfigManager::instance().set<int>("/search/windowY", -99999);
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (hwnd && IsWindow(hwnd)) {
-                PostMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0);
-            }
-            return {{"success", true}};
-        });
-
-        mb.registerHandler("search.setPinned", [](const nlohmann::json& params) -> nlohmann::json {
-            bool pinned = params.value("pinned", false);
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            if (hwnd && IsWindow(hwnd)) {
-                SetPropW(hwnd, L"EasyTools_SearchPinned", pinned ? reinterpret_cast<HANDLE>(1) : nullptr);
-                if (pinned) {
-                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                }
-            }
-            return {{"success", true}, {"pinned", pinned}};
-        });
-
-        mb.registerHandler("search.isPinned", [](const nlohmann::json&) -> nlohmann::json {
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            bool pinned = false;
-            if (hwnd && IsWindow(hwnd)) {
-                pinned = (GetPropW(hwnd, L"EasyTools_SearchPinned") != nullptr);
-            }
-            return {{"pinned", pinned}};
-        });
+        registerSearchInteractionHandlers(mb);
 
         // 只报告状态，不再顺手拉起服务：设置页一打开就会查一次状态，那不足以
         // 说明用户要用搜索。需要拉起时走 search.warmup。
@@ -964,25 +742,22 @@ public:
         });
 
         mb.registerHandler("search.warmup", [](const nlohmann::json&) -> nlohmann::json {
-            HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-            const bool isVisible = hwnd && IsWindowVisible(hwnd);
-            const bool resident = easy::core::ConfigManager::instance().get<bool>("/search/residentInBackground", true);
-            if (resident || isVisible) {
-                cancelIdleServiceShutdown();
-                return {{"available", ensureSearchServiceRunning()}};
+            // warmup 只由 SearchWindow::show 在用户显式唤起搜索时发出。
+            // 首次启动后服务常驻，直到 Windows 关机/重启或管理员停止。
+            if (!g_searchWindowExplicitlyShown.load()) {
+                return {{"available", false}, {"error", "search window was not explicitly shown"}};
             }
-            return {{"available", false, "sleeping", true}};
+            return {{"available", ensureSearchServiceRunning()}};
         });
 
         mb.registerHandler("search.windowShown", [](const nlohmann::json&) -> nlohmann::json {
-            cancelIdleServiceShutdown();
+            g_searchWindowExplicitlyShown.store(true);
             return {{"success", true}};
         });
 
         mb.registerHandler("search.windowHidden", [](const nlohmann::json&) -> nlohmann::json {
             DWORD error = 0;
             querySearchService(R"({"action":"cancel"})", error, false);
-            scheduleIdleServiceShutdown();
             return {{"success", true}};
         });
 
@@ -998,8 +773,6 @@ public:
             std::string excludePatterns = cfg.get<std::string>("/search/excludePatterns", "$Recycle.Bin,System Volume Information,node_modules,.git,__pycache__");
             bool excludeHidden = cfg.get<bool>("/search/excludeHidden", false);
             bool excludeSystem = cfg.get<bool>("/search/excludeSystem", false);
-            bool residentInBackground = cfg.get<bool>("/search/residentInBackground", true);
-            int idleShutdownMinutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
             bool autoBypassFullscreen = cfg.get<bool>("/search/autoBypassFullscreen", true);
             bool catDoc = cfg.get<bool>("/search/contentCategory_doc", true);
             bool catCode = cfg.get<bool>("/search/contentCategory_code", true);
@@ -1008,9 +781,10 @@ public:
             std::string iconStyle = cfg.get<std::string>("/search/iconStyle", "native");
 
             return {
-                {"residentInBackground", residentInBackground},
-                {"keepServiceRunning", residentInBackground},
-                {"idleShutdownMinutes", idleShutdownMinutes},
+                // 保留字段以兼容旧 UI/API，但服务生命周期现已固定为：
+                // 首次显式唤起时按需启动，随后在本次 Windows 会话中常驻。
+                {"residentInBackground", true},
+                {"keepServiceRunning", true},
                 {"hotkey", hotkey},
                 {"maxResults", maxResults},
                 {"defaultCategory", defaultCategory},
@@ -1073,45 +847,6 @@ public:
             }
             if (params.contains("contentCategory_archive") && params["contentCategory_archive"].is_boolean()) {
                 cfg.set("/search/contentCategory_archive", params["contentCategory_archive"].get<bool>());
-            }
-            if (params.contains("idleShutdownMinutes") && params["idleShutdownMinutes"].is_number()) {
-                int minutes = params["idleShutdownMinutes"].get<int>();
-                cfg.set("/search/idleShutdownMinutes", (std::max)(0, minutes));
-            }
-            if (params.contains("residentInBackground") && params["residentInBackground"].is_boolean()) {
-                bool resident = params["residentInBackground"].get<bool>();
-                cfg.set("/search/residentInBackground", resident);
-                cfg.set("/search/keepServiceRunning", resident);
-                if (resident) {
-                    cancelIdleServiceShutdown();
-                } else {
-                    HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-                    const bool isVisible = hwnd && IsWindowVisible(hwnd);
-                    int minutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
-                    if (!isVisible || minutes <= 0) {
-                        cancelIdleServiceShutdown();
-                        stopSearchServiceIfOwned();
-                    } else {
-                        scheduleIdleServiceShutdown(minutes * 60);
-                    }
-                }
-            } else if (params.contains("keepServiceRunning") && params["keepServiceRunning"].is_boolean()) {
-                bool resident = params["keepServiceRunning"].get<bool>();
-                cfg.set("/search/residentInBackground", resident);
-                cfg.set("/search/keepServiceRunning", resident);
-                if (resident) {
-                    cancelIdleServiceShutdown();
-                } else {
-                    HWND hwnd = FindWindowW(L"EasyTools_SearchWindow", nullptr);
-                    const bool isVisible = hwnd && IsWindowVisible(hwnd);
-                    int minutes = cfg.get<int>("/search/idleShutdownMinutes", 1);
-                    if (!isVisible || minutes <= 0) {
-                        cancelIdleServiceShutdown();
-                        stopSearchServiceIfOwned();
-                    } else {
-                        scheduleIdleServiceShutdown(minutes * 60);
-                    }
-                }
             }
             if (params.contains("autoBypassFullscreen") && params["autoBypassFullscreen"].is_boolean()) {
                 cfg.set("/search/autoBypassFullscreen", params["autoBypassFullscreen"].get<bool>());
@@ -1246,7 +981,8 @@ public:
     void shutdown() override {
         LOG_INFO("SearchPlugin: 关闭");
         easy::core::MessageBridge::instance().unregisterHandlersByPrefix("search.");
-        stopSearchServiceIfOwned();
+        // 索引服务一旦因显式搜索需求启动，即独立常驻。
+        // 主程序退出不发送 shutdown；SCM 的 demand start 保证下次开机不自启。
     }
 };
 

@@ -408,6 +408,5 @@ AddonHostProgramNotFound=未能找到宿主程序。
 AppRunningPrompt=安装程序检测到 EasyTools 正在运行。%n%n是否自动关闭正在运行的 EasyTools 并继续安装？
 InstallationAbortedByUser=安装已由用户取消。请关闭 EasyTools 后重新运行安装程序。
 InstallingService=正在安装快速文件索引服务...
-StartingService=正在启动快速文件索引服务...
 ShowDetails=详细信息(&D)
 HideDetails=隐藏信息(&D)

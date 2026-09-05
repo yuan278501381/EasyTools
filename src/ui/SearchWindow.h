@@ -60,6 +60,7 @@ private:
     bool createWindow(HINSTANCE hInstance);
     void initializeWebView2();
     void updatePlacement();
+    void focusSearchIfVisible();
 
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 

@@ -7,6 +7,9 @@ Lua 5.4 沙箱中（基于 [sol2](https://github.com/ThePhD/sol2)）。所有原
 > 沙箱：已开放 `base / string / math / table / coroutine / utf8 / os(受限)`。
 > 出于安全考虑 **未开放 `io`**，且 `os.execute / os.remove / os.rename / os.exit /
 > os.tmpname / os.setlocale` 已被移除。需要启动进程请使用 `easy.shell.run`。
+>
+> 此环境面向用户本机可信自动化脚本，不是执行不可信代码的安全边界；完整的能力与
+> 限制评估见 [Lua 安全模型](../lua-security-model.md)。
 
 字符串编码统一为 **UTF-8**。
 

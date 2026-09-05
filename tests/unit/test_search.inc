@@ -993,40 +993,6 @@ TEST(SearchRequestLimitsTest, OversizedRegexIsNotCompiled) {
 }
 
 
-TEST(ServiceLifetimeTest, StopsOnlyTheInstanceWeSpawned) {
-    using easy::search::ServiceOwnership;
-    using easy::search::shouldStopServiceOnExit;
-
-    EXPECT_TRUE(shouldStopServiceOnExit(ServiceOwnership{true, false, false}));
-
-    // 没拉起过就说明它属于别人，可能还有别的客户端在用。
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, false, false}));
-}
-
-TEST(ServiceLifetimeTest, LeavesScmManagedServiceAlone) {
-    using easy::search::ServiceOwnership;
-    using easy::search::shouldStopServiceOnExit;
-
-    // 用户显式安装成 Windows 服务，就该由 SCM 管生命周期，哪怕这次是我们启动的。
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, true, false}));
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, true, false}));
-}
-
-TEST(ServiceLifetimeTest, KeepRunningPreferenceOverridesCleanup) {
-    using easy::search::ServiceOwnership;
-    using easy::search::shouldStopServiceOnExit;
-
-    // 用户选择常驻，就换首次搜索秒开、退出后不释放内存。
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, false, true}));
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{true, true, true}));
-    EXPECT_FALSE(shouldStopServiceOnExit(ServiceOwnership{false, false, true}));
-}
-
-TEST(ServiceLifetimeTest, DefaultConstructedOwnershipStopsNothing) {
-    // 任何事实都还没确定时不做处置，避免误杀别人的服务。
-    EXPECT_FALSE(easy::search::shouldStopServiceOnExit(easy::search::ServiceOwnership{}));
-}
-
 // -----------------------------------------------------------------------------
 // 38. DevOps 全链路性能防退化基准与内存上限自动化门禁 (DevOps Performance Gates)
 // -----------------------------------------------------------------------------

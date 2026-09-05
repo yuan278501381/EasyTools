@@ -34,7 +34,6 @@ import type {
   SearchDensity,
   SearchIconStyle,
   SearchMode,
-  SearchResponse,
   SearchResult,
   SortDirection,
   SortField,
@@ -322,16 +321,13 @@ export default function SearchApp() {
       const now = Date.now();
       if (now - lastFocusSyncTick > 3000) {
         lastFocusSyncTick = now;
-        void bridgeRequest('search.warmup').then(() => {
-          void bridgeRequest('search.sync').catch(() => {});
-          void bridgeRequest<SearchResponse>('search.query', { query: '' }).then((res) => {
-            if (res && res.totalIndexedFiles) {
-              setTotalIndexedFiles(res.totalIndexedFiles);
-            }
-          }).catch(() => {});
-        }).catch(() => {});
+        // Native SearchWindow::show() is the sole service-start signal.  A
+        // focus event may also occur during WebView lifecycle work, so it must
+        // never start the index service on its own.
+        void bridgeRequest('search.sync').catch(() => {});
       }
-      void runPoll();
+      if (pollTimer) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(runPoll, 250);
     };
     window.addEventListener('easytools:focusSearch', onFocusEvt);
 

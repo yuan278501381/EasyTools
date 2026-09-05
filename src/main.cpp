@@ -196,8 +196,14 @@ HANDLE createSingleInstanceMutex() {
     // CreateMutexW requests MUTEX_ALL_ACCESS when the object already exists.
     // Request only the rights required by the wait/release protocol so the
     // restricted same-user ACE is sufficient across integrity levels.
+    // 生命周期门禁需要和用户已安装、正在运行的实例并行验证待测二进制。
+    // 该显式内部参数为本进程生成独立 mutex；正常启动仍严格保持单实例。
+    std::wstring mutexName = MUTEX_NAME;
+    if (hasCommandLineFlag(L"--lifecycle-test-instance")) {
+        mutexName = L"Local\\EasyTools_LifecycleTest_" + std::to_wstring(GetCurrentProcessId());
+    }
     HANDLE mutex = CreateMutexExW(
-        &security, MUTEX_NAME, 0, SYNCHRONIZE | MUTEX_MODIFY_STATE);
+        &security, mutexName.c_str(), 0, SYNCHRONIZE | MUTEX_MODIFY_STATE);
     const DWORD error = GetLastError();
     LocalFree(descriptor);
     SetLastError(error);
@@ -1274,7 +1280,9 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
 
     // 全局搜索窗口与托盘均为核心高频入口：启动后立即在隐藏窗口中预热 WebView2，确保 0ms 秒开
     easy::ui::SearchWindow::instance().preload(GetModuleHandleW(nullptr));
-    if (hasCommandLineFlag(L"--debug") || hasCommandLineFlag(L"--console") || hasCommandLineFlag(L"-d")) {
+    // Debug/console startup still follows the on-demand service contract.
+    // Only an explicit request to open Search may count as user activation.
+    if (hasCommandLineFlag(L"--show-search")) {
         easy::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
     }
 

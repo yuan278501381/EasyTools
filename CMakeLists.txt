@@ -108,23 +108,9 @@ find_library(SWRESAMPLE_LIBRARY swresample)
 
 set(WEBVIEW2_VERSION "1.0.4022.49" CACHE STRING "Pinned Microsoft.Web.WebView2 SDK version")
 set(WEBVIEW2_DIR "${CMAKE_SOURCE_DIR}/packages/Microsoft.Web.WebView2.${WEBVIEW2_VERSION}")
-if(NOT EXISTS "${WEBVIEW2_DIR}")
-    find_program(NUGET_EXE nuget PATHS "${CMAKE_SOURCE_DIR}/packages")
-    if(NUGET_EXE)
-        execute_process(
-            COMMAND ${NUGET_EXE} install Microsoft.Web.WebView2 -Version ${WEBVIEW2_VERSION}
-                    -OutputDirectory "${CMAKE_SOURCE_DIR}/packages" -NonInteractive
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            RESULT_VARIABLE WEBVIEW2_INSTALL_RESULT
-        )
-        if(NOT WEBVIEW2_INSTALL_RESULT EQUAL 0)
-            message(FATAL_ERROR "NuGet failed to install Microsoft.Web.WebView2 ${WEBVIEW2_VERSION}")
-        endif()
-    endif()
-endif()
 if(NOT EXISTS "${WEBVIEW2_DIR}/build/native/include/WebView2.h")
     message(FATAL_ERROR
-        "Microsoft.Web.WebView2 ${WEBVIEW2_VERSION} is missing. Run deploy.ps1 or place nuget.exe in packages/.")
+        "Microsoft.Web.WebView2 ${WEBVIEW2_VERSION} is missing. Run deploy.ps1; CMake never downloads or executes build tools.")
 endif()
 
 # ── 文件收集 ──────────────────────────────────────────────────────────────────
@@ -360,18 +346,6 @@ if(BUILD_TESTING)
         user32 shell32 shlwapi ole32 UIAutomationCore)
 endif()
 
-# ── 纯 C 内核守卫 (Zero-CRT Watchdog) ──────────────────────────────────────────
-add_executable(EasyWatchdog src/c_core/watchdog.c)
-set_target_properties(EasyWatchdog PROPERTIES LINKER_LANGUAGE C)
-if(POLICY CMP0184)
-    # An empty literal unsets the property and restores CMake's Debug default;
-    # use an always-false generator expression to select no checks explicitly.
-    set_property(TARGET EasyWatchdog PROPERTY MSVC_RUNTIME_CHECKS
-        "$<$<BOOL:0>:UninitializedVariable>")
-endif()
-target_link_options(EasyWatchdog PRIVATE "/ENTRY:RawEntryPoint" "/NODEFAULTLIB" "/SUBSYSTEM:WINDOWS")
-target_link_libraries(EasyWatchdog PRIVATE kernel32 user32 advapi32)
-
 if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
     add_custom_command(TARGET EasyTools POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -382,6 +356,6 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/ui/dist")
 endif()
 
 # ── 安装规则 ──────────────────────────────────────────────────────────────────
-install(TARGETS EasyTools EasyTools_Service EasyCore EasyWatchdog RUNTIME DESTINATION bin)
+install(TARGETS EasyTools EasyTools_Service EasyCore RUNTIME DESTINATION bin)
 install(TARGETS Plugin_Gesture Plugin_Capture Plugin_Keycast Plugin_Search Plugin_DialogEnhancer RUNTIME DESTINATION bin/plugins)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/resources/" DESTINATION bin/resources)
