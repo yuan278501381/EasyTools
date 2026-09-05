@@ -9,7 +9,8 @@ import {
 } from 'react';
 import { bridgeRequest } from '../hooks/useBridge';
 import { isEmptyContentSyntax, nextQueryId, resolveDebounceMs } from '../searchScheduling';
-import type { SearchMode, SearchResponse, SearchResult } from './searchTypes';
+import type { SearchMode, SearchResponse, SearchResult, SearchSnapshot } from './searchTypes';
+import { parseQueryKeywords } from './searchUtils';
 
 interface UseSearchEngineOptions {
   query: string;
@@ -25,6 +26,7 @@ interface UseSearchEngineOptions {
 }
 
 interface UseSearchEngineResult {
+  snapshot: SearchSnapshot;
   results: SearchResult[];
   setResults: Dispatch<SetStateAction<SearchResult[]>>;
   selectedIndex: number;
@@ -69,7 +71,23 @@ export function useSearchEngine({
   customContentFormats,
   disabledContentFormats,
 }: UseSearchEngineOptions): UseSearchEngineResult {
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [snapshot, setSnapshot] = useState<SearchSnapshot>({
+    generationId: 0,
+    query: '',
+    keywords: [],
+    results: [],
+  });
+
+  const setResults: Dispatch<SetStateAction<SearchResult[]>> = useCallback((action) => {
+    setSnapshot((prev) => {
+      const nextResults = typeof action === 'function' ? action(prev.results) : action;
+      return {
+        ...prev,
+        results: nextResults,
+      };
+    });
+  }, []);
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [serviceAvailable, setServiceAvailable] = useState(true);
@@ -119,7 +137,24 @@ export function useSearchEngine({
 
   useEffect(() => {
     const trimmedQuery = query.trim();
-    if (!trimmedQuery || isComposing) {
+    if (!trimmedQuery) {
+      stopScanStopwatch();
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      startTransition(() => {
+        setSnapshot({
+          generationId: ++requestSequenceRef.current,
+          query: '',
+          keywords: [],
+          results: [],
+        });
+        setLoading(false);
+      });
+      return;
+    }
+    if (isComposing) {
       if (retryTimerRef.current !== null) {
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
@@ -133,15 +168,20 @@ export function useSearchEngine({
     const runQuery = async () => {
       if (sequence !== requestSequenceRef.current) return;
       if (isEmptyContentSyntax(trimmedQuery)) {
-        startTransition(() => setResults([]));
+        stopScanStopwatch(sequence);
+        startTransition(() => {
+          setSnapshot({
+            generationId: sequence,
+            query: trimmedQuery,
+            keywords: [],
+            results: [],
+          });
+        });
         setLoading(false);
         return;
       }
 
       const effectiveMode: SearchMode = activeCategory === 'content' ? 'content' : searchMode;
-      const isContentSearch = effectiveMode === 'content'
-        || trimmedQuery.toLowerCase().startsWith('content:')
-        || trimmedQuery.startsWith('内容:');
       const cacheKey = [
         effectiveMode,
         trimmedQuery,
@@ -156,7 +196,12 @@ export function useSearchEngine({
       const cached = resultCacheRef.current.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < RESULT_CACHE_TTL_MS) {
         startTransition(() => {
-          setResults(cached.results);
+          setSnapshot({
+            generationId: sequence,
+            query: trimmedQuery,
+            keywords: parseQueryKeywords(trimmedQuery),
+            results: cached.results,
+          });
           setSelectedIndex(0);
           setSearchElapsedMs(cached.elapsedMs);
           if (cached.totalIndexedFiles !== undefined) setTotalIndexedFiles(cached.totalIndexedFiles);
@@ -170,12 +215,6 @@ export function useSearchEngine({
         if (sequence === requestSequenceRef.current) setLoading(true);
       }, 80);
       startScanStopwatch(sequence);
-      if (isContentSearch) {
-        startTransition(() => {
-          setResults([]);
-          setSelectedIndex(0);
-        });
-      }
 
       const excludes = excludeGitAndModules
         ? ['$Recycle.Bin', 'System Volume Information', 'node_modules', '.git', '__pycache__', 'npm-cache', 'go-build', '.gradle', 'pip\\cache']
@@ -237,14 +276,28 @@ export function useSearchEngine({
         retryCountRef.current = 0;
         startTransition(() => {
           setIsServiceStarting(false);
-          setResults(Array.isArray(response.results) ? response.results : []);
+          setSnapshot({
+            generationId: sequence,
+            query: trimmedQuery,
+            keywords: parseQueryKeywords(trimmedQuery),
+            results: Array.isArray(response.results) ? response.results : [],
+          });
           setSelectedIndex(0);
           if (response.totalIndexedFiles !== undefined) setTotalIndexedFiles(response.totalIndexedFiles);
           if (response.elapsedMs !== undefined) setSearchElapsedMs(response.elapsedMs);
           if (response.available !== undefined) setServiceAvailable(response.available);
         });
       } catch {
-        if (sequence === requestSequenceRef.current) startTransition(() => setResults([]));
+        if (sequence === requestSequenceRef.current) {
+          startTransition(() => {
+            setSnapshot({
+              generationId: sequence,
+              query: trimmedQuery,
+              keywords: parseQueryKeywords(trimmedQuery),
+              results: [],
+            });
+          });
+        }
       } finally {
         window.clearTimeout(loadingTimer);
         if (sequence === requestSequenceRef.current) {
@@ -286,7 +339,8 @@ export function useSearchEngine({
   ]);
 
   return {
-    results,
+    snapshot,
+    results: snapshot.results,
     setResults,
     selectedIndex,
     setSelectedIndex,

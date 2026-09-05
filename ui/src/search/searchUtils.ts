@@ -91,3 +91,26 @@ export function getSortedResults(
     return left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' });
   });
 }
+
+/**
+ * 从原始查询文本中提取用于行高亮的核心关键词列表，剔除语法前缀与特殊修饰符。
+ */
+export function parseQueryKeywords(query: string): string[] {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const tokens = trimmed.split(/[\s|]+/).filter(Boolean);
+  const keywords: string[] = [];
+  for (const token of tokens) {
+    let clean = token.replace(/^!/, '');
+    const colonPos = clean.indexOf(':');
+    if (colonPos !== -1 && colonPos < 8) {
+      clean = clean.substring(colonPos + 1);
+    }
+    clean = clean.replace(/[*?"]/g, '').trim();
+    if (clean.length > 0 && !keywords.includes(clean)) {
+      keywords.push(clean);
+    }
+  }
+  return keywords;
+}
+

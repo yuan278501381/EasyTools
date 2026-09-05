@@ -50,8 +50,14 @@ export const SearchEmptyState: React.FC<SearchEmptyStateProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  const isContentSearch = activeCategory === 'content'
+    || query.trim().toLowerCase().startsWith('content:')
+    || (query.trim().toLowerCase().startsWith('c:') && !query.trim().toLowerCase().startsWith('c:\\') && !query.trim().toLowerCase().startsWith('c:/'))
+    || query.trim().startsWith('内容:');
+
   // 1. 全息深度内容检索加载舱 (Cold Content Scan Holographic State)
-  if (!isInitialIndexing && !isServiceStarting && loading && ((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) || sortedResults.length === 0)) {
+  // 严格限定仅在真正的内容检索扫描且结果为空时展示全盘雷达波，普通搜索打字绝不炸屏
+  if (!isInitialIndexing && !isServiceStarting && loading && isContentSearch && sortedResults.length === 0) {
     return (
       <div className="search-empty-container search-empty-container--deep-scan" role="status">
         <div className="search-deep-scan-radar">
@@ -170,7 +176,7 @@ export const SearchEmptyState: React.FC<SearchEmptyStateProps> = ({
             <span>{t('search.searchContentDirectly', { query: query.trim(), defaultValue: `Search full document and code contents for: "${query.trim()}"` })}</span>
           </button>
         )}
-        {(query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:') || activeCategory === 'content') && (
+        {isContentSearch && (
           <div className="search-empty-content-diagnostic">
             <span>{t('search.contentZeroResultTip1', 'Click top-right Customize to add custom file extensions (e.g. .vue, .ts, .log)')}</span>
             <span>{t('search.contentZeroResultTip2', 'Ensure target files are not inside excluded directories (e.g. node_modules, .git)')}</span>

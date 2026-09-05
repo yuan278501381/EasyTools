@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Search,
@@ -54,6 +54,17 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
   setIsComposing,
 }) => {
   const { t } = useTranslation();
+  const [localValue, setLocalValue] = useState(query);
+  const isComposingRef = useRef(false);
+
+  // 外部 query 变化时（如历史词点击、清空、前缀插入等），若未在组字阶段则同步至本地输入框
+  useEffect(() => {
+    if (!isComposingRef.current) {
+      setLocalValue(query);
+    }
+  }, [query]);
+
+  const isLoading = loading || isInitialIndexing || isServiceStarting;
 
   return (
     <div 
@@ -78,12 +89,25 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
             ? t('search.placeholderContentOnly', 'Full-Text Search: Search inside documents and code... [F1 Syntax]')
             : t('search.placeholder', 'Search filename, wildcard (*.txt), ext:png, or keywords... [Use content: for full-text]')
         }
-        value={query}
-        onChange={(event) => onUpdateQuery(event.target.value)}
-        onCompositionStart={() => setIsComposing(true)}
+        value={localValue}
+        onChange={(event) => {
+          const val = event.target.value;
+          setLocalValue(val);
+          // Windows TSF / IME 组字隔离：组字阶段完全拦截向上层 React 状态总线广播
+          if (!isComposingRef.current) {
+            onUpdateQuery(val);
+          }
+        }}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+          setIsComposing(true);
+        }}
         onCompositionEnd={(event) => {
+          isComposingRef.current = false;
           setIsComposing(false);
-          onUpdateQuery(event.currentTarget.value);
+          const val = event.currentTarget.value;
+          setLocalValue(val);
+          onUpdateQuery(val);
         }}
         role="combobox"
         aria-expanded={resultsCount > 0}
@@ -91,7 +115,14 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
         aria-activedescendant={hasSelectedResult ? `search-result-${selectedIndex}` : undefined}
         spellCheck={false}
       />
-      {(loading || isInitialIndexing || isServiceStarting) && <span className="search-loading" aria-label={t('common.loading', 'Loading...')} />}
+
+      {/* 零 CLS 几何锁定加载插槽：插槽恒定占据空间，加载图标仅淡入淡出，绝对不引起按钮任何横向位移 */}
+      <div className="search-loading-slot" aria-hidden={!isLoading}>
+        <span
+          className={`search-loading ${isLoading ? 'search-loading--visible' : ''}`}
+          aria-label={t('common.loading', 'Loading...')}
+        />
+      </div>
       
       <button
         className={`search-help-btn ${isPinned ? 'search-help-btn--pinned' : ''}`}
@@ -129,6 +160,12 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
       >
         <HelpCircle size={18} />
       </button>
+
+      {/* 嵌入 1.5px 底部微型流光加载线 */}
+      <div
+        className={`search-header-loading-bar ${isLoading ? 'search-header-loading-bar--active' : ''}`}
+        aria-hidden="true"
+      />
     </div>
   );
 };

@@ -459,6 +459,9 @@ void SearchWindow::initializeWebView2() {
 LRESULT CALLBACK SearchWindow::windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     auto& inst = SearchWindow::instance();
     switch (uMsg) {
+        case WM_ERASEBKGND:
+            // 拦截背景擦除，WebView2 DirectComposition 完全接管绘制，消除偶发底衬微闪
+            return 1;
         case WM_NCCALCSIZE: {
             if (wParam) {
                 return 0; // 消除系统默认边框占用，使 WebView2 客户区占满整个圆角窗口

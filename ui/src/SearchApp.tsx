@@ -161,6 +161,7 @@ export default function SearchApp() {
   }, [query]);
 
   const {
+    snapshot,
     results,
     setResults,
     selectedIndex,
@@ -634,25 +635,6 @@ export default function SearchApp() {
     }
   }, [refreshDbStats, refreshHistory, t]);
 
-  const queryKeywords = useMemo(() => {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-    const tokens = trimmed.split(/[\s|]+/).filter(Boolean);
-    const keywords: string[] = [];
-    for (const token of tokens) {
-      let clean = token.replace(/^!/, '');
-      const colonPos = clean.indexOf(':');
-      if (colonPos !== -1 && colonPos < 8) {
-        clean = clean.substring(colonPos + 1);
-      }
-      clean = clean.replace(/[*?"]/g, '').trim();
-      if (clean.length > 0 && !keywords.includes(clean)) {
-        keywords.push(clean);
-      }
-    }
-    return keywords;
-  }, [query]);
-
   useEffect(() => {
     void bridgeRequest<{ width?: number; height?: number }>('search.getWindowSize')
       .then((res) => {
@@ -773,8 +755,8 @@ export default function SearchApp() {
   }, [showSortMenu, showViewSettings]);
 
   const sortedResults = useMemo(() => {
-    return getSortedResults(results, sortField, sortDirection, foldersFirst, groupByType);
-  }, [results, sortField, sortDirection, foldersFirst, groupByType]);
+    return getSortedResults(snapshot.results, sortField, sortDirection, foldersFirst, groupByType);
+  }, [snapshot.results, sortField, sortDirection, foldersFirst, groupByType]);
 
   const totalResultSize = useMemo(() => {
     return sortedResults.reduce((acc, item) => acc + (item.isDirectory ? 0 : (Number(item.size) || 0)), 0);
@@ -1214,23 +1196,26 @@ export default function SearchApp() {
         />
 
         {/* ── 虚拟列表结果展示 ── */}
-        {!isInitialIndexing && !isServiceStarting && !((activeCategory === 'content' || query.trim().toLowerCase().startsWith('content:') || query.trim().startsWith('内容:')) && loading) && sortedResults.length > 0 && (
-          <VirtualSearchResults
-            key={`${density}:${iconStyle}:${query}:${sortField}:${sortDirection}:${sortedResults.length}:${sortedResults[0]?.path ?? ''}`}
-            results={sortedResults}
-            selectedIndex={selectedIndex}
-            density={density}
-            iconStyle={iconStyle}
-            iconCache={nativeIconCache}
-            onRequestIcon={fetchNativeIcon}
-            columns={columnLayout}
-            queryKeywords={queryKeywords}
-            onHover={handleRowHover}
-            onSelect={handleRowSelect}
-            onOpen={handleRowOpen}
-            onContextMenu={handleRowContextMenu}
-          />
-        )}
+        {/* ── 虚拟列表结果展示 (常驻单例稳定挂载) ── */}
+        <VirtualSearchResults
+          results={sortedResults}
+          selectedIndex={selectedIndex}
+          density={density}
+          iconStyle={iconStyle}
+          iconCache={nativeIconCache}
+          onRequestIcon={fetchNativeIcon}
+          columns={columnLayout}
+          queryKeywords={snapshot.keywords}
+          onHover={handleRowHover}
+          onSelect={handleRowSelect}
+          onOpen={handleRowOpen}
+          onContextMenu={handleRowContextMenu}
+          hidden={
+            isInitialIndexing ||
+            isServiceStarting ||
+            sortedResults.length === 0
+          }
+        />
 
         <SearchFooter
           loading={loading}

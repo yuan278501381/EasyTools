@@ -77,6 +77,16 @@ export function useSearchKeyboard({
   }, [setSelectedIndex, sortedResults.length]);
 
   const handleUnifiedKeyDown = useCallback((event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
+    // Windows TSF / IME 组字输入期间，拦截所有全局键盘导航与窗口隐藏逻辑，保障输入法选词/取消/退格 100% 独占
+    if (
+      isComposing ||
+      ('isComposing' in event && event.isComposing) ||
+      ('keyCode' in event && (event.keyCode === 229 || event.which === 229)) ||
+      event.key === 'Process'
+    ) {
+      return;
+    }
+
     const target = event.target as HTMLElement | null;
     const isSearchInput = target === inputRef.current;
     const isOtherInput = target && target !== inputRef.current && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);

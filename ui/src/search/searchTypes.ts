@@ -31,6 +31,17 @@ export interface SearchResult {
   frecencyScore?: number;
 }
 
+/**
+ * 代际强锁步快照：将检索结果、对应查询词与高亮分词在同一帧原子提交，
+ * 消除异步结果与打字高亮分词错位导致的频闪。
+ */
+export interface SearchSnapshot {
+  generationId: number;
+  query: string;
+  keywords: string[];
+  results: SearchResult[];
+}
+
 export interface SearchResponse {
   results: SearchResult[];
   available: boolean;

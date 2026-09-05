@@ -147,4 +147,27 @@ describe('VirtualSearchResults', () => {
     view.unmount();
     expect(rowObserver!.disconnect).toHaveBeenCalledTimes(1);
   });
+
+  it('supports persistent singleton mount with hidden prop', () => {
+    const items = results(10);
+    const view = render(<VirtualSearchResults {...props(items)} hidden={true} />);
+    const list = document.getElementById('search-results')!;
+    expect(list).not.toBeNull();
+    expect(list.style.display).toBe('none');
+
+    view.rerender(<VirtualSearchResults {...props(items)} hidden={false} />);
+    expect(list.style.display).toBe('');
+  });
+
+  it('resets scroll position cleanly when results change to a new list', () => {
+    const itemsA = results(100);
+    const view = render(<VirtualSearchResults {...props(itemsA, 50)} />);
+    const list = document.getElementById('search-results')!;
+    list.scrollTop = 1200;
+
+    const itemsB = results(5);
+    view.rerender(<VirtualSearchResults {...props(itemsB, 0)} />);
+    expect(list.scrollTop).toBe(0);
+    expect(document.getElementById('search-result-0')).not.toBeNull();
+  });
 });

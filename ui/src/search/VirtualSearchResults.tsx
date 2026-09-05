@@ -29,6 +29,7 @@ export interface VirtualSearchResultsProps {
   onSelect: (index: number) => void;
   onOpen: (result: SearchResult) => void;
   onContextMenu: (event: ReactMouseEvent, index: number, result: SearchResult) => void;
+  hidden?: boolean;
 }
 
 /** A dynamic-height virtual list that measures only rows near the viewport. */
@@ -45,12 +46,25 @@ export function VirtualSearchResults({
   onSelect,
   onOpen,
   onContextMenu,
+  hidden = false,
 }: VirtualSearchResultsProps) {
   const listRef = useRef<HTMLUListElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(480);
   const [layoutRevision, setLayoutRevision] = useState(0);
+
+  // 渲染帧同步重置：当搜索结果集或显示状态变更且首项选中时，立即将滚动偏移同步归零，彻底消灭首帧越界空白与闪跳
+  const [prevResults, setPrevResults] = useState(results);
+  const [prevHidden, setPrevHidden] = useState(hidden);
+  if (prevResults !== results || prevHidden !== hidden) {
+    setPrevResults(results);
+    setPrevHidden(hidden);
+    if (selectedIndex === 0 && scrollTop !== 0) {
+      setScrollTop(0);
+    }
+  }
+
   const estimatedHeight = density === 'compact' ? 44 : density === 'comfortable' ? 76 : 60;
   const layout = useMemo(
     () => new DynamicRowLayout(results.length, estimatedHeight),
@@ -76,13 +90,15 @@ export function VirtualSearchResults({
   }, []);
 
   useLayoutEffect(() => {
+    if (hidden) return;
     updateViewport();
     const observer = new ResizeObserver(updateViewport);
     if (listRef.current) observer.observe(listRef.current);
     return () => observer.disconnect();
-  }, [updateViewport]);
+  }, [hidden, updateViewport]);
 
   useLayoutEffect(() => {
+    if (hidden) return;
     let active = true;
     const observer = new ResizeObserver((entries) => {
       if (!active) return;
@@ -101,7 +117,7 @@ export function VirtualSearchResults({
       observer.disconnect();
       observerRef.current = null;
     };
-  }, [layout]);
+  }, [hidden, layout]);
 
   const measureRef = useCallback((element: HTMLLIElement | null) => {
     const observer = observerRef.current;
@@ -111,22 +127,25 @@ export function VirtualSearchResults({
   }, []);
 
   useLayoutEffect(() => {
+    if (hidden) return;
     const list = listRef.current;
     if (!list || selectedIndex < 0 || selectedIndex >= results.length) return;
     const itemTop = layout.offsetOf(selectedIndex);
     const itemBottom = layout.offsetOf(selectedIndex + 1);
     const visibleBottom = list.scrollTop + list.clientHeight;
     let nextScrollTop = list.scrollTop;
-    if (itemTop < list.scrollTop) {
+    if (selectedIndex === 0) {
+      nextScrollTop = 0;
+    } else if (itemTop < list.scrollTop) {
       nextScrollTop = itemTop;
-    } else if (itemBottom > visibleBottom) {
+    } else if (list.clientHeight > 0 && itemBottom > visibleBottom) {
       nextScrollTop = itemBottom - list.clientHeight;
     }
     if (nextScrollTop !== list.scrollTop) {
       list.scrollTop = nextScrollTop;
       setScrollTop(nextScrollTop);
     }
-  }, [layout, layoutRevision, results.length, selectedIndex]);
+  }, [hidden, layout, layoutRevision, results.length, selectedIndex]);
 
   const handleScroll = useCallback((event: UIEvent<HTMLUListElement>) => {
     setScrollTop(event.currentTarget.scrollTop);
@@ -147,6 +166,7 @@ export function VirtualSearchResults({
       ref={listRef}
       className={`search-results search-results--virtualized density-${density}`}
       role="listbox"
+      style={{ display: hidden ? 'none' : undefined }}
       onScroll={handleScroll}
     >
       <li aria-hidden="true" role="presentation" style={{ height: layout.totalHeight() }} />
