@@ -16,6 +16,13 @@ HWND currentProcessSearchWindow() {
     const DWORD currentProcessId = GetCurrentProcessId();
     HWND after = nullptr;
     while ((after = FindWindowExW(
+                nullptr, after, L"Tools3000_NativeSearchWindow", nullptr)) != nullptr) {
+        DWORD ownerProcessId = 0;
+        GetWindowThreadProcessId(after, &ownerProcessId);
+        if (ownerProcessId == currentProcessId) return after;
+    }
+    after = nullptr;
+    while ((after = FindWindowExW(
                 nullptr, after, L"Tools3000_SearchWindow", nullptr)) != nullptr) {
         DWORD ownerProcessId = 0;
         GetWindowThreadProcessId(after, &ownerProcessId);

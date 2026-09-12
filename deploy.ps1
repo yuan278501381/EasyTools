@@ -313,19 +313,73 @@ Write-Log "准备 C++ 构建环境..."
 
 # 动态挂载 VS 开发环境工具链
 if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue) -or -not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
-    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path $vswhere) {
+    $pf86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)') }
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles') }
+
+    $vswhere = $null
+    $vswhereCmd = Get-Command "vswhere.exe" -ErrorAction SilentlyContinue
+    if ($vswhereCmd) {
+        $vswhere = $vswhereCmd.Source
+    } elseif ($pf86) {
+        $cand = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand) { $vswhere = $cand }
+    }
+    if (-not $vswhere) {
+        $cand64 = "C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand64) { $vswhere = $cand64 }
+    }
+
+    if ($vswhere -and (Test-Path -LiteralPath $vswhere)) {
         $VsRequiredComponents = @("Microsoft.VisualStudio.Workload.VCTools")
         if ($Arch -eq "arm64") { $VsRequiredComponents += "Microsoft.VisualStudio.Component.VC.Tools.ARM64" }
-        $vsPath = & $vswhere -latest -products * -requires $VsRequiredComponents -property installationPath
+        $rawVsPath = & $vswhere -latest -products * -requires $VsRequiredComponents -property installationPath
+        if ($rawVsPath) {
+            $vsPath = ($rawVsPath | Where-Object { $_ -and -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+            if ($vsPath) { $vsPath = $vsPath.Trim() }
+        }
         if ($vsPath) {
-            $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-            if (Test-Path $devShell) {
-                Import-Module $devShell
-                Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
-                    -DevCmdArguments "-arch=$Arch -host_arch=x64" | Out-Null
-                Write-Log "✅ 成功挂载 VS $Arch 编译环境 ($vsPath)!"
+            $devShell = Join-Path ([string]$vsPath) "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+            if (Test-Path -LiteralPath $devShell) {
+                try {
+                    Import-Module $devShell -ErrorAction SilentlyContinue
+                    if (Get-Command "Enter-VsDevShell" -ErrorAction SilentlyContinue) {
+                        Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
+                            -DevCmdArguments "-arch=$Arch -host_arch=x64" -ErrorAction SilentlyContinue | Out-Null
+                        Write-Log "✅ 成功挂载 VS $Arch 编译环境 ($vsPath)!"
+                    }
+                } catch {
+                    Write-Log "挂载 Visual Studio 开发环境时发生异常: $_" "WARN"
+                }
             }
+        }
+    }
+}
+
+if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue) -and $vsPath) {
+    $vsCMakeDir = Join-Path ([string]$vsPath) "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+    if (Test-Path -LiteralPath (Join-Path $vsCMakeDir "cmake.exe")) {
+        $env:PATH = "$vsCMakeDir;$env:PATH"
+        Write-Log "从 Visual Studio 中挂载 CMake: $vsCMakeDir"
+    }
+}
+
+if (-not (Get-Command "cmake" -ErrorAction SilentlyContinue)) {
+    $candidates = @()
+    if ($pf86) {
+        $candidates += Join-Path $pf86 "Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+        $candidates += Join-Path $pf86 "Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+    }
+    $candidates += @(
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin",
+        "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin",
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+    )
+    foreach ($cand in $candidates) {
+        if (Test-Path -LiteralPath (Join-Path $cand "cmake.exe")) {
+            $env:PATH = "$cand;$env:PATH"
+            Write-Log "从备选路径挂载 CMake: $cand"
+            break
         }
     }
 }
@@ -568,18 +622,36 @@ if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
 
 $RedistVsPath = $vsPath
 if (-not $RedistVsPath) {
-    $pf86 = ${env:ProgramFiles(x86)}
-    if (-not $pf86) { $pf86 = $env:ProgramFiles }
-    $vswhere = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path $vswhere) {
-        $RedistVsPath = & $vswhere -latest -products * `
+    $pf86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)') }
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles') }
+
+    $vswhere = $null
+    $vswhereCmd = Get-Command "vswhere.exe" -ErrorAction SilentlyContinue
+    if ($vswhereCmd) {
+        $vswhere = $vswhereCmd.Source
+    } elseif ($pf86) {
+        $cand = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand) { $vswhere = $cand }
+    }
+    if (-not $vswhere) {
+        $cand64 = "C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand64) { $vswhere = $cand64 }
+    }
+
+    if ($vswhere -and (Test-Path -LiteralPath $vswhere)) {
+        $rawRedistVsPath = & $vswhere -latest -products * `
             -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
+        if ($rawRedistVsPath) {
+            $RedistVsPath = ($rawRedistVsPath | Where-Object { $_ -and -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+            if ($RedistVsPath) { $RedistVsPath = $RedistVsPath.Trim() }
+        }
     }
 }
-if ($RedistVsPath) {
-    $MsVcRedistRoot = Join-Path $RedistVsPath "VC\Redist\MSVC"
-    if (Test-Path $MsVcRedistRoot) {
-        $VcRedistRoots += Get-ChildItem $MsVcRedistRoot -Directory |
+if ($RedistVsPath -and (Test-Path -LiteralPath $RedistVsPath)) {
+    $MsVcRedistRoot = Join-Path ([string]$RedistVsPath) "VC\Redist\MSVC"
+    if (Test-Path -LiteralPath $MsVcRedistRoot) {
+        $VcRedistRoots += Get-ChildItem -LiteralPath $MsVcRedistRoot -Directory |
             Sort-Object Name -Descending | ForEach-Object { $_.FullName }
     }
 }

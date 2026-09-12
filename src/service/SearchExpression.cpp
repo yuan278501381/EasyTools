@@ -1,4 +1,4 @@
-﻿#include "SearchExpression.h"
+#include "SearchExpression.h"
 #include "SearchRequestLimits.h"
 #include "content/ContentSearchEngine.h"
 #include <algorithm>
@@ -9,7 +9,11 @@ std::wstring SearchExpression::normalize(std::wstring_view text) {
     std::wstring result;
     result.reserve(text.size());
     for (wchar_t ch : text) {
-        result.push_back(static_cast<wchar_t>(std::towlower(ch)));
+        if (ch == L'/') {
+            result.push_back(L'\\');
+        } else {
+            result.push_back(static_cast<wchar_t>(std::towlower(ch)));
+        }
     }
     return result;
 }
@@ -233,7 +237,7 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
     std::vector<std::wstring> rawTokens;
     size_t i = 0;
     while (i < workingQuery.size()) {
-        while (i < workingQuery.size() && iswspace(workingQuery[i])) ++i;
+        while (i < workingQuery.size() && (iswspace(workingQuery[i]) || workingQuery[i] == L'　' || workingQuery[i] == 0x3000)) ++i;
         if (i >= workingQuery.size()) break;
 
         if (workingQuery[i] == L'"') {
@@ -243,7 +247,7 @@ SearchExpression SearchExpression::parse(const std::wstring& query) {
             if (i < workingQuery.size()) ++i;
         } else {
             size_t start = i;
-            while (i < workingQuery.size() && !iswspace(workingQuery[i])) ++i;
+            while (i < workingQuery.size() && !iswspace(workingQuery[i]) && workingQuery[i] != L'　' && workingQuery[i] != 0x3000) ++i;
             rawTokens.push_back(workingQuery.substr(start, i - start));
         }
     }

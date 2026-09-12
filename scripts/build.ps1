@@ -169,20 +169,45 @@ function Invoke-BuildArch {
 
     $CMakeCommand = Get-Command "cmake.exe" -ErrorAction SilentlyContinue
     $cmakeExe = if ($CMakeCommand) { $CMakeCommand.Source } else { $null }
-    $VsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+
+    $pf86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)') }
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles') }
+
+    $VsWhere = $null
+    $VsWhereCmd = Get-Command "vswhere.exe" -ErrorAction SilentlyContinue
+    if ($VsWhereCmd) {
+        $VsWhere = $VsWhereCmd.Source
+    } elseif ($pf86) {
+        $cand = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand) { $VsWhere = $cand }
+    }
+    if (-not $VsWhere) {
+        $cand64 = "C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $cand64) { $VsWhere = $cand64 }
+    }
+
     $VsInstallationPath = $null
-    if (-not $cmakeExe -and (Test-Path -LiteralPath $VsWhere)) {
-        $VsInstallationPath = & $VsWhere -latest -products * `
+    if (-not $cmakeExe -and $VsWhere -and (Test-Path -LiteralPath $VsWhere)) {
+        $rawVsInst = & $VsWhere -latest -products * `
             -requires Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
-        if ($LASTEXITCODE -eq 0 -and $VsInstallationPath) {
-            $VsCMake = Join-Path ([string]$VsInstallationPath) `
-                "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-            if (Test-Path -LiteralPath $VsCMake) { $cmakeExe = $VsCMake }
+        if ($LASTEXITCODE -eq 0 -and $rawVsInst) {
+            $VsInstallationPath = ($rawVsInst | Where-Object { $_ -and -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+            if ($VsInstallationPath) {
+                $VsInstallationPath = $VsInstallationPath.Trim()
+                $VsCMake = Join-Path ([string]$VsInstallationPath) `
+                    "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+                if (Test-Path -LiteralPath $VsCMake) { $cmakeExe = $VsCMake }
+            }
         }
     }
     if (-not $cmakeExe) {
-        $CMakeCandidates = @(
-            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+        $CMakeCandidates = @()
+        if ($pf86) {
+            $CMakeCandidates += Join-Path $pf86 "Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+            $CMakeCandidates += Join-Path $pf86 "Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+        }
+        $CMakeCandidates += @(
             "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
             "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
             "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
@@ -344,11 +369,15 @@ function Invoke-BuildArch {
         $RedistVsPath = $null
         if ($TargetArch -eq 'arm64') {
             $RedistVsPath = $Arm64Toolchain.InstallationPath
-        } elseif (Test-Path -LiteralPath $VsWhere) {
-            $RedistVsPath = & $VsWhere -latest -products * `
+        } elseif ($VsWhere -and (Test-Path -LiteralPath $VsWhere)) {
+            $rawRedist = & $VsWhere -latest -products * `
                 -requires Microsoft.VisualStudio.Workload.VCTools -property installationPath
+            if ($rawRedist) {
+                $RedistVsPath = ($rawRedist | Where-Object { $_ -and -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+                if ($RedistVsPath) { $RedistVsPath = $RedistVsPath.Trim() }
+            }
         }
-        if ($RedistVsPath) {
+        if ($RedistVsPath -and (Test-Path -LiteralPath $RedistVsPath)) {
             $MsVcRedistRoot = Join-Path ([string]$RedistVsPath) "VC\Redist\MSVC"
             if (Test-Path -LiteralPath $MsVcRedistRoot) {
                 $VcRedistRoots += Get-ChildItem -LiteralPath $MsVcRedistRoot -Directory |

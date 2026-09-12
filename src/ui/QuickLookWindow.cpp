@@ -1,8 +1,10 @@
-﻿#include "ui/QuickLookWindow.h"
+#include "ui/QuickLookWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/utils/DpiUtils.h"
 #include "core/utils/WinUtils.h"
+#include "core/config/ConfigManager.h"
+#include "ui/native/app/NativeQuickLookApp.h"
 #include "ui/WebViewEnvironmentManager.h"
 #include "ui/WebViewDpi.h"
 #include "ui/WebViewWindowStyle.h"
@@ -40,6 +42,10 @@ namespace tools3000::ui {
 static constexpr const wchar_t* QUICKLOOK_WINDOW_CLASS = L"Tools3000_QuickLookWindow";
 
 namespace {
+
+inline bool isNativeBackend() {
+    return tools3000::core::ConfigManager::instance().get<std::string>("/general/uiBackend", "native") == "native";
+}
 
 std::string formatFileSize(uintmax_t bytes) {
     if (bytes < 1024) return std::to_string(bytes) + " B";
@@ -201,6 +207,12 @@ void QuickLookWindow::show(const std::wstring& filePath, HINSTANCE hInstance) {
     m_currentFilePath = filePath;
     m_pendingFilePath = filePath;
 
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeQuickLookApp::instance().show(filePath, hInstance);
+        m_visible = true;
+        return;
+    }
+
     if (m_hwnd && IsWindow(m_hwnd)) {
         updatePlacement();
         ShowWindow(m_hwnd, SW_SHOW);
@@ -237,6 +249,11 @@ void QuickLookWindow::previewFile(const std::wstring& filePath) {
     m_currentFilePath = filePath;
     m_pendingFilePath = filePath;
 
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeQuickLookApp::instance().previewFile(filePath);
+        return;
+    }
+
     if (m_webView && m_webViewReady) {
         json payload = generateFilePreviewPayload(filePath);
         std::string envelope = R"({"type":"event","event":"quicklook.fileChanged","data":)" + payload.dump() + "}";
@@ -246,6 +263,12 @@ void QuickLookWindow::previewFile(const std::wstring& filePath) {
 }
 
 void QuickLookWindow::hide() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeQuickLookApp::instance().hide();
+        m_visible = false;
+        tools3000::core::WinUtils::trimWorkingSet();
+        return;
+    }
     if (m_hwnd) {
         ShowWindow(m_hwnd, SW_HIDE);
         m_visible = false;
@@ -255,10 +278,16 @@ void QuickLookWindow::hide() {
 }
 
 bool QuickLookWindow::isVisible() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeQuickLookApp::instance().isVisible();
+    }
     return m_visible.load() && m_hwnd && IsWindowVisible(m_hwnd);
 }
 
 void QuickLookWindow::destroy() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeQuickLookApp::instance().destroy();
+    }
     ++m_generation;
     if (m_controller) {
         m_controller->Close();

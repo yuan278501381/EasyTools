@@ -189,6 +189,9 @@ bool ConfigManager::save() const {
 }
 
 bool ConfigManager::writeSnapshotLocked(const json& snapshot) const {
+    if (m_configFilePath.empty()) {
+        return true;
+    }
     try {
         const std::string payload = snapshot.dump(2);
         if (WinUtils::atomicWriteFileWithFlush(m_configFilePath.wstring(), payload)) {

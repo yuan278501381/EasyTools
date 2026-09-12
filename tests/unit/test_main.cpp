@@ -169,6 +169,7 @@ using namespace tools3000::gesture;
 #include "test_dialog.inc"
 #include "test_remote.inc"
 #include "test_keycast_translator.inc"
+#include "test_native_ui.inc"
 
 TEST(UiThreadJoinTest, PumpsCrossThreadSentMessagesDuringShutdown) {
     HWND window = CreateWindowExW(

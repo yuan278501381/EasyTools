@@ -1,4 +1,4 @@
-﻿#include "ui/SearchWindow.h"
+#include "ui/SearchWindow.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
 #include "core/config/ConfigManager.h"
@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <chrono>
 #include "core/utils/WinUtils.h"
+#include "ui/native/app/NativeSearchApp.h"
 #include "../resource.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -34,6 +35,10 @@ static constexpr const wchar_t* SEARCH_WINDOW_CLASS = L"Tools3000_SearchWindow";
 static constexpr UINT WM_SEARCH_VERIFY_DEACTIVATED = WM_APP + 42;
 
 namespace {
+
+inline bool isNativeBackend() {
+    return tools3000::core::ConfigManager::instance().get<std::string>("/general/uiBackend", "native") == "native";
+}
 
 LRESULT CALLBACK WebViewResizeSubclassProc(
     HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
@@ -77,7 +82,15 @@ SearchWindow& SearchWindow::instance() {
     return inst;
 }
 
+SearchWindow::~SearchWindow() {
+    destroy();
+}
+
 void SearchWindow::setWindowSize(int baseWidth, int baseHeight, bool forceCenter) {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().setWindowSize(baseWidth, baseHeight, forceCenter);
+        return;
+    }
     baseWidth = (std::clamp)(baseWidth, 500, 2400);
     baseHeight = (std::clamp)(baseHeight, 400, 1600);
     tools3000::core::ConfigManager::instance().set("/search/windowWidth", baseWidth);
@@ -139,6 +152,10 @@ void SearchWindow::setWindowSize(int baseWidth, int baseHeight, bool forceCenter
 
 void SearchWindow::setPinned(bool pinned) {
     m_isPinned.store(pinned);
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().setPinned(pinned);
+        return;
+    }
     if (!m_hwnd || !IsWindow(m_hwnd)) return;
     const DWORD winThread = GetWindowThreadProcessId(m_hwnd, nullptr);
     if (winThread != 0 && winThread != GetCurrentThreadId()) {
@@ -151,14 +168,28 @@ void SearchWindow::setPinned(bool pinned) {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
+bool SearchWindow::isPinned() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSearchApp::instance().isPinned();
+    }
+    return m_isPinned.load();
+}
+
 std::pair<int, int> SearchWindow::getWindowSize() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSearchApp::instance().getWindowSize();
+    }
     const int w = tools3000::core::ConfigManager::instance().get<int>("/search/windowWidth", SearchWindowStyle::BaseWidth);
     const int h = tools3000::core::ConfigManager::instance().get<int>("/search/windowHeight", SearchWindowStyle::BaseHeight);
     return {w, h};
 }
 
 void SearchWindow::focusSearchIfVisible() {
-    if (!m_visible.load()) return;
+    if (!isVisible()) return;
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().focusSearchIfVisible();
+        return;
+    }
     if (m_controller) {
         m_controller->put_IsVisible(TRUE);
         m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
@@ -170,6 +201,10 @@ void SearchWindow::focusSearchIfVisible() {
 }
 
 void SearchWindow::preload(HINSTANCE hInstance) {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().preload(hInstance);
+        return;
+    }
     if (m_hwnd && IsWindow(m_hwnd)) return;
     if (!createWindow(hInstance)) {
         LOG_ERROR("SearchWindow: preload createWindow failed");
@@ -192,6 +227,14 @@ void SearchWindow::show(HINSTANCE hInstance) {
     tools3000::core::MessageBridge::instance().handleMessage(
         R"({"id":0,"method":"search.windowShown","params":{}})");
     warmUpSearchService();
+
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().show(hInstance);
+        m_visible = true;
+        recordShown();
+        return;
+    }
+
     if (m_hwnd && IsWindow(m_hwnd)) {
         if (m_visible) {
             updatePlacement();
@@ -227,6 +270,13 @@ void SearchWindow::show(HINSTANCE hInstance) {
 }
 
 void SearchWindow::hide() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().hide();
+        m_visible = false;
+        tools3000::core::MessageBridge::instance().handleMessageAsync(
+            R"({"id":0,"method":"search.windowHidden","params":{}})", [](std::string) {});
+        return;
+    }
     if (!m_hwnd || !m_visible) return;
     ShowWindow(m_hwnd, SW_HIDE);
     m_visible = false;
@@ -237,10 +287,23 @@ void SearchWindow::hide() {
 }
 
 bool SearchWindow::isVisible() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSearchApp::instance().isVisible();
+    }
     return m_visible;
 }
 
+HWND SearchWindow::getHwnd() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSearchApp::instance().hwnd();
+    }
+    return m_hwnd;
+}
+
 void SearchWindow::destroy() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSearchApp::instance().destroy();
+    }
     m_suspendController.abandon();
     m_webView = nullptr;
     m_controller = nullptr;

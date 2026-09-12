@@ -654,6 +654,22 @@ size_t MessageBridge::unregisterHandlersByPrefix(const std::string& prefix) {
     return count;
 }
 
+static int extractRequestId(const nlohmann::json& request) {
+    if (request.contains("id")) {
+        const auto& idVal = request["id"];
+        if (idVal.is_number_integer()) {
+            return idVal.get<int>();
+        } else if (idVal.is_string()) {
+            try {
+                return std::stoi(idVal.get<std::string>());
+            } catch (...) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
 std::string MessageBridge::handleMessage(const std::string& messageJson) {
     TraceId::Scope scope;
     int id = 0;
@@ -663,7 +679,7 @@ std::string MessageBridge::handleMessage(const std::string& messageJson) {
     }
     try {
         auto request = json::parse(messageJson);
-        id = request.value("id", 0);
+        id = extractRequestId(request);
         std::string method = request.value("method", "");
         json params = request.value("params", json::object());
 
@@ -993,7 +1009,7 @@ void MessageBridge::handleMessageAsync(const std::string& messageJson, AsyncResp
     std::string method;
     try {
         auto request = json::parse(messageJson);
-        id = request.value("id", 0);
+        id = extractRequestId(request);
         method = request.value("method", "");
         std::shared_lock lock(m_mutex);
         runAsync = m_asyncMethods.find(method) != m_asyncMethods.end();

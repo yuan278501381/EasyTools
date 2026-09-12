@@ -1,4 +1,4 @@
-﻿#include "ui/TrayWindow.h"
+#include "ui/TrayWindow.h"
 #include "tray/TrayIcon.h"
 #include "core/logger/Logger.h"
 #include "core/ipc/MessageBridge.h"
@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <utility>
 #include "core/utils/WinUtils.h"
+#include "core/config/ConfigManager.h"
+#include "ui/native/app/NativeTrayApp.h"
 
 using namespace Microsoft::WRL;
 
@@ -26,6 +28,10 @@ static constexpr UINT WM_TRAY_VERIFY_DEACTIVATED = WM_APP + 41;
 static constexpr UINT_PTR IDT_TRAY_AUTOHIDE = 9001;
 
 namespace {
+
+inline bool isNativeBackend() {
+    return tools3000::core::ConfigManager::instance().get<std::string>("/general/uiBackend", "native") == "native";
+}
 
 SIZE getTrayWindowSize(POINT anchor, int customW = 0, int customH = 0) {
     const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
@@ -68,6 +74,10 @@ TrayWindow& TrayWindow::instance() {
 }
 
 void TrayWindow::preload(HINSTANCE hInstance) {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeTrayApp::instance().preload(hInstance);
+        return;
+    }
     if (m_hwnd && IsWindow(m_hwnd)) return;
     POINT defaultAnchor{};
     GetCursorPos(&defaultAnchor);
@@ -90,6 +100,10 @@ void TrayWindow::preload(HINSTANCE hInstance) {
 void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
     m_anchor = {x, y};
     m_showTimeTick = GetTickCount64();
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeTrayApp::instance().show(hInstance, x, y);
+        return;
+    }
     if (m_hwnd && IsWindow(m_hwnd)) {
         updatePlacement();
         SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -129,6 +143,11 @@ void TrayWindow::show(HINSTANCE hInstance, int x, int y) {
 }
 
 void TrayWindow::hide() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeTrayApp::instance().hide();
+        m_lastHideTimeTick.store(GetTickCount64());
+        return;
+    }
     if (m_hwnd && IsWindow(m_hwnd)) {
         KillTimer(m_hwnd, IDT_TRAY_AUTOHIDE);
         ShowWindow(m_hwnd, SW_HIDE);
@@ -142,10 +161,16 @@ void TrayWindow::hide() {
 }
 
 bool TrayWindow::isVisible() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeTrayApp::instance().isVisible();
+    }
     return m_visible.load() && m_hwnd && IsWindowVisible(m_hwnd);
 }
 
 void TrayWindow::destroy() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeTrayApp::instance().destroy();
+    }
     m_suspendController.abandon();
     tools3000::core::MessageBridge::instance().unregisterEventPusher("tray");
     ++m_generation;

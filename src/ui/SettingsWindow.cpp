@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // SettingsWindow.cpp — WebView2 设置窗口实现
 //
 // 核心流程:
@@ -25,6 +25,7 @@
 #include "ui/WebViewSecurity.h"
 #include "ui/WebViewSuspend.h"
 #include "ui/KeyboardPipeline.h"
+#include "ui/native/app/NativeSettingsApp.h"
 
 // WebView2 SDK 头文件
 #include <windowsx.h>
@@ -57,6 +58,10 @@ using namespace Microsoft::WRL;
 namespace tools3000::ui {
 
 namespace {
+
+inline bool isNativeBackend() {
+    return tools3000::core::ConfigManager::instance().get<std::string>("/general/uiBackend", "native") == "native";
+}
 
 LRESULT CALLBACK WebViewResizeSubclassProc(
     HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
@@ -96,7 +101,19 @@ SettingsWindow& SettingsWindow::instance() {
     return inst;
 }
 
+HWND SettingsWindow::hwnd() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSettingsApp::instance().hwnd();
+    }
+    return m_hwnd;
+}
+
 void SettingsWindow::show(HINSTANCE hInstance) {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSettingsApp::instance().show(hInstance);
+        return;
+    }
+
     tools3000::core::TraceId::Scope scope;
     m_showRequestedAt = std::chrono::steady_clock::now();
     if (hInstance) m_hInstance = hInstance;
@@ -163,6 +180,11 @@ void SettingsWindow::smoothPresent() {
 }
 
 void SettingsWindow::preload(HINSTANCE hInstance) {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSettingsApp::instance().preload(hInstance);
+        return;
+    }
+
     tools3000::core::TraceId::Scope scope;
     if (hInstance) m_hInstance = hInstance;
     else if (!m_hInstance) m_hInstance = GetModuleHandleW(nullptr);
@@ -181,6 +203,11 @@ void SettingsWindow::preload(HINSTANCE hInstance) {
 }
 
 void SettingsWindow::hide() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSettingsApp::instance().hide();
+        return;
+    }
+
     if (m_hwnd && IsWindow(m_hwnd)) {
         persistGeometry();
         ShowWindow(m_hwnd, SW_HIDE);
@@ -207,10 +234,16 @@ void SettingsWindow::hide() {
 }
 
 bool SettingsWindow::isVisible() const {
+    if (isNativeBackend()) {
+        return tools3000::ui::native::NativeSettingsApp::instance().isVisible();
+    }
     return m_visible.load() && m_hwnd && IsWindowVisible(m_hwnd);
 }
 
 void SettingsWindow::destroy() {
+    if (isNativeBackend()) {
+        tools3000::ui::native::NativeSettingsApp::instance().destroy();
+    }
     m_suspendController.abandon();
     ++m_generation;
     tools3000::core::MessageBridge::instance().unregisterEventPusher("settings");
@@ -682,6 +715,14 @@ void SettingsWindow::persistGeometry() {
 }
 
 void SettingsWindow::navigateTo(const std::string& path) {
+    if (isNativeBackend()) {
+        std::string page = path;
+        if (!page.empty() && page[0] == '#') page = page.substr(1);
+        if (!page.empty() && page[0] == '/') page = page.substr(1);
+        tools3000::ui::native::NativeSettingsApp::instance().navigateTo(page);
+        return;
+    }
+
     if (!tools3000::core::MainThreadDispatcher::instance().isOwnerThread()) {
         tools3000::core::MainThreadDispatcher::instance().post([this, path]() { navigateTo(path); });
         return;
@@ -708,34 +749,39 @@ void SettingsWindow::pushEventToFrontend(const std::string& eventName, const std
 }
 
 void SettingsWindow::minimize() {
-    if (m_hwnd) ShowWindow(m_hwnd, SW_MINIMIZE);
+    HWND h = hwnd();
+    if (h) ShowWindow(h, SW_MINIMIZE);
 }
 
 void SettingsWindow::toggleMaximize() {
-    if (!m_hwnd) return;
-    if (IsZoomed(m_hwnd)) {
-        ShowWindow(m_hwnd, SW_RESTORE);
+    HWND h = hwnd();
+    if (!h) return;
+    if (IsZoomed(h)) {
+        ShowWindow(h, SW_RESTORE);
     } else {
-        ShowWindow(m_hwnd, SW_MAXIMIZE);
+        ShowWindow(h, SW_MAXIMIZE);
     }
 }
 
 void SettingsWindow::close() {
-    if (m_hwnd) SendMessageW(m_hwnd, WM_CLOSE, 0, 0);
+    HWND h = hwnd();
+    if (h) SendMessageW(h, WM_CLOSE, 0, 0);
 }
 
 void SettingsWindow::dragMove() {
-    if (!m_hwnd || !IsWindow(m_hwnd)) return;
+    HWND h = hwnd();
+    if (!h || !IsWindow(h)) return;
     ReleaseCapture();
-    PostMessageW(m_hwnd, WM_SYSCOMMAND, 0xF012, 0);
+    PostMessageW(h, WM_SYSCOMMAND, 0xF012, 0);
 }
 
 void SettingsWindow::showSystemMenu(int screenX, int screenY) {
-    if (!m_hwnd || !IsWindow(m_hwnd)) return;
-    HMENU hMenu = GetSystemMenu(m_hwnd, FALSE);
+    HWND h = hwnd();
+    if (!h || !IsWindow(h)) return;
+    HMENU hMenu = GetSystemMenu(h, FALSE);
     if (!hMenu) return;
 
-    const bool zoomed = IsZoomed(m_hwnd) != FALSE;
+    const bool zoomed = IsZoomed(h) != FALSE;
     EnableMenuItem(hMenu, SC_RESTORE, MF_BYCOMMAND | (zoomed ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(hMenu, SC_MOVE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
     EnableMenuItem(hMenu, SC_SIZE, MF_BYCOMMAND | (zoomed ? MF_GRAYED : MF_ENABLED));
@@ -749,21 +795,22 @@ void SettingsWindow::showSystemMenu(int screenX, int screenY) {
         screenY = pt.y;
     } else if (screenX == -1 || screenY == -1) {
         RECT rc{};
-        GetWindowRect(m_hwnd, &rc);
+        GetWindowRect(h, &rc);
         screenX = rc.left + 24;
         screenY = rc.top + 32;
     }
 
-    SetForegroundWindow(m_hwnd);
+    SetForegroundWindow(h);
     int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_TOPALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON,
-                             screenX, screenY, 0, m_hwnd, nullptr);
+                             screenX, screenY, 0, h, nullptr);
     if (cmd > 0) {
-        PostMessageW(m_hwnd, WM_SYSCOMMAND, cmd, 0);
+        PostMessageW(h, WM_SYSCOMMAND, cmd, 0);
     }
 }
 
 void SettingsWindow::startResize(const std::string& edge) {
-    if (!m_hwnd || !IsWindow(m_hwnd) || IsZoomed(m_hwnd)) return;
+    HWND h = hwnd();
+    if (!h || !IsWindow(h) || IsZoomed(h)) return;
     ReleaseCapture();
     WPARAM scSizeParam = 0;
     if (edge == "left") scSizeParam = 0xF001;          // SC_SIZE + WMSZ_LEFT
@@ -776,11 +823,12 @@ void SettingsWindow::startResize(const std::string& edge) {
     else if (edge == "bottom_right") scSizeParam = 0xF008;// SC_SIZE + WMSZ_BOTTOMRIGHT
     else return;
 
-    PostMessageW(m_hwnd, WM_SYSCOMMAND, scSizeParam, 0);
+    PostMessageW(h, WM_SYSCOMMAND, scSizeParam, 0);
 }
 
 bool SettingsWindow::isMaximized() const {
-    return m_hwnd && (IsZoomed(m_hwnd) != FALSE);
+    HWND h = hwnd();
+    return h && (IsZoomed(h) != FALSE);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

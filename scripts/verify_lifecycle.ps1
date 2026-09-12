@@ -330,7 +330,7 @@ if ($coldExitWindow -eq [IntPtr]::Zero) {
 [void][LifecycleHarness]::PostMessageW($coldExitWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
 for ($i = 0; $i -lt 30; $i++) {
     if (-not (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue)) { break }
-    Start-Sleep -Milliseconds 100
+    Start-Sleep -Milliseconds 200
 }
 if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) {
     Write-Host "❌ 未唤起搜索的首轮 Tools3000 未能正常退出！" -ForegroundColor Red
@@ -535,7 +535,11 @@ if (-not $searchService) {
 $searchWindow = [IntPtr]::Zero
 for ($i = 0; $i -lt 20; $i++) {
     $searchWindow = [LifecycleHarness]::FindByClassForProcess(
-        "Tools3000_SearchWindow", [uint32]$proc.Id)
+        "Tools3000_NativeSearchWindow", [uint32]$proc.Id)
+    if ($searchWindow -eq [IntPtr]::Zero) {
+        $searchWindow = [LifecycleHarness]::FindByClassForProcess(
+            "Tools3000_SearchWindow", [uint32]$proc.Id)
+    }
     if ($searchWindow -ne [IntPtr]::Zero -and [LifecycleHarness]::IsWindowVisible($searchWindow)) { break }
     Start-Sleep -Milliseconds 100
 }

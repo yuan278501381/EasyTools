@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "ui/WebViewSuspend.h"
 #include "core/utils/DpiUtils.h"
 #include <windows.h>
@@ -27,8 +27,9 @@ public:
     void setWindowSize(int baseWidth, int baseHeight, bool forceCenter = false);
     std::pair<int, int> getWindowSize() const;
     void setPinned(bool pinned);
-    bool isPinned() const { return m_isPinned.load(); }
-    HWND getHwnd() const { return m_hwnd; }
+    bool isPinned() const;
+    void focusSearchIfVisible();
+    HWND getHwnd() const;
     void setMenuActive(bool active) {
         m_menuActive.store(active);
         if (!active) {
@@ -66,14 +67,13 @@ public:
 
 private:
     SearchWindow() = default;
-    ~SearchWindow() { destroy(); }
+    ~SearchWindow();
     SearchWindow(const SearchWindow&) = delete;
     SearchWindow& operator=(const SearchWindow&) = delete;
 
     bool createWindow(HINSTANCE hInstance);
     void initializeWebView2();
     void updatePlacement();
-    void focusSearchIfVisible();
 
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 

@@ -129,3 +129,17 @@ trigger: always_on
    - 流水线严格按顺序执行：工作区纯净度检查 -> `VERSION` 单一事实源版本号递增 (+1) -> 自动提取生成 Release Notes -> 开发分支提交 -> 向 `main` 主干执行非快进合并（`--no-ff`） -> 全新洁净构建与打包（`deploy.ps1`） -> 全生命周期端到端门禁校验 -> 二进制 `ProductVersion` 强断言 -> 自动化 Authenticode 代码签名校验与安装包/便携包/SHA256SUMS 产物归档 -> 创建不可变带注释 Tag 与 GitHub Release -> 安全切回或创建下一阶段开发特性分支。
 3. **双圆环拓扑美学 (Visual Graph Integrity)**：
    - 确保在 Git Graph 中直观呈现出独立的开发支线与清晰的双父节点汇聚圆环（`merge(dev)`）。
+
+---
+
+## 8. 构建、测试与开发环境调用红线 (Build & DevShell Execution Redline)
+1. **严禁单行 eval 拼接 VS 环境 (Zero Inline DevShell String Eval)**：
+   - 严禁在 `run_command`、后台任务或终端中直接通过 `pwsh -Command "..."` 拼接 Visual Studio DevShell、vswhere 或 cmake 命令字符串；
+   - 严禁任何绕过工程固化脚本的手写环境注入逻辑。
+2. **环境变量括号语法解析断裂漏洞根治 (Parenthesized Env Var Injection Immunity)**：
+   - Windows 环境下系统变量 `ProgramFiles(x86)` 包含特殊半角圆括号；在 PowerShell 命令行双引号字符串传参时，展开 `${env:ProgramFiles(x86)}` 极易在多层嵌套解析时发生符号脱敏，导致 `(x86)` 被截断为独立的不明指令 `x86`，且未转义变量提前展开为空串，致使后面的 `&` 管道符被 PowerShell 误解析为后台作业启动符（BackgroundJob），进而导致任务卡死在 Running 态无法退出；
+   - 全库及所有自动化脚本必须严格采用 `[System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)` 或 `[System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')` 安全获取，彻底封堵此类注入漏洞。
+3. **单一事实源固化构建与测试脚本体系 (Single Source of Truth Build Scripts)**：
+   - **快速编译与单测执行**：统一调用 `pwsh -File .\scripts\compile_tests.ps1 [-Target <TargetName>] [-Run] [-Filter <FilterPattern>]`；默认目标为 `Tools3000Tests`，支持毫秒级增量编译与快速执行；
+   - **极速增量联调与启动**：统一调用 `pwsh -File .\scripts\quick_dev.ps1 [-Target <TargetName>] [-NoRun]`；自动杀掉旧进程释放文件句柄并毫秒级增量部署至 `deploy_dist`；
+   - **完整自动化部署与门禁打包**：统一调用 `pwsh -File .\deploy.ps1 [-Quick] [-SkipTests]`；负责全矩阵依赖还原、前端构建与安装包生成。

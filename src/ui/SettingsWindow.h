@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsWindow — WebView2 设置窗口
 //
@@ -51,7 +51,7 @@ public:
     static SettingsWindow& instance();
 
     /// 获取底层 Win32 HWND 句柄
-    HWND hwnd() const { return m_hwnd; }
+    HWND hwnd() const;
 
     /// 创建并显示设置窗口
     void show(HINSTANCE hInstance);

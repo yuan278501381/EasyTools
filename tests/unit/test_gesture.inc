@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // test_gesture.inc — GESTURE 模块化单元测试集
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1003,6 +1003,8 @@ TEST(GestureActionTest, KeyStrokeAndBuiltinCommands) {
     if (overlay) DestroyWindow(overlay);
     if (settings) DestroyWindow(settings);
     if (external && IsWindow(external)) DestroyWindow(external);
+    UnregisterClassW(L"Tools3000_GestureOverlay", GetModuleHandleW(nullptr));
+    UnregisterClassW(L"Tools3000_SettingsWindow", GetModuleHandleW(nullptr));
 
     auto pumpPostedClose = [](HWND hwnd) {
         PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);

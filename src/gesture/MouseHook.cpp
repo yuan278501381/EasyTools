@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // MouseHook.cpp — 低级鼠标钩子实现 (接入核心独立输入线程与无锁 SPSC 环形队列)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -238,7 +238,10 @@ bool MouseHook::handleRawMouseEvent(int nCode, WPARAM wParam, const MSLLHOOKSTRU
                     }
                 }
 
-                const HWND searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
+                HWND searchWindow = FindWindowW(L"Tools3000_NativeSearchWindow", nullptr);
+                if (!searchWindow) {
+                    searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
+                }
                 bool inSearchBounds = false;
                 if (searchWindow && IsWindow(searchWindow)) {
                     if (GetPropW(searchWindow, L"Tools3000_ShellMenuActive")) {

@@ -123,7 +123,8 @@ bool ShellContextMenuService::showAsync(std::wstring path, int screenX, int scre
     if (path.empty() || m_stopping.load(std::memory_order_acquire)) return false;
 
     // 1. 设置搜索窗口活跃状态，防止失焦误收起
-    const HWND searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
+    HWND searchWindow = FindWindowW(L"Tools3000_NativeSearchWindow", nullptr);
+    if (!searchWindow) searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
     if (searchWindow && IsWindow(searchWindow)) {
         SetPropW(searchWindow, L"Tools3000_ShellMenuActive", reinterpret_cast<HANDLE>(1));
     }
@@ -218,7 +219,8 @@ void ShellContextMenuService::threadMain() {
 }
 
 void ShellContextMenuService::processRequest(const MenuRequest& req) {
-    const HWND searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
+    HWND searchWindow = FindWindowW(L"Tools3000_NativeSearchWindow", nullptr);
+    if (!searchWindow) searchWindow = FindWindowW(L"Tools3000_SearchWindow", nullptr);
     auto clearActive = [&]() {
         if (searchWindow && IsWindow(searchWindow)) {
             RemovePropW(searchWindow, L"Tools3000_ShellMenuActive");

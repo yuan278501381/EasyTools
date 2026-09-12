@@ -18,12 +18,17 @@ $TimestampUrl = if ($env:TOOLS3000_TIMESTAMP_URL) {
 $SignToolCommand = Get-Command "signtool.exe" -ErrorAction SilentlyContinue
 $SignTool = if ($SignToolCommand) { $SignToolCommand.Source } else { $null }
 if (-not $SignTool) {
-    $WindowsKitsBin = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
-    if (Test-Path -LiteralPath $WindowsKitsBin) {
-        $SignTool = Get-ChildItem -LiteralPath $WindowsKitsBin -Filter "signtool.exe" -File -Recurse |
-            Where-Object { $_.Directory.Name -eq "x64" } |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1 -ExpandProperty FullName
+    $pf86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)') }
+    if (-not $pf86) { $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles') }
+    if ($pf86) {
+        $WindowsKitsBin = Join-Path $pf86 "Windows Kits\10\bin"
+        if (Test-Path -LiteralPath $WindowsKitsBin) {
+            $SignTool = Get-ChildItem -LiteralPath $WindowsKitsBin -Filter "signtool.exe" -File -Recurse |
+                Where-Object { $_.Directory.Name -eq "x64" } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
     }
 }
 

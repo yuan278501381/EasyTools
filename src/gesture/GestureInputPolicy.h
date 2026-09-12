@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ─────────────────────────────────────────────────────────────────────────────
 // GestureInputPolicy — 手势触发键与取消条件的纯判定
 //
@@ -426,7 +426,7 @@ inline bool isGesturePassThroughClassName(std::wstring_view cls) noexcept {
 /// 前台权限都会变得不可靠。
 inline bool shouldBypassGestureForNativeSearchMenu(std::wstring_view cls,
                                                     bool shiftPressed) noexcept {
-    return shiftPressed && cls == L"Tools3000_SearchWindow";
+    return shiftPressed && (cls == L"Tools3000_SearchWindow" || cls == L"Tools3000_NativeSearchWindow");
 }
 
 /// 识别 Windows 任务栏与系统托盘窗口（包括主任务栏、多显示器副任务栏、托盘通知区与 Win10/Win11 托盘溢出浮窗）

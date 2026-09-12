@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // main.cpp — Tools3000 程序入口点
 //
 // 启动流程:
@@ -838,6 +838,13 @@ void initializeSubsystems(HWND hwnd, bool preloadSettings) {
             toggleSearchSafe();
         });
 
+        tools3000::core::MessageBridge::instance().registerHandler(
+            "search.show", [](const nlohmann::json&) -> nlohmann::json {
+                tools3000::core::MainThreadDispatcher::instance().post([]() {
+                    tools3000::ui::SearchWindow::instance().show(GetModuleHandleW(nullptr));
+                });
+                return {{"success", true}};
+            });
         tools3000::core::MessageBridge::instance().registerHandler(
             "search.toggle", [toggleSearchSafe](const nlohmann::json&) -> nlohmann::json {
                 toggleSearchSafe();

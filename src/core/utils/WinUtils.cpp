@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // WinUtils.cpp — Windows API 常用操作封装实现
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1334,13 +1334,23 @@ void WinUtils::applyUniversalRoundedCorners(HWND hwnd, int width, int height, in
 
     // 1. Windows 11 DWM 硬件级超平滑圆角首选
     const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-    DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    HRESULT hr = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     // 2. Win32 硬件级 RGN 裁剪兜底 (确保在 Win10、Windows Server 2022/2025、虚拟机与 RDP 下 100% 绝对圆角)
-    const HRGN hRgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
-    if (hRgn) {
-        SetWindowRgn(hwnd, hRgn, TRUE);
-        // SetWindowRgn 成功后系统接管 hRgn 句柄的所有权，无需手动 DeleteObject
+    if (FAILED(hr)) {
+        // 注意：若窗口具有 WS_CAPTION 样式，调用 SetWindowRgn 会破坏 DWM 客户区扩展并强制激发 Win32 经典非客户区标题栏绘制。
+        // 因此对无边框弹窗 (如 SearchWindow, TrayWindow 等 WS_POPUP) 实施 RGN 物理裁剪；对 WS_CAPTION 窗口由 DWM 统一管理
+        const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        if (!(style & WS_CAPTION)) {
+            const HRGN hRgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
+            if (hRgn) {
+                SetWindowRgn(hwnd, hRgn, TRUE);
+                // SetWindowRgn 成功后系统接管 hRgn 句柄的所有权，无需手动 DeleteObject
+            }
+        }
+    } else {
+        // Windows 11 硬件级圆角生效时，确保移除旧有的 GDI Region，防止 DWM 投影破损或重绘经典非客户区
+        SetWindowRgn(hwnd, nullptr, TRUE);
     }
 }
 

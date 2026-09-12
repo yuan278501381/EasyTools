@@ -246,13 +246,51 @@ target_link_libraries(keycast_objects PUBLIC Tools3000Core
     d2d1 dwrite msimg32 user32 shell32 shcore dwmapi
 )
 
-# 6. ui_objects (5 个源文件)
+# 6. ui_objects (原生 UI 框架 + 浮层组件)
 set(UI_OBJECT_SOURCES
     src/ui/WebViewSuspend.cpp
     src/ui/SpotlightOverlay.cpp
     src/ui/SpotlightOverlayInputController.cpp
     src/ui/SpotlightOverlayRenderer.cpp
     src/tray/TrayIcon.cpp
+    src/ui/native/common/UITheme.cpp
+    src/ui/native/common/UIAnimation.cpp
+    src/ui/native/graphics/UIRenderContext.cpp
+    src/ui/native/graphics/GlassmorphismRenderer.cpp
+    src/ui/native/graphics/VectorIconRenderer.cpp
+    src/ui/native/layout/UILayout.cpp
+    src/ui/native/core/UIElement.cpp
+    src/ui/native/core/NativeView.cpp
+    src/ui/native/core/NativePage.cpp
+    src/ui/native/components/UILabel.cpp
+    src/ui/native/components/UIIcon.cpp
+    src/ui/native/components/UIButton.cpp
+    src/ui/native/components/UIToggle.cpp
+    src/ui/native/components/UICard.cpp
+    src/ui/native/components/UISettingRow.cpp
+    src/ui/native/components/UISettingGroup.cpp
+    src/ui/native/components/UIBadge.cpp
+    src/ui/native/components/UISelect.cpp
+    src/ui/native/components/UITextInput.cpp
+    src/ui/native/components/UINumberInput.cpp
+    src/ui/native/components/UIHotkeyInput.cpp
+    src/ui/native/components/UIScrollView.cpp
+    src/ui/native/components/UITabs.cpp
+    src/ui/native/components/UICodeBadge.cpp
+    src/ui/native/components/UISeparator.cpp
+    src/ui/native/components/NativeGestureDrawCanvas.cpp
+    src/ui/native/components/NativeKeyboardHeatmap.cpp
+    src/ui/native/components/NativeScopeRulesManager.cpp
+    src/ui/native/pages/NativeAiAssistantPage.cpp
+    src/ui/native/pages/NativeColorPickerPage.cpp
+    src/ui/native/pages/NativeClipboardManagerPage.cpp
+    src/ui/native/pages/NativeMarkdownPreviewPage.cpp
+    src/ui/native/window/NativeWindowHost.cpp
+    src/ui/native/window/NativeFramelessWindow.cpp
+    src/ui/native/app/NativeSettingsApp.cpp
+    src/ui/native/app/NativeTrayApp.cpp
+    src/ui/native/app/NativeSearchApp.cpp
+    src/ui/native/app/NativeQuickLookApp.cpp
 )
 add_library(ui_objects OBJECT ${UI_OBJECT_SOURCES})
 target_include_directories(ui_objects PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -260,7 +298,7 @@ if(EXISTS "${WEBVIEW2_DIR}")
     target_include_directories(ui_objects PUBLIC "${WEBVIEW2_DIR}/build/native/include")
 endif()
 target_link_libraries(ui_objects PUBLIC Tools3000Core
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32 dwmapi
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32 dwmapi windowscodecs
 )
 
 # ── 2. Plugin_Gesture (动态库) ────────────────────────────────────────────────
@@ -364,7 +402,7 @@ set_target_properties(Tools3000 PROPERTIES OUTPUT_NAME "Tools3000")
 tools3000_add_version_resource(Tools3000 "Tools3000 Desktop Productivity Toolkit" "Tools3000.exe" VFT_APP)
 target_include_directories(Tools3000 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(Tools3000 PRIVATE Tools3000Core
-    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32 dwmapi
+    shlwapi shell32 user32 gdi32 ole32 oleaut32 advapi32 comctl32 shcore d2d1 dwrite wtsapi32 dwmapi windowscodecs
 )
 
 # A runnable host build must contain the same validated plugin bundle that the
@@ -464,7 +502,7 @@ if(BUILD_TESTING)
     if (MSVC)
         target_compile_options(Tools3000Tests PRIVATE /bigobj)
     endif()
-    target_link_libraries(Tools3000Tests PRIVATE Tools3000Core GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid shlwapi d2d1 dwrite winmm
+    target_link_libraries(Tools3000Tests PRIVATE Tools3000Core GTest::gtest GTest::gmock ZLIB::ZLIB user32 shell32 gdi32 dwmapi d3d11 dxgi ole32 shcore advapi32 mfplat mfuuid shlwapi d2d1 dwrite winmm windowscodecs
         ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
         ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY} ${OpenCV_LIBS})
     add_test(NAME Tools3000.Unit COMMAND Tools3000Tests)
