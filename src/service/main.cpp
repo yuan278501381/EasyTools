@@ -1,0 +1,1355 @@
+﻿#include <windows.h>
+#include <iostream>
+#include <algorithm>
+#include <array>
+#include <filesystem>
+#include <iterator>
+#include <memory>
+#include <chrono>
+#include <cctype>
+#include <string>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <future>
+#include <mutex>
+#include <string_view>
+#include <sddl.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <cwctype>
+#include <nlohmann/json.hpp>
+#include "MftParser.h"
+#include "PipeProtocol.h"
+#include "PipeEndpoint.h"
+#include "SearchCancellation.h"
+#include "SearchRequestLimits.h"
+#include "content/ContentSearchEngine.h"
+#include "db/RunHistoryManager.h"
+#include "db/SearchHistoryManager.h"
+#include "db/DatabaseManager.h"
+
+#define SERVICE_NAME L"Tools3000_SearchService"
+
+SERVICE_STATUS        g_ServiceStatus = {0};
+SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
+HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+std::atomic<bool>     g_IsRunning{false};
+
+std::vector<std::unique_ptr<MftParser>> g_MftParsers;
+
+// 所有会触碰 MftParser 的后台工作都由服务拥有。服务退出时先请求停止并 join，
+// 再销毁解析器，禁止任何 detached worker 越过对象生命周期。
+std::mutex g_BackgroundJobMutex;
+std::jthread g_RebuildJob;
+std::jthread g_SnapshotJob;
+std::atomic<bool> g_RebuildInProgress{false};
+std::atomic<bool> g_SnapshotInProgress{false};
+std::atomic<int> g_InitialIndexWorkers{0};
+std::atomic<bool> g_AcceptBackgroundJobs{true};
+// The per-user pipe is published before expensive volume work. Until this flag
+// flips, workers return an explicit initializing response and never touch the
+// parser vector while it is being assembled.
+std::atomic<bool> g_SearchIndexReady{false};
+std::jthread g_PipePokeJob;
+
+std::string g_SearchPipeName;
+std::wstring g_SearchClientSid;
+constexpr int NumPipeWorkers = 4;
+
+std::string WStringToString(const std::wstring& wstr);
+
+bool configurePipeEndpoint(DWORD argc, wchar_t** argv) {
+    std::string token;
+    std::wstring sid;
+    for (DWORD index = 0; index < argc; ++index) {
+        const std::wstring_view arg = argv[index] ? argv[index] : L"";
+        constexpr std::wstring_view tokenPrefix = L"--pipe-token=";
+        constexpr std::wstring_view sidPrefix = L"--client-sid=";
+        if (arg.starts_with(tokenPrefix)) {
+            token = WStringToString(std::wstring(arg.substr(tokenPrefix.size())));
+        } else if (arg.starts_with(sidPrefix)) {
+            sid = std::wstring(arg.substr(sidPrefix.size()));
+        }
+    }
+    PSID parsedSid = nullptr;
+    const bool sidValid = !sid.empty() && ConvertStringSidToSidW(sid.c_str(), &parsedSid);
+    if (parsedSid) LocalFree(parsedSid);
+    const auto pipe = tools3000::service::pipe_endpoint::makePipeName(token);
+    if (!sidValid || !pipe) {
+        spdlog::error("Search service missing or invalid per-user IPC endpoint arguments");
+        return false;
+    }
+    g_SearchPipeName = *pipe;
+    g_SearchClientSid = std::move(sid);
+    return true;
+}
+
+void stopBackgroundJobs() {
+    g_AcceptBackgroundJobs.store(false, std::memory_order_release);
+    for (auto& parser : g_MftParsers) parser->requestStop();
+
+    std::jthread rebuild;
+    std::jthread snapshot;
+    {
+        std::lock_guard lock(g_BackgroundJobMutex);
+        if (g_RebuildJob.joinable()) g_RebuildJob.request_stop();
+        if (g_SnapshotJob.joinable()) g_SnapshotJob.request_stop();
+        rebuild = std::move(g_RebuildJob);
+        snapshot = std::move(g_SnapshotJob);
+    }
+    // jthread 的析构在当前作用域末尾完成 join。此时不持有任务锁，避免工作线程
+    // 在收尾路径更新状态时形成锁反转。
+}
+
+void scheduleSnapshot(std::vector<MftParser*> parsers, std::string_view reason) {
+    if (!g_AcceptBackgroundJobs.load(std::memory_order_acquire) || parsers.empty()) return;
+    std::lock_guard lock(g_BackgroundJobMutex);
+    if (g_SnapshotInProgress.exchange(true, std::memory_order_acq_rel)) return;
+    if (g_SnapshotJob.joinable()) g_SnapshotJob.join();
+
+    g_SnapshotJob = std::jthread(
+        [parsers = std::move(parsers), reason = std::string(reason)](std::stop_token stop) {
+            // 等待初始索引真正完成，而不是猜测固定 5 秒；慢盘和网络盘不会再保存半份快照。
+            while (!stop.stop_requested() && g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            try {
+                if (!stop.stop_requested()) {
+                    const bool ok = tools3000::service::db::DatabaseManager::instance().saveSnapshot(parsers);
+                    spdlog::info("{} database snapshot {}", reason, ok ? "saved" : "failed");
+                }
+            } catch (const std::exception& e) {
+                spdlog::error("{} database snapshot failed: {}", reason, e.what());
+            } catch (...) {
+                spdlog::error("{} database snapshot failed with unknown exception", reason);
+            }
+            g_SnapshotInProgress.store(false, std::memory_order_release);
+        });
+}
+
+bool scheduleRebuild() {
+    if (!g_IsRunning.load(std::memory_order_acquire) ||
+        !g_AcceptBackgroundJobs.load(std::memory_order_acquire) ||
+        g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) return false;
+
+    std::lock_guard lock(g_BackgroundJobMutex);
+    if (g_RebuildInProgress.exchange(true, std::memory_order_acq_rel)) return false;
+    if (g_RebuildJob.joinable()) g_RebuildJob.join();
+
+    std::vector<MftParser*> parsers;
+    parsers.reserve(g_MftParsers.size());
+    for (auto& parser : g_MftParsers) {
+        parser->resetStopRequest();
+        parsers.push_back(parser.get());
+    }
+    g_RebuildJob = std::jthread([parsers = std::move(parsers)](std::stop_token stop) {
+        std::vector<std::thread> workers;
+        workers.reserve(parsers.size());
+        for (auto* parser : parsers) {
+            parser->StopListening();
+            workers.emplace_back([parser, stop]() {
+                if (stop.stop_requested()) return;
+                try {
+                    parser->EnumerateFiles();
+                    if (!stop.stop_requested()) parser->StartListening();
+                } catch (const std::exception& e) {
+                    spdlog::error("Rebuild failed on drive {}: {}", parser->getDriveLetter(), e.what());
+                } catch (...) {
+                    spdlog::error("Rebuild failed on drive {} with unknown exception", parser->getDriveLetter());
+                }
+            });
+        }
+        for (auto& worker : workers) if (worker.joinable()) worker.join();
+        try {
+            if (!stop.stop_requested()) {
+                tools3000::service::db::DatabaseManager::instance().saveSnapshot(parsers);
+            }
+        } catch (const std::exception& e) {
+            spdlog::error("Rebuild snapshot failed: {}", e.what());
+        } catch (...) {
+            spdlog::error("Rebuild snapshot failed with unknown exception");
+        }
+        g_RebuildInProgress.store(false, std::memory_order_release);
+    });
+    return true;
+}
+
+// 主程序退出时会通过管道请求停机。工作线程此刻大多阻塞在 ConnectNamedPipe 上，
+// 单靠清掉运行标志叫不醒它们，还得真的连上来几次。这件事必须交给另一个线程，
+// 否则正在处理停机请求的那个线程会连到自己身上。
+void RequestServiceShutdown() {
+    if (!g_IsRunning.exchange(false)) return;
+    if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) SetEvent(g_ServiceStopEvent);
+
+    g_PipePokeJob = std::jthread([](std::stop_token stop) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline) {
+            HANDLE poke = CreateFileA(g_SearchPipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                                      nullptr, OPEN_EXISTING, 0, nullptr);
+            if (poke == INVALID_HANDLE_VALUE) {
+                // 管道实例全部消失，说明工作线程已经退干净了。
+                if (GetLastError() == ERROR_FILE_NOT_FOUND) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            CloseHandle(poke);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+}
+
+std::string WStringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
+
+std::wstring StringToWString(const std::string& str) {
+    if (str.empty()) return std::wstring();
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+    return wstrTo;
+}
+
+void InitLogger() {
+    try {
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        std::filesystem::path logDir;
+        PWSTR programData = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramData, KF_FLAG_CREATE, nullptr,
+                                           &programData)) && programData) {
+            logDir = std::filesystem::path(programData) / L"Tools3000" / L"logs";
+            CoTaskMemFree(programData);
+        } else {
+            logDir = std::filesystem::temp_directory_path() / L"Tools3000" / L"logs";
+        }
+        std::filesystem::create_directories(logDir);
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            (logDir / L"Tools3000_Service.log").string(), 5 * 1024 * 1024, 3);
+        spdlog::sinks_init_list sink_list = { console_sink, file_sink };
+        auto logger = std::make_shared<spdlog::logger>("service", sink_list.begin(), sink_list.end());
+        spdlog::set_default_logger(logger);
+        spdlog::set_level(spdlog::level::info);
+        spdlog::flush_on(spdlog::level::info);
+    } catch (const spdlog::spdlog_ex& ex) {
+        std::cout << "Log init failed: " << ex.what() << std::endl;
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// Named Pipe Server
+// --------------------------------------------------------------------------------------
+#include <chrono>
+
+nlohmann::json ProcessSearchQuery(const std::wstring& rawInput, HANDLE hClientToken = nullptr) {
+    std::wstring wQuery;
+    std::string searchMode = "name";
+    std::vector<char> enabledDrives;
+    SearchExcludeOptions excludeOpts;
+    size_t requestedLimit = 100;
+    uint64_t queryId = 0;
+    std::vector<std::pair<std::wstring, double>> dialogPriorities;
+
+    std::string utf8Input = WStringToString(rawInput);
+    if (!g_SearchIndexReady.load(std::memory_order_acquire) ||
+        g_InitialIndexWorkers.load(std::memory_order_acquire) > 0) {
+        bool isShutdownRequest = false;
+        if (!utf8Input.empty() && utf8Input.front() == '{') {
+            try {
+                const auto request = nlohmann::json::parse(utf8Input);
+                isShutdownRequest = request.value("action", "") == "shutdown";
+            } catch (...) {
+                // Invalid requests are also deferred while startup owns the
+                // parser collection, rather than racing initialization.
+            }
+        }
+        if (!isShutdownRequest) {
+            return {{"results", nlohmann::json::array()}, {"available", false},
+                    {"initializing", true}, {"error", "search service initializing"}};
+        }
+    }
+    if (!utf8Input.empty() && utf8Input.front() == '{') {
+        try {
+            auto reqJson = nlohmann::json::parse(utf8Input);
+            if (reqJson.contains("action") && reqJson["action"].is_string()) {
+                std::string act = reqJson["action"].get<std::string>();
+                if (act == "cancel") {
+                    tools3000::service::query::sharedEpochTracker().cancelAll();
+                    return {{"success", true}, {"cancelled", true}};
+                }
+                if (act == "rebuild" || act == "reindex") {
+                    const bool started = scheduleRebuild();
+                    return {{"success", started}, {"rebuilding", started},
+                            {"alreadyRunning", !started && g_RebuildInProgress.load()}};
+                }
+                if (act == "catchup" || act == "sync") {
+                    bool anyUpdated = false;
+                    for (auto& parser : g_MftParsers) {
+                        uint64_t lastUsn = parser->getCurrentUsn();
+                        if (parser->catchUpUsnJournal(lastUsn)) {
+                            anyUpdated = true;
+                        }
+                    }
+                    return {{"success", true}, {"synced", true}, {"updated", anyUpdated}};
+                }
+                if (act == "recordRun") {
+                    if (reqJson.contains("path") && reqJson["path"].is_string()) {
+                        const auto& pathUtf8 = reqJson["path"].get_ref<const std::string&>();
+                        if (pathUtf8.size() > tools3000::service::search_limits::MaxPathUtf8Bytes) {
+                            return {{"success", false}, {"error", "path exceeds limit"}};
+                        }
+                        std::wstring path = StringToWString(pathUtf8);
+                        tools3000::service::db::RunHistoryManager::instance().recordRun(path);
+                        return {{"success", true}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "recordSearch") {
+                    if (reqJson.contains("query") && reqJson["query"].is_string()) {
+                        const auto& queryUtf8 = reqJson["query"].get_ref<const std::string&>();
+                        if (queryUtf8.size() > tools3000::service::search_limits::MaxQueryUtf8Bytes) {
+                            return {{"success", false}, {"error", "query exceeds limit"}};
+                        }
+                        std::wstring q = StringToWString(queryUtf8);
+                        tools3000::service::db::SearchHistoryManager::instance().recordSearch(q);
+                        return {{"success", true}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "getSearchHistory") {
+                    size_t limit = 30;
+                    if (const auto it = reqJson.find("limit"); it != reqJson.end()) {
+                        if (!it->is_number_integer() && !it->is_number_unsigned()) {
+                            return {{"success", false}, {"error", "limit must be an integer"}};
+                        }
+                        if (it->is_number_unsigned()) {
+                            limit = static_cast<size_t>((std::min<std::uint64_t>)(
+                                it->get<std::uint64_t>(), tools3000::service::search_limits::MaxHistoryResults));
+                        } else {
+                            const auto value = it->get<std::int64_t>();
+                            limit = value <= 0 ? 0 : static_cast<size_t>((std::min<std::int64_t>)(
+                                value, tools3000::service::search_limits::MaxHistoryResults));
+                        }
+                    }
+                    auto list = tools3000::service::db::SearchHistoryManager::instance().getRecentSearches(limit);
+                    nlohmann::json arr = nlohmann::json::array();
+                    for (const auto& item : list) {
+                        arr.push_back({
+                            {"search", WStringToString(item.search)},
+                            {"searchCount", item.searchCount},
+                            {"lastSearchDate", item.lastSearchDate}
+                        });
+                    }
+                    return {{"success", true}, {"history", arr}};
+                }
+                if (act == "removeSearchHistory") {
+                    if (reqJson.contains("search") && reqJson["search"].is_string()) {
+                        const auto& searchUtf8 = reqJson["search"].get_ref<const std::string&>();
+                        if (searchUtf8.size() > tools3000::service::search_limits::MaxQueryUtf8Bytes) {
+                            return {{"success", false}, {"error", "search exceeds limit"}};
+                        }
+                        std::wstring q = StringToWString(searchUtf8);
+                        bool ok = tools3000::service::db::SearchHistoryManager::instance().removeSearch(q);
+                        return {{"success", ok}};
+                    }
+                    return {{"success", false}};
+                }
+                if (act == "clearSearchHistory") {
+                    tools3000::service::db::SearchHistoryManager::instance().clear();
+                    return {{"success", true}};
+                }
+                if (act == "getDbStats") {
+                    auto stats = tools3000::service::db::DatabaseManager::instance().getStats();
+                    uint64_t totalMemRecords = 0;
+                    for (const auto& p : g_MftParsers) {
+                        if (p) totalMemRecords += p->getFileCount();
+                    }
+                    const uint64_t effectiveRecords = totalMemRecords > 0 ? totalMemRecords : stats.totalRecords;
+                    const int initialWorkers = g_InitialIndexWorkers.load(std::memory_order_acquire);
+                    const bool rebuildInProgress = g_RebuildInProgress.load(std::memory_order_acquire);
+                    const bool snapshotInProgress = g_SnapshotInProgress.load(std::memory_order_acquire);
+                    const bool searchIndexReady = g_SearchIndexReady.load(std::memory_order_acquire);
+
+                    // 只要内存中已解析出文件记录 (totalMemRecords > 0) 且初始扫描线程完成，系统就 100% 具备全速搜索能力。
+                    // 快照落盘 (snapshotInProgress) 属于后台纯异步任务，绝不阻塞前端即时搜索！
+                    const bool isIndexing = (initialWorkers > 0 || rebuildInProgress || !searchIndexReady) && (totalMemRecords == 0);
+                    return {
+                        {"success", true},
+                        {"dbPath", WStringToString(stats.dbPath)},
+                        {"dbSize", stats.fileSize},
+                        {"timestamp", stats.timestamp},
+                        {"totalRecords", effectiveRecords},
+                        {"volumeCount", stats.volumeCount},
+                        {"exists", stats.exists || totalMemRecords > 0},
+                        {"indexing", isIndexing},
+                        {"initialWorkers", initialWorkers},
+                        {"rebuildInProgress", rebuildInProgress},
+                        {"snapshotInProgress", snapshotInProgress},
+                        {"runHistoryCount", tools3000::service::db::RunHistoryManager::instance().size()},
+                        {"searchHistoryCount", tools3000::service::db::SearchHistoryManager::instance().size()}
+                    };
+                }
+                if (act == "saveSnapshot") {
+                    std::vector<MftParser*> allParsers;
+                    for (auto& p : g_MftParsers) allParsers.push_back(p.get());
+                    bool ok = tools3000::service::db::DatabaseManager::instance().saveSnapshot(allParsers);
+                    return {{"success", ok}};
+                }
+                if (act == "shutdown") {
+                    // 快照不在这里落盘：写一份要几百 MB，而下次启动导入快照时本就会用
+                    // USN 日志补齐停机期间的变动，多花的磁盘代价换不来任何准确性。
+                    spdlog::info("Received shutdown request from client, stopping service.");
+                    RequestServiceShutdown();
+                    return {{"success", true}, {"stopping", true}};
+                }
+            }
+
+            if (reqJson.contains("query")) {
+                if (!reqJson["query"].is_string()) {
+                    return {{"results", nlohmann::json::array()}, {"error", "query must be a string"}};
+                }
+                const auto& queryUtf8 = reqJson["query"].get_ref<const std::string&>();
+                if (queryUtf8.size() > tools3000::service::search_limits::MaxQueryUtf8Bytes) {
+                    return {{"results", nlohmann::json::array()}, {"error", "query exceeds 1024-byte limit"}};
+                }
+                wQuery = StringToWString(queryUtf8);
+            }
+            if (reqJson.contains("queryId") && reqJson["queryId"].is_number_unsigned()) {
+                queryId = reqJson["queryId"].get<uint64_t>();
+            }
+            if (reqJson.contains("searchMode") && reqJson["searchMode"].is_string()) {
+                searchMode = reqJson["searchMode"].get<std::string>();
+                if (searchMode != "name" && searchMode != "both" && searchMode != "content") {
+                    return {{"results", nlohmann::json::array()}, {"error", "invalid search mode"}};
+                }
+            }
+            if (reqJson.contains("drives") && reqJson["drives"].is_array()) {
+                if (reqJson["drives"].size() > tools3000::service::search_limits::MaxDriveItems) {
+                    return {{"results", nlohmann::json::array()}, {"error", "too many drives"}};
+                }
+                for (const auto& d : reqJson["drives"]) {
+                    if (d.is_string()) {
+                        std::string s = d.get<std::string>();
+                        if (s.empty() || s.size() > 3 || !std::isalpha(static_cast<unsigned char>(s[0]))) {
+                            return {{"results", nlohmann::json::array()}, {"error", "invalid drive"}};
+                        }
+                        enabledDrives.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(s[0]))));
+                    } else {
+                        return {{"results", nlohmann::json::array()}, {"error", "invalid drive"}};
+                    }
+                }
+            } else if (reqJson.contains("drives") && !reqJson["drives"].is_null()) {
+                return {{"results", nlohmann::json::array()}, {"error", "drives must be an array"}};
+            }
+            if (reqJson.contains("excludes") && reqJson["excludes"].is_array()) {
+                if (reqJson["excludes"].size() > tools3000::service::search_limits::MaxExcludeItems) {
+                    return {{"results", nlohmann::json::array()}, {"error", "too many exclude patterns"}};
+                }
+                for (const auto& ex : reqJson["excludes"]) {
+                    if (!ex.is_string()) return {{"results", nlohmann::json::array()}, {"error", "invalid exclude pattern"}};
+                    const auto& s = ex.get_ref<const std::string&>();
+                    if (s.size() > tools3000::service::search_limits::MaxExcludeUtf8Bytes) {
+                        return {{"results", nlohmann::json::array()}, {"error", "exclude pattern exceeds limit"}};
+                    }
+                    if (!s.empty()) excludeOpts.patterns.push_back(StringToWString(s));
+                }
+            } else if (reqJson.contains("excludes") && !reqJson["excludes"].is_null()) {
+                return {{"results", nlohmann::json::array()}, {"error", "excludes must be an array"}};
+            }
+            if (reqJson.contains("excludeHidden") && reqJson["excludeHidden"].is_boolean()) {
+                excludeOpts.excludeHidden = reqJson["excludeHidden"].get<bool>();
+            }
+            if (reqJson.contains("excludeSystem") && reqJson["excludeSystem"].is_boolean()) {
+                excludeOpts.excludeSystem = reqJson["excludeSystem"].get<bool>();
+            }
+            if (reqJson.contains("limit")) {
+                const auto& limit = reqJson["limit"];
+                if (!limit.is_number_integer() && !limit.is_number_unsigned()) {
+                    return {{"results", nlohmann::json::array()}, {"error", "limit must be an integer"}};
+                }
+                if (limit.is_number_unsigned()) {
+                    const auto value = limit.get<std::uint64_t>();
+                    requestedLimit = value == 0 ? tools3000::service::search_limits::MaxResults
+                                                : static_cast<size_t>((std::min<std::uint64_t>)(
+                                                    value, tools3000::service::search_limits::MaxResults));
+                } else {
+                    const auto value = limit.get<std::int64_t>();
+                    requestedLimit = value <= 0 ? tools3000::service::search_limits::MaxResults
+                                                : static_cast<size_t>((std::min<std::int64_t>)(
+                                                    value, tools3000::service::search_limits::MaxResults));
+                }
+            }
+            if (reqJson.contains("contentCustomExts") || reqJson.contains("contentDisabledExts")) {
+                std::vector<std::wstring> customExts;
+                std::vector<std::wstring> disabledExts;
+                const auto readFormats = [&](const char* key, std::vector<std::wstring>& output) {
+                    const auto it = reqJson.find(key);
+                    if (it == reqJson.end() || it->is_null()) return true;
+                    if (!it->is_array() || it->size() > tools3000::service::search_limits::MaxFormatItems) return false;
+                    for (const auto& item : *it) {
+                        if (!item.is_string()) return false;
+                        const auto& value = item.get_ref<const std::string&>();
+                        if (value.empty() || value.size() > tools3000::service::search_limits::MaxFormatUtf8Bytes) return false;
+                        output.push_back(StringToWString(value));
+                    }
+                    return true;
+                };
+                if (!readFormats("contentCustomExts", customExts) ||
+                    !readFormats("contentDisabledExts", disabledExts)) {
+                    return {{"results", nlohmann::json::array()}, {"error", "invalid content format list"}};
+                }
+                tools3000::service::content::ContentSearchEngine::instance().configureFormats(customExts, disabledExts);
+            }
+            if (reqJson.contains("dialogPriorities") && reqJson["dialogPriorities"].is_array()) {
+                for (const auto& item : reqJson["dialogPriorities"]) {
+                    if (item.is_object() && item.contains("path") && item["path"].is_string()) {
+                        std::wstring wp = StringToWString(item["path"].get<std::string>());
+                        for (auto& c : wp) c = std::towlower(c);
+                        double sc = item.value("score", 3000.0);
+                        if (!wp.empty()) dialogPriorities.emplace_back(std::move(wp), sc);
+                    }
+                }
+            }
+        } catch (const std::exception& error) {
+            return {{"results", nlohmann::json::array()}, {"error", std::string("invalid request: ") + error.what()}};
+        }
+    } else {
+        if (utf8Input.size() > tools3000::service::search_limits::MaxQueryUtf8Bytes) {
+            return {{"results", nlohmann::json::array()}, {"error", "query exceeds 1024-byte limit"}};
+        }
+        wQuery = rawInput;
+    }
+    const auto overallStartTime = std::chrono::steady_clock::now();
+
+    auto& epochTracker = tools3000::service::query::sharedEpochTracker();
+    epochTracker.observe(queryId);
+    const auto isCancelled = [&epochTracker, queryId]() { return epochTracker.isStale(queryId); };
+
+    auto isDriveEnabled = [&](char driveLetter) {
+        if (enabledDrives.empty()) return true;
+        for (char d : enabledDrives) {
+            if (std::toupper(d) == std::toupper(driveLetter)) return true;
+        }
+        return false;
+    };
+
+    size_t totalIndexedFiles = 0;
+    for (const auto& parser : g_MftParsers) {
+        if (isDriveEnabled(parser->getDriveLetter())) {
+            totalIndexedFiles += parser->getFileCount();
+        }
+    }
+
+    if (wQuery.empty()) {
+        return {
+            {"results", nlohmann::json::array()},
+            {"totalIndexedFiles", totalIndexedFiles},
+            {"elapsedMs", 0}
+        };
+    }
+
+    SearchExpression expr = SearchExpression::parse(wQuery);
+    nlohmann::json responseJson = {{"results", nlohmann::json::array()}};
+
+    auto runNameSearch = [&](const std::wstring& queryStr, size_t maxCount) -> std::vector<SearchResult> {
+        std::vector<std::future<std::vector<SearchResult>>> futures;
+        futures.reserve(g_MftParsers.size());
+        for (auto& parser : g_MftParsers) {
+            if (!isDriveEnabled(parser->getDriveLetter())) continue;
+            futures.push_back(std::async(std::launch::async, [&parser, &queryStr, &excludeOpts, &isCancelled, maxCount]() {
+                return parser->Search(queryStr, static_cast<int>(maxCount), excludeOpts, isCancelled);
+            }));
+        }
+
+        std::vector<SearchResult> results;
+        for (auto& f : futures) {
+            auto volumeResults = f.get();
+            results.insert(results.end(),
+                           std::make_move_iterator(volumeResults.begin()),
+                           std::make_move_iterator(volumeResults.end()));
+        }
+        std::stable_sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+            if (a.fileName.size() != b.fileName.size()) return a.fileName.size() < b.fileName.size();
+            return _wcsicmp(a.fileName.c_str(), b.fileName.c_str()) < 0;
+        });
+        if (results.size() > maxCount) results.resize(maxCount);
+        return results;
+    };
+
+    auto runContentSearch = [&](const std::wstring& queryStr, const std::wstring& contentPattern, size_t maxCount) -> std::vector<nlohmann::json> {
+        std::vector<SearchResult> candidates;
+        for (auto& parser : g_MftParsers) {
+            if (!isDriveEnabled(parser->getDriveLetter())) continue;
+            if (isCancelled()) return std::vector<nlohmann::json>{};
+            auto volumeResults = parser->Search(queryStr, 60000, excludeOpts, isCancelled);
+            candidates.insert(candidates.end(),
+                              std::make_move_iterator(volumeResults.begin()),
+                              std::make_move_iterator(volumeResults.end()));
+        }
+
+        auto& contentEngine = tools3000::service::content::ContentSearchEngine::instance();
+        std::vector<SearchResult> textCandidates;
+        textCandidates.reserve(candidates.size());
+
+        for (auto& candidate : candidates) {
+            if (candidate.isDirectory) continue;
+            if (candidate.fileSize > 50 * 1024 * 1024) continue;
+            
+            size_t dotPos = candidate.fullPath.rfind(L'.');
+            if (dotPos == std::wstring::npos) continue;
+            std::wstring ext = candidate.fullPath.substr(dotPos + 1);
+            if (!contentEngine.canSearchContent(ext)) continue;
+
+            if (candidate.fullPath.find(L"\\Windows\\WinSxS\\") != std::wstring::npos ||
+                candidate.fullPath.find(L"\\Windows\\System32\\") != std::wstring::npos ||
+                candidate.fullPath.find(L"\\$Recycle.Bin\\") != std::wstring::npos) {
+                if (queryStr.find(L"windows") == std::wstring::npos && queryStr.find(L"winsxs") == std::wstring::npos) {
+                    continue;
+                }
+            }
+            textCandidates.push_back(std::move(candidate));
+        }
+
+        // 动态获取当前 Windows 系统的用户已知目录 (桌面、文档、下载、用户主目录)
+        std::wstring userProfileDir;
+        std::wstring desktopDir;
+        std::wstring docsDir;
+        std::wstring downloadsDir;
+        {
+            wchar_t pathBuf[MAX_PATH] = {};
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr, 0, pathBuf))) {
+                userProfileDir = pathBuf;
+                for (auto& c : userProfileDir) c = std::towlower(c);
+            }
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, pathBuf))) {
+                desktopDir = pathBuf;
+                for (auto& c : desktopDir) c = std::towlower(c);
+            }
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, pathBuf))) {
+                docsDir = pathBuf;
+                for (auto& c : docsDir) c = std::towlower(c);
+            }
+        }
+
+        auto getPathPriority = [&](const std::wstring& path) -> double {
+            std::wstring p;
+            p.reserve(path.size());
+            for (wchar_t c : path) p.push_back(std::towlower(c));
+
+            // 1. 系统底层垃圾与通用开发构建临时缓存沉底 (降至最低优先级，节省物理 I/O)
+            if (p.find(L"\\appdata\\local\\npm-cache") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\pip") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\go-build") != std::wstring::npos ||
+                p.find(L"\\.gradle") != std::wstring::npos ||
+                p.find(L"\\appdata\\local\\temp") != std::wstring::npos ||
+                p.find(L"\\node_modules\\") != std::wstring::npos ||
+                p.find(L"\\.git\\") != std::wstring::npos ||
+                p.find(L"\\$recycle.bin") != std::wstring::npos ||
+                p.find(L"\\windows\\") != std::wstring::npos ||
+                p.find(L"\\cefcache") != std::wstring::npos ||
+                p.find(L"\\crashpad") != std::wstring::npos ||
+                p.find(L"\\coverage_report") != std::wstring::npos ||
+                p.find(L"\\__pycache__") != std::wstring::npos ||
+                p.find(L"\\.vs\\") != std::wstring::npos) {
+                return 1.0;
+            }
+            if (p.find(L"\\appdata") != std::wstring::npos ||
+                p.find(L"\\program files") != std::wstring::npos ||
+                p.find(L"\\programdata") != std::wstring::npos) {
+                return 20.0;
+            }
+
+            double baseScore = 200.0;
+
+            // 开发工作区路径识别（代码、文档、工程仓库赋予顶层优先级）
+            if (p.find(L"\\repo\\") != std::wstring::npos ||
+                p.find(L"\\repos\\") != std::wstring::npos ||
+                p.find(L"\\workspace\\") != std::wstring::npos ||
+                p.find(L"\\projects\\") != std::wstring::npos ||
+                p.find(L"\\code\\") != std::wstring::npos ||
+                p.find(L"\\dev\\") != std::wstring::npos ||
+                p.find(L"\\src\\") != std::wstring::npos ||
+                p.find(L"\\github\\") != std::wstring::npos) {
+                baseScore += 3500.0;
+            }
+
+            // 2. 基于当前用户真实行为自适应学习记忆 (Frecency Memory: 历史常开、高频使用的文件赋予顶级权重)
+            double frecency = tools3000::service::db::RunHistoryManager::instance().calculateFrecencyScore(path);
+            if (frecency > 0.0) {
+                baseScore += (std::min)(5000.0, frecency * 100.0);
+            }
+
+            // 3. 跨模块智能联动：文件对话框中用户收藏的常用工作区与最近操作目录 (Top 级优先)
+            for (const auto& [dp, score] : dialogPriorities) {
+                if (p.starts_with(dp)) {
+                    baseScore += score;
+                    break;
+                }
+            }
+
+            // 4. 动态识别当前用户的标准工作目录 (桌面、我的文档、用户主目录)
+            if (!desktopDir.empty() && p.starts_with(desktopDir)) {
+                baseScore += 2000.0;
+            } else if (!docsDir.empty() && p.starts_with(docsDir)) {
+                baseScore += 1800.0;
+            } else if (!userProfileDir.empty() && p.starts_with(userProfileDir)) {
+                baseScore += 1000.0;
+            }
+
+            // 5. 通用路径浅层深度启发式加权：越靠近根目录的非系统盘文件夹（深度 <= 3），天然是用户的工作区，赋予高优先级
+            if (p.size() >= 2 && p[1] == L':') {
+                if (p[0] != L'c' && p[0] != L'C') {
+                    baseScore += 800.0;
+                }
+                // 计算目录层级深度（斜杠数量）
+                size_t slashCount = 0;
+                for (wchar_t ch : p) {
+                    if (ch == L'\\' || ch == L'/') slashCount++;
+                }
+                if (slashCount <= 4) {
+                    baseScore += (5 - slashCount) * 400.0;
+                }
+            }
+            return baseScore;
+        };
+
+        std::stable_sort(textCandidates.begin(), textCandidates.end(), [&](const auto& a, const auto& b) {
+            double pA = getPathPriority(a.fullPath);
+            double pB = getPathPriority(b.fullPath);
+            if (pA != pB) return pA > pB;
+            return a.lastWriteTime > b.lastWriteTime;
+        });
+
+        std::mutex resultsMutex;
+        std::vector<nlohmann::json> contentResults;
+        std::atomic<size_t> matchCount{0};
+
+        // 现代化无限生命周期扫描：不设固定 110s 硬中断，只要用户未改词且未达上限，工作线程持续全盘扫描直至完成
+        const unsigned int numThreads = (std::max)(2u, (std::min)(16u, std::thread::hardware_concurrency()));
+        std::vector<std::thread> workers;
+        std::atomic<size_t> nextIndex{0};
+
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            workers.emplace_back([&, hClientToken]() {
+                bool impersonated = false;
+                if (hClientToken != nullptr) {
+                    if (!SetThreadToken(nullptr, hClientToken)) {
+                        spdlog::error("SetThreadToken failed: error={}, refusing unauthenticated content read", GetLastError());
+                        return;
+                    }
+                    impersonated = true;
+                } else if (!g_SearchClientSid.empty()) {
+                    spdlog::error("Refusing content search without client token under restricted SID: {}", WStringToString(g_SearchClientSid));
+                    return;
+                }
+                struct ImpersonationGuard {
+                    bool active;
+                    ~ImpersonationGuard() {
+                        if (active) {
+                            SetThreadToken(nullptr, nullptr);
+                        }
+                    }
+                } impGuard{impersonated};
+
+                while (matchCount.load() < maxCount) {
+                    // 用户已经继续打字或取消，毫秒级原子退出释放 CPU
+                    if (isCancelled()) break;
+                    size_t idx = nextIndex.fetch_add(1);
+                    if (idx >= textCandidates.size()) break;
+
+                    const auto& item = textCandidates[idx];
+                    try {
+                        std::vector<tools3000::service::content::ContentSnippet> snippets;
+                        if (contentEngine.searchFile(item.fullPath, contentPattern, false, snippets)) {
+                            nlohmann::json snippetsJson = nlohmann::json::array();
+                            for (const auto& snip : snippets) {
+                                snippetsJson.push_back({
+                                    {"lineNumber", snip.lineNumber},
+                                    {"lineContent", WStringToString(snip.lineContent)},
+                                    {"matchOffset", snip.matchOffset},
+                                    {"matchLength", snip.matchLength}
+                                });
+                            }
+
+                            nlohmann::json itemJson = {
+                                {"name", WStringToString(item.fileName)},
+                                {"path", WStringToString(item.fullPath)},
+                                {"isDirectory", item.isDirectory},
+                                {"size", item.fileSize},
+                                {"creationTime", item.creationTime},
+                                {"lastWriteTime", item.lastWriteTime},
+                                {"snippets", std::move(snippetsJson)}
+                            };
+
+                            std::lock_guard<std::mutex> lock(resultsMutex);
+                            if (contentResults.size() < maxCount) {
+                                contentResults.push_back(std::move(itemJson));
+                                matchCount.fetch_add(1);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        spdlog::warn("Exception while searching content in {}: {}", WStringToString(item.fullPath), e.what());
+                    } catch (...) {
+                        spdlog::warn("Unknown exception while searching content in {}", WStringToString(item.fullPath));
+                    }
+                }
+            });
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) w.join();
+        }
+        return contentResults;
+    };
+
+    bool isExplicitContent = expr.hasContentFilter();
+    std::wstring contentPattern = isExplicitContent ? expr.getContentQuery() : wQuery;
+
+    // 语法安全门禁 1：若显式包含 content: / 内容: / c: 语法但未提供任何搜索词，直接 0ms 返回空结果
+    if (isExplicitContent && contentPattern.empty()) {
+        responseJson["results"] = nlohmann::json::array();
+        responseJson["totalIndexedFiles"] = totalIndexedFiles;
+        responseJson["elapsedMs"] = 0;
+        return responseJson;
+    }
+
+    if (isExplicitContent || searchMode == "content") {
+        auto contentMatches = runContentSearch(isExplicitContent ? wQuery : (L"content:" + wQuery), contentPattern, requestedLimit);
+        for (auto& item : contentMatches) {
+            responseJson["results"].push_back(std::move(item));
+        }
+    } else if (searchMode == "both") {
+        // 双搜模式：同时搜索文件名与文件内容
+        auto nameMatches = runNameSearch(wQuery, requestedLimit);
+        auto contentMatches = runContentSearch(L"content:" + wQuery, wQuery, requestedLimit);
+
+        std::unordered_set<std::string> seenPaths;
+        for (const auto& result : nameMatches) {
+            std::string p = WStringToString(result.fullPath);
+            seenPaths.insert(p);
+            uint32_t rc = tools3000::service::db::RunHistoryManager::instance().getRunCount(result.fullPath);
+            double fs = tools3000::service::db::RunHistoryManager::instance().calculateFrecencyScore(result.fullPath);
+            responseJson["results"].push_back({
+                {"name", WStringToString(result.fileName)},
+                {"path", std::move(p)},
+                {"isDirectory", result.isDirectory},
+                {"size", result.fileSize},
+                {"creationTime", result.creationTime},
+                {"lastWriteTime", result.lastWriteTime},
+                {"runCount", rc},
+                {"frecencyScore", fs}
+            });
+        }
+
+        for (auto& item : contentMatches) {
+            std::string p = item["path"].get<std::string>();
+            if (seenPaths.find(p) == seenPaths.end()) {
+                seenPaths.insert(p);
+                std::wstring wp = StringToWString(p);
+                item["runCount"] = tools3000::service::db::RunHistoryManager::instance().getRunCount(wp);
+                item["frecencyScore"] = tools3000::service::db::RunHistoryManager::instance().calculateFrecencyScore(wp);
+                responseJson["results"].push_back(std::move(item));
+            }
+        }
+    } else {
+        // 仅搜文件名 (name 极速模式)
+        auto nameMatches = runNameSearch(wQuery, requestedLimit);
+        for (const auto& result : nameMatches) {
+            uint32_t rc = tools3000::service::db::RunHistoryManager::instance().getRunCount(result.fullPath);
+            double fs = tools3000::service::db::RunHistoryManager::instance().calculateFrecencyScore(result.fullPath);
+            responseJson["results"].push_back({
+                {"name", WStringToString(result.fileName)},
+                {"path", WStringToString(result.fullPath)},
+                {"isDirectory", result.isDirectory},
+                {"size", result.fileSize},
+                {"creationTime", result.creationTime},
+                {"lastWriteTime", result.lastWriteTime},
+                {"runCount", rc},
+                {"frecencyScore", fs}
+            });
+        }
+    }
+
+    const auto overallEndTime = std::chrono::steady_clock::now();
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(overallEndTime - overallStartTime).count();
+
+    responseJson["totalIndexedFiles"] = totalIndexedFiles;
+    responseJson["elapsedMs"] = elapsedMs;
+    responseJson["queryId"] = queryId;
+    responseJson["cancelled"] = isCancelled();
+
+    return responseJson;
+}
+
+namespace {
+
+struct OverlappedIoTransfer {
+    HANDLE m_event{nullptr};
+    explicit OverlappedIoTransfer() {
+        m_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    }
+    ~OverlappedIoTransfer() {
+        if (m_event) CloseHandle(m_event);
+    }
+    OverlappedIoTransfer(const OverlappedIoTransfer&) = delete;
+    OverlappedIoTransfer& operator=(const OverlappedIoTransfer&) = delete;
+
+    bool waitOne(HANDLE pipe, OVERLAPPED& ov, DWORD timeoutMs, DWORD& transferred) {
+        HANDLE handles[2] = { ov.hEvent, g_ServiceStopEvent };
+        DWORD count = (g_ServiceStopEvent != INVALID_HANDLE_VALUE && g_ServiceStopEvent != nullptr) ? 2 : 1;
+        DWORD wait = WaitForMultipleObjects(count, handles, FALSE, timeoutMs);
+        if (wait == WAIT_OBJECT_0) {
+            return GetOverlappedResult(pipe, &ov, &transferred, FALSE) != FALSE;
+        }
+        CancelIoEx(pipe, &ov);
+        DWORD ignored = 0;
+        GetOverlappedResult(pipe, &ov, &ignored, TRUE);
+        return false;
+    }
+
+    bool readExact(HANDLE pipe, char* buffer, size_t bytes, DWORD timeoutMs) {
+        if (pipe == INVALID_HANDLE_VALUE || !buffer || bytes == 0) return false;
+        const ULONGLONG deadline = (timeoutMs == INFINITE) ? (std::numeric_limits<ULONGLONG>::max)() : (GetTickCount64() + timeoutMs);
+        size_t done = 0;
+        while (done < bytes && g_IsRunning.load(std::memory_order_relaxed)) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) return false;
+            const DWORD remainMs = (timeoutMs == INFINITE) ? INFINITE : static_cast<DWORD>(deadline - now);
+            const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - done, tools3000::service::pipe::IoChunkBytes));
+
+            OVERLAPPED ov{};
+            ResetEvent(m_event);
+            ov.hEvent = m_event;
+            DWORD moved = 0;
+            if (!ReadFile(pipe, buffer + done, want, &moved, &ov)) {
+                DWORD err = GetLastError();
+                if (err != ERROR_IO_PENDING || !waitOne(pipe, ov, remainMs, moved)) {
+                    return false;
+                }
+            }
+            if (moved == 0) return false;
+            done += moved;
+        }
+        return done == bytes;
+    }
+
+    bool writeExact(HANDLE pipe, const char* data, size_t bytes, DWORD timeoutMs) {
+        if (pipe == INVALID_HANDLE_VALUE || !data || bytes == 0) return false;
+        const ULONGLONG deadline = (timeoutMs == INFINITE) ? (std::numeric_limits<ULONGLONG>::max)() : (GetTickCount64() + timeoutMs);
+        size_t done = 0;
+        while (done < bytes && g_IsRunning.load(std::memory_order_relaxed)) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= deadline) return false;
+            const DWORD remainMs = (timeoutMs == INFINITE) ? INFINITE : static_cast<DWORD>(deadline - now);
+            const DWORD want = static_cast<DWORD>((std::min<size_t>)(bytes - done, tools3000::service::pipe::IoChunkBytes));
+
+            OVERLAPPED ov{};
+            ResetEvent(m_event);
+            ov.hEvent = m_event;
+            DWORD moved = 0;
+            if (!WriteFile(pipe, data + done, want, &moved, &ov)) {
+                DWORD err = GetLastError();
+                if (err != ERROR_IO_PENDING || !waitOne(pipe, ov, remainMs, moved)) {
+                    return false;
+                }
+            }
+            if (moved == 0) return false;
+            done += moved;
+        }
+        return done == bytes;
+    }
+};
+
+}  // namespace
+
+void PipeWorkerThread(PSECURITY_DESCRIPTOR pipeDescriptor, SECURITY_ATTRIBUTES* pipeSecurity) {
+    namespace frame = tools3000::service::pipe;
+
+    OverlappedIoTransfer transfer;
+    HANDLE connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    struct EventGuard {
+        HANDLE h;
+        ~EventGuard() { if (h) CloseHandle(h); }
+    } connectGuard{connectEvent};
+
+    while (g_IsRunning.load()) {
+        HANDLE hPipe = CreateNamedPipeA(
+            g_SearchPipeName.c_str(),
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+            PIPE_UNLIMITED_INSTANCES,
+            frame::IoChunkBytes, frame::IoChunkBytes, 0,
+            pipeDescriptor ? pipeSecurity : nullptr
+        );
+
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            Sleep(200);
+            continue;
+        }
+
+        OVERLAPPED connectOv{};
+        ResetEvent(connectEvent);
+        connectOv.hEvent = connectEvent;
+
+        BOOL connected = ConnectNamedPipe(hPipe, &connectOv);
+        DWORD connErr = GetLastError();
+        bool isConnected = false;
+        if (connected) {
+            isConnected = true;
+        } else if (connErr == ERROR_PIPE_CONNECTED) {
+            isConnected = true;
+        } else if (connErr == ERROR_IO_PENDING) {
+            DWORD dummy = 0;
+            if (transfer.waitOne(hPipe, connectOv, INFINITE, dummy)) {
+                isConnected = true;
+            }
+        }
+
+        if (isConnected && g_IsRunning.load()) {
+            HANDLE hClientToken = nullptr;
+            if (ImpersonateNamedPipeClient(hPipe)) {
+                HANDLE hThreadToken = nullptr;
+                if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_DUPLICATE, TRUE, &hThreadToken)) {
+                    DuplicateTokenEx(hThreadToken, TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_DUPLICATE, nullptr,
+                                     SecurityImpersonation, TokenImpersonation, &hClientToken);
+                    CloseHandle(hThreadToken);
+                }
+                RevertToSelf();
+            }
+            struct TokenGuard {
+                HANDLE tok;
+                ~TokenGuard() { if (tok) CloseHandle(tok); }
+            } clientTokenGuard{hClientToken};
+
+            while (g_IsRunning.load()) {
+                char header[frame::HeaderSize] = {};
+                if (!transfer.readExact(hPipe, header, sizeof(header), 60000)) break;
+
+                uint32_t requestBytes = 0;
+                if (!frame::decodeFrameHeader(header, requestBytes, frame::MaxRequestBytes)) {
+                    spdlog::warn("Pipe: 请求帧头非法, 断开该连接");
+                    break;
+                }
+
+                std::string request(requestBytes, '\0');
+                if (!transfer.readExact(hPipe, request.data(), requestBytes, 10000)) break;
+
+                nlohmann::json responseJson = ProcessSearchQuery(StringToWString(request), hClientToken);
+                const std::string response = responseJson.dump();
+                if (!frame::fitsInFrame(response.size())) {
+                    spdlog::error("Pipe: 响应超出单帧上限 ({} 字节), 断开该连接", response.size());
+                    break;
+                }
+
+                const auto responseHeader =
+                    frame::encodeFrameHeader(static_cast<uint32_t>(response.size()));
+                if (!transfer.writeExact(hPipe, responseHeader.data(), responseHeader.size(), 10000)) break;
+                if (!transfer.writeExact(hPipe, response.data(), response.size(), 30000)) break;
+            }
+        }
+
+        CancelIo(hPipe);
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
+}
+
+void IPCServerThread() {
+    spdlog::info("IPC Server Thread started.");
+
+    // Build the DACL before creating any pipe instance. Publishing the endpoint
+    // early avoids SCM/portable duplicate starts, but it must remain private to
+    // the requesting SID even if later disk initialization is slow.
+    PSECURITY_DESCRIPTOR pipeDescriptor = nullptr;
+    SECURITY_ATTRIBUTES pipeSecurity{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+    const auto securitySddl = tools3000::service::pipe_endpoint::makeSecurityDescriptor(g_SearchClientSid);
+    if (!securitySddl || !ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            securitySddl->c_str(), SDDL_REVISION_1, &pipeDescriptor, nullptr)) {
+        const DWORD securityError = GetLastError();
+        spdlog::error("Failed to create restricted named pipe security descriptor: {}", securityError);
+        g_IsRunning.store(false, std::memory_order_release);
+        if (g_ServiceStopEvent != INVALID_HANDLE_VALUE) SetEvent(g_ServiceStopEvent);
+        return;
+    }
+    pipeSecurity.lpSecurityDescriptor = pipeDescriptor;
+
+    std::vector<std::thread> pipeWorkers;
+    pipeWorkers.reserve(NumPipeWorkers);
+    for (int i = 0; i < NumPipeWorkers; ++i) {
+        pipeWorkers.emplace_back(PipeWorkerThread, pipeDescriptor, &pipeSecurity);
+    }
+    spdlog::info("Launched {} restricted named pipe worker(s) before index initialization", NumPipeWorkers);
+
+    // 初始化历史与快照数据库管理器 (按客户端 SID 隔离, A11)
+    if (!g_SearchClientSid.empty()) {
+        tools3000::service::db::RunHistoryManager::instance().initForSid(g_SearchClientSid);
+        tools3000::service::db::SearchHistoryManager::instance().initForSid(g_SearchClientSid);
+    } else {
+        tools3000::service::db::RunHistoryManager::instance().init();
+        tools3000::service::db::SearchHistoryManager::instance().init();
+    }
+    tools3000::service::db::DatabaseManager::instance().init();
+
+    // 扫描所有本地驱动器
+    const DWORD driveMask = GetLogicalDrives();
+    for (char drive = 'A'; drive <= 'Z' && g_IsRunning.load(); ++drive) {
+        if (!(driveMask & (1u << (drive - 'A')))) continue;
+        const std::wstring root{static_cast<wchar_t>(drive), L':', L'\\'};
+        UINT driveType = GetDriveTypeW(root.c_str());
+        // 后台服务只自动索引本地固定卷。远程盘/可移动盘可能离线、休眠或在目录枚举
+        // 中无限期阻塞，不能拖慢登录和服务关停；后续应由显式的按需索引入口接入。
+        if (driveType != DRIVE_FIXED) {
+            if (driveType == DRIVE_REMOTE || driveType == DRIVE_REMOVABLE) {
+                spdlog::info("Skipping non-fixed drive {}: during automatic indexing", drive);
+            }
+            continue;
+        }
+
+        auto parser = std::make_unique<MftParser>();
+        parser->setRealTimeValidation(true);
+        if (parser->Initialize(drive)) {
+            g_MftParsers.push_back(std::move(parser));
+        }
+    }
+
+    // 尝试从 Tools3000.db 二进制快照秒级冷启动 (< 30ms)
+    std::vector<MftParser*> rawParsers;
+    for (auto& p : g_MftParsers) rawParsers.push_back(p.get());
+
+    bool snapshotLoaded = tools3000::service::db::DatabaseManager::instance().loadSnapshot(rawParsers);
+    std::vector<std::thread> indexThreads;
+
+    if (snapshotLoaded) {
+        spdlog::info("Successfully loaded database snapshot from Tools3000.db, checking volume readiness...");
+        bool anyMissing = false;
+        for (auto* pRaw : rawParsers) {
+            if (pRaw->getFileCount() == 0) {
+                anyMissing = true;
+                char drive = pRaw->getDriveLetter();
+                g_InitialIndexWorkers.fetch_add(1, std::memory_order_relaxed);
+                indexThreads.emplace_back([pRaw, drive]() {
+                    try {
+                        pRaw->EnumerateFiles();
+                        if (g_IsRunning.load(std::memory_order_acquire)) pRaw->StartListening();
+                        spdlog::info("Indexed drive {}: (volume was unpopulated in snapshot)", drive);
+                    } catch (const std::exception& e) {
+                        spdlog::error("Initial indexing failed on drive {}: {}", drive, e.what());
+                    } catch (...) {
+                        spdlog::error("Initial indexing failed on drive {} with unknown exception", drive);
+                    }
+                    g_InitialIndexWorkers.fetch_sub(1, std::memory_order_release);
+                });
+            } else {
+                pRaw->StartListening();
+            }
+        }
+        if (anyMissing) scheduleSnapshot(rawParsers, "Updated complete");
+    } else {
+        spdlog::info("No valid database snapshot found, performing full MFT scan and building initial index...");
+        for (auto* pRaw : rawParsers) {
+            char drive = pRaw->getDriveLetter();
+            g_InitialIndexWorkers.fetch_add(1, std::memory_order_relaxed);
+            indexThreads.emplace_back([pRaw, drive]() {
+                try {
+                    pRaw->EnumerateFiles();
+                    if (g_IsRunning.load(std::memory_order_acquire)) pRaw->StartListening();
+                    spdlog::info("Indexed drive {}:", drive);
+                } catch (const std::exception& e) {
+                    spdlog::error("Initial indexing failed on drive {}: {}", drive, e.what());
+                } catch (...) {
+                    spdlog::error("Initial indexing failed on drive {} with unknown exception", drive);
+                }
+                g_InitialIndexWorkers.fetch_sub(1, std::memory_order_release);
+            });
+        }
+        // 初始全量索引完成后在后台异步保存快照
+        scheduleSnapshot(rawParsers, "Initial");
+    }
+    spdlog::info("Search index launched for {} volume(s)", g_MftParsers.size());
+    g_SearchIndexReady.store(true, std::memory_order_release);
+
+    for (auto& w : pipeWorkers) {
+        if (w.joinable()) w.join();
+    }
+    g_SearchIndexReady.store(false, std::memory_order_release);
+    if (g_PipePokeJob.joinable()) {
+        g_PipePokeJob.request_stop();
+        g_PipePokeJob.join();
+    }
+    stopBackgroundJobs();
+    for (auto& t : indexThreads) {
+        if (t.joinable()) t.join();
+    }
+    for (auto& parser : g_MftParsers) parser->StopListening();
+    g_MftParsers.clear();
+    if (pipeDescriptor) LocalFree(pipeDescriptor);
+    spdlog::info("IPC Server Thread stopped.");
+}
+
+// --------------------------------------------------------------------------------------
+// Service Control
+// --------------------------------------------------------------------------------------
+void WINAPI ServiceCtrlHandler(DWORD CtrlCode) {
+    switch (CtrlCode) {
+        case SERVICE_CONTROL_STOP:
+            spdlog::info("SERVICE_CONTROL_STOP received.");
+            if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING)
+                break;
+            g_ServiceStatus.dwControlsAccepted = 0;
+            g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
+            g_ServiceStatus.dwWin32ExitCode = 0;
+            g_ServiceStatus.dwCheckPoint = 4;
+            SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+            SetEvent(g_ServiceStopEvent);
+            break;
+        default:
+            break;
+    }
+}
+
+void WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
+    g_StatusHandle = RegisterServiceCtrlHandlerW(SERVICE_NAME, ServiceCtrlHandler);
+    if (!g_StatusHandle) return;
+
+    ZeroMemory(&g_ServiceStatus, sizeof(g_ServiceStatus));
+    g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    g_ServiceStatus.dwControlsAccepted = 0;
+    g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
+    g_ServiceStatus.dwWin32ExitCode = 0;
+    g_ServiceStatus.dwServiceSpecificExitCode = 0;
+    g_ServiceStatus.dwCheckPoint = 0;
+
+    SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+
+    if (!configurePipeEndpoint(argc, argv)) {
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        g_ServiceStatus.dwWin32ExitCode = ERROR_INVALID_PARAMETER;
+        g_ServiceStatus.dwCheckPoint = 1;
+        SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+        return;
+    }
+
+    g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!g_ServiceStopEvent) {
+        g_ServiceStatus.dwControlsAccepted = 0;
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        g_ServiceStatus.dwWin32ExitCode = GetLastError();
+        g_ServiceStatus.dwCheckPoint = 1;
+        SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+        return;
+    }
+
+    g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+    g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
+    g_ServiceStatus.dwWin32ExitCode = 0;
+    g_ServiceStatus.dwCheckPoint = 0;
+    SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+
+    spdlog::info("Service started successfully.");
+    g_IsRunning = true;
+    
+    // Start IPC Thread
+    std::thread ipcThread(IPCServerThread);
+
+    // Wait for stop event
+    WaitForSingleObject(g_ServiceStopEvent, INFINITE);
+
+    RequestServiceShutdown();
+    if (ipcThread.joinable()) ipcThread.join();
+
+    CloseHandle(g_ServiceStopEvent);
+    g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+    g_ServiceStatus.dwControlsAccepted = 0;
+    g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+    g_ServiceStatus.dwWin32ExitCode = 0;
+    g_ServiceStatus.dwCheckPoint = 3;
+    SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+    spdlog::info("Service stopped successfully.");
+}
+
+// 索引持有 USN 日志游标与内存索引，多开会导致重复扫描和不一致。互斥量在进程
+// 退出时由内核释放，因此崩溃不会留下永久阻塞；创建失败则必须安全失败，不能放行
+// 第二个服务实例。
+enum class SingleInstanceLockResult {
+    Acquired,
+    AlreadyRunning,
+    Failed,
+};
+
+static SingleInstanceLockResult AcquireSingleInstanceLock() {
+    static HANDLE lock = nullptr;
+    lock = CreateMutexW(nullptr, TRUE, L"Local\\Tools3000_SearchService_Singleton");
+    if (!lock) {
+        spdlog::error("Unable to acquire search-service singleton mutex: {}", GetLastError());
+        return SingleInstanceLockResult::Failed;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(lock);
+        lock = nullptr;
+        return SingleInstanceLockResult::AlreadyRunning;
+    }
+    return SingleInstanceLockResult::Acquired;
+}
+
+int main(int argc, char** argv) {
+    InitLogger();
+    const auto lockResult = AcquireSingleInstanceLock();
+    if (lockResult == SingleInstanceLockResult::AlreadyRunning) {
+        spdlog::info("Another Tools3000_Service instance is already running, exiting.");
+        return 0;
+    }
+    if (lockResult == SingleInstanceLockResult::Failed) return 1;
+
+    if (argc > 1 && std::string(argv[1]) == "--debug") {
+        int wideArgc = 0;
+        LPWSTR* wideArgv = CommandLineToArgvW(GetCommandLineW(), &wideArgc);
+        const bool configured = wideArgv && configurePipeEndpoint(static_cast<DWORD>(wideArgc), wideArgv);
+        if (wideArgv) LocalFree(wideArgv);
+        if (!configured) return 1;
+        spdlog::info("Running in debug mode (Console).");
+        g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        g_IsRunning = true;
+        std::thread ipcThread(IPCServerThread);
+        std::cout << "Press ENTER to stop..." << std::endl;
+        std::cin.get();
+        RequestServiceShutdown();
+        if (ipcThread.joinable()) ipcThread.join();
+        CloseHandle(g_ServiceStopEvent);
+        g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+        return 0;
+    }
+
+    SERVICE_TABLE_ENTRYW ServiceTable[] = {
+        {(LPWSTR)SERVICE_NAME, (LPSERVICE_MAIN_FUNCTIONW)ServiceMain},
+        {NULL, NULL}
+    };
+    
+    if (!StartServiceCtrlDispatcherW(ServiceTable)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
+            // 当非 SCM 服务环境（如便携版、免安装模式或主程序子进程拉起）直接执行时，自动退化为独立后台管道服务进程
+            int wideArgc = 0;
+            LPWSTR* wideArgv = CommandLineToArgvW(GetCommandLineW(), &wideArgc);
+            const bool configured = wideArgv && configurePipeEndpoint(static_cast<DWORD>(wideArgc), wideArgv);
+            if (wideArgv) LocalFree(wideArgv);
+            if (!configured) return 1;
+            spdlog::info("Running in standalone background mode (per-user named pipe server).");
+            g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+            g_IsRunning = true;
+            IPCServerThread();
+            CloseHandle(g_ServiceStopEvent);
+            g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+            return 0;
+        }
+        spdlog::error("StartServiceCtrlDispatcher failed: {}.", err);
+        return 1;
+    }
+    return 0;
+}
